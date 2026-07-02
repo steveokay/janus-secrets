@@ -1,0 +1,10 @@
+bin/
+coverage.out
+crypto.out
+*.test
+.env
+node_modules/
+dist/
+.idea/
+.vscode/
+.claude/
