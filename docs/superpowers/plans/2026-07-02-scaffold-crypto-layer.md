@@ -108,7 +108,7 @@ services:
       POSTGRES_PASSWORD: keyhaven-dev
       POSTGRES_DB: keyhaven
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -125,7 +125,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'milestone-*']
   pull_request:
 
 jobs:
@@ -142,7 +142,7 @@ jobs:
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: gosec
-        run: go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude-dir=internal/crypto/shamir ./...
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.20.0 -exclude-dir=internal/crypto/shamir ./...
 ```
 
 - [ ] **Step 7: Verify it builds**
@@ -2499,7 +2499,7 @@ Expected: all PASS.
 Run: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
 Expected: no vulnerabilities.
 
-Run: `go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude-dir=internal/crypto/shamir ./...`
+Run: `go run github.com/securego/gosec/v2/cmd/gosec@v2.20.0 -exclude-dir=internal/crypto/shamir ./...`
 Expected: 0 issues. If gosec flags something in our code, fix the code (do not suppress) unless it is the documented `#nosec G304` in sealstore.go.
 
 - [ ] **Step 6: Commit**
