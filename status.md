@@ -9,7 +9,7 @@ Each task counts as done only after implementation + spec review + quality revie
 - [x] 3. Key generation + wrap/unwrap with AAD
 - [x] 4. Keyring (sealed/unsealed state machine)
 - [x] 5. Vendor HashiCorp shamir
-- [ ] 6. Unsealer contract + KCV + seal-config store
+- [x] 6. Unsealer contract + KCV + seal-config store
 - [ ] 7. Shamir unsealer
 - [ ] 8. KMS unsealer + AWS adapter
 - [ ] 9. Leak test + 100% coverage gate
