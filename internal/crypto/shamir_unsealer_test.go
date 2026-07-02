@@ -276,6 +276,35 @@ func TestShamirUnsealFailures(t *testing.T) {
 		}
 	})
 
+	t.Run("Reset recovers from a poisoned share", func(t *testing.T) {
+		u := NewShamirUnsealer(store, 0, 0)
+		// A tampered share poisons every reconstruction attempt.
+		bad := append([]byte(nil), res.Shares[0]...)
+		bad[5] ^= 1
+		for _, s := range [][]byte{bad, res.Shares[1], res.Shares[2]} {
+			if _, err := u.SubmitShare(ctx, s); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := u.Unseal(ctx); !errors.Is(err, ErrKeyCheckFailed) {
+			t.Fatalf("poisoned: got %v, want ErrKeyCheckFailed", err)
+		}
+		// Reset clears the accumulated shares; resubmitting good ones works.
+		u.Reset()
+		for _, i := range []int{0, 1, 2} {
+			if _, err := u.SubmitShare(ctx, res.Shares[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		master, err := u.Unseal(ctx)
+		if err != nil {
+			t.Fatalf("after Reset: %v", err)
+		}
+		if len(master) != KeySize {
+			t.Fatalf("master size = %d, want %d", len(master), KeySize)
+		}
+	})
+
 	t.Run("state resets after successful unseal", func(t *testing.T) {
 		u := NewShamirUnsealer(store, 0, 0)
 		for _, i := range []int{0, 1, 2} {

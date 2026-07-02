@@ -42,6 +42,10 @@ func NewShamirUnsealer(store SealConfigStore, shares, threshold int) *ShamirUnse
 	return &ShamirUnsealer{store: store, shares: shares, threshold: threshold}
 }
 
+// Init generates the master key, splits it into shares, persists the seal
+// config, and returns the shares exactly once. It assumes a single unsealer
+// instance per store (a one-time bootstrap): concurrent Init across separate
+// instances sharing one store is not guarded and last-write-wins.
 func (s *ShamirUnsealer) Init(ctx context.Context) (*InitResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,7 +109,10 @@ func (s *ShamirUnsealer) SubmitShare(ctx context.Context, share []byte) (Progres
 
 // Unseal reconstructs the master key from submitted shares and verifies it
 // against the key check value. On success the submitted shares are zeroized
-// and cleared.
+// and cleared. On failure the shares are retained so the operator can submit
+// more — but Combine consumes ALL submitted shares, so a single bad share
+// poisons every attempt; call Reset to discard the accumulated shares and
+// start over.
 func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,6 +132,8 @@ func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, ErrInvalidShare
 	}
+	// Redundant with verifyKCV (Decrypt rejects a non-KeySize key), but an
+	// explicit, cheap fast path for a wrong-length reconstruction.
 	if len(master) != KeySize {
 		zero(master)
 		return nil, ErrKeyCheckFailed
@@ -138,6 +147,19 @@ func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	}
 	s.submitted = nil
 	return master, nil
+}
+
+// Reset discards all submitted shares, zeroizing the copies. Use it to
+// recover from a mistyped or tampered share: because Unseal's Combine
+// consumes every submitted share, one bad share otherwise fails every
+// subsequent attempt. After Reset the operator resubmits from scratch.
+func (s *ShamirUnsealer) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.submitted {
+		zero(p)
+	}
+	s.submitted = nil
 }
 
 func (s *ShamirUnsealer) loadConfig(ctx context.Context) (*SealConfig, error) {
