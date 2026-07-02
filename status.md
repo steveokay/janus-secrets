@@ -7,7 +7,7 @@ Each task counts as done only after implementation + spec review + quality revie
 - [x] 1. Repo scaffold (go.mod, Makefile, compose, CI)
 - [x] 2. AEAD primitives + error sentinels
 - [x] 3. Key generation + wrap/unwrap with AAD
-- [ ] 4. Keyring (sealed/unsealed state machine)
+- [x] 4. Keyring (sealed/unsealed state machine)
 - [ ] 5. Vendor HashiCorp shamir
 - [ ] 6. Unsealer contract + KCV + seal-config store
 - [ ] 7. Shamir unsealer
