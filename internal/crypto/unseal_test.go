@@ -53,3 +53,18 @@ func TestMakeKCVRandFailure(t *testing.T) {
 		t.Fatal("want error, got nil")
 	}
 }
+
+// TestVerifyKCVWrongPlaintext reaches the constant-time-compare branch: a
+// KCV that is a well-formed ciphertext under the correct key and AAD but
+// wraps a DIFFERENT plaintext must be rejected. GCM authentication passes
+// here, so only the payload compare can catch it.
+func TestVerifyKCVWrongPlaintext(t *testing.T) {
+	master := testKey(0xAA)
+	other, err := Encrypt(master, []byte("keyhaven-key-check-v2"), kcvAAD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyKCV(master, other.Marshal()); !errors.Is(err, ErrKeyCheckFailed) {
+		t.Fatalf("valid ciphertext of wrong plaintext: got %v, want ErrKeyCheckFailed", err)
+	}
+}

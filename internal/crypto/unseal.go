@@ -71,6 +71,11 @@ func verifyKCV(master, kcv []byte) error {
 	if err != nil {
 		return ErrKeyCheckFailed
 	}
+	// The real key check is GCM authentication above: a wrong master fails
+	// Decrypt. This compare is defense-in-depth against a well-formed KCV of
+	// a different plaintext (e.g. a botched format migration). kcvPlaintext
+	// is a public constant, so the constant-time compare is for consistency,
+	// not secrecy.
 	if subtle.ConstantTimeCompare(got, kcvPlaintext) != 1 {
 		return ErrKeyCheckFailed
 	}

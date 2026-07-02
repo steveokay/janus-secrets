@@ -14,6 +14,11 @@ var marshalSealConfig = json.Marshal
 // FileSealConfigStore persists seal config as a private JSON file. Used for
 // tests and single-binary bootstrap; a Postgres-backed implementation
 // arrives with the store milestone.
+//
+// Put is atomic (tmp file + rename) but not crash-durable — it does not
+// fsync — and assumes a single writer (Init / serialized rotation). Losing
+// this file after Init loses access to every secret, so a durable store is
+// expected before real single-binary deployments.
 type FileSealConfigStore struct {
 	Path string
 }
@@ -43,5 +48,9 @@ func (f *FileSealConfigStore) Put(_ context.Context, cfg *SealConfig) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, f.Path)
+	if err := os.Rename(tmp, f.Path); err != nil {
+		_ = os.Remove(tmp) // don't leave a stale tmp with valid seal metadata
+		return err
+	}
+	return nil
 }
