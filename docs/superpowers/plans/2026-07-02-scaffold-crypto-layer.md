@@ -683,6 +683,28 @@ func TestAADHelpers(t *testing.T) {
 	}
 }
 
+// TestAADInjective guards against delimiter-ambiguity collisions: the AAD
+// encoding must be injective even when the user-influenced fields contain
+// the delimiter characters.
+func TestAADInjective(t *testing.T) {
+	dek := [][2][]byte{
+		{DEKAAD("p1", "a:b", 1), DEKAAD("p1:a", "b", 1)},
+		{DEKAAD("p", "x", 1), DEKAAD("p", "x:v1", 0)},
+		{DEKAAD("a", "b", 1), DEKAAD("a:b", "", 1)},
+	}
+	for i, pair := range dek {
+		if bytes.Equal(pair[0], pair[1]) {
+			t.Fatalf("DEKAAD collision case %d: distinct locations share an AAD", i)
+		}
+	}
+	if bytes.Equal(ProjectKEKAAD("a:b"), ProjectKEKAAD("a")) {
+		t.Fatal("ProjectKEKAAD collision: distinct projects share an AAD")
+	}
+	if bytes.Equal(ProjectKEKAAD("p"), DEKAAD("p", "", 0)) {
+		t.Fatal("KEK/DEK AAD families overlap")
+	}
+}
+
 func TestZero(t *testing.T) {
 	b := []byte{1, 2, 3}
 	zero(b)
@@ -706,7 +728,7 @@ Create `internal/crypto/keys.go`:
 package crypto
 
 import (
-	"fmt"
+	"encoding/binary"
 	"io"
 )
 
@@ -741,15 +763,25 @@ func UnwrapKey(wrappingKey []byte, ct Ciphertext, aad []byte) ([]byte, error) {
 	return key, nil
 }
 
+// AAD field encoding is length-prefixed so it is injective over
+// user-influenced fields (project IDs / secret paths may contain ':').
+func appendField(b []byte, field string) []byte {
+	b = binary.BigEndian.AppendUint32(b, uint32(len(field)))
+	return append(b, field...)
+}
+
 // ProjectKEKAAD binds a wrapped project KEK to its project. A KEK ciphertext
 // copied onto another project's row will fail to unwrap.
 func ProjectKEKAAD(projectID string) []byte {
-	return []byte("keyhaven:kek:project:" + projectID)
+	return appendField([]byte("keyhaven:kek:project"), projectID)
 }
 
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
-	return []byte(fmt.Sprintf("keyhaven:dek:%s:%s:v%d", projectID, secretPath, version))
+	b := []byte("keyhaven:dek")
+	b = appendField(b, projectID)
+	b = appendField(b, secretPath)
+	return binary.BigEndian.AppendUint64(b, version)
 }
 
 // zero overwrites b with zeros. Best-effort in Go: the GC may have copied

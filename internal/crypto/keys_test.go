@@ -95,6 +95,31 @@ func TestAADHelpers(t *testing.T) {
 	}
 }
 
+// TestAADInjective guards against delimiter-ambiguity collisions: the AAD
+// encoding must be injective even when the user-influenced fields contain
+// the delimiter characters. A colliding encoding would let a DEK bound to
+// one (project, path) authenticate at a different location.
+func TestAADInjective(t *testing.T) {
+	dek := [][2][]byte{
+		{DEKAAD("p1", "a:b", 1), DEKAAD("p1:a", "b", 1)},
+		{DEKAAD("p", "x", 1), DEKAAD("p", "x:v1", 0)},
+		{DEKAAD("a", "b", 1), DEKAAD("a:b", "", 1)},
+	}
+	for i, pair := range dek {
+		if bytes.Equal(pair[0], pair[1]) {
+			t.Fatalf("DEKAAD collision case %d: distinct locations share an AAD", i)
+		}
+	}
+
+	if bytes.Equal(ProjectKEKAAD("a:b"), ProjectKEKAAD("a")) {
+		t.Fatal("ProjectKEKAAD collision: distinct projects share an AAD")
+	}
+	// Cross-family separation: a KEK AAD must never equal a DEK AAD.
+	if bytes.Equal(ProjectKEKAAD("p"), DEKAAD("p", "", 0)) {
+		t.Fatal("KEK/DEK AAD families overlap")
+	}
+}
+
 func TestZero(t *testing.T) {
 	b := []byte{1, 2, 3}
 	zero(b)
