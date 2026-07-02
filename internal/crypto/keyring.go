@@ -42,6 +42,10 @@ func (k *Keyring) Sealed() bool {
 }
 
 // WrapProjectKEK wraps a project KEK under the master key, bound to projectID.
+//
+// TODO(rotation): stamp the master-key version into the returned Ciphertext
+// so master-key rotation can identify which version wrapped each KEK for
+// lazy re-wrap. Encrypt currently leaves KeyVersion == 0.
 func (k *Keyring) WrapProjectKEK(kek []byte, projectID string) (Ciphertext, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -63,6 +67,8 @@ func (k *Keyring) UnwrapProjectKEK(ct Ciphertext, projectID string) ([]byte, err
 
 // NewDEK generates a fresh DEK and wraps it under projectKEK in one call,
 // minimizing the plaintext DEK's lifetime. Refuses to run while sealed.
+//
+// The returned plaintext DEK is the caller's to zero after use.
 func (k *Keyring) NewDEK(projectKEK, aad []byte) ([]byte, Ciphertext, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()

@@ -140,15 +140,49 @@ func TestKeyringConcurrent(t *testing.T) {
 	}
 	kek := testKey(0x0B)
 	var wg sync.WaitGroup
+
+	// Readers contend the RLock and tolerate ErrSealed, which the writer
+	// below may cause at any moment. Any OTHER error is a bug.
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
-				_, _ = k.WrapProjectKEK(kek, "p")
+			for j := 0; j < 200; j++ {
+				if _, err := k.WrapProjectKEK(kek, "p"); err != nil && !errors.Is(err, ErrSealed) {
+					t.Errorf("WrapProjectKEK: unexpected error %v", err)
+				}
 				_ = k.Sealed()
 			}
 		}()
 	}
+
+	// A single writer repeatedly seals and unseals, contending the exclusive
+	// Lock against the readers. Under -race this exercises the RWMutex
+	// discipline the keyring depends on. Single writer, so Unseal never
+	// races itself into ErrAlreadyUnsealed.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for j := 0; j < 200; j++ {
+			k.Seal()
+			if err := k.Unseal(testKey(0xAA)); err != nil {
+				t.Errorf("Unseal: %v", err)
+			}
+		}
+	}()
+
 	wg.Wait()
+}
+
+func TestKeyringDoubleSeal(t *testing.T) {
+	k := NewKeyring()
+	k.Seal() // sealing an already-sealed keyring must not panic
+	if err := k.Unseal(testKey(0xAA)); err != nil {
+		t.Fatal(err)
+	}
+	k.Seal()
+	k.Seal() // idempotent
+	if !k.Sealed() {
+		t.Fatal("keyring should be sealed")
+	}
 }
