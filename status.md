@@ -11,6 +11,6 @@ Each task counts as done only after implementation + spec review + quality revie
 - [x] 5. Vendor HashiCorp shamir
 - [x] 6. Unsealer contract + KCV + seal-config store
 - [x] 7. Shamir unsealer
-- [ ] 8. KMS unsealer + AWS adapter
+- [x] 8. KMS unsealer + AWS adapter
 - [ ] 9. Leak test + 100% coverage gate
 - [ ] Final review + merge decision
