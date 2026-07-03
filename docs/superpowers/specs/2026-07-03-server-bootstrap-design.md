@@ -90,12 +90,26 @@ per CLAUDE.md API conventions.
 - `janus migrate` — existing direct-DB migration runner, now a cobra command.
 - `janus version` — carried over.
 
-### Unchanged packages
+### Existing packages
 
-`internal/crypto`, `internal/store`, `internal/secrets` are composed, not
-modified: the keyring is created sealed, `secrets.Service` is constructed at
-boot (it already returns `ErrSealed` pre-unseal), and the unsealer feeds the
-keyring on successful unseal.
+`internal/store` and `internal/secrets` are composed, not modified: the keyring
+is created sealed, `secrets.Service` is constructed at boot (it already returns
+`ErrSealed` pre-unseal), and the unsealer feeds the keyring on successful
+unseal.
+
+`internal/crypto` gains two small additions (with tests preserving its 100%
+branch-coverage bar):
+
+- `ShamirUnsealer.Progress() int` — read-only count of submitted shares, needed
+  by `GET /v1/sys/seal-status` (today the count is only observable as a
+  side-effect of `SubmitShare`).
+- **1-of-1 seal support**: the vendored shamir library requires
+  `threshold >= 2` (and `Combine` needs two parts), so the dev-workflow's
+  1-of-1 seal is special-cased in `ShamirUnsealer` exactly as Vault does it —
+  `Init` with shares=1/threshold=1 returns the master key itself as the single
+  share (no polynomial split), and `Unseal` with a stored threshold of 1 takes
+  the submitted share as the master-key candidate directly. The KCV check still
+  runs in both paths, so a wrong share is still rejected.
 
 ## Configuration (env-only, 12-factor)
 
