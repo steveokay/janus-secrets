@@ -139,6 +139,41 @@ func (s *Service) RevealConfig(ctx context.Context, configID string) (store.Conf
 	return cv, out, nil
 }
 
+// GetSecretVersion decrypts and returns a specific historical value of a key.
+func (s *Service) GetSecretVersion(ctx context.Context, configID, key string, valueVersion int) (Secret, error) {
+	if err := validateKey(key); err != nil {
+		return Secret{}, err
+	}
+	_, proj, err := s.resolveProject(ctx, configID)
+	if err != nil {
+		return Secret{}, err
+	}
+	hist, err := s.secrets.GetKeyHistory(ctx, configID, key)
+	if err != nil {
+		return Secret{}, mapStoreErr(err)
+	}
+	var found *store.SecretValue
+	for i := range hist {
+		if hist[i].ValueVersion == valueVersion {
+			found = &hist[i]
+			break
+		}
+	}
+	if found == nil {
+		return Secret{}, ErrNotFound
+	}
+	kek, err := s.unwrapProjectKEK(proj)
+	if err != nil {
+		return Secret{}, err
+	}
+	defer zeroize(kek)
+	pt, err := s.decryptValue(proj, configID, *found, kek)
+	if err != nil {
+		return Secret{}, err
+	}
+	return Secret{Key: key, Value: pt, ValueVersion: valueVersion}, nil
+}
+
 // resolveProject walks config → environment → project.
 func (s *Service) resolveProject(ctx context.Context, configID string) (*store.Config, *store.Project, error) {
 	cfg, err := s.configs.Get(ctx, configID)
