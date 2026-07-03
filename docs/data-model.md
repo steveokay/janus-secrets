@@ -1,8 +1,10 @@
 # Data model & versioning
 
-**Package:** `internal/store`. **Status:** schema designed, being implemented in
-the store milestone (see
-[`superpowers/specs/2026-07-03-store-layer-design.md`](superpowers/specs/2026-07-03-store-layer-design.md)).
+**Package:** `internal/store`. **Status:** implemented (foundation + core CRUD)
+— see [`superpowers/specs/2026-07-03-store-layer-design.md`](superpowers/specs/2026-07-03-store-layer-design.md).
+The schema, migrations, repositories, and two-level versioning (batched saves,
+history, diff, rollback) are built and tested against real Postgres. Config
+inheritance and secret references remain deferred (see the end of this doc).
 This document explains the hierarchy and the two-level versioning scheme.
 
 The store is **crypto-blind**: it persists and returns opaque encrypted bytes

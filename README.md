@@ -6,10 +6,11 @@ PostgreSQL. It combines ideas from Doppler (project/environment/config model,
 audit), and AWS KMS (encrypt-as-a-service with key versioning).
 
 > **Status: early development.** Phase 1 is in progress. The cryptographic
-> core — envelope encryption and unseal — is complete and fully tested. The
-> storage layer (Postgres persistence + versioning) is being built now; the
-> API, CLI, and UI are not built yet. See [Roadmap](#roadmap) for the honest
-> current state. This is not yet usable as a secrets manager.
+> core (envelope encryption + unseal) and the storage layer (Postgres
+> persistence, migrations, and two-level versioning) are complete and tested
+> against real Postgres. The encryption-orchestration service, API, CLI, and UI
+> are not built yet. See [Roadmap](#roadmap) for the honest current state. This
+> is not yet usable as a secrets manager.
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), and the
@@ -56,9 +57,11 @@ unseal reject a wrong-but-well-formed master key before it is ever used.
 
 Doppler-style hierarchy: **Project → Environment → Config → Secrets**, with
 two-level versioning (immutable config versions for diff/rollback, plus
-per-secret value history). The schema and repositories are being built now — see
-[docs/data-model.md](docs/data-model.md). The store is **crypto-blind**: it
-persists opaque ciphertext and never holds a key or plaintext.
+per-secret value history). The schema, migrations, and repositories are built
+and tested — see [docs/data-model.md](docs/data-model.md). The store is
+**crypto-blind**: it persists opaque ciphertext and never holds a key or
+plaintext. Config inheritance and secret references are deferred to a later
+milestone.
 
 ## Tech stack
 
@@ -66,7 +69,7 @@ persists opaque ciphertext and never holds a key or plaintext.
 - **Crypto:** Go stdlib `crypto/*` and `golang.org/x/crypto` only, plus AWS KMS
   (used as a service, not a crypto library) and a vendored copy of HashiCorp
   Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
-- **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate` *(in progress)*.
+- **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
 - **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` *(planned)*.
 - **Web UI:** React + TypeScript + Vite, embedded in the binary via `go:embed`
   *(planned)*.
@@ -79,7 +82,7 @@ cmd/janus/        server entrypoint
 cmd/kh/              CLI entrypoint (planned)
 internal/crypto/     envelope encryption, key hierarchy, unseal   ← implemented
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
-internal/store/      Postgres repositories, migrations           ← in progress
+internal/store/      Postgres repositories, migrations, versioning ← implemented
 internal/api/        HTTP handlers, middleware, routes (planned)
 internal/auth/       tokens, OIDC, sessions (planned)
 internal/authz/      RBAC engine (planned)
@@ -101,12 +104,17 @@ go test -race ./internal/crypto/   # crypto tests with the race detector
 
 make test                      # go test -race ./...
 make build                     # build the server binary
-docker compose up              # start Postgres (nothing connects to it yet)
+docker compose up -d           # start Postgres
+make migrate                   # apply the schema to the compose Postgres
 ```
 
-The `internal/crypto` package is held to **100% statement coverage**, enforced
-in CI, and includes tamper, nonce-reuse, and secret-leak tests. CI also runs
-`go vet`, `govulncheck`, and `gosec`.
+The `internal/store` integration tests run against a real PostgreSQL via
+[testcontainers](https://testcontainers.com/) and require Docker; without it
+they skip (they do not fail). The `internal/crypto` package is held to **100%
+statement coverage**, enforced in CI, and includes tamper, nonce-reuse, and
+secret-leak tests. CI also runs `go vet`, `govulncheck`, and `gosec`. The Go
+toolchain is pinned to `go1.26.4` (via a `toolchain` directive) as a security
+floor.
 
 ## Security notes
 
@@ -120,9 +128,9 @@ in CI, and includes tamper, nonce-reuse, and secret-leak tests. CI also runs
 ## Roadmap
 
 **Phase 1 — Core (usable Doppler replacement):**
-crypto + unseal ✅ → store + migrations 🚧 → projects/envs/configs/secrets CRUD
-with versioning → auth (passwords, service tokens) → RBAC → audit log → REST
-API → CLI with `run`. Live tracker: [status.md](status.md).
+crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
+encryption orchestration → auth (passwords, service tokens) → RBAC → audit log →
+REST API → CLI with `run`. Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning); React SPA; OIDC login; usage metrics.

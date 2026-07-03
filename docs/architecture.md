@@ -18,7 +18,7 @@ those below it and is testable in isolation.
 ├──────────────────────────────────────────────────────────┤
 │  internal/auth   internal/authz   internal/audit    (TODO)│
 ├──────────────────────────────────────────────────────────┤
-│  internal/store  Postgres repositories, migrations  (WIP) │
+│  internal/store  Postgres repositories, migrations    ✅  │
 │                  crypto-blind: stores ciphertext only     │
 ├──────────────────────────────────────────────────────────┤
 │  internal/crypto envelope encryption, keyring, unseal  ✅ │
@@ -41,7 +41,7 @@ implemented/in-progress layers.
 |---------|---------|-------|
 | `internal/crypto` | AES-256-GCM envelope encryption, key hierarchy, in-memory keyring, Shamir + AWS KMS unseal | ✅ implemented |
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
-| `internal/store` | Postgres repositories, migrations, seal-config store | 🚧 in progress |
+| `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning | ✅ core CRUD (inheritance/references deferred) |
 | `internal/auth` | Passwords, service tokens, OIDC, sessions | ⏳ planned |
 | `internal/authz` | RBAC engine (viewer/developer/admin/owner) | ⏳ planned |
 | `internal/audit` | Hash-chained append-only audit log | ⏳ planned |
@@ -81,8 +81,8 @@ A read reverses steps 2–3 and, for a value reveal, also audits.
 
 Phase 1 is being built strictly in order (see `../CLAUDE.md` for the full list):
 
-> crypto + unseal ✅ → **store + migrations** 🚧 → CRUD with versioning → auth →
-> RBAC → audit → REST API → CLI with `run`.
+> crypto + unseal ✅ → store + migrations + versioning ✅ → **CRUD service +
+> encryption orchestration** → auth → RBAC → audit → REST API → CLI with `run`.
 
 Phases 2 (transit engine + React UI + OIDC + usage metrics) and 3 (rotation +
 dynamic Postgres credentials) follow. HA/Raft, PKI/CA, SSH signing, HSM,
