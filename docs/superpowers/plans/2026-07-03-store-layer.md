@@ -927,8 +927,16 @@ func TestProjectRepoCRUD(t *testing.T) {
 	}
 
 	// Slug is reusable after soft delete (partial unique index).
-	if _, err := repo.Create(ctx, "acme", "reuse", []byte("k"), 1); err != nil {
+	reused, err := repo.Create(ctx, "acme", "reuse", []byte("k"), 1)
+	if err != nil {
 		t.Fatalf("recreate after soft delete: %v", err)
+	}
+
+	// The reused row also holds the live "acme" slug, so restoring the
+	// original would collide with it under the partial unique index. Soft
+	// delete it first to free the slug for p.
+	if err := repo.SoftDelete(ctx, reused.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	// Undelete restores.
@@ -939,7 +947,7 @@ func TestProjectRepoCRUD(t *testing.T) {
 		t.Fatalf("Get after undelete: %v", err)
 	}
 
-	// Destroy hard-deletes. First soft-delete the reuse row to avoid slug clash noise.
+	// Destroy hard-deletes.
 	if err := repo.Destroy(ctx, p.ID); err != nil {
 		t.Fatal(err)
 	}
