@@ -1,0 +1,52 @@
+// Package store is Janus's crypto-blind PostgreSQL persistence layer. It
+// persists and returns opaque encrypted bytes only; it never holds a key or
+// plaintext. Repositories map pgx driver errors to the sentinels in errors.go.
+package store
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Store owns the connection pool and the DSN (the DSN is reused by Migrate).
+type Store struct {
+	pool *pgxpool.Pool
+	dsn  string
+}
+
+// Open connects to Postgres and verifies the connection. dsn is a
+// postgres://... URL.
+func Open(ctx context.Context, dsn string) (*Store, error) {
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		return nil, fmt.Errorf("store: open pool: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("store: ping: %w", err)
+	}
+	return &Store{pool: pool, dsn: dsn}, nil
+}
+
+// Close releases the pool.
+func (s *Store) Close() { s.pool.Close() }
+
+// Ping verifies connectivity.
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
+// withTx runs fn inside a transaction, committing on nil and rolling back
+// otherwise. The rollback after a successful commit is a no-op.
+func (s *Store) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
