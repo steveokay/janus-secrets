@@ -13,6 +13,11 @@ func ev(s string) *EncryptedValue {
 	}
 }
 
+// set returns a Change.Encrypt closure yielding ev(s) regardless of version.
+func set(s string) func(int) (*EncryptedValue, error) {
+	return func(int) (*EncryptedValue, error) { return ev(s), nil }
+}
+
 // TestSaveConfigVersionCollapsesBatch verifies that when a single save contains
 // multiple changes for the same key, only the last one takes effect and no
 // orphan secret_values row is written for the superseded change.
@@ -25,8 +30,8 @@ func TestSaveConfigVersionCollapsesBatch(t *testing.T) {
 
 	// Set K then delete K in the same batch: net effect is that K never exists.
 	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
-		{Key: "K", Value: ev("k1")},
-		{Key: "K", Value: nil},
+		{Key: "K", Encrypt: set("k1")},
+		{Key: "K"},
 	}, "set-then-delete", "u"); err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +62,8 @@ func TestSaveAndGetLatest(t *testing.T) {
 
 	// First save: two keys in one version.
 	cv, err := repo.SaveConfigVersion(ctx, configID, []Change{
-		{Key: "DB_URL", Value: ev("db1")},
-		{Key: "API_KEY", Value: ev("api1")},
+		{Key: "DB_URL", Encrypt: set("db1")},
+		{Key: "API_KEY", Encrypt: set("api1")},
 	}, "initial", "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +88,8 @@ func TestSaveAndGetLatest(t *testing.T) {
 
 	// Second save: change one key, delete the other. Dedup expected.
 	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
-		{Key: "DB_URL", Value: ev("db2")},
-		{Key: "API_KEY", Value: nil}, // delete
+		{Key: "DB_URL", Encrypt: set("db2")},
+		{Key: "API_KEY"}, // delete
 	}, "rotate", "bob"); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +150,7 @@ func TestSaveAndGetLatest(t *testing.T) {
 	if err := NewConfigRepo(s).SoftDelete(ctx, configID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{{Key: "X", Value: ev("x")}}, "m", "a"); !errors.Is(err, ErrConflict) {
+	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{{Key: "X", Encrypt: set("x")}}, "m", "a"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("save to deleted config: got %v, want ErrConflict", err)
 	}
 }

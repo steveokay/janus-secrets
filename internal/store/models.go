@@ -75,11 +75,13 @@ type SecretValue struct {
 	CreatedAt time.Time
 }
 
-// Change is one edit within a batched save. Value == nil means delete the key
-// (a tombstone); otherwise it sets the key to the given encrypted value.
+// Change is one edit within a batched save. Encrypt == nil means delete the key
+// (a tombstone). Otherwise the store calls Encrypt with the value_version it
+// assigns to this key, and Encrypt returns the opaque encrypted value bound to
+// that exact version. Returning an error from Encrypt aborts the whole save.
 type Change struct {
-	Key   string
-	Value *EncryptedValue
+	Key     string
+	Encrypt func(valueVersion int) (*EncryptedValue, error)
 }
 
 // Diff is the set difference between two config versions.
