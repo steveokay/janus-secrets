@@ -64,21 +64,26 @@ func (r *SecretRepo) SaveConfigVersion(ctx context.Context, configID string, cha
 
 		// Collapse the batch so each key has one net effect (last change wins).
 		// This also prevents a set-then-delete of the same key in one batch from
-		// leaving an orphan secret_values row.
-		final := make(map[string]*EncryptedValue, len(changes))
+		// leaving an orphan secret_values row. A nil closure means delete.
+		final := make(map[string]func(int) (*EncryptedValue, error), len(changes))
 		for _, ch := range changes {
-			final[ch.Key] = ch.Value
+			final[ch.Key] = ch.Encrypt
 		}
 
 		// Apply the net changes, recording keys deleted in this version.
 		tombstones := map[string]bool{}
-		for key, val := range final {
-			if val != nil {
-				// Set: append a new secret_values row at the next value_version.
+		for key, encrypt := range final {
+			if encrypt != nil {
+				// Set: assign the next value_version, then ask the caller to
+				// encrypt for exactly that version.
 				var nextVV int
 				if err := tx.QueryRow(ctx,
 					`SELECT COALESCE(MAX(value_version), 0) + 1 FROM secret_values
 					 WHERE config_id = $1::uuid AND key = $2`, configID, key).Scan(&nextVV); err != nil {
+					return err
+				}
+				val, err := encrypt(nextVV)
+				if err != nil {
 					return err
 				}
 				var svID string

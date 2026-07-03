@@ -14,13 +14,13 @@ func TestHistoryDiffRollback(t *testing.T) {
 
 	// v1: A=a1, B=b1
 	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
-		{Key: "A", Value: ev("a1")}, {Key: "B", Value: ev("b1")},
+		{Key: "A", Encrypt: set("a1")}, {Key: "B", Encrypt: set("b1")},
 	}, "v1", "u"); err != nil {
 		t.Fatal(err)
 	}
 	// v2: A=a2 (change), C=c1 (add), B deleted (remove)
 	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
-		{Key: "A", Value: ev("a2")}, {Key: "C", Value: ev("c1")}, {Key: "B", Value: nil},
+		{Key: "A", Encrypt: set("a2")}, {Key: "C", Encrypt: set("c1")}, {Key: "B"},
 	}, "v2", "u"); err != nil {
 		t.Fatal(err)
 	}

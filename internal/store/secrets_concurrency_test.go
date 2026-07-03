@@ -21,7 +21,7 @@ func TestConcurrentSavesProduceContiguousVersions(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			_, errs[i] = repo.SaveConfigVersion(ctx, configID,
-				[]Change{{Key: "K", Value: ev("v")}}, "concurrent", "u")
+				[]Change{{Key: "K", Encrypt: set("v")}}, "concurrent", "u")
 		}(i)
 	}
 	wg.Wait()
