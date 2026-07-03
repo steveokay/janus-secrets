@@ -12,8 +12,11 @@ var (
 	ErrNotFound = errors.New("store: not found")
 	// ErrAlreadyExists is returned on a unique-constraint violation.
 	ErrAlreadyExists = errors.New("store: already exists")
-	// ErrParentNotFound is returned on a foreign-key violation (missing parent).
-	ErrParentNotFound = errors.New("store: parent not found")
+	// ErrParentNotFound is returned on a foreign-key violation (SQLSTATE 23503).
+	// Under the schema's NO ACTION foreign keys this covers both directions:
+	// inserting/updating a row whose parent is missing, and (once hard-destroy
+	// lands) deleting a row still referenced by a child.
+	ErrParentNotFound = errors.New("store: foreign key violation")
 	// ErrConflict is returned when an operation targets an absent or
 	// soft-deleted config (e.g. saving a version to a deleted config).
 	ErrConflict = errors.New("store: conflict")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -33,7 +34,7 @@ func main() {
 func runMigrate() error {
 	dsn := os.Getenv("JANUS_DATABASE_URL")
 	if dsn == "" {
-		return fmt.Errorf("JANUS_DATABASE_URL is not set")
+		return errors.New("JANUS_DATABASE_URL is not set")
 	}
 	ctx := context.Background()
 	s, err := store.Open(ctx, dsn)

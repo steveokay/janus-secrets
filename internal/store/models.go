@@ -5,9 +5,16 @@ import "time"
 // EncryptedValue is an opaque encrypted secret value. The store persists and
 // returns these bytes verbatim; it never inspects or decrypts them.
 type EncryptedValue struct {
-	WrappedDEK    []byte
-	Ciphertext    []byte
-	Nonce         []byte
+	// WrappedDEK is the data-encryption key wrapped by the project KEK.
+	WrappedDEK []byte
+	// Ciphertext is the secret value encrypted under the DEK (includes the
+	// AEAD tag).
+	Ciphertext []byte
+	// Nonce is the AEAD nonce used to produce Ciphertext.
+	Nonce []byte
+	// DEKKeyVersion is the project KEK version that wrapped WrappedDEK. It is
+	// the version of the wrapping key, not of the DEK (DEKs are not versioned);
+	// it lets a KEK-rotation sweep find rows whose DEK needs re-wrapping.
 	DEKKeyVersion int
 }
 
@@ -48,10 +55,12 @@ type Config struct {
 
 // ConfigVersion is one immutable save — the unit of diff and rollback.
 type ConfigVersion struct {
-	ID        string
-	ConfigID  string
-	Version   int
-	Message   string
+	ID       string
+	ConfigID string
+	Version  int
+	Message  string
+	// CreatedBy is a free-form actor identifier supplied by the caller (a user
+	// or token id once auth lands). The store does not interpret it.
 	CreatedBy string
 	CreatedAt time.Time
 }
