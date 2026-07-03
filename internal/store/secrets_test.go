@@ -13,6 +13,41 @@ func ev(s string) *EncryptedValue {
 	}
 }
 
+// TestSaveConfigVersionCollapsesBatch verifies that when a single save contains
+// multiple changes for the same key, only the last one takes effect and no
+// orphan secret_values row is written for the superseded change.
+func TestSaveConfigVersionCollapsesBatch(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	_, _, configID := mkConfig(t, s, "prod")
+	repo := NewSecretRepo(s)
+
+	// Set K then delete K in the same batch: net effect is that K never exists.
+	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
+		{Key: "K", Value: ev("k1")},
+		{Key: "K", Value: nil},
+	}, "set-then-delete", "u"); err != nil {
+		t.Fatal(err)
+	}
+	_, state, err := repo.GetLatest(ctx, configID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := state["K"]; ok {
+		t.Fatal("K should be absent after set-then-delete in one batch")
+	}
+	// No secret_values row should have been written for the superseded set.
+	var rows int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM secret_values WHERE config_id = $1::uuid`, configID).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("secret_values rows = %d, want 0 (no orphan from superseded set)", rows)
+	}
+}
+
 func TestSaveAndGetLatest(t *testing.T) {
 	s := requireStore(t)
 	resetDB(t)

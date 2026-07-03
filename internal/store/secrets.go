@@ -13,9 +13,10 @@ type SecretRepo struct{ s *Store }
 // NewSecretRepo returns a secret repository.
 func NewSecretRepo(s *Store) *SecretRepo { return &SecretRepo{s: s} }
 
-// manifestEntry is one live pointer while building a new version's manifest.
-type manifestEntry struct {
-	secretValueID string
+// querier is the read subset shared by *pgxpool.Pool and pgx.Tx, so
+// livePointers can run against the pool or inside a transaction.
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // SaveConfigVersion batches changes into one new immutable config version.
@@ -45,43 +46,32 @@ func (r *SecretRepo) SaveConfigVersion(ctx context.Context, configID string, cha
 		}
 		newVersion := prevVersion + 1
 
-		// Carry forward the previous version's live entries into a map.
-		live2 := map[string]manifestEntry{}
+		// Carry forward the previous version's live entries (key → secret_value_id).
+		livePtrs := map[string]string{}
 		if prevVersion > 0 {
-			rows, err := tx.Query(ctx,
-				`SELECT e.key, e.secret_value_id::text
-				 FROM config_version_entries e
-				 JOIN config_versions v ON v.id = e.config_version_id
-				 WHERE v.config_id = $1::uuid AND v.version = $2 AND NOT e.tombstone`,
-				configID, prevVersion)
+			livePtrs, err = r.livePointers(ctx, tx, configID, prevVersion)
 			if err != nil {
-				return err
-			}
-			for rows.Next() {
-				var k, svID string
-				if err := rows.Scan(&k, &svID); err != nil {
-					rows.Close()
-					return err
-				}
-				live2[k] = manifestEntry{secretValueID: svID}
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
 				return err
 			}
 		}
 
-		// Tombstones to write for this version (keys deleted now).
-		tombstones := map[string]bool{}
-
-		// Apply changes.
+		// Collapse the batch so each key has one net effect (last change wins).
+		// This also prevents a set-then-delete of the same key in one batch from
+		// leaving an orphan secret_values row.
+		final := make(map[string]*EncryptedValue, len(changes))
 		for _, ch := range changes {
-			if ch.Value != nil {
+			final[ch.Key] = ch.Value
+		}
+
+		// Apply the net changes, recording keys deleted in this version.
+		tombstones := map[string]bool{}
+		for key, val := range final {
+			if val != nil {
 				// Set: append a new secret_values row at the next value_version.
 				var nextVV int
 				if err := tx.QueryRow(ctx,
 					`SELECT COALESCE(MAX(value_version), 0) + 1 FROM secret_values
-					 WHERE config_id = $1::uuid AND key = $2`, configID, ch.Key).Scan(&nextVV); err != nil {
+					 WHERE config_id = $1::uuid AND key = $2`, configID, key).Scan(&nextVV); err != nil {
 					return err
 				}
 				var svID string
@@ -90,18 +80,15 @@ func (r *SecretRepo) SaveConfigVersion(ctx context.Context, configID string, cha
 					   (config_id, key, value_version, wrapped_dek, ciphertext, nonce, dek_key_version)
 					 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
 					 RETURNING id::text`,
-					configID, ch.Key, nextVV, ch.Value.WrappedDEK, ch.Value.Ciphertext,
-					ch.Value.Nonce, ch.Value.DEKKeyVersion).Scan(&svID); err != nil {
+					configID, key, nextVV, val.WrappedDEK, val.Ciphertext,
+					val.Nonce, val.DEKKeyVersion).Scan(&svID); err != nil {
 					return err
 				}
-				live2[ch.Key] = manifestEntry{secretValueID: svID}
-				delete(tombstones, ch.Key)
-			} else {
+				livePtrs[key] = svID
+			} else if _, ok := livePtrs[key]; ok {
 				// Delete: only meaningful if the key is currently live.
-				if _, ok := live2[ch.Key]; ok {
-					delete(live2, ch.Key)
-					tombstones[ch.Key] = true
-				}
+				delete(livePtrs, key)
+				tombstones[key] = true
 			}
 		}
 
@@ -116,10 +103,10 @@ func (r *SecretRepo) SaveConfigVersion(ctx context.Context, configID string, cha
 		}
 
 		// Insert manifest entries: live pointers + this-version tombstones.
-		for k, m := range live2 {
+		for k, svID := range livePtrs {
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO config_version_entries (config_version_id, key, secret_value_id, tombstone)
-				 VALUES ($1::uuid, $2, $3::uuid, false)`, cv.ID, k, m.secretValueID); err != nil {
+				 VALUES ($1::uuid, $2, $3::uuid, false)`, cv.ID, k, svID); err != nil {
 				return err
 			}
 		}
@@ -234,31 +221,11 @@ func (r *SecretRepo) GetKeyHistory(ctx context.Context, configID, key string) ([
 	return out, mapError(rows.Err())
 }
 
-// livePointers returns key → secret_value_id for a version's live entries.
-func (r *SecretRepo) livePointers(ctx context.Context, q pgx.Tx, configID string, version int) (map[string]string, error) {
+// livePointers returns key → secret_value_id for a version's live
+// (non-tombstone) entries. q may be the pool or a transaction. A version that
+// does not exist yields an empty map, not an error.
+func (r *SecretRepo) livePointers(ctx context.Context, q querier, configID string, version int) (map[string]string, error) {
 	rows, err := q.Query(ctx,
-		`SELECT e.key, e.secret_value_id::text
-		 FROM config_version_entries e
-		 JOIN config_versions v ON v.id = e.config_version_id
-		 WHERE v.config_id = $1::uuid AND v.version = $2 AND NOT e.tombstone`, configID, version)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]string{}
-	for rows.Next() {
-		var k, id string
-		if err := rows.Scan(&k, &id); err != nil {
-			return nil, err
-		}
-		out[k] = id
-	}
-	return out, rows.Err()
-}
-
-// livePointersPool is the non-transactional variant used by Diff.
-func (r *SecretRepo) livePointersPool(ctx context.Context, configID string, version int) (map[string]string, error) {
-	rows, err := r.s.pool.Query(ctx,
 		`SELECT e.key, e.secret_value_id::text
 		 FROM config_version_entries e
 		 JOIN config_versions v ON v.id = e.config_version_id
@@ -278,13 +245,16 @@ func (r *SecretRepo) livePointersPool(ctx context.Context, configID string, vers
 	return out, mapError(rows.Err())
 }
 
-// Diff compares two versions by (key, secret_value_id).
+// Diff compares two versions by (key, secret_value_id). Because livePointers
+// treats a missing version as empty, diffing a nonexistent version reports its
+// keys as added/removed rather than erroring; callers that need existence
+// guarantees should check the versions first.
 func (r *SecretRepo) Diff(ctx context.Context, configID string, vA, vB int) (Diff, error) {
-	a, err := r.livePointersPool(ctx, configID, vA)
+	a, err := r.livePointers(ctx, r.s.pool, configID, vA)
 	if err != nil {
 		return Diff{}, err
 	}
-	b, err := r.livePointersPool(ctx, configID, vB)
+	b, err := r.livePointers(ctx, r.s.pool, configID, vB)
 	if err != nil {
 		return Diff{}, err
 	}
@@ -343,7 +313,7 @@ func (r *SecretRepo) Rollback(ctx context.Context, configID string, targetVersio
 		if err := tx.QueryRow(ctx,
 			`SELECT true FROM config_versions WHERE config_id = $1::uuid AND version = $2`,
 			configID, targetVersion).Scan(&exists); err != nil {
-			if mapError(err) == ErrNotFound {
+			if errors.Is(mapError(err), ErrNotFound) {
 				return ErrNotFound
 			}
 			return err
