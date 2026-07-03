@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 			testStore = st
 		} else {
 			fmt.Println("store tests will be skipped: migrate failed:", mErr)
+			st.Close()
 		}
 	} else {
 		fmt.Println("store tests will be skipped: open failed:", err)
