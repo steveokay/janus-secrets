@@ -36,7 +36,7 @@ func (s *Service) SetSecrets(ctx context.Context, configID string, changes []Sec
 			return store.ConfigVersion{}, err
 		}
 	}
-	_, proj, err := s.resolveProject(ctx, configID)
+	cfg, proj, err := s.resolveProject(ctx, configID)
 	if err != nil {
 		return store.ConfigVersion{}, err
 	}
@@ -56,7 +56,10 @@ func (s *Service) SetSecrets(ctx context.Context, configID string, changes []Sec
 		storeChanges = append(storeChanges, store.Change{
 			Key: ch.Key,
 			Encrypt: func(valueVersion int) (*store.EncryptedValue, error) {
-				aad, err := dekAAD(proj.ID, configID+"/"+ch.Key, valueVersion)
+				// AAD is built from the resolved cfg.ID (canonical id::text), not
+				// the caller-supplied configID string, so representation quirks
+				// in the input (case, hyphenation) cannot skew the binding.
+				aad, err := dekAAD(proj.ID, cfg.ID+"/"+ch.Key, valueVersion)
 				if err != nil {
 					return nil, err
 				}
@@ -80,7 +83,12 @@ func (s *Service) SetSecrets(ctx context.Context, configID string, changes []Sec
 		})
 	}
 
-	cv, err := s.secrets.SaveConfigVersion(ctx, configID, storeChanges, message, actor)
+	// The save can surface either a store sentinel (e.g. ErrConflict for a
+	// soft-deleted config) or a crypto error propagated out of an Encrypt
+	// closure (e.g. ErrSealed if the keyring seals mid-batch), so both mappers
+	// compose here. Read paths don't need this: their crypto errors are already
+	// mapped inside decryptValue/unwrapProjectKEK.
+	cv, err := s.secrets.SaveConfigVersion(ctx, cfg.ID, storeChanges, message, actor)
 	if err != nil {
 		return store.ConfigVersion{}, mapCryptoErr(mapStoreErr(err))
 	}
@@ -92,11 +100,11 @@ func (s *Service) GetSecret(ctx context.Context, configID, key string) (Secret, 
 	if err := validateKey(key); err != nil {
 		return Secret{}, err
 	}
-	_, proj, err := s.resolveProject(ctx, configID)
+	cfg, proj, err := s.resolveProject(ctx, configID)
 	if err != nil {
 		return Secret{}, err
 	}
-	_, state, err := s.secrets.GetLatest(ctx, configID)
+	_, state, err := s.secrets.GetLatest(ctx, cfg.ID)
 	if err != nil {
 		return Secret{}, mapStoreErr(err)
 	}
@@ -109,7 +117,7 @@ func (s *Service) GetSecret(ctx context.Context, configID, key string) (Secret, 
 		return Secret{}, err
 	}
 	defer zeroize(kek)
-	pt, err := s.decryptValue(proj, configID, sv, kek)
+	pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
 	if err != nil {
 		return Secret{}, err
 	}
@@ -118,11 +126,11 @@ func (s *Service) GetSecret(ctx context.Context, configID, key string) (Secret, 
 
 // RevealConfig decrypts and returns every live secret in the latest version.
 func (s *Service) RevealConfig(ctx context.Context, configID string) (store.ConfigVersion, map[string]Secret, error) {
-	_, proj, err := s.resolveProject(ctx, configID)
+	cfg, proj, err := s.resolveProject(ctx, configID)
 	if err != nil {
 		return store.ConfigVersion{}, nil, err
 	}
-	cv, state, err := s.secrets.GetLatest(ctx, configID)
+	cv, state, err := s.secrets.GetLatest(ctx, cfg.ID)
 	if err != nil {
 		return store.ConfigVersion{}, nil, mapStoreErr(err)
 	}
@@ -133,8 +141,14 @@ func (s *Service) RevealConfig(ctx context.Context, configID string) (store.Conf
 	defer zeroize(kek)
 	out := make(map[string]Secret, len(state))
 	for key, sv := range state {
-		pt, err := s.decryptValue(proj, configID, sv, kek)
+		pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
 		if err != nil {
+			// Failing partway through: wipe the plaintexts already decrypted
+			// into out before abandoning it, keeping the package's zeroization
+			// discipline on error paths.
+			for _, sec := range out {
+				zeroize(sec.Value)
+			}
 			return store.ConfigVersion{}, nil, err
 		}
 		out[key] = Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion}
@@ -147,11 +161,11 @@ func (s *Service) GetSecretVersion(ctx context.Context, configID, key string, va
 	if err := validateKey(key); err != nil {
 		return Secret{}, err
 	}
-	_, proj, err := s.resolveProject(ctx, configID)
+	cfg, proj, err := s.resolveProject(ctx, configID)
 	if err != nil {
 		return Secret{}, err
 	}
-	hist, err := s.secrets.GetKeyHistory(ctx, configID, key)
+	hist, err := s.secrets.GetKeyHistory(ctx, cfg.ID, key)
 	if err != nil {
 		return Secret{}, mapStoreErr(err)
 	}
@@ -170,7 +184,7 @@ func (s *Service) GetSecretVersion(ctx context.Context, configID, key string, va
 		return Secret{}, err
 	}
 	defer zeroize(kek)
-	pt, err := s.decryptValue(proj, configID, *found, kek)
+	pt, err := s.decryptValue(proj, cfg.ID, *found, kek)
 	if err != nil {
 		return Secret{}, err
 	}

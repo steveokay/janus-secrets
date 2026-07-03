@@ -4,8 +4,49 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
+
+// TestNonCanonicalConfigIDRoundTrip writes through an uppercase spelling of the
+// config UUID and reads back through the canonical lowercase one (and vice
+// versa). Postgres normalizes both to the same row; the DEK AAD must too —
+// it is built from the resolved cfg.ID, not the caller's spelling. Before that
+// fix, mixing spellings produced differing AAD bytes and a spurious ErrDecrypt.
+func TestNonCanonicalConfigIDRoundTrip(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	_, configID := mkChain(t, s)
+	upper := strings.ToUpper(configID)
+
+	// Write via the uppercase spelling, read via the canonical one.
+	if _, err := s.SetSecrets(ctx, upper, []SecretChange{
+		{Key: "K", Value: []byte("v1")},
+	}, "m", "u"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSecret(ctx, configID, "K")
+	if err != nil {
+		t.Fatalf("read canonical after uppercase write: %v", err)
+	}
+	if !bytes.Equal(got.Value, []byte("v1")) {
+		t.Fatalf("K = %q, want v1", got.Value)
+	}
+
+	// And the reverse: write canonical, read uppercase (covers RevealConfig too).
+	if _, err := s.SetSecrets(ctx, configID, []SecretChange{
+		{Key: "K", Value: []byte("v2")},
+	}, "m", "u"); err != nil {
+		t.Fatal(err)
+	}
+	_, all, err := s.RevealConfig(ctx, upper)
+	if err != nil {
+		t.Fatalf("reveal uppercase after canonical write: %v", err)
+	}
+	if !bytes.Equal(all["K"].Value, []byte("v2")) {
+		t.Fatalf("K = %q, want v2", all["K"].Value)
+	}
+}
 
 func TestSetGetRoundTrip(t *testing.T) {
 	s := newService(t)

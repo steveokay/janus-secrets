@@ -16,7 +16,7 @@ func (s *Service) CreateProject(ctx context.Context, slug, name string) (*store.
 	}
 	id, err := s.st.NewID(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mapStoreErr(err)
 	}
 	kek, err := crypto.GenerateKey()
 	if err != nil {
