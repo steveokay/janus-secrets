@@ -53,6 +53,112 @@ func TestSaveConfigVersionCollapsesBatch(t *testing.T) {
 	}
 }
 
+// TestSaveConfigVersionPassesAssignedValueVersion asserts the store hands the
+// Encrypt closure exactly the value_version it persists: 1 for a fresh key, then
+// 2 on the next change of that key.
+func TestSaveConfigVersionPassesAssignedValueVersion(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	_, _, configID := mkConfig(t, s, "prod")
+	repo := NewSecretRepo(s)
+
+	var got int
+	capture := func(str string) func(int) (*EncryptedValue, error) {
+		return func(vv int) (*EncryptedValue, error) { got = vv; return ev(str), nil }
+	}
+
+	// First save of a fresh key "K": closure must receive value_version 1.
+	got = 0
+	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
+		{Key: "K", Encrypt: capture("k1")},
+	}, "v1", "u"); err != nil {
+		t.Fatal(err)
+	}
+	if got != 1 {
+		t.Fatalf("first save: closure received value_version %d, want 1", got)
+	}
+	_, state, err := repo.GetLatest(ctx, configID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state["K"].ValueVersion != 1 {
+		t.Fatalf("first save: persisted value_version = %d, want 1", state["K"].ValueVersion)
+	}
+
+	// Second save changing "K": closure must receive value_version 2.
+	got = 0
+	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
+		{Key: "K", Encrypt: capture("k2")},
+	}, "v2", "u"); err != nil {
+		t.Fatal(err)
+	}
+	if got != 2 {
+		t.Fatalf("second save: closure received value_version %d, want 2", got)
+	}
+	_, state, err = repo.GetLatest(ctx, configID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state["K"].ValueVersion != 2 {
+		t.Fatalf("second save: persisted value_version = %d, want 2", state["K"].ValueVersion)
+	}
+}
+
+// TestSaveConfigVersionClosureErrorRollsBack asserts that an error returned from
+// an Encrypt closure aborts the whole save: the transaction rolls back and no
+// new config version or secret_values row is persisted.
+func TestSaveConfigVersionClosureErrorRollsBack(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	_, _, configID := mkConfig(t, s, "prod")
+	repo := NewSecretRepo(s)
+
+	// Baseline: a successful v1 save with one key.
+	if _, err := repo.SaveConfigVersion(ctx, configID, []Change{
+		{Key: "A", Encrypt: set("a1")},
+	}, "v1", "u"); err != nil {
+		t.Fatal(err)
+	}
+
+	var baselineRows int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM secret_values WHERE config_id = $1::uuid`, configID).Scan(&baselineRows); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempt a v2 save whose closure fails partway through.
+	errBoom := errors.New("boom")
+	setErr := func() func(int) (*EncryptedValue, error) {
+		return func(int) (*EncryptedValue, error) { return nil, errBoom }
+	}
+	_, err := repo.SaveConfigVersion(ctx, configID, []Change{
+		{Key: "B", Encrypt: setErr()},
+	}, "v2", "u")
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("closure error: got %v, want errBoom", err)
+	}
+
+	// Nothing new was persisted: still exactly one config version...
+	versions, err := repo.ListVersions(ctx, configID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("config versions = %d, want 1 (v2 rolled back)", len(versions))
+	}
+	// ...and the secret_values count is unchanged from the baseline.
+	var afterRows int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM secret_values WHERE config_id = $1::uuid`, configID).Scan(&afterRows); err != nil {
+		t.Fatal(err)
+	}
+	if afterRows != baselineRows {
+		t.Fatalf("secret_values rows = %d, want %d (rollback should persist nothing)", afterRows, baselineRows)
+	}
+}
+
 func TestSaveAndGetLatest(t *testing.T) {
 	s := requireStore(t)
 	resetDB(t)
