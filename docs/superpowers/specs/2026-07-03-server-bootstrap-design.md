@@ -100,7 +100,7 @@ unseal.
 `internal/crypto` gains two small additions (with tests preserving its 100%
 branch-coverage bar):
 
-- `ShamirUnsealer.Progress() int` — read-only count of submitted shares, needed
+- `ShamirUnsealer.SubmittedShares() int` — read-only count of submitted shares, needed
   by `GET /v1/sys/seal-status` (today the count is only observable as a
   side-effect of `SubmitShare`).
 - **1-of-1 seal support**: the vendored shamir library requires

@@ -4,7 +4,7 @@
 
 **Goal:** Make Janus a runnable server: `janus server` boots against Postgres, auto-migrates, serves a `/v1/sys/*` HTTP API for init/unseal (Shamir + AWS KMS), returns 503 on non-sys routes while sealed, and ships `janus init/unseal/seal-status/seal` CLI wrappers plus a 1-of-1 dev-unseal workflow.
 
-**Architecture:** New `internal/api` package owns the chi router, sys handlers, `RequireUnsealed` middleware, the project-wide JSON error envelope, and a `Boot` function that composes store + crypto + secrets into a `Server`. `cmd/janus` is restructured onto cobra; `init/unseal/seal-status/seal` are thin HTTP clients. The `Keyring` is the single source of truth for sealed-ness. Two small `internal/crypto` additions: `ShamirUnsealer.Progress()` and 1-of-1 seal support.
+**Architecture:** New `internal/api` package owns the chi router, sys handlers, `RequireUnsealed` middleware, the project-wide JSON error envelope, and a `Boot` function that composes store + crypto + secrets into a `Server`. `cmd/janus` is restructured onto cobra; `init/unseal/seal-status/seal` are thin HTTP clients. The `Keyring` is the single source of truth for sealed-ness. Two small `internal/crypto` additions: `ShamirUnsealer.SubmittedShares()` and 1-of-1 seal support.
 
 **Tech Stack:** Go 1.26.4, chi v5, cobra, `golang.org/x/term`, `log/slog`, testcontainers (existing), fake KMS client for tests.
 
@@ -182,13 +182,13 @@ func TestShamirProgressAccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := u.Progress(); got != 0 {
+	if got := u.SubmittedShares(); got != 0 {
 		t.Fatalf("Progress before submit = %d, want 0", got)
 	}
 	if _, err := u.SubmitShare(ctx, res.Shares[0]); err != nil {
 		t.Fatal(err)
 	}
-	if got := u.Progress(); got != 1 {
+	if got := u.SubmittedShares(); got != 1 {
 		t.Fatalf("Progress after one submit = %d, want 1", got)
 	}
 }
@@ -211,7 +211,7 @@ func TestShamirOneOfOne(t *testing.T) {
 	if _, err := u.SubmitShare(ctx, share); err != nil {
 		t.Fatal(err)
 	}
-	if got := u.Progress(); got != 1 {
+	if got := u.SubmittedShares(); got != 1 {
 		t.Fatalf("Progress after submit = %d, want 1", got)
 	}
 	master, err := u.Unseal(ctx)
@@ -285,7 +285,7 @@ In `internal/crypto/shamir.go`:
 ```go
 // Progress reports how many shares have been submitted so far. Read-only
 // companion to SubmitShare's return value, for status endpoints.
-func (s *ShamirUnsealer) Progress() int {
+func (s *ShamirUnsealer) SubmittedShares() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.submitted)
@@ -762,7 +762,7 @@ func (s *Server) shamirProgress(required int) *progressBody {
 	if !ok {
 		return nil
 	}
-	return &progressBody{Submitted: sh.Progress(), Required: required}
+	return &progressBody{Submitted: sh.SubmittedShares(), Required: required}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
