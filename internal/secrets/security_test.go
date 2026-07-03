@@ -37,7 +37,7 @@ func TestTamperedCiphertextIsDetected(t *testing.T) {
 	}
 }
 
-// TestSaveToSoftDeletedConfigConflicts verifies a write to a soft-deleted
+// TestSaveToSoftDeletedConfigRejected verifies a write to a soft-deleted
 // config is rejected rather than silently applied.
 //
 // The plan assumed this surfaces the store's ErrConflict (SaveConfigVersion
@@ -49,7 +49,7 @@ func TestTamperedCiphertextIsDetected(t *testing.T) {
 // ErrNotFound, so that is what we assert. No production change: the store's
 // ErrConflict branch remains the belt-and-suspenders guard against a
 // soft-delete racing between the Get and the save.
-func TestSaveToSoftDeletedConfigConflicts(t *testing.T) {
+func TestSaveToSoftDeletedConfigRejected(t *testing.T) {
 	s := newService(t)
 	ctx := context.Background()
 	_, configID := mkChain(t, s)
