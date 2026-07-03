@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: keyhaven
-      POSTGRES_PASSWORD: keyhaven-dev
-      POSTGRES_DB: keyhaven
+      POSTGRES_USER: janus
+      POSTGRES_PASSWORD: janus-dev
+      POSTGRES_DB: janus
     ports:
       - "127.0.0.1:5432:5432"
     volumes:

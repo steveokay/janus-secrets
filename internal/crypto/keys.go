@@ -53,12 +53,12 @@ func appendField(b []byte, field string) []byte {
 // ProjectKEKAAD binds a wrapped project KEK to its project. A KEK ciphertext
 // copied onto another project's row will fail to unwrap.
 func ProjectKEKAAD(projectID string) []byte {
-	return appendField([]byte("keyhaven:kek:project"), projectID)
+	return appendField([]byte("janus:kek:project"), projectID)
 }
 
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
-	b := []byte("keyhaven:dek")
+	b := []byte("janus:dek")
 	b = appendField(b, projectID)
 	b = appendField(b, secretPath)
 	return binary.BigEndian.AppendUint64(b, version)

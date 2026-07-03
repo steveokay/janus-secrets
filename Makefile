@@ -7,7 +7,7 @@ lint:
 	go vet ./...
 
 build:
-	go build -o bin/keyhaven ./cmd/keyhaven
+	go build -o bin/janus ./cmd/janus
 
 cover:
 	go test -coverprofile=crypto.out ./internal/crypto

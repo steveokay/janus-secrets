@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bootstrap the Keyhaven repo and build the complete, fully-tested `internal/crypto` package: AES-256-GCM envelope-encryption primitives, key wrapping with AAD binding, an in-memory Keyring, and Shamir + AWS KMS unseal.
+**Goal:** Bootstrap the Janus repo and build the complete, fully-tested `internal/crypto` package: AES-256-GCM envelope-encryption primitives, key wrapping with AAD binding, an in-memory Keyring, and Shamir + AWS KMS unseal.
 
 **Architecture:** `internal/crypto` is a pure, storage-blind library (spec: `docs/superpowers/specs/2026-07-02-scaffold-crypto-layer-design.md`). It exposes value types (`Ciphertext`), pure functions (`Encrypt`/`Decrypt`/`WrapKey`/`UnwrapKey`), a stateful `Keyring` (sealed/unsealed), and an `Unsealer` interface with two implementations. Persistence of seal metadata hides behind a tiny `SealConfigStore` interface with a file-based impl for now.
 
@@ -21,7 +21,7 @@
 **Files:**
 - Create: `go.mod`
 - Create: `.gitignore`
-- Create: `cmd/keyhaven/main.go`
+- Create: `cmd/janus/main.go`
 - Create: `Makefile`
 - Create: `docker-compose.yml`
 - Create: `.github/workflows/ci.yml`
@@ -48,7 +48,7 @@ dist/
 .vscode/
 ```
 
-- [ ] **Step 3: Create `cmd/keyhaven/main.go`**
+- [ ] **Step 3: Create `cmd/janus/main.go`**
 
 ```go
 package main
@@ -62,10 +62,10 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("keyhaven", version)
+		fmt.Println("janus", version)
 		return
 	}
-	fmt.Fprintln(os.Stderr, "keyhaven server not yet implemented; see CLAUDE.md build phases")
+	fmt.Fprintln(os.Stderr, "janus server not yet implemented; see CLAUDE.md build phases")
 	os.Exit(1)
 }
 ```
@@ -84,7 +84,7 @@ lint:
 	go vet ./...
 
 build:
-	go build -o bin/keyhaven ./cmd/keyhaven
+	go build -o bin/janus ./cmd/janus
 
 cover:
 	go test -coverprofile=crypto.out ./internal/crypto
@@ -104,9 +104,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: keyhaven
-      POSTGRES_PASSWORD: keyhaven-dev
-      POSTGRES_DB: keyhaven
+      POSTGRES_USER: janus
+      POSTGRES_PASSWORD: janus-dev
+      POSTGRES_DB: janus
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -150,8 +150,8 @@ jobs:
 Run: `go build ./... && go vet ./...`
 Expected: no output, exit 0.
 
-Run: `go run ./cmd/keyhaven version`
-Expected: `keyhaven dev`
+Run: `go run ./cmd/janus version`
+Expected: `janus dev`
 
 - [ ] **Step 8: Commit**
 
@@ -422,7 +422,7 @@ Expected: compile error (`Encrypt`, `KeySize`, etc. undefined).
 Create `internal/crypto/errors.go`:
 
 ```go
-// Package crypto implements Keyhaven's envelope encryption: AES-256-GCM
+// Package crypto implements Janus's envelope encryption: AES-256-GCM
 // primitives, key wrapping with AAD binding, the in-memory keyring, and
 // the Shamir and AWS KMS unseal mechanisms.
 //
@@ -773,12 +773,12 @@ func appendField(b []byte, field string) []byte {
 // ProjectKEKAAD binds a wrapped project KEK to its project. A KEK ciphertext
 // copied onto another project's row will fail to unwrap.
 func ProjectKEKAAD(projectID string) []byte {
-	return appendField([]byte("keyhaven:kek:project"), projectID)
+	return appendField([]byte("janus:kek:project"), projectID)
 }
 
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
-	b := []byte("keyhaven:dek")
+	b := []byte("janus:dek")
 	b = appendField(b, projectID)
 	b = appendField(b, secretPath)
 	return binary.BigEndian.AppendUint64(b, version)
@@ -1364,8 +1364,8 @@ type SealConfigStore interface {
 // Init. Verifying it on unseal rejects a wrong-but-well-formed master key
 // (e.g. a Shamir reconstruction from a wrong share) before it is used.
 var (
-	kcvPlaintext = []byte("keyhaven-key-check-v1")
-	kcvAAD       = []byte("keyhaven:kcv")
+	kcvPlaintext = []byte("janus-key-check-v1")
+	kcvAAD       = []byte("janus:kcv")
 )
 
 func makeKCV(master []byte) ([]byte, error) {
