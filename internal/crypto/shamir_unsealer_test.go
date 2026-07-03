@@ -325,3 +325,63 @@ func TestShamirUnsealFailures(t *testing.T) {
 		}
 	})
 }
+
+func TestShamirProgressAccessor(t *testing.T) {
+	ctx := context.Background()
+	store := fileStore(t)
+	u := NewShamirUnsealer(store, 0, 0)
+	res, err := u.Init(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Progress(); got != 0 {
+		t.Fatalf("Progress before submit = %d, want 0", got)
+	}
+	if _, err := u.SubmitShare(ctx, res.Shares[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Progress(); got != 1 {
+		t.Fatalf("Progress after one submit = %d, want 1", got)
+	}
+}
+
+func TestShamirOneOfOne(t *testing.T) {
+	ctx := context.Background()
+	store := fileStore(t)
+	u := NewShamirUnsealer(store, 1, 1)
+
+	res, err := u.Init(ctx)
+	if err != nil {
+		t.Fatalf("1-of-1 Init: %v", err)
+	}
+	if len(res.Shares) != 1 || len(res.Shares[0]) != KeySize {
+		t.Fatalf("1-of-1 shares: n=%d len=%d, want 1 share of KeySize", len(res.Shares), len(res.Shares[0]))
+	}
+
+	// The single share unseals (and KCV verifies it).
+	share := append([]byte(nil), res.Shares[0]...)
+	if _, err := u.SubmitShare(ctx, share); err != nil {
+		t.Fatal(err)
+	}
+	if got := u.Progress(); got != 1 {
+		t.Fatalf("Progress after submit = %d, want 1", got)
+	}
+	master, err := u.Unseal(ctx)
+	if err != nil {
+		t.Fatalf("1-of-1 Unseal: %v", err)
+	}
+	if len(master) != KeySize {
+		t.Fatalf("master len = %d", len(master))
+	}
+	zero(master)
+
+	// A wrong single share fails the KCV, not silently succeeds.
+	u2 := NewShamirUnsealer(store, 1, 1)
+	wrong := testKey(0xEE)
+	if _, err := u2.SubmitShare(ctx, wrong); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u2.Unseal(ctx); !errors.Is(err, ErrKeyCheckFailed) {
+		t.Fatalf("wrong 1-of-1 share: got %v, want ErrKeyCheckFailed", err)
+	}
+}

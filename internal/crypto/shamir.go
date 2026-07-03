@@ -64,9 +64,17 @@ func (s *ShamirUnsealer) Init(ctx context.Context) (*InitResult, error) {
 	}
 	defer zero(master)
 
-	parts, err := shamir.Split(master, s.shares, s.threshold)
-	if err != nil {
-		return nil, err
+	var parts [][]byte
+	if s.shares == 1 && s.threshold == 1 {
+		// Single-share seal (dev/simple deployments): the vendored shamir
+		// library requires threshold >= 2, so — like Vault — the one share is
+		// the master key itself. The KCV still rejects a wrong share at unseal.
+		parts = [][]byte{append([]byte(nil), master...)}
+	} else {
+		parts, err = shamir.Split(master, s.shares, s.threshold)
+		if err != nil {
+			return nil, err
+		}
 	}
 	kcv, err := makeKCV(master)
 	if err != nil {
@@ -128,9 +136,17 @@ func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	for _, p := range s.submitted {
 		parts = append(parts, p)
 	}
-	master, err := shamir.Combine(parts)
-	if err != nil {
-		return nil, ErrInvalidShare
+	var master []byte
+	if cfg.Threshold == 1 {
+		// Single-share seal: the share is the master-key candidate directly
+		// (Combine requires >= 2 parts). KCV below verifies it.
+		master = append([]byte(nil), parts[0]...)
+	} else {
+		var cErr error
+		master, cErr = shamir.Combine(parts)
+		if cErr != nil {
+			return nil, ErrInvalidShare
+		}
 	}
 	// Redundant with verifyKCV (Decrypt rejects a non-KeySize key), but an
 	// explicit, cheap fast path for a wrong-length reconstruction.
@@ -147,6 +163,14 @@ func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	}
 	s.submitted = nil
 	return master, nil
+}
+
+// Progress reports how many shares have been submitted so far. Read-only
+// companion to SubmitShare's return value, for status endpoints.
+func (s *ShamirUnsealer) Progress() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.submitted)
 }
 
 // Reset discards all submitted shares, zeroizing the copies. Use it to
