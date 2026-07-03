@@ -326,7 +326,7 @@ func TestShamirUnsealFailures(t *testing.T) {
 	})
 }
 
-func TestShamirProgressAccessor(t *testing.T) {
+func TestShamirSubmittedSharesAccessor(t *testing.T) {
 	ctx := context.Background()
 	store := fileStore(t)
 	u := NewShamirUnsealer(store, 0, 0)
@@ -334,14 +334,14 @@ func TestShamirProgressAccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := u.Progress(); got != 0 {
-		t.Fatalf("Progress before submit = %d, want 0", got)
+	if got := u.SubmittedShares(); got != 0 {
+		t.Fatalf("SubmittedShares before submit = %d, want 0", got)
 	}
 	if _, err := u.SubmitShare(ctx, res.Shares[0]); err != nil {
 		t.Fatal(err)
 	}
-	if got := u.Progress(); got != 1 {
-		t.Fatalf("Progress after one submit = %d, want 1", got)
+	if got := u.SubmittedShares(); got != 1 {
+		t.Fatalf("SubmittedShares after one submit = %d, want 1", got)
 	}
 }
 
@@ -363,8 +363,8 @@ func TestShamirOneOfOne(t *testing.T) {
 	if _, err := u.SubmitShare(ctx, share); err != nil {
 		t.Fatal(err)
 	}
-	if got := u.Progress(); got != 1 {
-		t.Fatalf("Progress after submit = %d, want 1", got)
+	if got := u.SubmittedShares(); got != 1 {
+		t.Fatalf("SubmittedShares after submit = %d, want 1", got)
 	}
 	master, err := u.Unseal(ctx)
 	if err != nil {
@@ -384,4 +384,26 @@ func TestShamirOneOfOne(t *testing.T) {
 	if _, err := u2.Unseal(ctx); !errors.Is(err, ErrKeyCheckFailed) {
 		t.Fatalf("wrong 1-of-1 share: got %v, want ErrKeyCheckFailed", err)
 	}
+
+	// More than one submitted share for a threshold-1 seal is ambiguous and
+	// fails closed deterministically, regardless of map iteration order.
+	if _, err := u2.SubmitShare(ctx, res.Shares[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u2.Unseal(ctx); !errors.Is(err, ErrInvalidShare) {
+		t.Fatalf("two 1-of-1 shares: got %v, want ErrInvalidShare", err)
+	}
+	// Reset + exactly one correct share recovers.
+	u2.Reset()
+	if _, err := u2.SubmitShare(ctx, res.Shares[0]); err != nil {
+		t.Fatal(err)
+	}
+	master2, err := u2.Unseal(ctx)
+	if err != nil {
+		t.Fatalf("after Reset with correct share: %v", err)
+	}
+	if len(master2) != KeySize {
+		t.Fatalf("master len = %d", len(master2))
+	}
+	zero(master2)
 }
