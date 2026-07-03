@@ -142,7 +142,7 @@ jobs:
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: gosec
-        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.20.0 -exclude-dir=internal/crypto/shamir ./...
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -exclude-dir=internal/crypto/shamir ./...
 ```
 
 - [ ] **Step 7: Verify it builds**
@@ -766,7 +766,7 @@ func UnwrapKey(wrappingKey []byte, ct Ciphertext, aad []byte) ([]byte, error) {
 // AAD field encoding is length-prefixed so it is injective over
 // user-influenced fields (project IDs / secret paths may contain ':').
 func appendField(b []byte, field string) []byte {
-	b = binary.BigEndian.AppendUint32(b, uint32(len(field)))
+	b = binary.BigEndian.AppendUint64(b, uint64(len(field)))
 	return append(b, field...)
 }
 
@@ -2531,7 +2531,7 @@ Expected: all PASS.
 Run: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
 Expected: no vulnerabilities.
 
-Run: `go run github.com/securego/gosec/v2/cmd/gosec@v2.20.0 -exclude-dir=internal/crypto/shamir ./...`
+Run: `go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -exclude-dir=internal/crypto/shamir ./...`
 Expected: 0 issues. If gosec flags something in our code, fix the code (do not suppress) unless it is the documented `#nosec G304` in sealstore.go.
 
 - [ ] **Step 6: Commit**

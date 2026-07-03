@@ -37,14 +37,16 @@ func UnwrapKey(wrappingKey []byte, ct Ciphertext, aad []byte) ([]byte, error) {
 }
 
 // AAD field encoding is length-prefixed so it is injective over
-// user-influenced fields: each variable field is preceded by its 4-byte
+// user-influenced fields: each variable field is preceded by its 8-byte
 // big-endian length, so no combination of field contents (including the
-// delimiter-like ':' characters) can produce a colliding AAD.
+// delimiter-like ':' characters) can produce a colliding AAD. The length is
+// a uint64 widened from a non-negative len(), so the prefix can represent any
+// possible slice length without overflow.
 //
 // The encoding is a binding format baked into stored ciphertext; changing
 // it is a breaking change that requires re-wrapping every affected key.
 func appendField(b []byte, field string) []byte {
-	b = binary.BigEndian.AppendUint32(b, uint32(len(field)))
+	b = binary.BigEndian.AppendUint64(b, uint64(len(field)))
 	return append(b, field...)
 }
 
