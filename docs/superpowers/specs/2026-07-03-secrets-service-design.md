@@ -149,10 +149,14 @@ func (s *Service) CreateProject(ctx context.Context, slug, name string) (*store.
 
 1. `id := s.st.NewID(ctx)` — learn the UUID before wrapping.
 2. `kek := crypto.GenerateKey()` — fresh 256-bit project KEK (plaintext, memory).
-3. `wrapped, kekVer := s.keyring.WrapProjectKEK(kek, id)` — wrapped by the master
-   key, AAD-bound to `ProjectKEKAAD(id)`. Returns `crypto.ErrSealed` if sealed.
+3. `wrapped := s.keyring.WrapProjectKEK(kek, id)` — returns a `crypto.Ciphertext`
+   wrapped by the master key, AAD-bound to `ProjectKEKAAD(id)`. Returns
+   `crypto.ErrSealed` if sealed.
 4. `defer zeroize(kek)` — wipe the plaintext KEK once wrapped.
-5. `s.projects.Create(ctx, id, slug, name, wrapped, kekVer)` — persist.
+5. `s.projects.Create(ctx, id, slug, name, wrapped.Marshal(), 1)` — persist. The
+   wrapped `Ciphertext` is serialized to bytes via `Marshal()` to cross the
+   store's `[]byte` boundary; `KEKVersion` is `1` (first version of this
+   project's KEK — KEK rotation is out of scope).
 
 The plaintext project KEK exists only inside `CreateProject`, only long enough to
 wrap it; it is never persisted, logged, or returned.
@@ -181,17 +185,21 @@ func (s *Service) SetSecrets(ctx context.Context, configID string,
 ```
 
 1. **Resolve the KEK once per batch:** `configs.Get(configID)` →
-   `envs.Get(cfg.EnvironmentID)` → `projects.Get(env.ProjectID)`. Then
-   `kek := s.keyring.UnwrapProjectKEK(proj.WrappedKEK, proj.ID)` (AAD
-   `ProjectKEKAAD(proj.ID)`; `ErrSealed` if sealed). `defer zeroize(kek)`.
+   `envs.Get(cfg.EnvironmentID)` → `projects.Get(env.ProjectID)`. Then parse and
+   unwrap: `kekCT := crypto.ParseCiphertext(proj.WrappedKEK)`;
+   `kek := s.keyring.UnwrapProjectKEK(kekCT, proj.ID)` (AAD `ProjectKEKAAD(proj.ID)`;
+   `ErrSealed` if sealed). `defer zeroize(kek)`.
 2. **Build one `store.Change` per edit.** `Delete` → `Encrypt: nil`. Otherwise a
    closure that, given `valueVersion`:
-   - `dek := crypto.NewDEK()`; `defer zeroize(dek)`
    - `aad := crypto.DEKAAD(proj.ID, configID+"/"+key, uint64(valueVersion))`
-   - `nonce, ct := crypto.Encrypt(dek, change.Value, aad)`
-   - wrap `dek` under `kek` → `EncryptedValue{WrappedDEK, Ciphertext: ct,
-     Nonce: nonce, DEKKeyVersion: proj.KEKVersion}`
-   - `zeroize(change.Value)` after encrypting.
+   - `dek, wrappedDEK := s.keyring.NewDEK(kek, aad)` — generates + wraps the DEK
+     under the project KEK in one call (`wrappedDEK` is a `crypto.Ciphertext`);
+     `defer zeroize(dek)`
+   - `valCT := crypto.Encrypt(dek, change.Value, aad)` — a `crypto.Ciphertext`
+   - `EncryptedValue{WrappedDEK: wrappedDEK.Marshal(), Ciphertext: valCT.Data,
+     Nonce: valCT.Nonce, DEKKeyVersion: proj.KEKVersion}`
+   - `zeroize(change.Value)` after encrypting (documented on the method:
+     `SetSecrets` wipes each `Value` slice, so callers must not reuse them).
 3. `s.secrets.SaveConfigVersion(ctx, configID, storeChanges, message, actor)` —
    the store drives the closures inside its transaction, assigning each key its
    `value_version` and thereby binding each ciphertext's AAD to it.
@@ -242,12 +250,14 @@ Decrypt flow (KEK unwrapped once per call, even for a whole config):
 1. Resolve `configID → env → project`; read the live `store.SecretValue` for the
    key via `GetLatest`/`GetVersion` (or `GetKeyHistory` for `GetSecretVersion`).
    Missing key/version → `ErrNotFound`.
-2. `kek := s.keyring.UnwrapProjectKEK(proj.WrappedKEK, proj.ID)`;
-   `defer zeroize(kek)` (`ErrSealed` if sealed).
-3. `dek := unwrap sv.WrappedDEK under kek`; `defer zeroize(dek)`.
-4. `aad := crypto.DEKAAD(proj.ID, configID+"/"+key, uint64(sv.ValueVersion))` —
+2. `kekCT := crypto.ParseCiphertext(proj.WrappedKEK)`;
+   `kek := s.keyring.UnwrapProjectKEK(kekCT, proj.ID)`; `defer zeroize(kek)`
+   (`ErrSealed` if sealed).
+3. `aad := crypto.DEKAAD(proj.ID, configID+"/"+key, uint64(sv.ValueVersion))` —
    identical construction to the set path.
-5. `plaintext := crypto.Decrypt(dek, sv.Nonce, sv.Ciphertext, aad)`.
+4. `dekCT := crypto.ParseCiphertext(sv.WrappedDEK)`;
+   `dek := crypto.UnwrapKey(kek, dekCT, aad)`; `defer zeroize(dek)`.
+5. `plaintext := crypto.Decrypt(dek, crypto.Ciphertext{Nonce: sv.Nonce, Data: sv.Ciphertext}, aad)`.
 
 `GetSecret`/`RevealConfig`/`GetSecretVersion` are the audit seam: the audit
 milestone wraps exactly these to emit "secret revealed" events. They take the
