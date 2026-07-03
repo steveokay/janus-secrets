@@ -19,7 +19,7 @@ Docs: `docs/crypto.md` · Merged via PRs #1, #2, #3.
 - [x] 9. Leak test + 100% coverage gate
 - [x] Final review + merge decision
 
-## Milestone 2 — Store Layer (foundation + core CRUD) ✅ complete (pending merge)
+## Milestone 2 — Store Layer (foundation + core CRUD) ✅ merged (PR #4)
 
 Spec: `docs/superpowers/specs/2026-07-03-store-layer-design.md`
 Docs: `docs/data-model.md` · Plan: `docs/superpowers/plans/2026-07-03-store-layer.md`
@@ -47,7 +47,7 @@ orchestration, key rotation.
 - [x] 10. Concurrency test (contiguous versions under FOR UPDATE)
 - [x] 11. `janus migrate` subcommand + `make migrate`
 - [x] 12. CI/security gate green, full-suite verification
-- [ ] Final review + merge decision
+- [x] Final review (holistic, clean bill) + merged to main via PR #4
 
 Verification: `go build`, `go vet`, `go test ./...` (crypto + store via
 testcontainers), `gosec` (0 issues), `govulncheck` (0) all pass. Toolchain
@@ -56,6 +56,13 @@ advisories flagged by govulncheck; CI stays on `go-version: stable` above that
 floor.
 
 ## Later Phase-1 milestones (not started)
+
+**Not yet usable end-to-end.** Only the foundation exists: `docker compose up`
++ `make migrate` applies the schema, and the store persists/reads versioned
+(pre-encrypted) data. There is no way yet to create a project, set a plaintext
+secret, or run `kh` — that arrives with the CRUD/encryption service, then the
+API and CLI. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
+project, set secrets, `kh run` works."
 
 - [ ] CRUD service + encryption orchestration (config inheritance, references)
 - [ ] Auth (passwords, service tokens, OIDC)
