@@ -190,3 +190,202 @@ func (r *SecretRepo) GetVersion(ctx context.Context, configID string, version in
 	}
 	return cv, state, nil
 }
+
+// ListVersions returns a config's version metadata, oldest first.
+func (r *SecretRepo) ListVersions(ctx context.Context, configID string) ([]ConfigVersion, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT id::text, config_id::text, version, message, COALESCE(created_by,''), created_at
+		 FROM config_versions WHERE config_id = $1::uuid ORDER BY version ASC`, configID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []ConfigVersion
+	for rows.Next() {
+		var cv ConfigVersion
+		if err := rows.Scan(&cv.ID, &cv.ConfigID, &cv.Version, &cv.Message, &cv.CreatedBy, &cv.CreatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		out = append(out, cv)
+	}
+	return out, mapError(rows.Err())
+}
+
+// GetKeyHistory returns every value a key has held, oldest first.
+func (r *SecretRepo) GetKeyHistory(ctx context.Context, configID, key string) ([]SecretValue, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT id::text, config_id::text, key, value_version,
+		        wrapped_dek, ciphertext, nonce, dek_key_version, created_at
+		 FROM secret_values WHERE config_id = $1::uuid AND key = $2
+		 ORDER BY value_version ASC`, configID, key)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []SecretValue
+	for rows.Next() {
+		var sv SecretValue
+		if err := rows.Scan(&sv.ID, &sv.ConfigID, &sv.Key, &sv.ValueVersion,
+			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		out = append(out, sv)
+	}
+	return out, mapError(rows.Err())
+}
+
+// livePointers returns key → secret_value_id for a version's live entries.
+func (r *SecretRepo) livePointers(ctx context.Context, q pgx.Tx, configID string, version int) (map[string]string, error) {
+	rows, err := q.Query(ctx,
+		`SELECT e.key, e.secret_value_id::text
+		 FROM config_version_entries e
+		 JOIN config_versions v ON v.id = e.config_version_id
+		 WHERE v.config_id = $1::uuid AND v.version = $2 AND NOT e.tombstone`, configID, version)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, id string
+		if err := rows.Scan(&k, &id); err != nil {
+			return nil, err
+		}
+		out[k] = id
+	}
+	return out, rows.Err()
+}
+
+// livePointersPool is the non-transactional variant used by Diff.
+func (r *SecretRepo) livePointersPool(ctx context.Context, configID string, version int) (map[string]string, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT e.key, e.secret_value_id::text
+		 FROM config_version_entries e
+		 JOIN config_versions v ON v.id = e.config_version_id
+		 WHERE v.config_id = $1::uuid AND v.version = $2 AND NOT e.tombstone`, configID, version)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, id string
+		if err := rows.Scan(&k, &id); err != nil {
+			return nil, mapError(err)
+		}
+		out[k] = id
+	}
+	return out, mapError(rows.Err())
+}
+
+// Diff compares two versions by (key, secret_value_id).
+func (r *SecretRepo) Diff(ctx context.Context, configID string, vA, vB int) (Diff, error) {
+	a, err := r.livePointersPool(ctx, configID, vA)
+	if err != nil {
+		return Diff{}, err
+	}
+	b, err := r.livePointersPool(ctx, configID, vB)
+	if err != nil {
+		return Diff{}, err
+	}
+	var d Diff
+	for k, idB := range b {
+		idA, ok := a[k]
+		switch {
+		case !ok:
+			d.Added = append(d.Added, k)
+		case idA != idB:
+			d.Changed = append(d.Changed, k)
+		}
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			d.Removed = append(d.Removed, k)
+		}
+	}
+	return d, nil
+}
+
+// Rollback creates a new config version whose state equals targetVersion's,
+// reusing the target's secret_value rows (no re-encryption). Returns
+// ErrConflict for an absent/soft-deleted config, ErrNotFound for a missing
+// target version.
+func (r *SecretRepo) Rollback(ctx context.Context, configID string, targetVersion int, message, createdBy string) (ConfigVersion, error) {
+	var cv ConfigVersion
+	err := r.s.withTx(ctx, func(tx pgx.Tx) error {
+		var live bool
+		err := tx.QueryRow(ctx,
+			`SELECT true FROM configs WHERE id = $1::uuid AND deleted_at IS NULL FOR UPDATE`, configID).Scan(&live)
+		if err != nil {
+			if errors.Is(mapError(err), ErrNotFound) {
+				return ErrConflict
+			}
+			return err
+		}
+
+		var prevVersion int
+		if err := tx.QueryRow(ctx,
+			`SELECT COALESCE(MAX(version), 0) FROM config_versions WHERE config_id = $1::uuid`, configID).
+			Scan(&prevVersion); err != nil {
+			return err
+		}
+		if prevVersion == 0 {
+			return ErrNotFound
+		}
+
+		target, err := r.livePointers(ctx, tx, configID, targetVersion)
+		if err != nil {
+			return err
+		}
+		// A target version with no live entries AND no such version at all are
+		// distinguished by checking existence.
+		var exists bool
+		if err := tx.QueryRow(ctx,
+			`SELECT true FROM config_versions WHERE config_id = $1::uuid AND version = $2`,
+			configID, targetVersion).Scan(&exists); err != nil {
+			if mapError(err) == ErrNotFound {
+				return ErrNotFound
+			}
+			return err
+		}
+
+		current, err := r.livePointers(ctx, tx, configID, prevVersion)
+		if err != nil {
+			return err
+		}
+
+		newVersion := prevVersion + 1
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO config_versions (config_id, version, message, created_by)
+			 VALUES ($1::uuid, $2, $3, $4)
+			 RETURNING id::text, config_id::text, version, message, COALESCE(created_by,''), created_at`,
+			configID, newVersion, message, createdBy).
+			Scan(&cv.ID, &cv.ConfigID, &cv.Version, &cv.Message, &cv.CreatedBy, &cv.CreatedAt); err != nil {
+			return err
+		}
+
+		// Live pointers = target's live set (reusing secret_value ids).
+		for k, svID := range target {
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO config_version_entries (config_version_id, key, secret_value_id, tombstone)
+				 VALUES ($1::uuid, $2, $3::uuid, false)`, cv.ID, k, svID); err != nil {
+				return err
+			}
+		}
+		// Tombstone keys that are live now but not in the target.
+		for k := range current {
+			if _, ok := target[k]; !ok {
+				if _, err := tx.Exec(ctx,
+					`INSERT INTO config_version_entries (config_version_id, key, secret_value_id, tombstone)
+					 VALUES ($1::uuid, $2, NULL, true)`, cv.ID, k); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ConfigVersion{}, err
+	}
+	return cv, nil
+}
