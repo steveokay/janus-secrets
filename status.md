@@ -12,5 +12,5 @@ Each task counts as done only after implementation + spec review + quality revie
 - [x] 6. Unsealer contract + KCV + seal-config store
 - [x] 7. Shamir unsealer
 - [x] 8. KMS unsealer + AWS adapter
-- [ ] 9. Leak test + 100% coverage gate
+- [x] 9. Leak test + 100% coverage gate
 - [ ] Final review + merge decision
