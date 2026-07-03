@@ -56,7 +56,10 @@ func (s *Service) SetSecrets(ctx context.Context, configID string, changes []Sec
 		storeChanges = append(storeChanges, store.Change{
 			Key: ch.Key,
 			Encrypt: func(valueVersion int) (*store.EncryptedValue, error) {
-				aad := crypto.DEKAAD(proj.ID, configID+"/"+ch.Key, uint64(valueVersion))
+				aad, err := dekAAD(proj.ID, configID+"/"+ch.Key, valueVersion)
+				if err != nil {
+					return nil, err
+				}
 				dek, wrappedDEK, err := s.keyring.NewDEK(kek, aad)
 				if err != nil {
 					return nil, err
@@ -207,7 +210,10 @@ func (s *Service) unwrapProjectKEK(proj *store.Project) ([]byte, error) {
 
 // decryptValue decrypts one stored SecretValue using an already-unwrapped kek.
 func (s *Service) decryptValue(proj *store.Project, configID string, sv store.SecretValue, kek []byte) ([]byte, error) {
-	aad := crypto.DEKAAD(proj.ID, configID+"/"+sv.Key, uint64(sv.ValueVersion))
+	aad, err := dekAAD(proj.ID, configID+"/"+sv.Key, sv.ValueVersion)
+	if err != nil {
+		return nil, err
+	}
 	dekCT, err := crypto.ParseCiphertext(sv.WrappedDEK)
 	if err != nil {
 		return nil, ErrDecrypt
@@ -222,4 +228,16 @@ func (s *Service) decryptValue(proj *store.Project, configID string, sv store.Se
 		return nil, mapCryptoErr(err)
 	}
 	return pt, nil
+}
+
+// dekAAD builds the AES-GCM additional-authenticated-data that binds a DEK to
+// its exact slot: project, config/key path, and value version. It is the single
+// construction point shared by the set and read paths, so the two cannot drift.
+// value_version is a positive, monotonic counter; a negative value would signal
+// corrupt data, so we fail closed rather than wrap it into a large uint64.
+func dekAAD(projectID, secretPath string, valueVersion int) ([]byte, error) {
+	if valueVersion < 0 {
+		return nil, ErrDecrypt
+	}
+	return crypto.DEKAAD(projectID, secretPath, uint64(valueVersion)), nil
 }
