@@ -50,8 +50,8 @@ type SealConfigStore interface {
 // Init. Verifying it on unseal rejects a wrong-but-well-formed master key
 // (e.g. a Shamir reconstruction from a wrong share) before it is used.
 var (
-	kcvPlaintext = []byte("keyhaven-key-check-v1")
-	kcvAAD       = []byte("keyhaven:kcv")
+	kcvPlaintext = []byte("janus-key-check-v1")
+	kcvAAD       = []byte("janus:kcv")
 )
 
 func makeKCV(master []byte) ([]byte, error) {

@@ -1,4 +1,4 @@
-# Keyhaven
+# Janus
 
 A single-tenant, self-hosted secrets manager, deployed as one Go binary plus
 PostgreSQL. It combines ideas from Doppler (project/environment/config model,
@@ -68,7 +68,7 @@ per-secret value history). Not yet implemented.
 ## Repository layout
 
 ```
-cmd/keyhaven/        server entrypoint
+cmd/janus/        server entrypoint
 cmd/kh/              CLI entrypoint (planned)
 internal/crypto/     envelope encryption, key hierarchy, unseal   ← implemented
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)

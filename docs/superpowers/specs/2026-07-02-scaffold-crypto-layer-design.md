@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-02
 **Status:** Approved
-**Project:** Keyhaven (repo: `github.com/steveokay/janus-secrets`)
+**Project:** Janus (repo: `github.com/steveokay/janus-secrets`)
 
 ## Goal
 
@@ -26,7 +26,7 @@ to build on. No HTTP server, no Postgres access, no CLI logic in this milestone.
 ## Repo scaffold
 
 - `go.mod` — `github.com/steveokay/janus-secrets`, latest stable Go.
-- `cmd/keyhaven/main.go` — minimal entrypoint (prints version, exits) so the
+- `cmd/janus/main.go` — minimal entrypoint (prints version, exits) so the
   binary compiles in CI from day one. Real server wiring comes with the API
   milestone.
 - `Makefile` — working `test`, `lint`, `build` targets; `dev` and `migrate`

@@ -60,7 +60,7 @@ func TestMakeKCVRandFailure(t *testing.T) {
 // here, so only the payload compare can catch it.
 func TestVerifyKCVWrongPlaintext(t *testing.T) {
 	master := testKey(0xAA)
-	other, err := Encrypt(master, []byte("keyhaven-key-check-v2"), kcvAAD)
+	other, err := Encrypt(master, []byte("janus-key-check-v2"), kcvAAD)
 	if err != nil {
 		t.Fatal(err)
 	}

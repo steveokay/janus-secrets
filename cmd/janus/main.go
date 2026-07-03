@@ -9,9 +9,9 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println("keyhaven", version)
+		fmt.Println("janus", version)
 		return
 	}
-	fmt.Fprintln(os.Stderr, "keyhaven server not yet implemented; see CLAUDE.md build phases")
+	fmt.Fprintln(os.Stderr, "janus server not yet implemented; see CLAUDE.md build phases")
 	os.Exit(1)
 }

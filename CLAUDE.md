@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-## Project: Keyhaven — self-hosted, single-tenant secrets manager
+## Project: Janus — self-hosted, single-tenant secrets manager
 
 A single-tenant, self-hosted secrets manager combining the best of Doppler (project/env/config model, `run` injection), Vault (transit encryption, dynamic secrets, audit), and AWS KMS (encrypt-as-a-service with key versioning). Deployed as one Go binary + Postgres via docker-compose.
 
@@ -10,14 +10,14 @@ A single-tenant, self-hosted secrets manager combining the best of Doppler (proj
 - **Storage:** PostgreSQL 16+ via `pgx`. Migrations with `golang-migrate`, SQL files in `migrations/`.
 - **Crypto:** Go stdlib `crypto/*` + `golang.org/x/crypto` ONLY. Never implement crypto primitives. Never add third-party crypto libraries without explicit discussion.
 - **HTTP:** `net/http` with `chi` router. REST + JSON, all routes under `/v1/`.
-- **CLI:** `cobra`, distributed as part of the same repo (`cmd/keyhaven` server, `cmd/kh` CLI).
+- **CLI:** `cobra`, distributed as part of the same repo (`cmd/janus` server, `cmd/kh` CLI).
 - **Web UI:** React + TypeScript + Vite + Tailwind + TanStack Query, in `web/`. Built to static assets and embedded in the Go binary via `go:embed`. No Node server in production. No Next.js.
 - **Deployment:** Dockerfile (multi-stage: build web → build Go with embedded assets) + docker-compose.yml (app + Postgres).
 
 ## Repository layout
 
 ```
-cmd/keyhaven/        server entrypoint
+cmd/janus/        server entrypoint
 cmd/kh/              CLI entrypoint
 internal/crypto/     envelope encryption, key hierarchy, unseal
 internal/store/      Postgres repositories, migrations
@@ -80,7 +80,7 @@ Append-only `audit_events` table. Every authenticated request that touches a sec
 
 ## CLI (`kh`)
 
-Core commands: `kh login`, `kh setup` (bind directory to project/config), `kh secrets get/set/list/delete`, `kh run -- <cmd>` (inject secrets as env vars into subprocess — flagship feature), `kh secrets download --format env|json|yaml`. Config in `~/.config/keyhaven/`. Never write plaintext secrets to disk unless the user explicitly passes `--plain` to a download command.
+Core commands: `kh login`, `kh setup` (bind directory to project/config), `kh secrets get/set/list/delete`, `kh run -- <cmd>` (inject secrets as env vars into subprocess — flagship feature), `kh secrets download --format env|json|yaml`. Config in `~/.config/janus/`. Never write plaintext secrets to disk unless the user explicitly passes `--plain` to a download command.
 
 ## Build phases (work in order; do not start a later phase early)
 

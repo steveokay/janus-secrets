@@ -1,4 +1,4 @@
-// Package crypto implements Keyhaven's envelope encryption: AES-256-GCM
+// Package crypto implements Janus's envelope encryption: AES-256-GCM
 // primitives, key wrapping with AAD binding, the in-memory keyring, and
 // the Shamir and AWS KMS unseal mechanisms.
 //
