@@ -10,7 +10,11 @@ import (
 func mkConfig(t *testing.T, s *Store, cfgName string) (projectID, envID, configID string) {
 	t.Helper()
 	ctx := context.Background()
-	p, err := NewProjectRepo(s).Create(ctx, "acme", "Acme", []byte("k"), 1)
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProjectRepo(s).Create(ctx, id, "acme", "Acme", []byte("k"), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +35,11 @@ func TestConfigRepoCRUD(t *testing.T) {
 	ctx := context.Background()
 	repo := NewConfigRepo(s)
 
-	p, err := NewProjectRepo(s).Create(ctx, "acme", "Acme", []byte("k"), 1)
+	pid, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProjectRepo(s).Create(ctx, pid, "acme", "Acme", []byte("k"), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

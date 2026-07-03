@@ -13,7 +13,11 @@ func TestProjectRepoCRUD(t *testing.T) {
 	repo := NewProjectRepo(s)
 
 	// Create.
-	p, err := repo.Create(ctx, "acme", "Acme Web", []byte("wrapped-kek"), 1)
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := repo.Create(ctx, id, "acme", "Acme Web", []byte("wrapped-kek"), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,8 +35,12 @@ func TestProjectRepoCRUD(t *testing.T) {
 		t.Fatalf("GetBySlug: %+v err=%v", bySlug, err)
 	}
 
-	// Duplicate slug rejected.
-	if _, err := repo.Create(ctx, "acme", "dup", []byte("k"), 1); !errors.Is(err, ErrAlreadyExists) {
+	// Duplicate slug rejected (different id, same slug).
+	dupID, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Create(ctx, dupID, "acme", "dup", []byte("k"), 1); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("dup slug: got %v, want ErrAlreadyExists", err)
 	}
 
@@ -54,7 +62,11 @@ func TestProjectRepoCRUD(t *testing.T) {
 	}
 
 	// Slug is reusable after soft delete (partial unique index).
-	reused, err := repo.Create(ctx, "acme", "reuse", []byte("k"), 1)
+	reuseID, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reused, err := repo.Create(ctx, reuseID, "acme", "reuse", []byte("k"), 1)
 	if err != nil {
 		t.Fatalf("recreate after soft delete: %v", err)
 	}

@@ -19,13 +19,15 @@ func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 	return &p, nil
 }
 
-// Create inserts a project and returns the stored row.
-func (r *ProjectRepo) Create(ctx context.Context, slug, name string, wrappedKEK []byte, kekVersion int) (*Project, error) {
+// Create inserts a project with the caller-supplied id and returns the stored
+// row. The id is generated via Store.NewID so callers can bind the project
+// KEK's AAD to it before wrapping.
+func (r *ProjectRepo) Create(ctx context.Context, id, slug, name string, wrappedKEK []byte, kekVersion int) (*Project, error) {
 	row := r.s.pool.QueryRow(ctx,
-		`INSERT INTO projects (slug, name, wrapped_kek, kek_version)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO projects (id, slug, name, wrapped_kek, kek_version)
+		 VALUES ($1::uuid, $2, $3, $4, $5)
 		 RETURNING `+projectCols,
-		slug, name, wrappedKEK, kekVersion)
+		id, slug, name, wrappedKEK, kekVersion)
 	return scanProject(row)
 }
 

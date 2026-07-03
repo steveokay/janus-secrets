@@ -13,7 +13,11 @@ func TestEnvironmentRepoCRUD(t *testing.T) {
 	projects := NewProjectRepo(s)
 	repo := NewEnvironmentRepo(s)
 
-	p, err := projects.Create(ctx, "acme", "Acme", []byte("k"), 1)
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := projects.Create(ctx, id, "acme", "Acme", []byte("k"), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

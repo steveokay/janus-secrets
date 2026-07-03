@@ -158,7 +158,12 @@ func mkConfigNamed(t *testing.T, s *Store, projectSlug, envSlug, cfgName string)
 	projects := NewProjectRepo(s)
 	p, err := projects.GetBySlug(ctx, projectSlug)
 	if errors.Is(err, ErrNotFound) {
-		p, err = projects.Create(ctx, projectSlug, projectSlug, []byte("k"), 1)
+		var id string
+		id, err = s.NewID(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err = projects.Create(ctx, id, projectSlug, projectSlug, []byte("k"), 1)
 	}
 	if err != nil {
 		t.Fatal(err)
