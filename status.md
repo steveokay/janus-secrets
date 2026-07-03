@@ -55,16 +55,56 @@ pinned to `go1.26.4` (`toolchain` directive) to clear two stdlib `crypto/x509`
 advisories flagged by govulncheck; CI stays on `go-version: stable` above that
 floor.
 
+## Milestone 3 — Secrets Service (encryption orchestration + core CRUD) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-03-secrets-service-design.md`
+Plan: `docs/superpowers/plans/2026-07-03-secrets-service.md`
+Branch: `milestone-3-secrets` (subagent-driven development; every task spec- and
+quality-reviewed).
+
+Scope delivered: new `internal/secrets` service wiring `internal/crypto` to
+`internal/store`. Project KEK lifecycle (generate + wrap at project create,
+AAD-bound to a service-generated project id); batched envelope-encrypted writes
+(`SetSecrets`) via a store `Change` encrypt-closure so each DEK's AAD binds the
+store-assigned `value_version`; masked list vs. auditable reveal
+(`ListSecrets`/`KeyHistory` carry no value; `GetSecret`/`RevealConfig`/
+`GetSecretVersion` decrypt); crypto-free version ops (`ListVersions`,
+`DiffVersions`, `Rollback` — reuses ciphertext, no re-encryption); sealed-state
+handling (`ErrSealed`) and best-effort zeroization of every KEK/DEK/plaintext.
+Two supporting store changes: `Store.NewID` + `ProjectRepo.Create(id)`, and
+`Change.Encrypt func(valueVersion int)`.
+Deferred to later specs: config inheritance resolution, secret references,
+server bootstrap/unseal wiring, key rotation.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 8 tasks
+- [x] 1. store `NewID` + `ProjectRepo.Create(id)` (+ closure contract tests)
+- [x] 2. store `Change` encrypt closure bound to `value_version`
+- [x] 3. secrets package skeleton (Service, errors, validation, zeroize)
+- [x] 4. project KEK lifecycle + env/config passthrough + test harness
+- [x] 5. batched encrypted set + reveal round-trip
+- [x] 6. masked reads + version ops + historical reveal
+- [x] 7. security tests (tamper→ErrDecrypt, DEKAAD relocation, no-plaintext-leak,
+      sealed reads, absent version, soft-deleted rejection)
+- [x] 8. CI/security gate green, full-suite verification
+
+Verification: `go build`, `go vet`, `go test ./...` (crypto + store + secrets
+via testcontainers) all pass; `gosec` (v2.27.1, shamir excluded) 0 issues;
+`govulncheck` 0. A `value_version→uint64` conversion is guarded (fail-closed) to
+clear gosec G115.
+
 ## Later Phase-1 milestones (not started)
 
-**Not yet usable end-to-end.** Only the foundation exists: `docker compose up`
-+ `make migrate` applies the schema, and the store persists/reads versioned
-(pre-encrypted) data. There is no way yet to create a project, set a plaintext
-secret, or run `kh` — that arrives with the CRUD/encryption service, then the
-API and CLI. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
+**Usable in-process, not yet over the wire.** The secrets service can now
+create a project, encrypt/store secrets, and read them back decrypted (with full
+versioning, diff, rollback) — but only via Go APIs. There is still no auth, no
+HTTP surface, and no `kh` CLI. `docker compose up` + `make migrate` applies the
+schema; wiring the service to a server (unseal-at-startup) and the API/CLI is
+what remains. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
 project, set secrets, `kh run` works."
 
-- [ ] CRUD service + encryption orchestration (config inheritance, references)
+- [ ] Server bootstrap: unseal-at-startup + `janus init`/`unseal` CLI
+- [ ] Config inheritance resolution + secret references (`${projects...}`)
 - [ ] Auth (passwords, service tokens, OIDC)
 - [ ] RBAC engine
 - [ ] Hash-chained audit log
