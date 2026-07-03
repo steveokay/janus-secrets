@@ -16,6 +16,15 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test -race ./...
+      - name: enforce 100% coverage on internal/crypto
+        run: |
+          go test -coverprofile=crypto.out ./internal/crypto
+          pct=$(go tool cover -func=crypto.out | tail -1 | awk '{print $3}')
+          echo "internal/crypto coverage: $pct"
+          if [ "$pct" != "100.0%" ]; then
+            echo "coverage gate failed: internal/crypto must be 100.0%"
+            exit 1
+          fi
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: gosec
