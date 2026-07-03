@@ -766,7 +766,7 @@ func UnwrapKey(wrappingKey []byte, ct Ciphertext, aad []byte) ([]byte, error) {
 // AAD field encoding is length-prefixed so it is injective over
 // user-influenced fields (project IDs / secret paths may contain ':').
 func appendField(b []byte, field string) []byte {
-	b = binary.BigEndian.AppendUint32(b, uint32(len(field)))
+	b = binary.BigEndian.AppendUint64(b, uint64(len(field)))
 	return append(b, field...)
 }
 
