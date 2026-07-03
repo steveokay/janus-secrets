@@ -50,3 +50,17 @@ func (s *Store) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
 	}
 	return tx.Commit(ctx)
 }
+
+// execAffectingOne runs a write that is expected to touch exactly one row. It
+// maps driver errors to store sentinels and returns ErrNotFound when no row
+// matched — the shared shape behind every repo's SoftDelete/Undelete/Destroy.
+func (s *Store) execAffectingOne(ctx context.Context, sql string, args ...any) error {
+	tag, err := s.pool.Exec(ctx, sql, args...)
+	if err != nil {
+		return mapError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

@@ -65,40 +65,23 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*Project, error) {
 // SoftDelete marks a project deleted. Returns ErrNotFound if it was already
 // deleted or does not exist.
 func (r *ProjectRepo) SoftDelete(ctx context.Context, id string) error {
-	tag, err := r.s.pool.Exec(ctx,
+	return r.s.execAffectingOne(ctx,
 		`UPDATE projects SET deleted_at = now(), updated_at = now()
 		 WHERE id = $1::uuid AND deleted_at IS NULL`, id)
-	if err != nil {
-		return mapError(err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // Undelete restores a soft-deleted project.
 func (r *ProjectRepo) Undelete(ctx context.Context, id string) error {
-	tag, err := r.s.pool.Exec(ctx,
+	return r.s.execAffectingOne(ctx,
 		`UPDATE projects SET deleted_at = NULL, updated_at = now()
 		 WHERE id = $1::uuid AND deleted_at IS NOT NULL`, id)
-	if err != nil {
-		return mapError(err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
-// Destroy hard-deletes a project row.
+// Destroy hard-deletes a project row regardless of its soft-delete state; it is
+// the explicit, irreversible counterpart to SoftDelete. Any "must be
+// soft-deleted first" policy is enforced above the store. Returns ErrNotFound
+// if the row does not exist, or ErrParentNotFound if a child row still
+// references it (NO ACTION foreign keys).
 func (r *ProjectRepo) Destroy(ctx context.Context, id string) error {
-	tag, err := r.s.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1::uuid`, id)
-	if err != nil {
-		return mapError(err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return r.s.execAffectingOne(ctx, `DELETE FROM projects WHERE id = $1::uuid`, id)
 }

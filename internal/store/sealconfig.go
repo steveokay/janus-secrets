@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 )
@@ -26,10 +27,11 @@ func (p *PostgresSealConfigStore) Get(ctx context.Context) (*crypto.SealConfig, 
 		 FROM seal_config WHERE id = 1`).
 		Scan(&cfg.Type, &cfg.Threshold, &cfg.Shares, &cfg.KeyCheckValue, &cfg.WrappedMasterKey)
 	if err != nil {
-		if mapError(err) == ErrNotFound {
+		merr := mapError(err)
+		if errors.Is(merr, ErrNotFound) {
 			return nil, crypto.ErrNoSealConfig
 		}
-		return nil, err
+		return nil, merr
 	}
 	return &cfg, nil
 }
