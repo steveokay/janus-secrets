@@ -17,4 +17,5 @@ dev:
 	@echo "make dev: not yet implemented (arrives with the API milestone)"; exit 1
 
 migrate:
-	@echo "make migrate: not yet implemented (arrives with the store milestone)"; exit 1
+	JANUS_DATABASE_URL=$${JANUS_DATABASE_URL:-postgres://janus:janus-dev@127.0.0.1:5432/janus?sslmode=disable} \
+		go run ./cmd/janus migrate
