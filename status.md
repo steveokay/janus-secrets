@@ -22,7 +22,7 @@ Docs: `docs/crypto.md` · Merged via PRs #1, #2, #3.
 ## Milestone 2 — Store Layer (foundation + core CRUD) 🚧 planning
 
 Spec: `docs/superpowers/specs/2026-07-03-store-layer-design.md`
-Docs: `docs/data-model.md` · Plan: _pending (writing-plans)_.
+Docs: `docs/data-model.md` · Plan: `docs/superpowers/plans/2026-07-03-store-layer.md`.
 
 Scope: crypto-blind `internal/store` over `pgxpool`; `golang-migrate` runner;
 core schema (project → env → config → secret) with two-level versioning +
@@ -31,9 +31,9 @@ Deferred to later specs: config inheritance, secret references, encryption
 orchestration, key rotation.
 
 - [x] Design spec (brainstorming) — written + committed
-- [ ] Spec review by user
-- [ ] Implementation plan (writing-plans)
-- [ ] Implementation (tasks TBD from plan)
+- [x] Spec review by user
+- [x] Implementation plan (writing-plans) — 12 tasks
+- [ ] Implementation (12 tasks: pool/migrations → repos → versioning → wiring)
 
 ## Later Phase-1 milestones (not started)
 
