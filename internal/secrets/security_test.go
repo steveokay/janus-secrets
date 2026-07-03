@@ -7,9 +7,13 @@ import (
 	"testing"
 )
 
-// TestTamperedCiphertextIsDetected swaps one key's ciphertext for another's in
-// the database; the AAD binding must make the decrypt fail with ErrDecrypt
-// rather than return a wrong value.
+// TestTamperedCiphertextIsDetected overwrites key A's ciphertext+nonce with key
+// B's, leaving A's own wrapped_dek in place. A unwraps its own DEK fine, then
+// AES-GCM fails to open B's ciphertext under A's DEK (the DEKs differ — each
+// value gets a fresh DEK), so the read fails closed with ErrDecrypt rather than
+// silently returning a wrong value. This exercises per-value DEK isolation +
+// GCM integrity; the DEKAAD slot binding is proven separately by
+// TestRelocatedValueRejectedByDEKAAD below.
 func TestTamperedCiphertextIsDetected(t *testing.T) {
 	s := newService(t)
 	ctx := context.Background()
@@ -22,7 +26,7 @@ func TestTamperedCiphertextIsDetected(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Overwrite A's ciphertext/nonce with B's — A's DEK+AAD won't open B's data.
+	// Overwrite A's ciphertext/nonce with B's; A's own DEK cannot open B's data.
 	if _, err := testPool.Exec(ctx,
 		`UPDATE secret_values a
 		 SET ciphertext = b.ciphertext, nonce = b.nonce
@@ -34,6 +38,43 @@ func TestTamperedCiphertextIsDetected(t *testing.T) {
 
 	if _, err := s.GetSecret(ctx, configID, "A"); !errors.Is(err, ErrDecrypt) {
 		t.Fatalf("tampered A: got %v, want ErrDecrypt", err)
+	}
+}
+
+// TestRelocatedValueRejectedByDEKAAD relocates key B's ENTIRE crypto triple
+// (wrapped_dek + ciphertext + nonce) into key A's row, so A now stores a DEK
+// that would decrypt B's value. This is the case where the DEKAAD slot binding
+// is load-bearing: reading A builds DEKAAD(project, config/"A", version) and
+// tries to unwrap the relocated DEK, but that DEK was wrapped under
+// DEKAAD(project, config/"B", version). The path components differ, so the DEK
+// unwrap fails and the read returns ErrDecrypt. Without the AAD binding, A would
+// unwrap B's DEK and return B's plaintext ("value-b") — so this test would fail
+// if the slot binding were removed, making it a genuine guard on that property.
+func TestRelocatedValueRejectedByDEKAAD(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	_, configID := mkChain(t, s)
+
+	if _, err := s.SetSecrets(ctx, configID, []SecretChange{
+		{Key: "A", Value: []byte("value-a")},
+		{Key: "B", Value: []byte("value-b")},
+	}, "m", "u"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Move B's whole crypto triple into A's row (A and B share value_version 1,
+	// so only the key/path component of the DEKAAD differs).
+	if _, err := testPool.Exec(ctx,
+		`UPDATE secret_values a
+		 SET wrapped_dek = b.wrapped_dek, ciphertext = b.ciphertext, nonce = b.nonce
+		 FROM secret_values b
+		 WHERE a.config_id = $1::uuid AND a.key = 'A'
+		   AND b.config_id = $1::uuid AND b.key = 'B'`, configID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.GetSecret(ctx, configID, "A"); !errors.Is(err, ErrDecrypt) {
+		t.Fatalf("relocated B->A: got %v, want ErrDecrypt (DEKAAD slot binding must reject)", err)
 	}
 }
 
