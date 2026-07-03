@@ -7,8 +7,13 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 
 > **Status: early development.** Phase 1 is in progress. The cryptographic
 > core — envelope encryption and unseal — is complete and fully tested. The
-> storage, API, CLI, and UI are not built yet. See [Roadmap](#roadmap) for the
-> honest current state. This is not yet usable as a secrets manager.
+> storage layer (Postgres persistence + versioning) is being built now; the
+> API, CLI, and UI are not built yet. See [Roadmap](#roadmap) for the honest
+> current state. This is not yet usable as a secrets manager.
+>
+> **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
+> [architecture](docs/architecture.md), [cryptography](docs/crypto.md), and the
+> [data model & versioning](docs/data-model.md).
 
 ## Why
 
@@ -47,11 +52,13 @@ behind a common `Unsealer` interface:
 A **key check value** (a known constant encrypted under the master key) lets
 unseal reject a wrong-but-well-formed master key before it is ever used.
 
-### Data model (planned)
+### Data model
 
 Doppler-style hierarchy: **Project → Environment → Config → Secrets**, with
 two-level versioning (immutable config versions for diff/rollback, plus
-per-secret value history). Not yet implemented.
+per-secret value history). The schema and repositories are being built now — see
+[docs/data-model.md](docs/data-model.md). The store is **crypto-blind**: it
+persists opaque ciphertext and never holds a key or plaintext.
 
 ## Tech stack
 
@@ -59,7 +66,7 @@ per-secret value history). Not yet implemented.
 - **Crypto:** Go stdlib `crypto/*` and `golang.org/x/crypto` only, plus AWS KMS
   (used as a service, not a crypto library) and a vendored copy of HashiCorp
   Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
-- **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate` *(planned)*.
+- **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate` *(in progress)*.
 - **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` *(planned)*.
 - **Web UI:** React + TypeScript + Vite, embedded in the binary via `go:embed`
   *(planned)*.
@@ -72,14 +79,14 @@ cmd/janus/        server entrypoint
 cmd/kh/              CLI entrypoint (planned)
 internal/crypto/     envelope encryption, key hierarchy, unseal   ← implemented
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
-internal/store/      Postgres repositories, migrations (planned)
+internal/store/      Postgres repositories, migrations           ← in progress
 internal/api/        HTTP handlers, middleware, routes (planned)
 internal/auth/       tokens, OIDC, sessions (planned)
 internal/authz/      RBAC engine (planned)
 internal/audit/      hash-chained audit log (planned)
-migrations/          SQL migrations (planned)
+migrations/          SQL migrations (in progress)
 web/                 React SPA (planned)
-docs/                design specs and implementation plans
+docs/                subsystem docs, design specs, implementation plans
 ```
 
 ## Building and testing
@@ -113,9 +120,9 @@ in CI, and includes tamper, nonce-reuse, and secret-leak tests. CI also runs
 ## Roadmap
 
 **Phase 1 — Core (usable Doppler replacement):**
-crypto + unseal ✅ → store + migrations → projects/envs/configs/secrets CRUD
+crypto + unseal ✅ → store + migrations 🚧 → projects/envs/configs/secrets CRUD
 with versioning → auth (passwords, service tokens) → RBAC → audit log → REST
-API → CLI with `run`.
+API → CLI with `run`. Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning); React SPA; OIDC login; usage metrics.
