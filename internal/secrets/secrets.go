@@ -10,8 +10,12 @@ import (
 // SecretChange is one edit to apply in a batched SetSecrets call. Delete removes
 // the key; otherwise Value (plaintext) is encrypted and stored.
 //
-// SetSecrets zeroizes each non-delete Value after encrypting it, so callers must
-// not reuse a Value slice after the call.
+// SetSecrets best-effort zeroizes each Value it actually encrypts, so callers
+// must treat a Value slice as consumed after the call and not reuse it. Note the
+// wipe is not guaranteed: a Value superseded within the same batch (e.g. a
+// set-then-delete or set-then-set of the same key) is never encrypted and so is
+// left intact, as is any Value whose encryption the save aborts before reaching.
+// The caller still owns the slice's memory.
 type SecretChange struct {
 	Key    string
 	Value  []byte
