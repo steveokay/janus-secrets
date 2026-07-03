@@ -8,6 +8,13 @@ import (
 )
 
 // SecretRepo persists secret values and config versions.
+//
+// Write paths (SaveConfigVersion, Rollback) reject an absent or soft-deleted
+// config. Read paths (GetLatest, GetVersion, ListVersions, GetKeyHistory, Diff)
+// deliberately do NOT check the config's deleted_at — they resolve versions
+// regardless. A caller that must hide a soft-deleted config's secrets is
+// responsible for checking the config first (e.g. via ConfigRepo.Get, which
+// returns ErrNotFound for deleted configs).
 type SecretRepo struct{ s *Store }
 
 // NewSecretRepo returns a secret repository.
