@@ -24,6 +24,11 @@ func NewKMSUnsealer(store SealConfigStore, client KMSClient) *KMSUnsealer {
 	return &KMSUnsealer{store: store, client: client}
 }
 
+// Init generates the master key, wraps it via the KMS, and persists the seal
+// config. Unlike ShamirUnsealer.Init it holds no mutex: KMSUnsealer carries no
+// mutable in-struct state (no accumulated shares), so concurrency is delegated
+// to the store, and Init is a one-time bootstrap. Same single-instance
+// assumption applies.
 func (u *KMSUnsealer) Init(ctx context.Context) (*InitResult, error) {
 	_, err := u.store.Get(ctx)
 	if err == nil {
