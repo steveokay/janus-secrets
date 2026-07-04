@@ -213,7 +213,7 @@ func (s *Server) bootstrapAdmin(ctx context.Context, email string) (*adminCreden
 	if email == "" {
 		email = "admin@localhost"
 	}
-	password, err := s.auth.CreateInitialAdmin(ctx, email)
+	_, password, err := s.auth.CreateInitialAdmin(ctx, email)
 	if err != nil {
 		return nil, err
 	}

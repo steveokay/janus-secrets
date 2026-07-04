@@ -12,7 +12,7 @@ import (
 func TestCreateInitialAdminGuard(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()
-	if _, err := svc.CreateInitialAdmin(ctx, "second@example.com"); !errors.Is(err, ErrValidation) {
+	if _, _, err := svc.CreateInitialAdmin(ctx, "second@example.com"); !errors.Is(err, ErrValidation) {
 		t.Fatalf("second admin should be rejected, got %v", err)
 	}
 }

@@ -55,3 +55,39 @@ func (r *UserRepo) Count(ctx context.Context) (int, error) {
 	err := r.s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n)
 	return n, mapError(err)
 }
+
+// SetDisabled sets or clears the disabled_at timestamp.
+func (r *UserRepo) SetDisabled(ctx context.Context, id string, disabled bool) error {
+	if disabled {
+		return r.s.execAffectingOne(ctx,
+			`UPDATE users SET disabled_at = now(), updated_at = now() WHERE id = $1::uuid`, id)
+	}
+	return r.s.execAffectingOne(ctx,
+		`UPDATE users SET disabled_at = NULL, updated_at = now() WHERE id = $1::uuid`, id)
+}
+
+// List returns all users ordered by creation time (ascending).
+func (r *UserRepo) List(ctx context.Context) ([]*User, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT `+userCols+` FROM users ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, mapError(rows.Err())
+}
+
+// Oldest returns the earliest-created user (bootstrap reconciliation).
+func (r *UserRepo) Oldest(ctx context.Context) (*User, error) {
+	row := r.s.pool.QueryRow(ctx,
+		`SELECT `+userCols+` FROM users ORDER BY created_at ASC LIMIT 1`)
+	return scanUser(row)
+}
