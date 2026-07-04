@@ -99,6 +99,24 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/", s.handleUserList)
 			r.Post("/{id}/disable", s.handleUserDisable)
 		})
+		r.Route("/v1/instance/members", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.instanceScope()) })
+			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.instanceScope(), chi.URLParam(r, "uid")) })
+			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.instanceScope(), chi.URLParam(r, "uid")) })
+		})
+		r.Route("/v1/projects/{pid}/members", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.projectScope(r)) })
+			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.projectScope(r), chi.URLParam(r, "uid")) })
+			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.projectScope(r), chi.URLParam(r, "uid")) })
+		})
+		r.Route("/v1/projects/{pid}/environments/{eid}/members", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.envScope(r)) })
+			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
+			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
+		})
 	}
 	s.router = r
 	return s

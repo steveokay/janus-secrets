@@ -13,10 +13,11 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 )
 
-// authStack boots the real stack (Postgres, shamir 1-of-1), initializes with
-// an admin, unseals, creates one config as a token-scope target, and returns
-// the httptest server, admin email, admin password, and the config id.
-func authStack(t *testing.T) (*httptest.Server, string, string, string) {
+// authStackFull boots the real stack (Postgres, shamir 1-of-1), initializes
+// with an admin, unseals, creates one config as a token-scope target, and
+// returns the httptest server, the *Server, admin email, admin password, and
+// the config id.
+func authStackFull(t *testing.T) (*httptest.Server, *Server, string, string, string) {
 	t.Helper()
 	dsn := bootPostgres(t)
 	ctx := context.Background()
@@ -60,7 +61,13 @@ func authStack(t *testing.T) (*httptest.Server, string, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ts, ir.Admin.Email, ir.Admin.Password, c.ID
+	return ts, srv, ir.Admin.Email, ir.Admin.Password, c.ID
+}
+
+// authStack is the four-value form used by the existing e2e tests.
+func authStack(t *testing.T) (*httptest.Server, string, string, string) {
+	ts, _, email, password, configID := authStackFull(t)
+	return ts, email, password, configID
 }
 
 // doAuthed issues a request with either a session cookie or bearer token.
