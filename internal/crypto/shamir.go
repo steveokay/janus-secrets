@@ -34,7 +34,8 @@ type Progress struct {
 
 // NewShamirUnsealer creates a Shamir unsealer. shares/threshold are used by
 // Init; passing 0, 0 selects the 3-of-5 default. Invalid combinations are
-// rejected by Init (via shamir.Split), never persisted.
+// rejected by Init (via shamir.Split), never persisted. 1-of-1 is a supported
+// special case whose single share must be protected as the master key itself.
 func NewShamirUnsealer(store SealConfigStore, shares, threshold int) *ShamirUnsealer {
 	if shares == 0 && threshold == 0 {
 		shares, threshold = DefaultShamirShares, DefaultShamirThreshold
@@ -64,9 +65,17 @@ func (s *ShamirUnsealer) Init(ctx context.Context) (*InitResult, error) {
 	}
 	defer zero(master)
 
-	parts, err := shamir.Split(master, s.shares, s.threshold)
-	if err != nil {
-		return nil, err
+	var parts [][]byte
+	if s.shares == 1 && s.threshold == 1 {
+		// Single-share seal (dev/simple deployments): the vendored shamir
+		// library requires threshold >= 2, so — like Vault — the one share is
+		// the master key itself. The KCV still rejects a wrong share at unseal.
+		parts = [][]byte{append([]byte(nil), master...)}
+	} else {
+		parts, err = shamir.Split(master, s.shares, s.threshold)
+		if err != nil {
+			return nil, err
+		}
 	}
 	kcv, err := makeKCV(master)
 	if err != nil {
@@ -128,9 +137,22 @@ func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	for _, p := range s.submitted {
 		parts = append(parts, p)
 	}
-	master, err := shamir.Combine(parts)
-	if err != nil {
-		return nil, ErrInvalidShare
+	var master []byte
+	if cfg.Threshold == 1 {
+		// Single-share seal: the share is the master-key candidate directly
+		// (Combine requires >= 2 parts). More than one submitted share is
+		// ambiguous — map order would make the outcome nondeterministic — so
+		// fail closed; the operator resets and submits exactly one.
+		if len(s.submitted) > 1 {
+			return nil, ErrInvalidShare
+		}
+		master = append([]byte(nil), parts[0]...)
+	} else {
+		var cErr error
+		master, cErr = shamir.Combine(parts)
+		if cErr != nil {
+			return nil, ErrInvalidShare
+		}
 	}
 	// Redundant with verifyKCV (Decrypt rejects a non-KeySize key), but an
 	// explicit, cheap fast path for a wrong-length reconstruction.
@@ -147,6 +169,14 @@ func (s *ShamirUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	}
 	s.submitted = nil
 	return master, nil
+}
+
+// SubmittedShares reports the count of accepted shares so far. Read-only,
+// for status endpoints.
+func (s *ShamirUnsealer) SubmittedShares() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.submitted)
 }
 
 // Reset discards all submitted shares, zeroizing the copies. Use it to

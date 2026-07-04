@@ -7,6 +7,10 @@ import (
 
 // KMSClient is the minimal contract for a cloud KMS used for auto-unseal.
 // The production implementation is AWSKMSClient; tests use a fake.
+//
+// Decrypt must return freshly allocated plaintext that the caller owns and
+// may zeroize; it must not alias the ciphertext argument or any long-lived
+// buffer (callers wipe the returned key material after use).
 type KMSClient interface {
 	Encrypt(ctx context.Context, plaintext []byte) ([]byte, error)
 	Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
