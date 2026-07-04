@@ -77,7 +77,8 @@ func requireStore(t *testing.T) *Store {
 func resetDB(t *testing.T) {
 	t.Helper()
 	_, err := testStore.pool.Exec(context.Background(),
-		`TRUNCATE seal_config, config_version_entries, secret_values,
+		`TRUNCATE seal_config, auth_config, service_tokens, sessions, users,
+		         config_version_entries, secret_values,
 		         config_versions, configs, environments, projects
 		 RESTART IDENTITY CASCADE`)
 	if err != nil {
