@@ -21,6 +21,8 @@ const (
 	CodeKeyCheckFailed     = "key_check_failed"
 	CodeValidation         = "validation"
 	CodeInternal           = "internal"
+	CodeUnauthenticated    = "unauthenticated"
+	CodeRateLimited        = "rate_limited"
 )
 
 type errorBody struct {
