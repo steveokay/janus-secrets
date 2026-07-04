@@ -43,6 +43,12 @@ func TestMembershipE2E(t *testing.T) {
 	if code := doAuthed(t, "DELETE", ts.URL+"/v1/instance/members/"+adminID, admin, "", "", nil); code != 409 {
 		t.Fatalf("remove last owner: got %d, want 409", code)
 	}
+	// ...and cannot DEMOTE the last instance owner via PUT either (the upsert
+	// path must honor the same guard as delete, else an admin could demote the
+	// sole owner and escalate on the next boot-time reconciliation).
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/instance/members/"+adminID, admin, "", `{"role":"viewer"}`, nil); code != 409 {
+		t.Fatalf("demote last owner: got %d, want 409", code)
+	}
 
 	// Owner revokes the project binding.
 	if code := doAuthed(t, "DELETE", ts.URL+"/v1/projects/"+proj.ID+"/members/"+member.ID, admin, "", "", nil); code != 204 {

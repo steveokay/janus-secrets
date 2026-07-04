@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,30 @@ import (
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
+
+// isLastInstanceOwner reports whether userID is currently the sole instance
+// owner — the subject of the never-lock-out guards (remove/disable/demote). It
+// fails closed: any store error is returned so callers reject the mutation
+// rather than proceed on incomplete information.
+func (s *Server) isLastInstanceOwner(ctx context.Context, userID string) (bool, error) {
+	n, err := s.authz.CountInstanceOwners(ctx)
+	if err != nil {
+		return false, err
+	}
+	if n > 1 {
+		return false, nil
+	}
+	members, err := s.authz.ListMembers(ctx, "instance", "")
+	if err != nil {
+		return false, err
+	}
+	for _, m := range members {
+		if m.UserID == userID && m.Role == string(authz.RoleOwner) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // scopeSpec identifies a role-binding scope drawn from the request path. level
 // is "instance" | "project" | "environment"; projectID/envID are the binding's
@@ -90,6 +115,21 @@ func (s *Server) memberPut(w http.ResponseWriter, r *http.Request, spec scopeSpe
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
+	// Never-lock-out: an in-place upsert must not demote the last instance owner
+	// to a lesser role (the DELETE path is guarded the same way). Without this an
+	// admin could demote the sole owner and — since reconcileInstanceOwner
+	// regrants owner to the oldest user on the next boot — escalate to owner.
+	if spec.level == "instance" && req.Role != string(authz.RoleOwner) {
+		last, err := s.isLastInstanceOwner(r.Context(), userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		if last {
+			writeError(w, http.StatusConflict, CodeValidation, "cannot demote the last instance owner")
+			return
+		}
+	}
 	if err := s.authz.Grant(r.Context(), store.RoleBindingInput{
 		SubjectUserID: userID,
 		ScopeLevel:    spec.level,
@@ -109,16 +149,16 @@ func (s *Server) memberDelete(w http.ResponseWriter, r *http.Request, spec scope
 		s.writeAuthzError(w, err)
 		return
 	}
-	// Never-lock-out: refuse to remove the last instance owner.
+	// Never-lock-out: refuse to remove the last instance owner (fail closed).
 	if spec.level == "instance" {
-		if n, err := s.authz.CountInstanceOwners(r.Context()); err == nil && n <= 1 {
-			members, _ := s.authz.ListMembers(r.Context(), "instance", "")
-			for _, m := range members {
-				if m.UserID == userID && m.Role == string(authz.RoleOwner) {
-					writeError(w, http.StatusConflict, CodeValidation, "cannot remove the last instance owner")
-					return
-				}
-			}
+		last, err := s.isLastInstanceOwner(r.Context(), userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		if last {
+			writeError(w, http.StatusConflict, CodeValidation, "cannot remove the last instance owner")
+			return
 		}
 	}
 	if err := s.authz.Revoke(r.Context(), userID, spec.level, spec.projectID, spec.envID); err != nil {

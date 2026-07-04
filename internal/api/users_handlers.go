@@ -55,15 +55,15 @@ func (s *Server) handleUserDisable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, CodeValidation, "cannot disable yourself")
 		return
 	}
-	// Never-lock-out: don't disable the last instance owner.
-	if n, err := s.authz.CountInstanceOwners(r.Context()); err == nil && n <= 1 {
-		members, _ := s.authz.ListMembers(r.Context(), "instance", "")
-		for _, m := range members {
-			if m.UserID == id && m.Role == string(authz.RoleOwner) {
-				writeError(w, http.StatusConflict, CodeValidation, "cannot disable the last instance owner")
-				return
-			}
-		}
+	// Never-lock-out: don't disable the last instance owner (fail closed).
+	last, err := s.isLastInstanceOwner(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	if last {
+		writeError(w, http.StatusConflict, CodeValidation, "cannot disable the last instance owner")
+		return
 	}
 	if err := s.auth.DisableUser(r.Context(), id); err != nil {
 		s.writeAuthError(w, err)
