@@ -56,6 +56,12 @@ func ProjectKEKAAD(projectID string) []byte {
 	return appendField([]byte("janus:kek:project"), projectID)
 }
 
+// AuthKeyAAD binds the wrapped token-HMAC key to the auth domain, so it can
+// never be confused with a project KEK or any other wrapped key.
+func AuthKeyAAD() []byte {
+	return []byte("janus:auth:token-hmac")
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

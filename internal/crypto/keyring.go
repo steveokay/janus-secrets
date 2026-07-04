@@ -65,6 +65,26 @@ func (k *Keyring) UnwrapProjectKEK(ct Ciphertext, projectID string) ([]byte, err
 	return UnwrapKey(k.master, ct, ProjectKEKAAD(projectID))
 }
 
+// WrapAuthKey wraps the token-HMAC key under the master key.
+func (k *Keyring) WrapAuthKey(key []byte) (Ciphertext, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return Ciphertext{}, ErrSealed
+	}
+	return WrapKey(k.master, key, AuthKeyAAD())
+}
+
+// UnwrapAuthKey unwraps the token-HMAC key previously wrapped by WrapAuthKey.
+func (k *Keyring) UnwrapAuthKey(ct Ciphertext) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return nil, ErrSealed
+	}
+	return UnwrapKey(k.master, ct, AuthKeyAAD())
+}
+
 // NewDEK generates a fresh DEK and wraps it under projectKEK in one call,
 // minimizing the plaintext DEK's lifetime. Refuses to run while sealed.
 //
