@@ -69,6 +69,24 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Post("/seal", s.handleSeal)
 		}
 	})
+	if s.auth != nil {
+		loginLimiter := newIPRateLimiter(10.0/60.0, 5) // 10/min sustained, burst 5
+		r.Route("/v1/auth", func(r chi.Router) {
+			r.With(loginLimiter.middleware).Post("/login", s.handleLogin)
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/logout", s.handleLogout)
+				r.Get("/me", s.handleMe)
+				r.With(loginLimiter.middleware).Post("/password", s.handlePasswordChange)
+			})
+		})
+		r.Route("/v1/tokens", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Post("/", s.handleTokenMint)
+			r.Get("/", s.handleTokenList)
+			r.Delete("/{id}", s.handleTokenRevoke)
+		})
+	}
 	s.router = r
 	return s
 }
