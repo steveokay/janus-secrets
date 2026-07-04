@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/argon2"
@@ -51,15 +52,18 @@ func VerifyPassword(phc string, pw []byte) (ok, needsRehash bool, err error) {
 	}
 	var m, t uint32
 	var p uint8
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
+	if !parseArgonParams(parts[3], &m, &t, &p) {
 		return false, false, fmt.Errorf("%w: malformed password hash", ErrValidation)
 	}
 	salt, err := b64.DecodeString(parts[4])
 	if err != nil {
 		return false, false, fmt.Errorf("%w: malformed password hash", ErrValidation)
 	}
+	if len(salt) < 8 || len(salt) > 64 {
+		return false, false, fmt.Errorf("%w: malformed password hash", ErrValidation)
+	}
 	want, err := b64.DecodeString(parts[5])
-	if err != nil || len(want) == 0 {
+	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false, false, fmt.Errorf("%w: malformed password hash", ErrValidation)
 	}
 	got := argon2.IDKey(pw, salt, t, m, p, uint32(len(want)))
@@ -68,4 +72,32 @@ func VerifyPassword(phc string, pw []byte) (ok, needsRehash bool, err error) {
 	}
 	needsRehash = m < argonMemory || t < argonTime || p < argonThreads
 	return true, needsRehash, nil
+}
+
+// parseArgonParams strictly parses "m=<n>,t=<n>,p=<n>" and bounds-checks the
+// values. Bounds are deliberately tight — every stored hash is minted by
+// HashPassword, so anything outside them is corruption or tampering, and
+// unvalidated values reach argon2.IDKey, which panics on t=0/p=0 and
+// allocates m KiB (a crafted huge m is an OOM). Widen only when the minting
+// defaults are raised.
+func parseArgonParams(s string, m, t *uint32, p *uint8) bool {
+	fields := strings.Split(s, ",")
+	if len(fields) != 3 ||
+		!strings.HasPrefix(fields[0], "m=") ||
+		!strings.HasPrefix(fields[1], "t=") ||
+		!strings.HasPrefix(fields[2], "p=") {
+		return false
+	}
+	mv, err1 := strconv.ParseUint(fields[0][2:], 10, 32)
+	tv, err2 := strconv.ParseUint(fields[1][2:], 10, 32)
+	pv, err3 := strconv.ParseUint(fields[2][2:], 10, 8)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return false
+	}
+	// 8 MiB..256 MiB, 1..16 passes, 1..8 lanes.
+	if mv < 8*1024 || mv > 256*1024 || tv < 1 || tv > 16 || pv < 1 || pv > 8 {
+		return false
+	}
+	*m, *t, *p = uint32(mv), uint32(tv), uint8(pv)
+	return true
 }

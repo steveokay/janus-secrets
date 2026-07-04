@@ -37,6 +37,11 @@ func TestPasswordPHCParsing(t *testing.T) {
 		"$argon2id$v=19$m=19456,t=2,p=1$!!!$AAAA", // bad base64 salt
 		"$argon2id$v=19$m=19456,t=2$AAAA$AAAA",  // missing param
 		"not-a-phc-string",
+		"$argon2id$v=19$m=19456,t=0,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",      // t=0 → would panic
+		"$argon2id$v=19$m=19456,t=2,p=0$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",      // p=0 → would panic
+		"$argon2id$v=19$m=4294967295,t=2,p=1$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA", // huge m → would OOM
+		"$argon2id$v=19$m=19456,t=2,p=1,x=9$c2FsdHNhbHQ$aGFzaGhhc2hoYXNoaGFzaA",  // trailing junk
+		"$argon2id$v=19$m=19456,t=2,p=1$$aGFzaGhhc2hoYXNoaGFzaA",                 // empty salt
 	}
 	for _, c := range cases {
 		if ok, _, err := VerifyPassword(c, []byte("x")); ok || err == nil {
