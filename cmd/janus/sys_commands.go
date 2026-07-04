@@ -118,7 +118,7 @@ func newUnsealCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&address, "address", defaultAddress(), "server address")
-	cmd.Flags().StringVar(&share, "share", "", "unseal share (hex); omit to read from stdin")
+	cmd.Flags().StringVar(&share, "share", "", "unseal share (hex); prefer stdin — a flag value is visible in process lists and shell history")
 	return cmd
 }
 

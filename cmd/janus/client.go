@@ -63,6 +63,12 @@ func sysCall(address, method, path string, in, out any) error {
 			} `json:"error"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&env)
+		if env.Error.Message == "" {
+			env.Error.Message = http.StatusText(resp.StatusCode)
+		}
+		if env.Error.Code == "" {
+			env.Error.Code = "unknown"
+		}
 		return &apiError{Status: resp.StatusCode, Code: env.Error.Code, Message: env.Error.Message}
 	}
 	if out != nil {

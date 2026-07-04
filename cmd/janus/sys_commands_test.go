@@ -9,15 +9,25 @@ import (
 	"testing"
 )
 
+// stubState records what the scripted sys API received on the wire.
+type stubState struct {
+	paths         []string
+	share         string // last share submitted to /v1/sys/unseal
+	initShares    int    // shares param received by /v1/sys/init
+	initThreshold int    // threshold param received by /v1/sys/init
+}
+
 // stubSys scripts the sys API for CLI tests.
-func stubSys(t *testing.T, sealType string) (*httptest.Server, *[]string) {
+func stubSys(t *testing.T, sealType string) (*httptest.Server, *stubState) {
 	t.Helper()
-	var paths []string
+	st := &stubState{}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/sys/init", func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
+		st.paths = append(st.paths, r.URL.Path)
 		var req struct{ Shares, Threshold int }
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		st.initShares = req.Shares
+		st.initThreshold = req.Threshold
 		if sealType == "shamir" {
 			shares := []string{"aa01", "bb02", "cc03"}
 			if req.Shares == 1 {
@@ -29,7 +39,7 @@ func stubSys(t *testing.T, sealType string) (*httptest.Server, *[]string) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"type": "awskms"})
 	})
 	mux.HandleFunc("GET /v1/sys/seal-status", func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
+		st.paths = append(st.paths, r.URL.Path)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"initialized": true, "sealed": true, "type": sealType,
 			"threshold": 3, "shares": 5,
@@ -37,9 +47,10 @@ func stubSys(t *testing.T, sealType string) (*httptest.Server, *[]string) {
 		})
 	})
 	mux.HandleFunc("POST /v1/sys/unseal", func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
+		st.paths = append(st.paths, r.URL.Path)
 		var req struct{ Share string }
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		st.share = req.Share
 		if sealType == "shamir" && req.Share == "" {
 			w.WriteHeader(400)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "validation", "message": "share is required"}})
@@ -48,12 +59,12 @@ func stubSys(t *testing.T, sealType string) (*httptest.Server, *[]string) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"sealed": false})
 	})
 	mux.HandleFunc("POST /v1/sys/seal", func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
+		st.paths = append(st.paths, r.URL.Path)
 		_ = json.NewEncoder(w).Encode(map[string]any{"sealed": true})
 	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return ts, &paths
+	return ts, st
 }
 
 // runCLI executes the root command with args, returning stdout.
@@ -106,7 +117,7 @@ func TestInitCommandJSON(t *testing.T) {
 }
 
 func TestUnsealCommandWithFlag(t *testing.T) {
-	ts, paths := stubSys(t, "shamir")
+	ts, st := stubSys(t, "shamir")
 	out, err := runCLI(t, "", "unseal", "--address", ts.URL, "--share", "aa01")
 	if err != nil {
 		t.Fatal(err)
@@ -115,13 +126,16 @@ func TestUnsealCommandWithFlag(t *testing.T) {
 		t.Fatalf("output = %q", out)
 	}
 	found := false
-	for _, p := range *paths {
+	for _, p := range st.paths {
 		if p == "/v1/sys/unseal" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("unseal endpoint not called: %v", *paths)
+		t.Fatalf("unseal endpoint not called: %v", st.paths)
+	}
+	if st.share != "aa01" {
+		t.Fatalf("share on the wire = %q, want %q", st.share, "aa01")
 	}
 }
 
@@ -161,17 +175,53 @@ func TestSealStatusCommand(t *testing.T) {
 }
 
 func TestSealCommand(t *testing.T) {
-	ts, paths := stubSys(t, "shamir")
+	ts, st := stubSys(t, "shamir")
 	if _, err := runCLI(t, "", "seal", "--address", ts.URL); err != nil {
 		t.Fatal(err)
 	}
 	found := false
-	for _, p := range *paths {
+	for _, p := range st.paths {
 		if p == "/v1/sys/seal" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("seal endpoint not called: %v", *paths)
+		t.Fatalf("seal endpoint not called: %v", st.paths)
+	}
+}
+
+func TestInitCommandSendsParams(t *testing.T) {
+	ts, st := stubSys(t, "shamir")
+	out, err := runCLI(t, "", "init", "--address", ts.URL, "--shares", "1", "--threshold", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.initShares != 1 || st.initThreshold != 1 {
+		t.Fatalf("init params on the wire = shares %d, threshold %d, want 1/1", st.initShares, st.initThreshold)
+	}
+	if !strings.Contains(out, "dd04") {
+		t.Fatalf("output missing single share dd04: %q", out)
+	}
+}
+
+func TestAPIErrorRendering(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sys/init", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(409)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{
+			"code": "already_initialized", "message": "seal is already initialized",
+		}})
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	_, err := runCLI(t, "", "init", "--address", ts.URL)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	for _, want := range []string{"already_initialized", "409"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
 	}
 }
