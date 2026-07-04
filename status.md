@@ -175,6 +175,19 @@ secrets + CLI, Docker-backed suites ran) all pass; `gosec` (v2.27.1, shamir
 excluded) 0 issues (three findings resolved with recorded `#nosec`
 justifications: G115 bounded key length, G101 SQL column list, G124 intentional
 conditional-`Secure` cookie); `govulncheck` 0; `internal/crypto` coverage 100.0%.
+Final holistic review: SHIP, no blocking issues.
+
+Non-blocking follow-ups from final review (carry into RBAC / a hardening pass):
+- `GET /v1/tokens` and `DELETE /v1/tokens/{id}` are authn-gated only — any
+  principal (incl. a read-only service token) can list/revoke. Spec'd as "any
+  principal" for M5; add an admin gate when RBAC lands (highest-impact gap).
+- Per-IP login rate limiter keys on `r.RemoteAddr`; behind a TLS-terminating
+  proxy that collapses to one bucket — add trusted-proxy `X-Forwarded-For`
+  handling when the proxy is introduced (same caveat nullifies the conditional
+  cookie `Secure` flag).
+- `ChangePassword` leaves other sessions valid and has no `new != old` check.
+- Login returns 404 (not 503) if the HMAC key is missing after a partial unseal.
+- `janus seal` CLI sends no credential → 401 against the gated endpoint.
 
 ## Later Phase-1 milestones (not started)
 
