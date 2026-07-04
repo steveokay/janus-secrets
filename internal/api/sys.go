@@ -1,7 +1,11 @@
 package api
 
 import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -87,16 +91,201 @@ func (s *Server) handleSealStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// Implemented in Task 5.
+type initRequest struct {
+	Shares    int `json:"shares"`
+	Threshold int `json:"threshold"`
+}
+
+type initResponse struct {
+	Type   string   `json:"type"`
+	Shares []string `json:"shares,omitempty"`
+}
+
 func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusInternalServerError, CodeInternal, "not implemented")
+	var req initRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid JSON body")
+		return
+	}
+
+	switch s.cfg.SealType {
+	case crypto.SealTypeShamir:
+		// A short-lived unsealer carries the requested share/threshold params;
+		// the long-lived one (0,0) handles submission and unseal afterwards.
+		u := crypto.NewShamirUnsealer(s.seals, req.Shares, req.Threshold)
+		res, err := u.Init(r.Context())
+		if err != nil {
+			s.writeInitError(w, err)
+			return
+		}
+		shares := make([]string, len(res.Shares))
+		for i, sh := range res.Shares {
+			shares[i] = hex.EncodeToString(sh)
+			zero(sh) // one-time exposure: the response is the only copy
+		}
+		writeJSON(w, http.StatusOK, initResponse{Type: crypto.SealTypeShamir, Shares: shares})
+
+	case crypto.SealTypeAWSKMS:
+		if req.Shares != 0 || req.Threshold != 0 {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"shares/threshold do not apply to a kms seal")
+			return
+		}
+		if _, err := s.unsealer.Init(r.Context()); err != nil {
+			s.writeInitError(w, err)
+			return
+		}
+		// Auto-unseal: the operator holds nothing under KMS.
+		if err := s.unsealNow(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		writeJSON(w, http.StatusOK, initResponse{Type: crypto.SealTypeAWSKMS})
+
+	default:
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+	}
 }
+
+func (s *Server) writeInitError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, crypto.ErrAlreadyInitialized):
+		writeError(w, http.StatusConflict, CodeAlreadyInitialized, "seal is already initialized")
+	default:
+		// shamir.Split parameter errors (threshold > shares etc.) land here.
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid seal parameters")
+	}
+}
+
+// unsealNow runs the unsealer and feeds the keyring, zeroizing the master.
+func (s *Server) unsealNow(ctx context.Context) error {
+	master, err := s.unsealer.Unseal(ctx)
+	if err != nil {
+		return err
+	}
+	defer zero(master)
+	if err := s.keyring.Unseal(master); err != nil && !errors.Is(err, crypto.ErrAlreadyUnsealed) {
+		return err
+	}
+	return nil
+}
+
+type unsealRequest struct {
+	Share string `json:"share"`
+}
+
 func (s *Server) handleUnseal(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusInternalServerError, CodeInternal, "not implemented")
+	var req unsealRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid JSON body")
+		return
+	}
+	initialized, cfg, err := s.sealConfig(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	if !initialized {
+		writeError(w, http.StatusBadRequest, CodeNotInitialized, "seal is not initialized")
+		return
+	}
+
+	switch cfg.Type {
+	case crypto.SealTypeAWSKMS:
+		if req.Share != "" {
+			writeError(w, http.StatusBadRequest, CodeValidation, "kms seal takes no share")
+			return
+		}
+		if !s.keyring.Sealed() {
+			writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
+			return
+		}
+		if err := s.unsealNow(r.Context()); err != nil {
+			// KMS outage / IAM failure: generic error, no internals.
+			writeError(w, http.StatusInternalServerError, CodeInternal, "unseal failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
+
+	case crypto.SealTypeShamir:
+		sh, ok := s.unsealer.(*crypto.ShamirUnsealer)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		if req.Share == "" {
+			writeError(w, http.StatusBadRequest, CodeValidation, "share is required")
+			return
+		}
+		raw, err := hex.DecodeString(req.Share)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeInvalidShare, "share is not valid hex")
+			return
+		}
+		defer zero(raw)
+		if !s.keyring.Sealed() {
+			writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
+			return
+		}
+		progress, err := sh.SubmitShare(r.Context(), raw)
+		if err != nil {
+			switch {
+			case errors.Is(err, crypto.ErrDuplicateShare):
+				writeError(w, http.StatusBadRequest, CodeDuplicateShare, "share already submitted")
+			case errors.Is(err, crypto.ErrInvalidShare):
+				writeError(w, http.StatusBadRequest, CodeInvalidShare, "invalid share")
+			default:
+				writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			}
+			return
+		}
+		if progress.Submitted >= progress.Required {
+			if err := s.unsealNow(r.Context()); err != nil {
+				// Reconstruction or KCV failure: the submitted set is poisoned;
+				// the operator resets and resubmits.
+				writeError(w, http.StatusBadRequest, CodeKeyCheckFailed,
+					"key reconstruction failed; discard submitted shares via /v1/sys/unseal/reset and resubmit")
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
+
+	default:
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+	}
 }
+
+// unsealStateBody is the shared unseal/reset response shape.
+func unsealStateBody(s *Server, cfg *crypto.SealConfig) map[string]any {
+	body := map[string]any{"sealed": s.keyring.Sealed()}
+	if cfg.Type == crypto.SealTypeShamir && s.keyring.Sealed() {
+		body["progress"] = s.shamirProgress(cfg.Threshold)
+	}
+	return body
+}
+
 func (s *Server) handleUnsealReset(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusInternalServerError, CodeInternal, "not implemented")
+	initialized, cfg, err := s.sealConfig(r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	if !initialized {
+		writeError(w, http.StatusBadRequest, CodeNotInitialized, "seal is not initialized")
+		return
+	}
+	sh, ok := s.unsealer.(*crypto.ShamirUnsealer)
+	if !ok {
+		writeError(w, http.StatusBadRequest, CodeValidation, "reset applies to shamir seals only")
+		return
+	}
+	sh.Reset()
+	writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
 }
+
 func (s *Server) handleSeal(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusInternalServerError, CodeInternal, "not implemented")
+	// NOTE: unauthenticated until the auth milestone (availability-only,
+	// fail-closed). See the design spec's security posture.
+	s.keyring.Seal()
+	writeJSON(w, http.StatusOK, map[string]any{"sealed": true})
 }
