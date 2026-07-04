@@ -11,6 +11,8 @@ import (
 
 // svcTokenPrefix namespaces service tokens; Phase-2 federated credentials get
 // their own janus_<type>_ prefixes.
+// #nosec G101 -- public namespace prefix shown at the start of every service
+// token, not a hardcoded credential; gosec's entropy heuristic false-positives.
 const svcTokenPrefix = "janus_svc_"
 
 // TokenScope is a verified service token's scope, for authorization.
