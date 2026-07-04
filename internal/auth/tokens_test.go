@@ -46,7 +46,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(raw, "kh_svc_") {
+	if !strings.HasPrefix(raw, "janus_svc_") {
 		t.Fatalf("token format: %q", raw)
 	}
 	if meta.Name != "ci" || meta.ScopeKind != "config" || meta.Access != "read" {
@@ -126,7 +126,7 @@ func TestTokenExpiry(t *testing.T) {
 func TestVerifyServiceTokenGarbage(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()
-	for _, raw := range []string{"", "kh_svc_", "kh_svc_notbase64!!!", "bearer-junk", "kh_other_AAAA"} {
+	for _, raw := range []string{"", "janus_svc_", "janus_svc_notbase64!!!", "bearer-junk", "janus_other_AAAA"} {
 		if _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
 			t.Fatalf("raw %q: %v", raw, err)
 		}

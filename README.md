@@ -10,8 +10,9 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > migrations, two-level versioning), the encryption-orchestration service, and
 > the **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
 > stack) are complete and tested against real Postgres. There are no
-> secret-facing HTTP routes yet — auth, RBAC, audit, the REST API, and the `kh`
-> CLI are still to come. See [Roadmap](#roadmap) for the honest current state.
+> secret-facing HTTP routes yet — RBAC, audit, the REST API, and the secrets
+> CLI (`janus run`) are still to come. See [Roadmap](#roadmap) for the honest
+> current state.
 > This is not yet usable as a secrets manager.
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
@@ -111,8 +112,8 @@ milestone.
 ## Repository layout
 
 ```
-cmd/janus/           server + operator CLI (cobra)                 ← implemented
-cmd/kh/              secrets CLI with `kh run` (planned)
+cmd/janus/           single binary: server + operator CLI (cobra); ← implemented
+                     secrets CLI (`janus run`) planned
 internal/crypto/     envelope encryption, key hierarchy, unseal    ← implemented
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
 internal/store/      Postgres repositories, migrations, versioning ← implemented

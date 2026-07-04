@@ -10,15 +10,14 @@ A single-tenant, self-hosted secrets manager combining the best of Doppler (proj
 - **Storage:** PostgreSQL 16+ via `pgx`. Migrations with `golang-migrate`, SQL files in `migrations/`.
 - **Crypto:** Go stdlib `crypto/*` + `golang.org/x/crypto` ONLY. Never implement crypto primitives. Never add third-party crypto libraries without explicit discussion.
 - **HTTP:** `net/http` with `chi` router. REST + JSON, all routes under `/v1/`.
-- **CLI:** `cobra`, distributed as part of the same repo (`cmd/janus` server, `cmd/kh` CLI).
+- **CLI:** `cobra`. A single `janus` binary provides both the server (`janus server`) and the secrets CLI (`janus run`, `janus secrets …`); there is no separate `kh` binary.
 - **Web UI:** React + TypeScript + Vite + Tailwind + TanStack Query, in `web/`. Built to static assets and embedded in the Go binary via `go:embed`. No Node server in production. No Next.js.
 - **Deployment:** Dockerfile (multi-stage: build web → build Go with embedded assets) + docker-compose.yml (app + Postgres).
 
 ## Repository layout
 
 ```
-cmd/janus/        server entrypoint
-cmd/kh/              CLI entrypoint
+cmd/janus/        server + CLI entrypoint (single `janus` binary)
 internal/crypto/     envelope encryption, key hierarchy, unseal
 internal/store/      Postgres repositories, migrations
 internal/api/        HTTP handlers, middleware, routes
@@ -61,7 +60,7 @@ Rules:
 
 - **Auth methods:** (1) user email + password (Argon2id) with session cookies for the UI; (2) service tokens (long-lived, scoped, shown once at creation); (3) OIDC — generic OIDC provider config, tested against GitHub and Google; (4) OIDC-federated machine identity for CI (GitHub Actions JWT exchange).
 - **RBAC:** roles (viewer / developer / admin / owner) scoped to project or environment. Service tokens are scoped to a single config or environment with read or read/write. Deny by default.
-- Token format: `kh_<type>_<random>`; store HMAC only.
+- Token format: `janus_<type>_<random>`; store HMAC only.
 
 ## Audit log
 
@@ -78,14 +77,14 @@ Append-only `audit_events` table. Every authenticated request that touches a sec
 - List endpoints: cursor pagination. Mutations: idempotency via client-supplied `Idempotency-Key` where destructive.
 - Rate limiting on auth endpoints. Strict CORS (UI is same-origin embedded, so effectively none).
 
-## CLI (`kh`)
+## CLI (`janus`)
 
-Core commands: `kh login`, `kh setup` (bind directory to project/config), `kh secrets get/set/list/delete`, `kh run -- <cmd>` (inject secrets as env vars into subprocess — flagship feature), `kh secrets download --format env|json|yaml`. Config in `~/.config/janus/`. Never write plaintext secrets to disk unless the user explicitly passes `--plain` to a download command.
+Core secrets commands (same `janus` binary as the server): `janus login`, `janus setup` (bind directory to project/config), `janus secrets get/set/list/delete`, `janus run -- <cmd>` (inject secrets as env vars into subprocess — flagship feature), `janus secrets download --format env|json|yaml`. Config in `~/.config/janus/`. Never write plaintext secrets to disk unless the user explicitly passes `--plain` to a download command.
 
 ## Build phases (work in order; do not start a later phase early)
 
 **Phase 1 — Core (usable Doppler replacement):**
-crypto layer + unseal → store + migrations → projects/envs/configs/secrets CRUD with versioning → auth (passwords, service tokens) → RBAC → audit log → REST API → CLI with `run`. Ends with: docker-compose up, create project, set secrets, `kh run` works.
+crypto layer + unseal → store + migrations → projects/envs/configs/secrets CRUD with versioning → auth (passwords, service tokens) → RBAC → audit log → REST API → CLI with `run`. Ends with: docker-compose up, create project, set secrets, `janus run` works.
 
 **Phase 2 — Transit + UI:**
 transit engine (named keys, encrypt/decrypt/sign/verify/rewrap, key versioning, min_decryption_version) reusing internal/crypto; React SPA (project overview dashboard, secret editor with masked values / batched dirty-state saves / config version diff, audit viewer with chain-verify badge and export, token/member management); OIDC login; **usage metrics** — lightweight daily aggregates (reads per config, per token) derived from audit events for the dashboard ("Reads 24h"), no external metrics stack.

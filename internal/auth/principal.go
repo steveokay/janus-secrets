@@ -1,5 +1,5 @@
 // Package auth is Janus's identity layer: Argon2id passwords, Postgres-backed
-// sessions, and kh_svc_ service tokens, all HMAC-hashed at rest with a
+// sessions, and janus_svc_ service tokens, all HMAC-hashed at rest with a
 // master-key-wrapped key. Everything that authenticates resolves to a
 // Principal — the seam RBAC, audit, and Phase-2 federation build on.
 package auth

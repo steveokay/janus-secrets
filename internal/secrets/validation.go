@@ -7,7 +7,7 @@ import (
 )
 
 // keyRe restricts secret keys to environment-variable identifiers, since the
-// flagship `kh run` injects them as env vars.
+// flagship `janus run` injects them as env vars.
 var keyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // validateKey rejects keys that are not valid env-var identifiers. The key name
