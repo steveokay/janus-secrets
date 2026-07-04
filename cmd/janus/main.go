@@ -17,6 +17,11 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	// Cobra's cmd.Print* fall back to stderr unless an output is set. Command
+	// results (init shares, seal-status) must go to stdout so pipelines like
+	// scripts/dev-unseal.sh can capture them.
+	root.SetOut(os.Stdout)
+	root.SetErr(os.Stderr)
 	root.AddCommand(
 		newServerCmd(),
 		newMigrateCmd(),
