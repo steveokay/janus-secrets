@@ -69,10 +69,24 @@ func newInitCmd() *cobra.Command {
 
 func newUnsealCmd() *cobra.Command {
 	var address, share string
+	var reset bool
 	cmd := &cobra.Command{
 		Use:   "unseal",
 		Short: "Submit an unseal share (or trigger a KMS unseal retry)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if reset {
+				// Discard all submitted shares — the recovery path the server
+				// points at after a poisoned reconstruction (key_check_failed).
+				var resp struct {
+					Sealed bool `json:"sealed"`
+				}
+				if err := sysCall(address, "POST", "/v1/sys/unseal/reset", nil, &resp); err != nil {
+					return err
+				}
+				cmd.Println("submitted shares discarded; resubmit from scratch")
+				return nil
+			}
+
 			var st sealStatus
 			if err := sysCall(address, "GET", "/v1/sys/seal-status", nil, &st); err != nil {
 				return err
@@ -119,6 +133,7 @@ func newUnsealCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&address, "address", defaultAddress(), "server address")
 	cmd.Flags().StringVar(&share, "share", "", "unseal share (hex); prefer stdin — a flag value is visible in process lists and shell history")
+	cmd.Flags().BoolVar(&reset, "reset", false, "discard all submitted shares (recover from a bad share)")
 	return cmd
 }
 

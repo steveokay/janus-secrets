@@ -62,6 +62,10 @@ func stubSys(t *testing.T, sealType string) (*httptest.Server, *stubState) {
 		st.paths = append(st.paths, r.URL.Path)
 		_ = json.NewEncoder(w).Encode(map[string]any{"sealed": true})
 	})
+	mux.HandleFunc("POST /v1/sys/unseal/reset", func(w http.ResponseWriter, r *http.Request) {
+		st.paths = append(st.paths, r.URL.Path)
+		_ = json.NewEncoder(w).Encode(map[string]any{"sealed": true, "progress": map[string]int{"submitted": 0, "required": 3}})
+	})
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts, st
@@ -223,5 +227,28 @@ func TestAPIErrorRendering(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q missing %q", err.Error(), want)
 		}
+	}
+}
+
+func TestUnsealResetFlag(t *testing.T) {
+	ts, st := stubSys(t, "shamir")
+	out, err := runCLI(t, "", "unseal", "--address", ts.URL, "--reset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "discarded") {
+		t.Fatalf("output = %q", out)
+	}
+	found := false
+	for _, p := range st.paths {
+		if p == "/v1/sys/unseal/reset" {
+			found = true
+		}
+		if p == "/v1/sys/unseal" {
+			t.Fatalf("--reset must not submit a share: %v", st.paths)
+		}
+	}
+	if !found {
+		t.Fatalf("reset endpoint not called: %v", st.paths)
 	}
 }

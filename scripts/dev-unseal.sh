@@ -22,6 +22,14 @@ if ! echo "$status" | grep -q "initialized: true"; then
   umask 177
   "$JANUS" init --shares 1 --threshold 1 --address "$ADDR" \
     | grep -oE '\b[0-9a-f]{32,}\b' | head -1 > "$SHARE_FILE"
+  # Guard against a format drift in the CLI output leaving a truncated or
+  # empty share file behind: a 1-of-1 share is exactly 64 hex chars.
+  share="$(cat "$SHARE_FILE")"
+  if [ "${#share}" -ne 64 ]; then
+    rm -f "$SHARE_FILE"
+    echo "failed to extract a valid share from 'janus init' output" >&2
+    exit 1
+  fi
   echo "dev share saved to $SHARE_FILE (dev only — this is the master key)"
 fi
 

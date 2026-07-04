@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +32,10 @@ type Server struct {
 	service  *secrets.Service
 	logger   *slog.Logger
 	router   chi.Router
+	// initMu serializes POST /v1/sys/init: the unsealer's Init is
+	// get-then-put, so unserialized concurrent inits could both report
+	// success while only one share set matches the stored seal.
+	initMu sync.Mutex
 }
 
 // New wires the router. logger nil defaults to slog.Default().

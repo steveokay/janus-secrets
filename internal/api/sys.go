@@ -102,6 +102,15 @@ type initResponse struct {
 }
 
 func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
+	// Serialize init: the unsealer's Init is get-then-put against an upserting
+	// store, so two concurrent inits in this process could BOTH return 200,
+	// handing one operator shares that fail the stored KCV — a false success
+	// carrying key material. The mutex makes the loser see the winner's config
+	// and get a clean 409. (Cross-process races are out of scope: single-node
+	// deployment is the supported topology per the project's non-goals.)
+	s.initMu.Lock()
+	defer s.initMu.Unlock()
+
 	var req initRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "invalid JSON body")

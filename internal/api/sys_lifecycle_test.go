@@ -346,3 +346,49 @@ func TestUnsealShortCircuitWhenUnsealed(t *testing.T) {
 		t.Fatalf("kms unseal while unsealed: code=%d resp=%+v", code, ur)
 	}
 }
+
+// TestConcurrentInitExactlyOneSucceeds guards the init serialization: without
+// it, two racing inits could both return 200 while only one share set matches
+// the stored seal — a false success carrying key material.
+func TestConcurrentInitExactlyOneSucceeds(t *testing.T) {
+	_, ts, _ := newShamirTestServer(t)
+
+	const n = 4
+	codes := make([]int, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			codes[i] = doJSON(t, "POST", ts.URL+"/v1/sys/init", `{"shares":5,"threshold":3}`, nil)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	ok, conflict := 0, 0
+	for _, c := range codes {
+		switch c {
+		case 200:
+			ok++
+		case 409:
+			conflict++
+		}
+	}
+	if ok != 1 || conflict != n-1 {
+		t.Fatalf("concurrent init codes = %v, want exactly one 200 and %d 409s", codes, n-1)
+	}
+}
+
+// TestComposedRouterDefaultClosesWhileSealed pins the wiring the sealed-state
+// guarantee rests on: middleware installed before routes in New, so ANY
+// non-sys path — including unregistered ones — returns 503 while sealed.
+func TestComposedRouterDefaultClosesWhileSealed(t *testing.T) {
+	_, ts, _ := newShamirTestServer(t)
+	var env errEnvelope
+	if code := doJSON(t, "GET", ts.URL+"/v1/projects", "", &env); code != 503 || env.Error.Code != CodeSealed {
+		t.Fatalf("sealed non-sys route: code=%d env=%+v, want 503 sealed", code, env)
+	}
+}

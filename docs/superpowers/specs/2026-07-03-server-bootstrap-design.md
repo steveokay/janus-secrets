@@ -194,6 +194,8 @@ Handlers are thin translation layers; all seal logic stays in `internal/crypto`.
   takes the share from the flag, or from stdin: echo-disabled prompt when stdin
   is a TTY (`golang.org/x/term`), plain read when piped. Prints progress
   (`2/3 shares`) or `unsealed`.
+- `janus unseal --reset` — wraps `POST /v1/sys/unseal/reset` (the recovery
+  path the server's `key_check_failed` message points at).
 - `janus seal-status` — pretty-prints status. `janus seal` — wraps sys/seal.
 - `janus migrate`, `janus version` — carried over onto cobra.
 
