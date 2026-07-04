@@ -12,7 +12,10 @@ design intent; they are kept in sync with the code as milestones land.
   KMS). **Implemented.**
 - [Data model & versioning](data-model.md) — the project → environment → config
   → secret hierarchy and the two-level (config-version + per-key) versioning
-  scheme. **Schema designed; being implemented in the store milestone.**
+  scheme. **Implemented.**
+- [Operations: server & `janus` CLI](operations.md) — running the server, the
+  seal lifecycle (init/unseal/seal), the sys HTTP API, configuration, the dev
+  workflow, and the KMS auto-unseal setup. **Implemented.**
 
 ## Design specs & plans
 
