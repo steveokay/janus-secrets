@@ -147,3 +147,13 @@ exposed over HTTP — auth comes first. Phase-1 finish line (per CLAUDE.md):
 - [ ] Hash-chained audit log
 - [ ] REST API (`/v1/`)
 - [ ] CLI with `kh run`
+
+## Phase-2 items already on the radar
+
+- [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google
+      tested) and OIDC-federated machine identity for CI (GitHub Actions JWT
+      exchange → scoped short-lived credential). Deliberately deferred from the
+      auth milestone; the Phase-1 identity model must leave room for
+      non-password principals and federated token types so this lands without
+      rework.
+- [ ] Transit/KMS engine, React SPA, usage metrics (per CLAUDE.md Phase 2)
