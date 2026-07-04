@@ -9,8 +9,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/steveokay/janus-secrets/internal/auth"
+	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 // Config is the api server's static configuration.
@@ -32,6 +34,8 @@ type Server struct {
 	seals    crypto.SealConfigStore
 	service  *secrets.Service
 	auth     *auth.Service // nil only in unit tests that exercise no auth path
+	authz    *authz.Engine // nil only in unit-test servers that exercise no authz path
+	st       *store.Store  // for scope-chain resolution + membership/user handlers
 	logger   *slog.Logger
 	router   chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
@@ -43,14 +47,15 @@ type Server struct {
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	seals crypto.SealConfigStore, svc *secrets.Service, authSvc *auth.Service,
-	logger *slog.Logger) *Server {
+	authorizer *authz.Engine, st *store.Store, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, auth: authSvc, logger: logger}
+	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc,
+		auth: authSvc, authz: authorizer, st: st, logger: logger}
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))

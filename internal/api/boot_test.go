@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -141,4 +142,46 @@ func TestBootKMSAutoUnseal(t *testing.T) {
 // srvStoreAuthKey reads the wrapped HMAC key through the server's own repos.
 func srvStoreAuthKey(ctx context.Context, srv *Server) ([]byte, error) {
 	return srv.auth.WrappedHMACKeyForTest(ctx)
+}
+
+func TestBootReconcilesInstanceOwner(t *testing.T) {
+	dsn := bootPostgres(t)
+	ctx := context.Background()
+
+	// Boot 1 + bootstrap: the admin becomes instance owner via bootstrapAdmin.
+	// bootstrapAdmin only creates a user (Argon2id hash + store write) and grants
+	// the owner binding — none of which touches the sealed keyring — so no
+	// init/unseal ceremony is needed here.
+	srv1, st1, err := Boot(ctx, BootConfig{DatabaseURL: dsn, SealType: crypto.SealTypeShamir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv1.bootstrapAdmin(ctx, "root@corp.io"); err != nil {
+		t.Fatal(err)
+	}
+	rb := store.NewRoleBindingRepo(st1)
+	if n, _ := rb.CountInstanceOwners(ctx); n != 1 {
+		t.Fatalf("owners after bootstrap: %d", n)
+	}
+
+	// Remove the owner binding, re-boot → reconciliation regrants it to the
+	// oldest user (never-lock-out self-heal).
+	members, _ := rb.ListForScope(ctx, "instance", "")
+	if len(members) != 1 {
+		t.Fatalf("instance members: %d", len(members))
+	}
+	if err := rb.DeleteForSubjectScope(ctx, members[0].SubjectUserID, "instance", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	st1.Close()
+
+	srv2, st2, err := Boot(ctx, BootConfig{DatabaseURL: dsn, SealType: crypto.SealTypeShamir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st2.Close()
+	_ = srv2
+	if n, _ := store.NewRoleBindingRepo(st2).CountInstanceOwners(ctx); n != 1 {
+		t.Fatalf("owners after reconciliation: %d, want 1", n)
+	}
 }

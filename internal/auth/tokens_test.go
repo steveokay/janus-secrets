@@ -53,7 +53,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 		t.Fatalf("meta = %+v", meta)
 	}
 
-	p, err := svc.VerifyServiceToken(ctx, raw)
+	p, _, err := svc.VerifyServiceToken(ctx, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	if err := svc.RevokeToken(ctx, meta.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("revoked token verified: %v", err)
 	}
 	if err := svc.RevokeToken(ctx, meta.ID); !errors.Is(err, ErrNotFound) {
@@ -118,7 +118,7 @@ func TestTokenExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(20 * time.Millisecond)
-	if _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("expired token verified: %v", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestVerifyServiceTokenGarbage(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()
 	for _, raw := range []string{"", "kh_svc_", "kh_svc_notbase64!!!", "bearer-junk", "kh_other_AAAA"} {
-		if _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
+		if _, _, err := svc.VerifyServiceToken(ctx, raw); !errors.Is(err, ErrUnauthenticated) {
 			t.Fatalf("raw %q: %v", raw, err)
 		}
 	}

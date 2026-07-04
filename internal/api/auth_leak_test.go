@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/steveokay/janus-secrets/internal/auth"
+	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -38,7 +39,8 @@ func TestNoCredentialMaterialInLogsOrErrors(t *testing.T) {
 	kr := crypto.NewKeyring()
 	u := crypto.NewShamirUnsealer(seals, 0, 0)
 	srv := New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals,
-		secrets.NewService(st, kr), auth.NewService(st, kr), logger)
+		secrets.NewService(st, kr), auth.NewService(st, kr),
+		authz.New(store.NewRoleBindingRepo(st)), st, logger)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 

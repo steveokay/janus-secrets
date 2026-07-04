@@ -13,6 +13,13 @@ import (
 // their own kh_<type>_ prefixes.
 const svcTokenPrefix = "kh_svc_"
 
+// TokenScope is a verified service token's scope, for authorization.
+type TokenScope struct {
+	Kind   string // scope_kind: "config" | "environment"
+	ID     string // scope_id
+	Access string // "read" | "readwrite"
+}
+
 // TokenMeta is service-token metadata. It has no raw-token field by design —
 // list/inspect paths structurally cannot leak the credential.
 type TokenMeta struct {
@@ -92,30 +99,31 @@ func scopeErr(err error) error {
 	return err
 }
 
-// VerifyServiceToken resolves a raw bearer token to a Principal.
-func (s *Service) VerifyServiceToken(ctx context.Context, raw string) (Principal, error) {
+// VerifyServiceToken resolves a raw bearer token to a Principal and its scope.
+func (s *Service) VerifyServiceToken(ctx context.Context, raw string) (Principal, *TokenScope, error) {
 	if !strings.HasPrefix(raw, svcTokenPrefix) || len(raw) == len(svcTokenPrefix) {
-		return Principal{}, ErrUnauthenticated
+		return Principal{}, nil, ErrUnauthenticated
 	}
 	key, err := s.hmacKey(ctx)
 	if err != nil {
-		return Principal{}, err // crypto.ErrSealed passes through
+		return Principal{}, nil, err // crypto.ErrSealed passes through
 	}
 	defer zeroize(key)
 	tok, err := s.tokens.GetByHMAC(ctx, mac(key, raw))
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Principal{}, ErrUnauthenticated
+			return Principal{}, nil, ErrUnauthenticated
 		}
-		return Principal{}, err
+		return Principal{}, nil, err
 	}
 	if tok.RevokedAt != nil {
-		return Principal{}, ErrUnauthenticated
+		return Principal{}, nil, ErrUnauthenticated
 	}
 	if tok.ExpiresAt != nil && time.Now().After(*tok.ExpiresAt) {
-		return Principal{}, ErrUnauthenticated
+		return Principal{}, nil, ErrUnauthenticated
 	}
-	return Principal{Kind: KindServiceToken, ID: tok.ID, Name: tok.Name}, nil
+	scope := &TokenScope{Kind: tok.ScopeKind, ID: tok.ScopeID, Access: tok.Access}
+	return Principal{Kind: KindServiceToken, ID: tok.ID, Name: tok.Name}, scope, nil
 }
 
 // ListTokens returns metadata for all tokens (raw values are unrecoverable).
