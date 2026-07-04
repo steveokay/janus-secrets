@@ -12,7 +12,7 @@ those below it and is testable in isolation.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  cmd/janus (server)          cmd/kh (CLI)                 │
+│  cmd/janus (single binary: server + secrets CLI)         │
 ├──────────────────────────────────────────────────────────┤
 │  internal/api    HTTP handlers, middleware, routes  (TODO)│
 ├──────────────────────────────────────────────────────────┤
@@ -48,8 +48,7 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 | `internal/auth` | Passwords, service tokens, OIDC, sessions | ⏳ planned |
 | `internal/authz` | RBAC engine (viewer/developer/admin/owner) | ⏳ planned |
 | `internal/audit` | Hash-chained append-only audit log | ⏳ planned |
-| `cmd/janus` | Server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) | ✅ implemented |
-| `cmd/kh` | Secrets CLI (`kh run`, etc.) | ⏳ planned |
+| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) — secrets CLI (`janus run`, etc.) planned | ✅ implemented (secrets CLI ⏳ planned) |
 
 ## Sealed vs. unsealed
 

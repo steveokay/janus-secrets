@@ -109,7 +109,7 @@ KMS boot auto-unseal); `cmd/janus` rebuilt onto cobra (`server`, `init`,
 (`SubmittedShares()`, deterministic 1-of-1 seal for dev); Dockerfile + compose
 app service + `scripts/dev-unseal.sh` + `make dev-up`.
 Deferred (documented in spec): TLS, sys rate limiting, auth-gating
-`POST /v1/sys/seal` (auth milestone checklist), secret-facing routes, `kh`.
+`POST /v1/sys/seal` (auth milestone checklist), secret-facing routes, secrets CLI.
 
 - [x] Design spec (brainstorming) + user review
 - [x] Implementation plan (writing-plans) — 10 tasks
@@ -141,7 +141,7 @@ quality-reviewed).
 Scope delivered: `internal/auth` identity layer — Argon2id PHC passwords
 (needs-rehash on login, strict bounds-checked param parsing to defuse a
 crafted-hash DoS), Postgres-backed opaque sessions (32-byte cookie, HMAC
-stored), and scoped `kh_svc_` service tokens (mint-once, HMAC-verify, list,
+stored), and scoped `janus_svc_` service tokens (mint-once, HMAC-verify, list,
 revoke). A single `Principal{Kind,ID,Name}` type is the seam RBAC, audit, and
 Phase-2 federation build on. The token-HMAC key is a random 256-bit key wrapped
 by the master key under a fixed `janus:auth:token-hmac` AAD, materialized at the
@@ -153,7 +153,7 @@ at first unseal. `internal/api` gains `/v1/auth/{login,logout,me,password}` and
 credential endpoints, and auth-gates `POST /v1/sys/seal`. `janus init` prints the
 one-time admin credential (`--admin-email`).
 Deferred (per spec): OIDC / federation (Phase 2); RBAC scope *enforcement*
-(tokens store scope now, enforced by the RBAC/API milestones); `kh login` CLI.
+(tokens store scope now, enforced by the RBAC/API milestones); `janus login` CLI.
 
 - [x] Design spec (brainstorming) + user review
 - [x] Implementation plan (writing-plans) — 10 tasks
@@ -251,11 +251,11 @@ return 503 while sealed. Auth now exists: `/v1/auth/*` and `/v1/tokens*` are
 live, and `POST /v1/sys/seal` is auth-gated. The secrets service is live
 in-process but still not exposed over HTTP — RBAC + the secret-facing REST API
 come next. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
-project, set secrets, `kh run` works."
+project, set secrets, `janus run` works."
 
 Caveat carried forward: the operator `janus seal` CLI command does not yet send
 a credential, so it will receive 401 against the now-gated endpoint until it
-grows a token flag (or `kh login`); sealing over HTTP works with a bearer token
+grows a token flag (or `janus login`); sealing over HTTP works with a bearer token
 or session cookie today.
 
 - [ ] Config inheritance resolution + secret references (`${projects...}`)
@@ -265,7 +265,7 @@ or session cookie today.
       user endpoints, token/seal authorization (milestone 6)
 - [ ] Hash-chained audit log
 - [ ] REST API (`/v1/`)
-- [ ] CLI with `kh run`
+- [ ] Secrets CLI with `janus run`
 
 ## Phase-2 items already on the radar
 

@@ -10,8 +10,8 @@ import (
 )
 
 // svcTokenPrefix namespaces service tokens; Phase-2 federated credentials get
-// their own kh_<type>_ prefixes.
-const svcTokenPrefix = "kh_svc_"
+// their own janus_<type>_ prefixes.
+const svcTokenPrefix = "janus_svc_"
 
 // TokenScope is a verified service token's scope, for authorization.
 type TokenScope struct {
