@@ -27,20 +27,28 @@ func newInitCmd() *cobra.Command {
 	var address string
 	var shares, threshold int
 	var asJSON bool
+	var adminEmail string
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize the seal (returns Shamir shares exactly once)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			req := map[string]int{}
+			req := map[string]any{}
 			if shares != 0 {
 				req["shares"] = shares
 			}
 			if threshold != 0 {
 				req["threshold"] = threshold
 			}
+			if adminEmail != "" {
+				req["admin_email"] = adminEmail
+			}
 			var resp struct {
 				Type   string   `json:"type"`
 				Shares []string `json:"shares"`
+				Admin  *struct {
+					Email    string `json:"email"`
+					Password string `json:"password"`
+				} `json:"admin"`
 			}
 			if err := sysCall(address, "POST", "/v1/sys/init", req, &resp); err != nil {
 				return err
@@ -57,6 +65,12 @@ func newInitCmd() *cobra.Command {
 					cmd.Printf("  Share %d: %s\n", i+1, sh)
 				}
 			}
+			if resp.Admin != nil {
+				cmd.Println("\nInitial admin credential — change it after first login.")
+				cmd.Println("It WILL NOT BE SHOWN AGAIN.")
+				cmd.Printf("  Email:    %s\n", resp.Admin.Email)
+				cmd.Printf("  Password: %s\n", resp.Admin.Password)
+			}
 			return nil
 		},
 	}
@@ -64,6 +78,7 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().IntVar(&shares, "shares", 0, "number of Shamir shares (default 5)")
 	cmd.Flags().IntVar(&threshold, "threshold", 0, "unseal threshold (default 3)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the raw JSON response")
+	cmd.Flags().StringVar(&adminEmail, "admin-email", "", "email for the initial admin (default admin@localhost)")
 	return cmd
 }
 

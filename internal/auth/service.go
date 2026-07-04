@@ -104,6 +104,11 @@ func (s *Service) EnsureHMACKey(ctx context.Context) error {
 	return s.authcfg.PutWrappedHMACKeyIfAbsent(ctx, wrapped.Marshal())
 }
 
+// WrappedHMACKeyForTest exposes the stored wrapped key for integration tests.
+func (s *Service) WrappedHMACKeyForTest(ctx context.Context) ([]byte, error) {
+	return s.authcfg.GetWrappedHMACKey(ctx)
+}
+
 // CreateInitialAdmin creates the bootstrap admin with a generated one-time
 // password (returned exactly once; only its Argon2id hash is stored). Called
 // from the init ceremony only. Returns ErrValidation if any user exists.

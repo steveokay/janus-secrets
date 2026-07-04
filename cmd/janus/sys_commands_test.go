@@ -15,6 +15,7 @@ type stubState struct {
 	share         string // last share submitted to /v1/sys/unseal
 	initShares    int    // shares param received by /v1/sys/init
 	initThreshold int    // threshold param received by /v1/sys/init
+	adminEmail    string // admin_email param received by /v1/sys/init
 }
 
 // stubSys scripts the sys API for CLI tests.
@@ -24,19 +25,24 @@ func stubSys(t *testing.T, sealType string) (*httptest.Server, *stubState) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/sys/init", func(w http.ResponseWriter, r *http.Request) {
 		st.paths = append(st.paths, r.URL.Path)
-		var req struct{ Shares, Threshold int }
+		var req struct {
+			Shares, Threshold int
+			AdminEmail        string `json:"admin_email"`
+		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		st.initShares = req.Shares
 		st.initThreshold = req.Threshold
+		st.adminEmail = req.AdminEmail
+		admin := map[string]string{"email": "admin@localhost", "password": "generated-one-time-pw"}
 		if sealType == "shamir" {
 			shares := []string{"aa01", "bb02", "cc03"}
 			if req.Shares == 1 {
 				shares = []string{"dd04"}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"type": "shamir", "shares": shares})
+			_ = json.NewEncoder(w).Encode(map[string]any{"type": "shamir", "shares": shares, "admin": admin})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"type": "awskms"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "awskms", "admin": admin})
 	})
 	mux.HandleFunc("GET /v1/sys/seal-status", func(w http.ResponseWriter, r *http.Request) {
 		st.paths = append(st.paths, r.URL.Path)
@@ -205,6 +211,22 @@ func TestInitCommandSendsParams(t *testing.T) {
 	}
 	if !strings.Contains(out, "dd04") {
 		t.Fatalf("output missing single share dd04: %q", out)
+	}
+}
+
+func TestInitCommandPrintsAdminCredential(t *testing.T) {
+	ts, st := stubSys(t, "shamir")
+	out, err := runCLI(t, "", "init", "--address", ts.URL, "--admin-email", "root@corp.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.adminEmail != "root@corp.io" {
+		t.Fatalf("admin_email on the wire = %q", st.adminEmail)
+	}
+	for _, want := range []string{"admin@localhost", "generated-one-time-pw", "WILL NOT BE SHOWN AGAIN"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q: %q", want, out)
+		}
 	}
 }
 

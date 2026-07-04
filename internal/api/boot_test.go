@@ -112,6 +112,10 @@ func TestBootKMSAutoUnseal(t *testing.T) {
 	if srv2.keyring.Sealed() {
 		t.Fatal("initialized kms boot must auto-unseal")
 	}
+	// The first-unseal hook must have materialized the token-HMAC key.
+	if _, err := srvStoreAuthKey(ctx, srv2); err != nil {
+		t.Fatalf("hmac key not bootstrapped at unseal: %v", err)
+	}
 
 	// Boot 3: KMS down at boot → stays sealed but serves; retry endpoint works.
 	client.fail = true
@@ -132,4 +136,9 @@ func TestBootKMSAutoUnseal(t *testing.T) {
 	if srv3.keyring.Sealed() {
 		t.Fatal("retry should unseal")
 	}
+}
+
+// srvStoreAuthKey reads the wrapped HMAC key through the server's own repos.
+func srvStoreAuthKey(ctx context.Context, srv *Server) ([]byte, error) {
+	return srv.auth.WrappedHMACKeyForTest(ctx)
 }

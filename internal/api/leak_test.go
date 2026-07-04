@@ -21,7 +21,7 @@ func TestNoShareMaterialInLogsOrErrors(t *testing.T) {
 	seals := &memSealStore{}
 	kr := crypto.NewKeyring()
 	u := crypto.NewShamirUnsealer(seals, 0, 0)
-	srv := New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals, nil,
+	srv := New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals, nil, nil,
 		slog.New(slog.NewTextHandler(&logBuf, nil)))
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
