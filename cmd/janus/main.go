@@ -1,46 +1,47 @@
+// Command janus is the Janus server and its operator CLI.
 package main
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 
-	"github.com/steveokay/janus-secrets/internal/store"
+	"github.com/spf13/cobra"
 )
 
 var version = "dev"
 
-func main() {
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "version":
-			fmt.Println("janus", version)
-			return
-		case "migrate":
-			if err := runMigrate(); err != nil {
-				fmt.Fprintln(os.Stderr, "migrate:", err)
-				os.Exit(1)
-			}
-			fmt.Println("migrations applied")
-			return
-		}
+func newRootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "janus",
+		Short:         "Janus — self-hosted secrets manager",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
-	fmt.Fprintln(os.Stderr, "janus server not yet implemented; see CLAUDE.md build phases")
-	os.Exit(1)
+	root.AddCommand(
+		newServerCmd(),
+		newMigrateCmd(),
+		newInitCmd(),
+		newUnsealCmd(),
+		newSealStatusCmd(),
+		newSealCmd(),
+		newVersionCmd(),
+	)
+	return root
 }
 
-// runMigrate applies database migrations using JANUS_DATABASE_URL.
-func runMigrate() error {
-	dsn := os.Getenv("JANUS_DATABASE_URL")
-	if dsn == "" {
-		return errors.New("JANUS_DATABASE_URL is not set")
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the janus version",
+		Run: func(cmd *cobra.Command, _ []string) {
+			fmt.Fprintln(cmd.OutOrStdout(), "janus", version)
+		},
 	}
-	ctx := context.Background()
-	s, err := store.Open(ctx, dsn)
-	if err != nil {
-		return err
+}
+
+func main() {
+	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "janus:", err)
+		os.Exit(1)
 	}
-	defer s.Close()
-	return s.Migrate(ctx)
 }
