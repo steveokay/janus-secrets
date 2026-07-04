@@ -189,6 +189,59 @@ Non-blocking follow-ups from final review (carry into RBAC / a hardening pass):
 - Login returns 404 (not 503) if the HMAC key is missing after a partial unseal.
 - `janus seal` CLI sends no credential → 401 against the gated endpoint.
 
+## Milestone 6 — RBAC (roles, scopes, enforcement) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-04-rbac-design.md`
+Plan: `docs/superpowers/plans/2026-07-04-rbac.md`
+Branch: `milestone-6-rbac` (subagent-driven development; each task compiler- and
+diff-reviewed by the controller before proceeding).
+
+Scope delivered: `internal/authz` — a pure, HTTP-free, deny-by-default decision
+engine over a fixed role→action matrix (viewer ⊂ developer ⊂ admin ⊂ owner,
+built cumulatively) and `role_bindings` in Postgres (migration `000003`).
+`Engine.Can(ctx, principal, scope, action, resource)` resolves users by the
+most-permissive union of their applicable bindings with top-down scope
+inheritance (instance → project → environment), and service tokens by their
+scope+`access` mapped to least-privilege secret/config capabilities only —
+tokens can never reach management or instance actions. Enforcement is explicit
+at the handler boundary via a thin `s.can(...)` helper plus a `requireInstance`
+middleware; the engine stays identity/HTTP-free and `internal/secrets` stays
+authz-free. Grants honor a delegation constraint (cannot grant above your own
+effective role at that scope) and a never-lock-out guard (cannot remove or
+disable the last instance owner); Boot reconciles an instance owner on startup
+(self-heals an M5→M6 upgrade). Closes the two M5 deferrals: `POST /v1/sys/seal`
+now requires `sys:seal`, and token mint/list/revoke are authorized (list is
+scope-filtered to what the caller can `token:read`) — the highest-impact M5
+follow-up. New endpoints: `/v1/users` (create/list/disable, `user:manage`) and
+`/v1/{instance|projects/{pid}|projects/{pid}/environments/{eid}}/members`
+(grant/revoke/list). Denied responses expose no policy internals.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 9 tasks
+- [x] 1. Migration `000003` + `RoleBinding` models + `RoleBindingRepo`
+      (NULL-safe upsert, list-for-user/scope, revoke, owner count)
+- [x] 2. User store additions + `auth.Service` user mgmt; `CreateInitialAdmin`
+      returns the new user id
+- [x] 3. `internal/authz` — action vocabulary, role→action matrix, `Resource`,
+      `ErrForbidden`
+- [x] 4. `authz.Engine` — `Can` (user bindings + token capabilities),
+      grant/revoke/list, `EffectiveRole` (100% coverage)
+- [x] 5. API plumbing — token scope in context, engine wired into `New`/`Boot`,
+      bootstrap owner-grant + startup reconciliation (no enforcement yet)
+- [x] 6. Enforce `sys:seal`; authorize token mint/list/revoke (scope-filtered)
+- [x] 7. `/v1/users` endpoints (create/list/disable) gated on `user:manage`
+- [x] 8. Membership endpoints (instance/project/env) with delegation constraint
+      + last-owner guard
+- [x] 9. Authz leak test, full gate, tracker
+
+Verification: `go build`, `go vet`, `go test ./...` (authz + api + auth + store
++ secrets + crypto + CLI, Docker-backed suites ran) all pass; `internal/authz`
+coverage 100.0%; `gosec` (v2.27.1, shamir excluded) 0 issues (no new `#nosec`
+needed — the RBAC SQL column-list constants contain no credential-like tokens);
+`govulncheck` 0 affecting vulnerabilities. Task ordering kept the build green at
+every commit: the owner-grant (task 5) lands before enforcement (task 6), so the
+M5 auth/token e2e never regressed mid-sequence.
+
 ## Later Phase-1 milestones (not started)
 
 **Runnable server with identities, no secret routes yet.** `make dev-up` (or
@@ -208,7 +261,8 @@ or session cookie today.
 - [ ] Config inheritance resolution + secret references (`${projects...}`)
 - [x] Auth (passwords, service tokens) — `POST /v1/sys/seal` auth-gated
       (OIDC / federation deferred to Phase 2)
-- [ ] RBAC engine
+- [x] RBAC engine — roles/scopes, deny-by-default enforcement, membership +
+      user endpoints, token/seal authorization (milestone 6)
 - [ ] Hash-chained audit log
 - [ ] REST API (`/v1/`)
 - [ ] CLI with `kh run`
