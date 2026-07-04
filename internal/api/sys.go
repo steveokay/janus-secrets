@@ -92,13 +92,20 @@ func (s *Server) handleSealStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 type initRequest struct {
-	Shares    int `json:"shares"`
-	Threshold int `json:"threshold"`
+	Shares     int    `json:"shares"`
+	Threshold  int    `json:"threshold"`
+	AdminEmail string `json:"admin_email"`
+}
+
+type adminCredential struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type initResponse struct {
-	Type   string   `json:"type"`
-	Shares []string `json:"shares,omitempty"`
+	Type   string           `json:"type"`
+	Shares []string         `json:"shares,omitempty"`
+	Admin  *adminCredential `json:"admin,omitempty"`
 }
 
 func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +143,12 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 			shares[i] = hex.EncodeToString(sh)
 			zero(sh) // one-time exposure: the response is the only copy
 		}
-		writeJSON(w, http.StatusOK, initResponse{Type: crypto.SealTypeShamir, Shares: shares})
+		admin, err := s.bootstrapAdmin(r.Context(), req.AdminEmail)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		writeJSON(w, http.StatusOK, initResponse{Type: crypto.SealTypeShamir, Shares: shares, Admin: admin})
 
 	case crypto.SealTypeAWSKMS:
 		if req.Shares != 0 || req.Threshold != 0 {
@@ -148,12 +160,19 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 			s.writeInitError(w, err)
 			return
 		}
+		// Create the admin BEFORE auto-unseal so a failed unseal still delivers
+		// the one-time credential.
+		admin, err := s.bootstrapAdmin(r.Context(), req.AdminEmail)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
 		// Auto-unseal: the operator holds nothing under KMS.
 		if err := s.unsealNow(r.Context()); err != nil {
 			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 			return
 		}
-		writeJSON(w, http.StatusOK, initResponse{Type: crypto.SealTypeAWSKMS})
+		writeJSON(w, http.StatusOK, initResponse{Type: crypto.SealTypeAWSKMS, Admin: admin})
 
 	default:
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
@@ -185,6 +204,22 @@ func (s *Server) writeInitError(w http.ResponseWriter, err error) {
 	}
 }
 
+// bootstrapAdmin creates the initial admin during init. Skipped when no auth
+// service is wired (unit-test servers).
+func (s *Server) bootstrapAdmin(ctx context.Context, email string) (*adminCredential, error) {
+	if s.auth == nil {
+		return nil, nil
+	}
+	if email == "" {
+		email = "admin@localhost"
+	}
+	password, err := s.auth.CreateInitialAdmin(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return &adminCredential{Email: email, Password: password}, nil
+}
+
 // unsealNow runs the unsealer and feeds the keyring, zeroizing the master.
 func (s *Server) unsealNow(ctx context.Context) error {
 	master, err := s.unsealer.Unseal(ctx)
@@ -194,6 +229,13 @@ func (s *Server) unsealNow(ctx context.Context) error {
 	defer zero(master)
 	if err := s.keyring.Unseal(master); err != nil && !errors.Is(err, crypto.ErrAlreadyUnsealed) {
 		return err
+	}
+	// First-unseal bootstrap: materialize the token-HMAC key. Best-effort — a
+	// failure here must not fail the unseal (auth surfaces its own errors).
+	if s.auth != nil {
+		if err := s.auth.EnsureHMACKey(ctx); err != nil {
+			s.logger.Warn("auth hmac-key bootstrap failed; auth endpoints unavailable until retried", "err", err)
+		}
 	}
 	return nil
 }
@@ -331,8 +373,8 @@ func (s *Server) handleUnsealReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSeal(w http.ResponseWriter, r *http.Request) {
-	// NOTE: unauthenticated until the auth milestone (availability-only,
-	// fail-closed). See the design spec's security posture.
+	// Auth-gated in production via RequireAuth (see New); the seam there lets
+	// unit-test servers without an auth service still exercise the handler.
 	s.keyring.Seal()
 	writeJSON(w, http.StatusOK, map[string]any{"sealed": true})
 }

@@ -174,6 +174,47 @@ func TestKeyringConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAuthKeyWrapUnwrap(t *testing.T) {
+	k := NewKeyring()
+
+	// Sealed: both operations refuse.
+	if _, err := k.WrapAuthKey(testKey(0x11)); !errors.Is(err, ErrSealed) {
+		t.Fatalf("sealed wrap: %v", err)
+	}
+	if _, err := k.UnwrapAuthKey(Ciphertext{}); !errors.Is(err, ErrSealed) {
+		t.Fatalf("sealed unwrap: %v", err)
+	}
+
+	if err := k.Unseal(testKey(0xAA)); err != nil {
+		t.Fatal(err)
+	}
+
+	authKey := testKey(0x33)
+	ct, err := k.WrapAuthKey(authKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := k.UnwrapAuthKey(ct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, authKey) {
+		t.Fatal("round-trip mismatch")
+	}
+	zero(got)
+
+	// Wrong-size key refused at wrap.
+	if _, err := k.WrapAuthKey([]byte("short")); !errors.Is(err, ErrInvalidKeySize) {
+		t.Fatalf("short key: %v", err)
+	}
+
+	// A project-KEK ciphertext must not unwrap as the auth key (AAD binding).
+	kek, _ := k.WrapProjectKEK(testKey(0x44), "some-project")
+	if _, err := k.UnwrapAuthKey(kek); !errors.Is(err, ErrDecryptFailed) {
+		t.Fatalf("cross-AAD unwrap: %v", err)
+	}
+}
+
 func TestKeyringDoubleSeal(t *testing.T) {
 	k := NewKeyring()
 	k.Seal() // sealing an already-sealed keyring must not panic

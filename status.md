@@ -131,18 +131,83 @@ Verification: `go build`, `go vet`, `go test ./...` (api + store + secrets +
 CLI, Docker-backed suites ran) all pass; `gosec` (v2.27.1, shamir excluded)
 0 issues; `govulncheck` 0; `internal/crypto` coverage 100.0%.
 
+## Milestone 5 — Auth (passwords, sessions, service tokens) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-04-auth-design.md`
+Plan: `docs/superpowers/plans/2026-07-04-auth.md`
+Branch: `milestone-5-auth` (subagent-driven development; every task spec- and
+quality-reviewed).
+
+Scope delivered: `internal/auth` identity layer — Argon2id PHC passwords
+(needs-rehash on login, strict bounds-checked param parsing to defuse a
+crafted-hash DoS), Postgres-backed opaque sessions (32-byte cookie, HMAC
+stored), and scoped `kh_svc_` service tokens (mint-once, HMAC-verify, list,
+revoke). A single `Principal{Kind,ID,Name}` type is the seam RBAC, audit, and
+Phase-2 federation build on. The token-HMAC key is a random 256-bit key wrapped
+by the master key under a fixed `janus:auth:token-hmac` AAD, materialized at the
+first-unseal transition — so a DB dump is not verifiable offline and credential
+verification requires an unsealed server. Two-phase bootstrap: the initial admin
+is created during the init ceremony (one-time password shown once), the HMAC key
+at first unseal. `internal/api` gains `/v1/auth/{login,logout,me,password}` and
+`/v1/tokens` (mint/list/revoke) behind `RequireAuth`, per-IP rate limiting on
+credential endpoints, and auth-gates `POST /v1/sys/seal`. `janus init` prints the
+one-time admin credential (`--admin-email`).
+Deferred (per spec): OIDC / federation (Phase 2); RBAC scope *enforcement*
+(tokens store scope now, enforced by the RBAC/API milestones); `kh login` CLI.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 10 tasks
+- [x] 1. Migration `000002` + store auth models + `UserRepo`
+- [x] 2. Store repos — sessions, service tokens, auth config
+- [x] 3. Crypto `WrapAuthKey`/`UnwrapAuthKey` + `AuthKeyAAD`
+- [x] 4. `internal/auth` — Principal, errors, Argon2id passwords (+ crafted-hash
+      DoS fix: strict param parse, tight bounds, salt/hash length checks)
+- [x] 5. Service — HMAC keying, bootstrap admin, sessions, ChangePassword, sweep
+- [x] 6. Scoped service tokens (mint/verify/list/revoke)
+- [x] 7. `RequireAuth` + `PrincipalFrom` + per-IP rate limiter + error codes
+- [x] 8. Init-ceremony admin bootstrap, first-unseal HMAC key, Boot wiring,
+      seal gating, CLI credential output
+- [x] 9. Auth + token endpoints + e2e lifecycle/enumeration/rate-limit tests
+- [x] 10. Credential leak test, full gate, tracker
+
+Verification: `go build`, `go vet`, `go test ./...` (auth + api + store +
+secrets + CLI, Docker-backed suites ran) all pass; `gosec` (v2.27.1, shamir
+excluded) 0 issues (three findings resolved with recorded `#nosec`
+justifications: G115 bounded key length, G101 SQL column list, G124 intentional
+conditional-`Secure` cookie); `govulncheck` 0; `internal/crypto` coverage 100.0%.
+Final holistic review: SHIP, no blocking issues.
+
+Non-blocking follow-ups from final review (carry into RBAC / a hardening pass):
+- `GET /v1/tokens` and `DELETE /v1/tokens/{id}` are authn-gated only — any
+  principal (incl. a read-only service token) can list/revoke. Spec'd as "any
+  principal" for M5; add an admin gate when RBAC lands (highest-impact gap).
+- Per-IP login rate limiter keys on `r.RemoteAddr`; behind a TLS-terminating
+  proxy that collapses to one bucket — add trusted-proxy `X-Forwarded-For`
+  handling when the proxy is introduced (same caveat nullifies the conditional
+  cookie `Secure` flag).
+- `ChangePassword` leaves other sessions valid and has no `new != old` check.
+- Login returns 404 (not 503) if the HMAC key is missing after a partial unseal.
+- `janus seal` CLI sends no credential → 401 against the gated endpoint.
+
 ## Later Phase-1 milestones (not started)
 
-**Runnable server, no secret routes yet.** `make dev-up` (or
+**Runnable server with identities, no secret routes yet.** `make dev-up` (or
 `docker compose up` + `scripts/dev-unseal.sh`) yields a running, unsealed
 server; `janus init`/`unseal`/`seal-status` work over HTTP; non-sys routes
-return 503 while sealed. The secrets service is live in-process but not yet
-exposed over HTTP — auth comes first. Phase-1 finish line (per CLAUDE.md):
-"docker-compose up, create project, set secrets, `kh run` works."
+return 503 while sealed. Auth now exists: `/v1/auth/*` and `/v1/tokens*` are
+live, and `POST /v1/sys/seal` is auth-gated. The secrets service is live
+in-process but still not exposed over HTTP — RBAC + the secret-facing REST API
+come next. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
+project, set secrets, `kh run` works."
+
+Caveat carried forward: the operator `janus seal` CLI command does not yet send
+a credential, so it will receive 401 against the now-gated endpoint until it
+grows a token flag (or `kh login`); sealing over HTTP works with a bearer token
+or session cookie today.
 
 - [ ] Config inheritance resolution + secret references (`${projects...}`)
-- [ ] Auth (passwords, service tokens, OIDC) — must also auth-gate
-      `POST /v1/sys/seal`
+- [x] Auth (passwords, service tokens) — `POST /v1/sys/seal` auth-gated
+      (OIDC / federation deferred to Phase 2)
 - [ ] RBAC engine
 - [ ] Hash-chained audit log
 - [ ] REST API (`/v1/`)

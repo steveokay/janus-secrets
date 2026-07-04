@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -94,7 +95,12 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	}
 
 	svc := secrets.NewService(st, kr)
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, logger)
+	authSvc := auth.NewService(st, kr)
+	// Sweep sessions orphaned by expiry while the server was down.
+	if err := authSvc.SweepExpiredSessions(ctx); err != nil {
+		logger.Warn("expired-session sweep failed", "err", err)
+	}
+	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, authSvc, logger)
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and
 	// POST /v1/sys/unseal retries.

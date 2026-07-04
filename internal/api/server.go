@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 )
@@ -30,6 +31,7 @@ type Server struct {
 	unsealer crypto.Unsealer
 	seals    crypto.SealConfigStore
 	service  *secrets.Service
+	auth     *auth.Service // nil only in unit tests that exercise no auth path
 	logger   *slog.Logger
 	router   chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
@@ -40,14 +42,15 @@ type Server struct {
 
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
-	seals crypto.SealConfigStore, svc *secrets.Service, logger *slog.Logger) *Server {
+	seals crypto.SealConfigStore, svc *secrets.Service, authSvc *auth.Service,
+	logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, logger: logger}
+	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, auth: authSvc, logger: logger}
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
@@ -58,8 +61,32 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		r.Post("/init", s.handleInit)
 		r.Post("/unseal", s.handleUnseal)
 		r.Post("/unseal/reset", s.handleUnsealReset)
-		r.Post("/seal", s.handleSeal)
+		// Production always wires a non-nil auth service (Boot does), so seal is
+		// authenticated. Unit-test servers pass nil and hit the route directly.
+		if s.auth != nil {
+			r.With(RequireAuth(s.auth)).Post("/seal", s.handleSeal)
+		} else {
+			r.Post("/seal", s.handleSeal)
+		}
 	})
+	if s.auth != nil {
+		loginLimiter := newIPRateLimiter(10.0/60.0, 5) // 10/min sustained, burst 5
+		r.Route("/v1/auth", func(r chi.Router) {
+			r.With(loginLimiter.middleware).Post("/login", s.handleLogin)
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/logout", s.handleLogout)
+				r.Get("/me", s.handleMe)
+				r.With(loginLimiter.middleware).Post("/password", s.handlePasswordChange)
+			})
+		})
+		r.Route("/v1/tokens", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Post("/", s.handleTokenMint)
+			r.Get("/", s.handleTokenList)
+			r.Delete("/{id}", s.handleTokenRevoke)
+		})
+	}
 	s.router = r
 	return s
 }
