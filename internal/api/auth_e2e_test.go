@@ -179,7 +179,7 @@ func TestTokenLifecycleE2E(t *testing.T) {
 	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", cookie, "", body, &minted); code != 200 {
 		t.Fatalf("mint: %d", code)
 	}
-	if !strings.HasPrefix(minted.Token, "kh_svc_") || minted.ID == "" {
+	if !strings.HasPrefix(minted.Token, "janus_svc_") || minted.ID == "" {
 		t.Fatalf("minted = %+v", minted)
 	}
 

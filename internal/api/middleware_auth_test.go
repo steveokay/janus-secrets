@@ -52,7 +52,7 @@ func TestRequireAuth(t *testing.T) {
 	// Bearer service token → principal in context.
 	h = RequireAuth(&fakeVerifier{principal: okPrincipal})(probe)
 	req := httptest.NewRequest("GET", "/v1/tokens", nil)
-	req.Header.Set("Authorization", "Bearer kh_svc_sometoken")
+	req.Header.Set("Authorization", "Bearer janus_svc_sometoken")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -71,7 +71,7 @@ func TestRequireAuth(t *testing.T) {
 	// Sealed keyring during verification → 503 sealed, not 401.
 	h = RequireAuth(&fakeVerifier{err: crypto.ErrSealed})(probe)
 	req = httptest.NewRequest("GET", "/v1/tokens", nil)
-	req.Header.Set("Authorization", "Bearer kh_svc_x")
+	req.Header.Set("Authorization", "Bearer janus_svc_x")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 503 {

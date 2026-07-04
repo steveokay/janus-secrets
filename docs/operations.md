@@ -2,7 +2,7 @@
 
 How to run the server, initialize and unseal it, and operate it day to day.
 Everything here shipped with the server-bootstrap milestone; the secret-facing
-HTTP API and the `kh` CLI arrive in later milestones.
+HTTP API and the secrets CLI (`janus run`, etc.) arrive in later milestones.
 
 ## The mental model
 

@@ -10,8 +10,8 @@ import (
 )
 
 // svcTokenPrefix namespaces service tokens; Phase-2 federated credentials get
-// their own kh_<type>_ prefixes.
-const svcTokenPrefix = "kh_svc_"
+// their own janus_<type>_ prefixes.
+const svcTokenPrefix = "janus_svc_"
 
 // TokenMeta is service-token metadata. It has no raw-token field by design —
 // list/inspect paths structurally cannot leak the credential.
