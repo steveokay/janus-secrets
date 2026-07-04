@@ -110,6 +110,10 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 
 	switch s.cfg.SealType {
 	case crypto.SealTypeShamir:
+		if !validInitParams(req.Shares, req.Threshold) {
+			writeError(w, http.StatusBadRequest, CodeValidation, "invalid seal parameters")
+			return
+		}
 		// A short-lived unsealer carries the requested share/threshold params;
 		// the long-lived one (0,0) handles submission and unseal afterwards.
 		u := crypto.NewShamirUnsealer(s.seals, req.Shares, req.Threshold)
@@ -147,13 +151,28 @@ func (s *Server) handleInit(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// validInitParams reports whether the requested shamir split parameters are
+// acceptable: (0,0) means library defaults, (1,1) is the dev special case,
+// otherwise mirror the shamir library's constraints
+// (2 <= threshold <= shares <= 255).
+func validInitParams(shares, threshold int) bool {
+	if shares == 0 && threshold == 0 {
+		return true
+	}
+	if shares == 1 && threshold == 1 {
+		return true
+	}
+	return threshold >= 2 && shares >= threshold && shares <= 255
+}
+
 func (s *Server) writeInitError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, crypto.ErrAlreadyInitialized):
 		writeError(w, http.StatusConflict, CodeAlreadyInitialized, "seal is already initialized")
 	default:
-		// shamir.Split parameter errors (threshold > shares etc.) land here.
-		writeError(w, http.StatusBadRequest, CodeValidation, "invalid seal parameters")
+		// Parameters are validated before Init is called, so anything else is
+		// an infrastructure failure (store, rand, KMS) — never a 400.
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 	}
 }
 
@@ -239,12 +258,31 @@ func (s *Server) handleUnseal(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		// A concurrent request may have crossed the threshold while we were
+		// submitting: if the keyring is already unsealed, the share we just
+		// deposited is stale — clear it (Reset zeroizes) and report success.
+		if !s.keyring.Sealed() {
+			sh.Reset()
+			writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
+			return
+		}
 		if progress.Submitted >= progress.Required {
 			if err := s.unsealNow(r.Context()); err != nil {
-				// Reconstruction or KCV failure: the submitted set is poisoned;
-				// the operator resets and resubmits.
-				writeError(w, http.StatusBadRequest, CodeKeyCheckFailed,
-					"key reconstruction failed; discard submitted shares via /v1/sys/unseal/reset and resubmit")
+				// Losing racer: a concurrent winner consumed the shares and
+				// unsealed. Clear any share we deposited and report success.
+				if !s.keyring.Sealed() {
+					sh.Reset()
+					writeJSON(w, http.StatusOK, unsealStateBody(s, cfg))
+					return
+				}
+				if errors.Is(err, crypto.ErrInvalidShare) || errors.Is(err, crypto.ErrKeyCheckFailed) {
+					// Reconstruction or KCV failure: the submitted set is
+					// poisoned; the operator resets and resubmits.
+					writeError(w, http.StatusBadRequest, CodeKeyCheckFailed,
+						"key reconstruction failed; discard submitted shares via /v1/sys/unseal/reset and resubmit")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 				return
 			}
 		}

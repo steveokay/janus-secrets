@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -212,5 +213,136 @@ func TestKMSUnsealRetry(t *testing.T) {
 	}
 	if srv.keyring.Sealed() {
 		t.Fatal("keyring should be unsealed after retry")
+	}
+}
+
+func TestInitParamValidation(t *testing.T) {
+	_, ts, _ := newShamirTestServer(t)
+
+	// Invalid parameter combinations are rejected before Init runs, so the
+	// seal stays uninitialized across all of them.
+	cases := []string{
+		`{"shares":3,"threshold":5}`,   // threshold > shares
+		`{"shares":5,"threshold":0}`,   // partial defaults
+		`{"shares":300,"threshold":3}`, // shares > 255
+		`{"shares":1,"threshold":2}`,   // not the 1-of-1 dev case
+	}
+	for _, body := range cases {
+		var env errEnvelope
+		if code := doJSON(t, "POST", ts.URL+"/v1/sys/init", body, &env); code != 400 || env.Error.Code != CodeValidation {
+			t.Fatalf("init %s: code=%d env=%+v", body, code, env)
+		}
+	}
+
+	// The 1-of-1 dev special case succeeds on a fresh server.
+	_, ts2, _ := newShamirTestServer(t)
+	var ir initResp
+	if code := doJSON(t, "POST", ts2.URL+"/v1/sys/init", `{"shares":1,"threshold":1}`, &ir); code != 200 || ir.Type != "shamir" || len(ir.Shares) != 1 {
+		t.Fatalf("1-of-1 init: code=%d resp=%+v", code, ir)
+	}
+}
+
+func TestUnsealResetPreInitAndKMS(t *testing.T) {
+	// Reset before init → 400 not_initialized.
+	_, ts, _ := newShamirTestServer(t)
+	var env errEnvelope
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/unseal/reset", "", &env); code != 400 || env.Error.Code != CodeNotInitialized {
+		t.Fatalf("pre-init reset: code=%d env=%+v", code, env)
+	}
+
+	// Reset on an initialized KMS seal → 400 validation (shamir-only op).
+	_, kts := newKMSTestServer(t, &fakeKMS{})
+	doJSON(t, "POST", kts.URL+"/v1/sys/init", "", nil)
+	if code := doJSON(t, "POST", kts.URL+"/v1/sys/unseal/reset", "", &env); code != 400 || env.Error.Code != CodeValidation {
+		t.Fatalf("kms reset: code=%d env=%+v", code, env)
+	}
+}
+
+func TestConcurrentThresholdRace(t *testing.T) {
+	srv, ts, _ := newShamirTestServer(t)
+	var ir initResp
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/init", `{"shares":5,"threshold":3}`, &ir); code != 200 {
+		t.Fatalf("init status = %d", code)
+	}
+	for i := 0; i < 2; i++ {
+		doJSON(t, "POST", ts.URL+"/v1/sys/unseal", fmt.Sprintf(`{"share":%q}`, ir.Shares[i]), nil)
+	}
+
+	// Fire the 3rd and 4th shares concurrently: both must observe success —
+	// the loser's stale share is cleared, not left lingering, and it must not
+	// see key_check_failed while the server is actually unsealed.
+	type result struct {
+		code int
+		body unsealResp
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	for _, idx := range []int{2, 3} {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			var ur unsealResp
+			code := doJSON(t, "POST", ts.URL+"/v1/sys/unseal", fmt.Sprintf(`{"share":%q}`, ir.Shares[i]), &ur)
+			results <- result{code: code, body: ur}
+		}(idx)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	for res := range results {
+		if res.code != 200 || res.body.Sealed {
+			t.Fatalf("racer response: code=%d body=%+v", res.code, res.body)
+		}
+	}
+	if srv.keyring.Sealed() {
+		t.Fatal("keyring should be unsealed after the race")
+	}
+
+	// Re-seal and confirm no share lingers from the losing racer.
+	doJSON(t, "POST", ts.URL+"/v1/sys/seal", "", nil)
+	var ss struct {
+		Sealed   bool          `json:"sealed"`
+		Progress *progressBody `json:"progress"`
+	}
+	if code := doJSON(t, "GET", ts.URL+"/v1/sys/seal-status", "", &ss); code != 200 {
+		t.Fatalf("seal-status code = %d", code)
+	}
+	if !ss.Sealed || ss.Progress == nil || ss.Progress.Submitted != 0 {
+		t.Fatalf("post-race seal-status: %+v", ss)
+	}
+}
+
+func TestUnsealShortCircuitWhenUnsealed(t *testing.T) {
+	// Shamir: unseal while already unsealed → 200 sealed:false, and the
+	// share is NOT consumed.
+	_, ts, _ := newShamirTestServer(t)
+	var ir initResp
+	doJSON(t, "POST", ts.URL+"/v1/sys/init", `{"shares":5,"threshold":3}`, &ir)
+	for i := 0; i < 3; i++ {
+		doJSON(t, "POST", ts.URL+"/v1/sys/unseal", fmt.Sprintf(`{"share":%q}`, ir.Shares[i]), nil)
+	}
+	var ur unsealResp
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/unseal", fmt.Sprintf(`{"share":%q}`, ir.Shares[0]), &ur); code != 200 || ur.Sealed {
+		t.Fatalf("unseal while unsealed: code=%d resp=%+v", code, ur)
+	}
+
+	// Re-seal; resubmitting the same share must NOT report duplicate_share,
+	// because the short-circuited request never recorded it.
+	doJSON(t, "POST", ts.URL+"/v1/sys/seal", "", nil)
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/unseal", fmt.Sprintf(`{"share":%q}`, ir.Shares[0]), &ur); code != 200 {
+		t.Fatalf("resubmit after re-seal: code = %d", code)
+	}
+	if !ur.Sealed || ur.Progress == nil || ur.Progress.Submitted != 1 || ur.Progress.Required != 3 {
+		t.Fatalf("resubmit after re-seal: %+v", ur)
+	}
+
+	// KMS: unseal while already unsealed (right after init) → 200.
+	_, kts := newKMSTestServer(t, &fakeKMS{})
+	doJSON(t, "POST", kts.URL+"/v1/sys/init", "", nil)
+	if code := doJSON(t, "POST", kts.URL+"/v1/sys/unseal", "", &ur); code != 200 || ur.Sealed {
+		t.Fatalf("kms unseal while unsealed: code=%d resp=%+v", code, ur)
 	}
 }
