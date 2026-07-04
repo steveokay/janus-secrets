@@ -68,8 +68,8 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		r.Post("/unseal/reset", s.handleUnsealReset)
 		// Production always wires a non-nil auth service (Boot does), so seal is
 		// authenticated. Unit-test servers pass nil and hit the route directly.
-		if s.auth != nil {
-			r.With(RequireAuth(s.auth)).Post("/seal", s.handleSeal)
+		if s.auth != nil && s.authz != nil {
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal)).Post("/seal", s.handleSeal)
 		} else {
 			r.Post("/seal", s.handleSeal)
 		}
@@ -85,6 +85,8 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.With(loginLimiter.middleware).Post("/password", s.handlePasswordChange)
 			})
 		})
+	}
+	if s.auth != nil && s.authz != nil {
 		r.Route("/v1/tokens", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
 			r.Post("/", s.handleTokenMint)
