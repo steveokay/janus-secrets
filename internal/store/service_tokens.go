@@ -11,6 +11,7 @@ type ServiceTokenRepo struct{ s *Store }
 // NewServiceTokenRepo returns a service-token repository.
 func NewServiceTokenRepo(s *Store) *ServiceTokenRepo { return &ServiceTokenRepo{s: s} }
 
+// #nosec G101 -- this is a SQL column list, not a hardcoded credential.
 const svcTokenCols = `id::text, name, token_hmac, created_by::text, scope_kind,
 	scope_id::text, access, created_at, expires_at, revoked_at`
 

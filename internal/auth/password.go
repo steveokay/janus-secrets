@@ -66,7 +66,9 @@ func VerifyPassword(phc string, pw []byte) (ok, needsRehash bool, err error) {
 	if err != nil || len(want) < 16 || len(want) > 64 {
 		return false, false, fmt.Errorf("%w: malformed password hash", ErrValidation)
 	}
-	got := argon2.IDKey(pw, salt, t, m, p, uint32(len(want)))
+	// len(want) is bounded to [16,64] above, so the conversion cannot overflow.
+	keyLen := uint32(len(want)) // #nosec G115 -- want length validated to [16,64]
+	got := argon2.IDKey(pw, salt, t, m, p, keyLen)
 	if subtle.ConstantTimeCompare(got, want) != 1 {
 		return false, false, nil
 	}

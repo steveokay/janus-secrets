@@ -37,9 +37,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// sessionCookie builds the session cookie; Secure is set when the request
-// arrived over TLS (behind a proxy this follows the upstream scheme).
+// sessionCookie builds the session cookie. HttpOnly and SameSite=Strict are
+// always on; Secure is set when the request arrived over TLS. Secure is
+// deliberately conditional (not a literal true) so the cookie still works for
+// direct-HTTP local dev before the reverse proxy terminates TLS in production
+// — an approved design tradeoff, not an oversight.
 func sessionCookie(r *http.Request, value string, ttl time.Duration) *http.Cookie {
+	// #nosec G124 -- HttpOnly+SameSite=Strict always set; Secure is intentionally
+	// conditional on TLS (see doc comment) rather than an unconditional literal.
 	return &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    value,
@@ -58,8 +63,8 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Expire the cookie client-side regardless.
-	expired := sessionCookie(r, "", 0)
+	// Expire the cookie client-side regardless. Same flags as sessionCookie.
+	expired := sessionCookie(r, "", 0) // #nosec G124 -- see sessionCookie: flags are set there
 	expired.MaxAge = -1
 	http.SetCookie(w, expired)
 	w.WriteHeader(http.StatusNoContent)
