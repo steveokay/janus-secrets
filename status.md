@@ -93,19 +93,56 @@ via testcontainers) all pass; `gosec` (v2.27.1, shamir excluded) 0 issues;
 `govulncheck` 0. A `value_version→uint64` conversion is guarded (fail-closed) to
 clear gosec G115.
 
+## Milestone 4 — Server Bootstrap (unseal-at-startup + sys API + CLI) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-03-server-bootstrap-design.md`
+Plan: `docs/superpowers/plans/2026-07-03-server-bootstrap.md`
+Branch: `milestone-4-bootstrap` (subagent-driven development; every task spec-
+and quality-reviewed, incl. an empirical race probe of the unseal handlers).
+
+Scope delivered: `internal/api` (chi router, `/v1/sys/*` seal lifecycle,
+`RequireUnsealed` 503 middleware, body-free request logger, project-wide
+`{"error":{code,message}}` envelope, `Boot` composition with auto-migrate and
+KMS boot auto-unseal); `cmd/janus` rebuilt onto cobra (`server`, `init`,
+`unseal` with echo-off stdin prompt, `seal-status`, `seal`, `migrate`,
+`version`); Shamir + AWS KMS seal backends; two small crypto additions
+(`SubmittedShares()`, deterministic 1-of-1 seal for dev); Dockerfile + compose
+app service + `scripts/dev-unseal.sh` + `make dev-up`.
+Deferred (documented in spec): TLS, sys rate limiting, auth-gating
+`POST /v1/sys/seal` (auth milestone checklist), secret-facing routes, `kh`.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 10 tasks
+- [x] 1. deps (chi/cobra/x-term/aws-config) + JSON error envelope
+- [x] 2. crypto `SubmittedShares()` + 1-of-1 seal (100% coverage kept)
+- [x] 3. `RequireUnsealed` middleware + body-free request logger
+- [x] 4. Server, router, health/seal-status, graceful shutdown
+- [x] 5. init/unseal/reset/seal handlers (+ race-leak fix, precise error
+      taxonomy, concurrency regression test)
+- [x] 6. `Boot` (auto-migrate, seal-type resolution, KMS boot auto-unseal)
+- [x] 7. API leak test (no share material in logs/error responses)
+- [x] 8. cobra CLI (+ argv-exposure warning, non-envelope error fallback,
+      wire assertions, stdout routing fix)
+- [x] 9. Dockerfile, compose app service, 1-of-1 dev-unseal workflow —
+      verified end-to-end against real Docker (init → unseal → status)
+- [x] 10. CI/security gate green, full-suite verification
+
+Verification: `go build`, `go vet`, `go test ./...` (api + store + secrets +
+CLI, Docker-backed suites ran) all pass; `gosec` (v2.27.1, shamir excluded)
+0 issues; `govulncheck` 0; `internal/crypto` coverage 100.0%.
+
 ## Later Phase-1 milestones (not started)
 
-**Usable in-process, not yet over the wire.** The secrets service can now
-create a project, encrypt/store secrets, and read them back decrypted (with full
-versioning, diff, rollback) — but only via Go APIs. There is still no auth, no
-HTTP surface, and no `kh` CLI. `docker compose up` + `make migrate` applies the
-schema; wiring the service to a server (unseal-at-startup) and the API/CLI is
-what remains. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
-project, set secrets, `kh run` works."
+**Runnable server, no secret routes yet.** `make dev-up` (or
+`docker compose up` + `scripts/dev-unseal.sh`) yields a running, unsealed
+server; `janus init`/`unseal`/`seal-status` work over HTTP; non-sys routes
+return 503 while sealed. The secrets service is live in-process but not yet
+exposed over HTTP — auth comes first. Phase-1 finish line (per CLAUDE.md):
+"docker-compose up, create project, set secrets, `kh run` works."
 
-- [ ] Server bootstrap: unseal-at-startup + `janus init`/`unseal` CLI
 - [ ] Config inheritance resolution + secret references (`${projects...}`)
-- [ ] Auth (passwords, service tokens, OIDC)
+- [ ] Auth (passwords, service tokens, OIDC) — must also auth-gate
+      `POST /v1/sys/seal`
 - [ ] RBAC engine
 - [ ] Hash-chained audit log
 - [ ] REST API (`/v1/`)
