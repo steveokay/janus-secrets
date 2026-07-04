@@ -143,6 +143,9 @@ func (s *Service) createUser(ctx context.Context, email string) (string, string,
 	}
 	u, err := s.users.Create(ctx, email, &hash)
 	if err != nil {
+		if errors.Is(err, store.ErrAlreadyExists) {
+			return "", "", ErrValidation
+		}
 		return "", "", err
 	}
 	return u.ID, password, nil

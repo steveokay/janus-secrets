@@ -93,6 +93,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/", s.handleTokenList)
 			r.Delete("/{id}", s.handleTokenRevoke)
 		})
+		r.Route("/v1/users", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Post("/", s.handleUserCreate)
+			r.Get("/", s.handleUserList)
+			r.Post("/{id}/disable", s.handleUserDisable)
+		})
 	}
 	s.router = r
 	return s
