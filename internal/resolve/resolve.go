@@ -106,6 +106,7 @@ func (st *run) resolveKey(ctx context.Context, cfg RawConfig, merged map[string]
 		}
 		v, err := st.resolveRef(ctx, cfg, merged, seg.ref, next)
 		if err != nil {
+			zeroize(buf) // discard the partial splice; resolution fails atomically
 			return nil, err
 		}
 		buf = append(buf, v...)
@@ -126,6 +127,10 @@ func (st *run) resolveRef(ctx context.Context, cfg RawConfig, merged map[string]
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s.%s.%s.%s", ErrUnresolvedReference, rf.coord.Project, rf.coord.Env, rf.coord.Config, rf.key)
 	}
+	// ReadRaw decrypts the target's own values, but here only its coordinates
+	// (for authz + provenance) are needed — the values are re-derived by
+	// resolveMerged below. Zeroize this decrypted copy so it does not linger.
+	defer zeroizeMap(target.Values)
 	if st.r.authz != nil {
 		if err := st.r.authz.CanReadSecrets(ctx, target); err != nil {
 			return nil, fmt.Errorf("%w: %s.%s.%s.%s", ErrForbiddenReference, rf.coord.Project, rf.coord.Env, rf.coord.Config, rf.key)
