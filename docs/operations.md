@@ -232,6 +232,65 @@ audited (`secret.write` / `secret.delete`).
 | `GET /v1/configs/{cid}/versions/diff?a=N&b=M` | Added / changed / removed keys between two versions (no values) | `config:read` |
 | `POST /v1/configs/{cid}/rollback` | Roll the config back to a target version — repoints at existing ciphertext, no re-encryption, as a new version | `secret:write` |
 
+## Transit (encryption as a service)
+
+The transit engine performs encrypt/decrypt/sign/verify/rewrap and mints data
+keys against **instance-scoped named keys** whose material never leaves the
+server in plaintext — Janus holds the keys, your app holds the ciphertext. It is
+separate from the secret store: no project/env/config hierarchy, and Janus never
+persists the data you pass through it. Routes are under `/v1/transit/`, JSON, and
+require an **unsealed** server (503 while sealed) plus the relevant RBAC
+permission. Full reference — key types, the `janus:v<N>:` envelope, versioning,
+and every route — is in [transit.md](transit.md).
+
+Two key types: `aes256-gcm` (encrypt/decrypt/rewrap/datakey) and `ed25519`
+(sign/verify). Keys have versions with `latest_version` (target for new
+encrypt/sign), `min_decryption_version` (decrypt floor), and `deletion_allowed`
+(a delete guard). **Rotate** appends a new version; old data still decrypts.
+**Rewrap** rolls old ciphertext forward to the latest version without exposing
+plaintext. **Trim** drops archived versions below a floor.
+
+| Action | Grants | Role |
+|---|---|---|
+| `transit:read` | read metadata, list keys | viewer and up |
+| `transit:use` | encrypt/decrypt/sign/verify/rewrap/datakey | developer and up |
+| `transit:manage` | create/rotate/trim/config/delete | admin / owner |
+
+**Management** ops (create/rotate/trim/config/delete) are audited fail-closed
+(recording the key **name**, never material); **data-plane** ops are not
+individually audited (usage metrics are a later Phase-2 sub-project).
+
+**Operator flow.** Mint a transit-scoped service token so an app can call transit
+without reaching secrets:
+
+```sh
+# 1. Create a key (admin / transit:manage).
+curl -XPOST $ADDR/v1/transit/keys -H "Authorization: Bearer $ADMIN" \
+  -d '{"name":"app","type":"aes256-gcm"}'
+
+# 2. Mint an all-keys transit-use token (scope.id "" = all keys; a key NAME
+#    restricts the token to one key). access is use|manage, not read/readwrite.
+curl -XPOST $ADDR/v1/tokens -H "Authorization: Bearer $ADMIN" \
+  -d '{"name":"app","scope":{"kind":"transit","id":""},"access":"use"}'
+# → {"token":"janus_svc_…", …}  (shown once)
+
+# 3. The app encrypts/decrypts with that token (base64 in/out).
+curl -XPOST $ADDR/v1/transit/encrypt/app -H "Authorization: Bearer $TOKEN" \
+  -d '{"plaintext":"'"$(printf 'hello' | base64)"'"}'
+# → {"ciphertext":"janus:v1:…"}
+
+# 4. After rotating the key, roll old ciphertext forward without exposing it.
+curl -XPOST $ADDR/v1/transit/keys/app/rotate -H "Authorization: Bearer $ADMIN"
+curl -XPOST $ADDR/v1/transit/rewrap/app -H "Authorization: Bearer $TOKEN" \
+  -d '{"ciphertext":"janus:v1:…"}'
+# → {"ciphertext":"janus:v2:…"}
+```
+
+A transit token can perform only transit actions; a config/environment (secrets)
+token has no transit access, and vice versa. Decrypt/verify failures return a
+single generic `400` that never distinguishes a bad key, wrong version, or
+tampered ciphertext.
+
 ## Secrets CLI (developer & CI flows)
 
 The same `janus` binary is the client for the secrets routes above. Full

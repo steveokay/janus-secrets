@@ -446,6 +446,20 @@ secret into a real child and propagates its exit code; the leak test
 (`TestCLINoSecretLeakInDiagnostics`) asserts a known value reaches only stdout
 on `get`, never stderr or an error string on `list`/error paths.
 
+Final adversarial review: **SHIP after one fix.** No secret-leak-to-stderr/error
+and no `--plain` bypass were found. One **High** (confirmed, fixed): `download
+--output` used `os.WriteFile`, which applies its mode only on file *creation*, so
+writing over a pre-existing `0644` file silently persisted revealed secrets at the
+looser mode. Fixed with an atomic temp + `O_EXCL 0600` + rename (guarantees `0600`
+regardless of a pre-existing file, refuses to follow a planted symlink, no partial
+write), plus a regression test asserting `0600` over a pre-existing `0644` target
+(skipped on Windows where POSIX modes are cosmetic). Non-blocking Low follow-ups
+carried forward: POSIX file modes are cosmetic on the Windows host (`auth.json` /
+download perms fall back to the parent ACL there); `run` forwards *all* signals
+(could restrict to Interrupt/SIGTERM); `buildChildEnv` is case-sensitive while
+Windows env vars are not; `resolveConfigID` assumes un-paginated list endpoints
+(true today — revisit if cursor pagination lands per CLAUDE.md).
+
 **Phase 1 (Core) is complete.** The CLAUDE.md finish line —
 "docker-compose up, create project, set secrets, `janus run` works" — is met.
 Config inheritance resolution and secret references (`${projects...}`) remain
@@ -489,6 +503,81 @@ or session cookie today.
 - [x] Secrets CLI with `janus run` — login/setup/secrets/run, `.janus.yaml`
       binding, two-tier credentials, `JANUS_CONFIG_DIR` override (milestone 9)
 
+## Phase 2 · Sub-project A — Transit Engine ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-05-transit-engine-design.md`
+Plan: `docs/superpowers/plans/2026-07-05-transit-engine.md` (13 tasks)
+Docs: `docs/transit.md` · Branch: `milestone-10-transit` (subagent-driven
+development — fresh implementer per task, diff-reviewed by the controller before
+proceeding).
+
+Phase 2 spans four largely independent subsystems, each getting its own
+spec → plan → implementation cycle: **A. Transit engine** (this one — no UI
+dependency), **B. React SPA**, **C. OIDC login**, **D. usage metrics**. CLAUDE.md's
+phase order puts the transit engine first.
+
+Scope delivered: a Vault-style "encryption as a service" engine — `internal/transit`,
+a pure HTTP-free/identity-free engine (mirroring `internal/secrets`) holding
+instance-scoped named keys and performing encrypt/decrypt/sign/verify/rewrap and
+datakey generation on data it never stores, reusing `internal/crypto` (AEAD +
+wrap/unwrap + the unsealed master key) and a crypto-blind `store.TransitRepo`. Two
+key types: `aes256-gcm` (encrypt/decrypt/rewrap/datakey) and `ed25519` (sign/verify,
+via new stdlib `crypto/ed25519` helpers — the private seed is wrapped, the public
+key stored in clear). Key versioning with `latest_version` /
+`min_decryption_version` / `deletion_allowed`; rotate, trim, rewrap-forward, and
+datakey generation (plaintext + wrapped). Ciphertext/signature envelope
+`janus:v<N>:<base64>`; each version's material master-key-wrapped under a new
+`TransitKeyAAD(name, version)` so a copied version row fails to unwrap. Routes under
+`/v1/transit/*` behind `RequireAuth` + `RequireUnsealed` + RBAC. New instance-scoped
+actions `transit:read` / `transit:use` / `transit:manage` (viewer reads metadata,
+developer uses, admin/owner manages) plus a new **`transit` service-token scope**
+(`use`/`manage`, optionally restricted to one key **by name**) so apps can call
+transit without reaching secrets or other instance actions. Management ops
+(create/rotate/trim/config/delete) are audited fail-closed (recording the key name,
+never material) and all denials captured centrally; high-frequency data-plane ops
+(encrypt/decrypt/sign/verify/rewrap/datakey) are **not** individually audited — usage
+visibility is deferred to sub-project D — matching how M7 treats masked reads.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 13 tasks
+- [x] 1. Ed25519 crypto helpers (`GenerateEd25519Key`/`Sign`/`SignWithSeed`/`Verify`)
+      + `TransitKeyAAD` (100% crypto coverage kept, incl. rand-failure + AAD injectivity)
+- [x] 2. Migration `000006` — transit tables + `service_tokens` transit-scope extension
+- [x] 3. `store.TransitRepo` (create/append/config/trim/delete/get-by-name/get-by-id/list)
+- [x] 4. Transit engine skeleton — sentinels, `janus:vN:` envelope parse/format
+- [x] 5. Create key + aes encrypt/decrypt with versioned wrapping (+ AAD, tamper, sealed)
+- [x] 6. Rotate, config (`min_decryption_version`), rewrap, trim
+- [x] 7. Ed25519 sign/verify + datakey (plaintext/wrapped)
+- [x] 8. AuthZ — transit actions, `Resource.TransitKey`, transit token capabilities
+- [x] 9. Auth — transit token scope in mint/verify (nullable `scope_id` for all-keys)
+- [x] 10. API — `writeServiceError` mapping + transit key management routes + Boot wiring
+- [x] 11. API — transit data-plane routes (encrypt/decrypt/sign/verify/rewrap/datakey)
+- [x] 12. API — mint transit-scoped service tokens end to end
+- [x] 13. RBAC matrix + audit + leak e2e, docs (`docs/transit.md`), full gate sweep
+
+Verification: `go build`, `go vet`, `go test ./... -count=1` (transit + api +
+auth + authz + audit + store + secrets + crypto + CLI, Docker-backed
+testcontainers suites ran) all pass; `internal/crypto`, `internal/authz`, and
+`internal/audit` coverage 100.0%; `gosec` (shamir excluded) 0 issues (15 recorded
+`#nosec`, no new one needed for transit — the `TransitKeyAAD` `uint64(version)`
+G115 reuses the bounded/positive pattern); `govulncheck` 0 affecting. An e2e
+lifecycle test drives create → encrypt → rotate → rewrap → decrypt; an RBAC
+matrix proves viewer-read-only / developer-use / admin-manage, a key-restricted
+transit token allowed its own key and denied another, and a config-scoped token
+denied all transit routes; a leak test proves no key material / datakey plaintext
+/ sentinel reaches the logs or any audit row, that management ops are audited by
+key name, and that data-plane ops emit no audit rows.
+
+Two defects were found and fixed during the RBAC/leak review, not carried
+forward: **(1)** a key-restricted transit token was keyed inconsistently — mint
+validated/stored the key by UUID (`GetByID`) while enforcement compares
+`scope.ID` against the `/{name}` route's key name, so a restricted token matched
+no key (denied even its own); compounded by `service_tokens.scope_id` being a
+`uuid` column, so storing a key name 500'd on `invalid input syntax for type
+uuid`. Fixed by validating/storing the restriction by name (`GetByName`) and
+widening `scope_id` to `text` (config/env scopes keep their UUID, now as text).
+The all-keys transit token (NULL `scope_id`) was already correct.
+
 ## Phase-2 items already on the radar
 
 - [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google
@@ -497,4 +586,7 @@ or session cookie today.
       auth milestone; the Phase-1 identity model must leave room for
       non-password principals and federated token types so this lands without
       rework.
-- [ ] Transit/KMS engine, React SPA, usage metrics (per CLAUDE.md Phase 2)
+- [x] Transit/KMS engine — **complete** (see the Sub-project A section above;
+      `internal/transit`, `/v1/transit/*`, transit token scope, `docs/transit.md`).
+- [ ] React SPA, usage metrics (per CLAUDE.md Phase 2 — sub-projects B and D, not
+      yet specced).
