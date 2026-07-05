@@ -9,6 +9,7 @@ import { UnsealPage } from './unseal/UnsealPage'
 import { AppLayout } from './shell/AppLayout'
 import { Sidebar } from './shell/Sidebar'
 import { SecretEditor } from './secrets/SecretEditor'
+import { Placeholder } from './shell/Placeholder'
 
 function Gate() {
   const { user, loading } = useAuth()
@@ -32,14 +33,14 @@ function Gate() {
   return (
     <AppLayout sidebar={<Sidebar />}>
       <Routes>
-        <Route path="/" element={<p>Select a project.</p>} />
-        <Route path="/projects/:projectId" element={<p>Select a config.</p>} />
+        <Route path="/" element={<div className="mt-16 text-center text-gray-500">Select or create a project to begin.</div>} />
+        <Route path="/projects/:projectId" element={<div className="mt-16 text-center text-gray-500">Select a config from the sidebar.</div>} />
         <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
-        <Route path="/tokens" element={<p>Coming soon.</p>} />
-        <Route path="/members" element={<p>Coming soon.</p>} />
-        <Route path="/transit" element={<p>Coming soon.</p>} />
-        <Route path="/settings" element={<p>Coming soon.</p>} />
-        <Route path="/projects/:projectId/audit" element={<p>Coming soon.</p>} />
+        <Route path="/projects/:projectId/audit" element={<Placeholder feature="Audit viewer" />} />
+        <Route path="/tokens" element={<Placeholder feature="Token management" />} />
+        <Route path="/members" element={<Placeholder feature="Member management" />} />
+        <Route path="/transit" element={<Placeholder feature="Transit UI" />} />
+        <Route path="/settings" element={<Placeholder feature="Settings" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppLayout>
