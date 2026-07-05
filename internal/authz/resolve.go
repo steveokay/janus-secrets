@@ -14,16 +14,30 @@ func tokenCapabilities(access string) map[Action]bool {
 	}
 }
 
+// transitTokenCapabilities maps a transit token's access to actions.
+func transitTokenCapabilities(access string) map[Action]bool {
+	switch access {
+	case "use":
+		return setOf(TransitRead, TransitUse)
+	case "manage":
+		return setOf(TransitRead, TransitUse, TransitManage)
+	default:
+		return nil
+	}
+}
+
 // tokenAllows reports whether a token's scope+access permits action on res.
 func tokenAllows(scope TokenScope, action Action, res Resource) bool {
-	if !tokenCapabilities(scope.Access)[action] {
-		return false
-	}
 	switch scope.Kind {
 	case "config":
-		return res.ConfigID != "" && res.ConfigID == scope.ID
+		return tokenCapabilities(scope.Access)[action] && res.ConfigID != "" && res.ConfigID == scope.ID
 	case "environment":
-		return res.EnvID != "" && res.EnvID == scope.ID
+		return tokenCapabilities(scope.Access)[action] && res.EnvID != "" && res.EnvID == scope.ID
+	case "transit":
+		if !transitTokenCapabilities(scope.Access)[action] {
+			return false
+		}
+		return scope.ID == "" || scope.ID == res.TransitKey // "" = all keys
 	default:
 		return false
 	}
