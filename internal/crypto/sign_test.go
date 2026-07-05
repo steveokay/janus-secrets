@@ -41,6 +41,39 @@ func TestGenerateEd25519KeyRandFailure(t *testing.T) {
 	}
 }
 
+func TestWrapUnwrapTransitKey(t *testing.T) {
+	master, _ := GenerateKey()
+	kr := NewKeyring()
+
+	// Sealed keyring rejects both operations.
+	if _, err := kr.WrapTransitKey([]byte("m"), "k", 1); err != ErrSealed {
+		t.Fatalf("wrap while sealed: want ErrSealed, got %v", err)
+	}
+	if _, err := kr.UnwrapTransitKey(Ciphertext{}, "k", 1); err != ErrSealed {
+		t.Fatalf("unwrap while sealed: want ErrSealed, got %v", err)
+	}
+
+	if err := kr.Unseal(master); err != nil {
+		t.Fatal(err)
+	}
+	material := []byte("thirty-two-byte-key-material!!!!")
+	ct, err := kr.WrapTransitKey(material, "billing", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := kr.UnwrapTransitKey(ct, "billing", 2)
+	if err != nil || !bytes.Equal(got, material) {
+		t.Fatalf("round trip: %q %v", got, err)
+	}
+	// Wrong (name, version) → AEAD failure (anti-swap).
+	if _, err := kr.UnwrapTransitKey(ct, "billing", 3); err == nil {
+		t.Fatal("unwrap with wrong version must fail")
+	}
+	if _, err := kr.UnwrapTransitKey(ct, "other", 2); err == nil {
+		t.Fatal("unwrap with wrong name must fail")
+	}
+}
+
 func TestTransitKeyAADInjective(t *testing.T) {
 	a := TransitKeyAAD("billing", 1)
 	b := TransitKeyAAD("billing", 2)

@@ -30,6 +30,29 @@ func Verify(pub, msg, sig []byte) bool {
 	return ed25519.Verify(ed25519.PublicKey(pub), msg, sig)
 }
 
+// WrapTransitKey wraps a transit key version's material under the master key,
+// bound to (name, version). Refuses to run while sealed. Mirrors WrapProjectKEK;
+// the master key never leaves the keyring.
+func (k *Keyring) WrapTransitKey(material []byte, name string, version int) (Ciphertext, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return Ciphertext{}, ErrSealed
+	}
+	return WrapKey(k.master, material, TransitKeyAAD(name, version))
+}
+
+// UnwrapTransitKey unwraps material previously wrapped by WrapTransitKey for the
+// same (name, version); a mismatch fails the AEAD.
+func (k *Keyring) UnwrapTransitKey(ct Ciphertext, name string, version int) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return nil, ErrSealed
+	}
+	return UnwrapKey(k.master, ct, TransitKeyAAD(name, version))
+}
+
 // TransitKeyAAD binds a transit key version's wrapped material to its (name,
 // version) so a version row copied elsewhere fails to unwrap. Domain-tagged and
 // length-prefixed so (name,version) is injective.
