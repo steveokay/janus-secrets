@@ -587,6 +587,28 @@ the resolved reveal's response `version` field), also 404'd on a version-less
 config — fixed to report version `0`. A regression test
 (`versionless_test.go`) locks the fix.
 
+The final adversarial review (whole-milestone diff) surfaced three more, all
+fixed before merge: **(1) CRITICAL — cross-environment/cross-project inheritance
+authz bypass.** Inheritance is transparent to authorization, which is only safe
+because the base is in the *same* environment — but that precondition was never
+enforced. `CreateConfig` passed `inherits_from` straight to the store (whose FK
+only requires the base to exist *somewhere* in the instance) and `resolveMerged`
+walked the chain by raw config-id across any boundary, so a caller with create
+rights in one environment could inherit from a config in another environment (or
+project) and read its secrets through the branch. Fixed: `CreateConfig` rejects
+an `inherits_from` whose base is absent, soft-deleted, or in a different
+environment (`ErrValidation` → 400); regression test
+(`inherit_scope_test.go`) covers cross-env, cross-project, missing base, and the
+same-env positive control. **(2) MEDIUM — un-zeroized decrypted plaintext per
+reference dereference:** `resolveRef`'s `ReadRaw` decrypts the target's own
+values but uses only its coordinates; the values were never zeroized (and the
+config was decrypted twice) — added `defer zeroizeMap(target.Values)`. **(3) LOW
+— splice buffer not zeroized** when an embedded reference fails partway through a
+string splice — zeroize `buf` on the error path. The review otherwise cleared the
+parser edge cases, both cycle guards, the depth cap, return-value aliasing,
+error→HTTP mapping, strict per-target authz, provenance dedup, and the leak
+surface.
+
 ## Phase 2 · Sub-project A — Transit Engine ✅ complete
 
 Spec: `docs/superpowers/specs/2026-07-05-transit-engine-design.md`
