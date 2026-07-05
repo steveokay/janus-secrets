@@ -291,6 +291,34 @@ token has no transit access, and vice versa. Decrypt/verify failures return a
 single generic `400` that never distinguishes a bad key, wrong version, or
 tampered ciphertext.
 
+## Inheritance & references
+
+Reveal reads **resolve** config inheritance and secret references by default;
+`?raw=true` returns stored values verbatim. Full reference:
+[references.md](references.md).
+
+- **Inheritance:** a config's `inherits_from` (another config in the **same
+  environment**, set at create time) merges the base's values under the config's
+  own — **child wins**. A branch may have no own secrets and still be read (it
+  returns the base's values). The masked list marks each key `own`, `inherited`,
+  or `overridden`. Reading a branch needs no separate grant on its base.
+- **References:** a value may embed `${projects.<project>.<env>.<config>.KEY}`
+  (absolute) or `${KEY}` (same config), resolved at read time, transitively;
+  `$$` escapes a literal `$`. Each dereferenced target requires the caller's own
+  `secret:read` (strict — a forbidden reference returns `403` and the whole read
+  fails atomically); each dereference is audited as its own `secret.reveal`.
+- **Failure codes:** cycle (inheritance or reference) → `409`; unknown target /
+  depth-cap → `422`; forbidden reference → `403`; bad `${...}` syntax → `400`.
+  Error bodies carry paths, never values.
+
+```sh
+# billing/prod/api holds the shared HOST; app/prod/web references it.
+curl -XPUT $ADDR/v1/configs/$WEB/secrets -H "$AUTH" \
+  -d '{"changes":[{"key":"DB_URL","value":"postgres://${projects.billing.prod.api.HOST}/app"}]}'
+curl "$ADDR/v1/configs/$WEB/secrets?reveal=true" -H "$AUTH"   # DB_URL resolved
+curl "$ADDR/v1/configs/$WEB/secrets?reveal=true&raw=true" -H "$AUTH"   # DB_URL verbatim ${...}
+```
+
 ## Secrets CLI (developer & CI flows)
 
 The same `janus` binary is the client for the secrets routes above. Full

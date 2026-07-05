@@ -37,13 +37,20 @@ Any error exits non-zero.
 janus login [--email E] [--address URL]                 # password prompt → store session
 janus logout                                            # server logout (best-effort) + clear session
 janus setup [--project P --env E --config C]            # validate + write ./.janus.yaml
-janus secrets list [--json]                             # masked table (no reveal, no audit)
-janus secrets get KEY [--version N]                     # print one value to stdout (audited)
+janus secrets list [--json]                             # masked table + ORIGIN (no reveal, no audit)
+janus secrets get KEY [--version N] [--raw]             # print one value to stdout (audited)
 janus secrets set KEY[=VALUE] [K2=V2 …] [--message M]   # batch = one config version
 janus secrets delete KEY [K2 …] [--yes] [--message M]   # tombstones → new config version
-janus secrets download --format env|json|yaml [--output PATH] [--plain]
-janus run [--preserve-env] [--project P --env E --config C] -- <cmd> [args…]
+janus secrets download --format env|json|yaml [--output PATH] [--plain] [--raw]
+janus run [--preserve-env] [--raw] [--project P --env E --config C] -- <cmd> [args…]
 ```
+
+**Resolution (`--raw`).** `get`, `download`, and `run` **resolve** config
+inheritance and secret references by default (they consume values). Pass `--raw`
+to get the stored value verbatim (unresolved `${...}`, own values only) — mainly
+for editing or debugging. `secrets list` shows an `ORIGIN` column
+(`own`/`inherited`/`overridden`). See [references.md](references.md) for the
+inheritance and reference model.
 
 The address/credential/binding flags — `--address`, `--token`, `--project`,
 `--env`, `--config` — are accepted by every secrets/`run` command (and the
@@ -200,24 +207,31 @@ failure writes nothing. With flags omitted it prompts for each field. Accepts
 ### `janus secrets list`
 
 ```bash
-janus secrets list           # KEY  VERSION  UPDATED table
+janus secrets list           # KEY  ORIGIN  VERSION  UPDATED table
 janus secrets list --json    # machine-readable
 ```
 
-Masked metadata only — key names, per-key value version, and update time.
-**No values are shown and the read is not audited** (it hits the masked
-endpoint). `--json` emits the raw envelope for scripting.
+Masked metadata only — key names, `origin`, per-key value version, and update
+time. **No values are shown and the read is not audited** (it hits the masked
+endpoint). The `ORIGIN` column reflects config inheritance: `own` (defined only
+here), `inherited` (defined only in a base config), or `overridden` (defined
+here and in a base, this config's value winning). `--json` emits the raw
+envelope for scripting. See [references.md](references.md).
 
 ### `janus secrets get`
 
 ```bash
 DB_URL=$(janus secrets get DATABASE_URL)     # value only → command substitution
 janus secrets get API_KEY --version 3        # a historical value version
+janus secrets get DB_URL --raw               # stored value verbatim, unresolved
 ```
 
-Reveals one value (an **audited** `secret.reveal`) and prints the **raw value
-only** to stdout, with no decoration, so `$(…)` capture is exact. `--version N`
-fetches a historical value.
+Reveals one value (an **audited** `secret.reveal`) and prints the **value only**
+to stdout, with no decoration, so `$(…)` capture is exact. By default the value
+is **resolved** — config inheritance and `${…}` references are applied. `--raw`
+returns the config's own stored value verbatim (unresolved `${…}`), for editing
+or debugging. `--version N` fetches a historical value (always raw — a past
+version is a stored artifact). See [references.md](references.md).
 
 ### `janus secrets set`
 
@@ -251,9 +265,12 @@ unless `--yes`. Accepts `--message`.
 janus secrets download --format env                          # → stdout (KEY=value lines)
 janus secrets download --format json > config.json           # your own redirect
 janus secrets download --format env --output .env --plain    # CLI writes the file (0600)
+janus secrets download --format env --raw                    # stored values, unresolved
 ```
 
-Bulk-reveals every value and serializes it:
+Bulk-reveals every value (**resolved** by default — inheritance + references
+applied; `--raw` returns the config's own stored values verbatim) and
+serializes it:
 
 - `env` → `KEY=value` lines; values are single-quoted/escaped for POSIX shell
   safety only when they need it.
@@ -274,12 +291,15 @@ janus run -- ./my-service                    # secrets injected as env vars
 janus run -- node server.js --port 3000      # args after -- pass through verbatim
 janus run --preserve-env -- printenv DB_URL  # an existing DB_URL wins over the secret
 janus run --config prod -- ./my-service      # override just the config for this run
+janus run --raw -- ./my-service              # inject stored values, unresolved
 ```
 
 1. Resolves the bound config (binding precedence above). No binding is a clear
    error pointing at `janus setup`.
 2. One **audited** bulk reveal (`GET …/secrets?reveal=true`) fetches every
-   value.
+   value. Values are **resolved** by default — inheritance and `${…}` references
+   are applied before injection; `--raw` injects the config's own stored values
+   verbatim.
 3. Builds the child environment: it starts from the parent `os.Environ()` and
    overlays the config's secrets. **By default the secret wins** on a name
    collision; `--preserve-env` flips that so an existing environment variable

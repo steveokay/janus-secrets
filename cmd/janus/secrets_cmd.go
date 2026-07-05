@@ -64,10 +64,10 @@ func newSecretsListCmd() *cobra.Command {
 				return err
 			}
 			var resp struct {
-				Version int `json:"version"`
 				Secrets map[string]struct {
 					ValueVersion int    `json:"value_version"`
 					CreatedAt    string `json:"created_at"`
+					Origin       string `json:"origin"`
 				} `json:"secrets"`
 			}
 			if err := c.call("GET", "/v1/configs/"+cid+"/secrets", nil, &resp); err != nil {
@@ -82,10 +82,10 @@ func newSecretsListCmd() *cobra.Command {
 			}
 			sort.Strings(keys)
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "KEY\tVERSION\tUPDATED")
+			fmt.Fprintln(tw, "KEY\tVERSION\tORIGIN\tUPDATED")
 			for _, k := range keys {
 				m := resp.Secrets[k]
-				fmt.Fprintf(tw, "%s\t%d\t%s\n", k, m.ValueVersion, m.CreatedAt)
+				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n", k, m.ValueVersion, m.Origin, m.CreatedAt)
 			}
 			return tw.Flush()
 		},
@@ -98,6 +98,7 @@ func newSecretsListCmd() *cobra.Command {
 func newSecretsGetCmd() *cobra.Command {
 	var f secretFlags
 	var version int
+	var raw bool
 	cmd := &cobra.Command{
 		Use:   "get KEY",
 		Short: "Print one secret value to stdout (audited)",
@@ -108,8 +109,15 @@ func newSecretsGetCmd() *cobra.Command {
 				return err
 			}
 			path := "/v1/configs/" + cid + "/secrets/" + url.PathEscape(args[0])
+			q := url.Values{}
 			if version > 0 {
-				path += "?version=" + fmt.Sprint(version)
+				q.Set("version", fmt.Sprint(version))
+			}
+			if raw {
+				q.Set("raw", "true")
+			}
+			if len(q) > 0 {
+				path += "?" + q.Encode()
 			}
 			var resp struct {
 				Value string `json:"value"`
@@ -123,6 +131,7 @@ func newSecretsGetCmd() *cobra.Command {
 	}
 	f.bind(cmd)
 	cmd.Flags().IntVar(&version, "version", 0, "fetch a historical value version")
+	cmd.Flags().BoolVar(&raw, "raw", false, "return the stored value verbatim (do not resolve references)")
 	return cmd
 }
 

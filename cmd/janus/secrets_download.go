@@ -11,6 +11,7 @@ func newSecretsDownloadCmd() *cobra.Command {
 	var f secretFlags
 	var format, output string
 	var plain bool
+	var raw bool
 	cmd := &cobra.Command{
 		Use:   "download",
 		Short: "Download all secret values in env|json|yaml",
@@ -29,7 +30,11 @@ func newSecretsDownloadCmd() *cobra.Command {
 			var resp struct {
 				Secrets map[string]string `json:"secrets"`
 			}
-			if err := c.call("GET", "/v1/configs/"+cid+"/secrets?reveal=true", nil, &resp); err != nil {
+			path := "/v1/configs/" + cid + "/secrets?reveal=true"
+			if raw {
+				path += "&raw=true"
+			}
+			if err := c.call("GET", path, nil, &resp); err != nil {
 				return err
 			}
 			data, err := formatSecrets(format, resp.Secrets)
@@ -51,6 +56,7 @@ func newSecretsDownloadCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "env", "output format: env|json|yaml")
 	cmd.Flags().StringVar(&output, "output", "", "write to a file instead of stdout (requires --plain)")
 	cmd.Flags().BoolVar(&plain, "plain", false, "permit writing plaintext secrets to disk")
+	cmd.Flags().BoolVar(&raw, "raw", false, "download stored values verbatim (do not resolve references)")
 	return cmd
 }
 

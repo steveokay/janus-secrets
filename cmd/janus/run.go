@@ -13,6 +13,7 @@ import (
 func newRunCmd() *cobra.Command {
 	var f secretFlags
 	var preserveEnv bool
+	var raw bool
 	cmd := &cobra.Command{
 		Use:                "run [flags] -- command [args...]",
 		Short:              "Run a command with the config's secrets injected as env vars",
@@ -31,7 +32,11 @@ func newRunCmd() *cobra.Command {
 			var resp struct {
 				Secrets map[string]string `json:"secrets"`
 			}
-			if err := c.call("GET", "/v1/configs/"+cid+"/secrets?reveal=true", nil, &resp); err != nil {
+			path := "/v1/configs/" + cid + "/secrets?reveal=true"
+			if raw {
+				path += "&raw=true"
+			}
+			if err := c.call("GET", path, nil, &resp); err != nil {
 				return err
 			}
 			env := buildChildEnv(os.Environ(), resp.Secrets, preserveEnv)
@@ -40,6 +45,7 @@ func newRunCmd() *cobra.Command {
 	}
 	f.bind(cmd)
 	cmd.Flags().BoolVar(&preserveEnv, "preserve-env", false, "existing env vars win over secrets")
+	cmd.Flags().BoolVar(&raw, "raw", false, "inject stored values verbatim (do not resolve references) — mainly for debugging")
 	return cmd
 }
 
