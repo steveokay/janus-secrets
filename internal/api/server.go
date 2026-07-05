@@ -14,6 +14,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
+	"github.com/steveokay/janus-secrets/internal/transit"
 )
 
 // Config is the api server's static configuration.
@@ -34,7 +35,8 @@ type Server struct {
 	unsealer crypto.Unsealer
 	seals    crypto.SealConfigStore
 	service  *secrets.Service
-	auth     *auth.Service   // nil only in unit tests that exercise no auth path
+	transit  *transit.Service // nil in unit-test servers that exercise no transit path
+	auth     *auth.Service    // nil only in unit tests that exercise no auth path
 	authz    *authz.Engine   // nil only in unit-test servers that exercise no authz path
 	st       *store.Store    // for scope-chain resolution + membership/user handlers
 	audit    *audit.Recorder // nil in unit-test servers; Boot always wires a real one
@@ -48,7 +50,7 @@ type Server struct {
 
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
-	seals crypto.SealConfigStore, svc *secrets.Service, authSvc *auth.Service,
+	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, authSvc *auth.Service,
 	authorizer *authz.Engine, st *store.Store, auditRec *audit.Recorder, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
@@ -56,7 +58,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc,
+	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr,
 		auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
 
 	r := chi.NewRouter()
@@ -182,6 +184,18 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/configs/{cid}/versions/diff", s.handleVersionDiff)
 			r.Post("/v1/configs/{cid}/rollback", s.handleRollback)
 		})
+		if s.transit != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/transit/keys", s.handleTransitCreate)
+				r.Get("/v1/transit/keys", s.handleTransitList)
+				r.Get("/v1/transit/keys/{name}", s.handleTransitGet)
+				r.Post("/v1/transit/keys/{name}/rotate", s.handleTransitRotate)
+				r.Post("/v1/transit/keys/{name}/config", s.handleTransitConfig)
+				r.Post("/v1/transit/keys/{name}/trim", s.handleTransitTrim)
+				r.Delete("/v1/transit/keys/{name}", s.handleTransitDelete)
+			})
+		}
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))

@@ -49,3 +49,65 @@ func TestRotateRewrapMinVersionTrim(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDeleteRequiresDeletionAllowed(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	k := uniqueName("del")
+	if _, err := svc.CreateKey(ctx, k, TypeAES); err != nil {
+		t.Fatal(err)
+	}
+
+	// Deletion is refused until deletion_allowed is set.
+	if err := svc.Delete(ctx, k); err != ErrDeletionNotAllowed {
+		t.Fatalf("delete without allow: want ErrDeletionNotAllowed, got %v", err)
+	}
+
+	yes := true
+	if err := svc.UpdateConfig(ctx, k, nil, &yes); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, k); err != nil {
+		t.Fatalf("delete after allow: %v", err)
+	}
+	// Gone now.
+	if _, err := svc.Get(ctx, k); err != ErrKeyNotFound {
+		t.Fatalf("get after delete: want ErrKeyNotFound, got %v", err)
+	}
+}
+
+func TestGetAndListRoundTrip(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	k := uniqueName("meta")
+	if _, err := svc.CreateKey(ctx, k, TypeEd25519); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := svc.Get(ctx, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Name != k || m.Type != TypeEd25519 || m.LatestVersion != 1 {
+		t.Fatalf("get: %+v", m)
+	}
+
+	list, err := svc.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range list {
+		if e.Name == k {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("list missing %q: %+v", k, list)
+	}
+
+	// Missing key → ErrKeyNotFound.
+	if _, err := svc.Get(ctx, uniqueName("nope")); err != ErrKeyNotFound {
+		t.Fatalf("get missing: want ErrKeyNotFound, got %v", err)
+	}
+}

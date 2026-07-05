@@ -65,3 +65,34 @@ func (s *Service) readMeta(ctx context.Context, name string) (KeyMeta, error) {
 	}
 	return metaOf(k), nil
 }
+
+// Get returns a key's metadata (no secret material).
+func (s *Service) Get(ctx context.Context, name string) (KeyMeta, error) {
+	return s.readMeta(ctx, name)
+}
+
+// List returns metadata for all transit keys, ordered by name.
+func (s *Service) List(ctx context.Context) ([]KeyMeta, error) {
+	ks, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	out := make([]KeyMeta, 0, len(ks))
+	for _, k := range ks {
+		out = append(out, metaOf(k))
+	}
+	return out, nil
+}
+
+// Delete permanently removes a key (and its versions). It refuses unless the
+// key's deletion_allowed flag has been set via config.
+func (s *Service) Delete(ctx context.Context, name string) error {
+	k, err := s.repo.GetByName(ctx, name)
+	if err != nil {
+		return mapStoreErr(err)
+	}
+	if !k.DeletionAllowed {
+		return ErrDeletionNotAllowed
+	}
+	return mapStoreErr(s.repo.Delete(ctx, k.ID))
+}

@@ -168,7 +168,7 @@ func newKMSTestServer(t *testing.T, client crypto.KMSClient) (*Server, *httptest
 	seals := &memSealStore{}
 	kr := crypto.NewKeyring()
 	u := crypto.NewKMSUnsealer(seals, client)
-	srv := New(Config{SealType: crypto.SealTypeAWSKMS}, kr, u, seals, nil, nil,
+	srv := New(Config{SealType: crypto.SealTypeAWSKMS}, kr, u, seals, nil, nil, nil,
 		nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
