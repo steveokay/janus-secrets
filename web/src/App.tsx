@@ -8,6 +8,7 @@ import { LoginPage } from './auth/LoginPage'
 import { UnsealPage } from './unseal/UnsealPage'
 import { AppLayout } from './shell/AppLayout'
 import { Sidebar } from './shell/Sidebar'
+import { SecretEditor } from './secrets/SecretEditor'
 
 function Gate() {
   const { user, loading } = useAuth()
@@ -33,7 +34,7 @@ function Gate() {
       <Routes>
         <Route path="/" element={<p>Select a project.</p>} />
         <Route path="/projects/:projectId" element={<p>Select a config.</p>} />
-        <Route path="/projects/:projectId/configs/:configId" element={<p>Editor…</p>} />
+        <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
         <Route path="/tokens" element={<p>Coming soon.</p>} />
         <Route path="/members" element={<p>Coming soon.</p>} />
         <Route path="/transit" element={<p>Coming soon.</p>} />
