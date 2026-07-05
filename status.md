@@ -483,15 +483,16 @@ live too (milestone 9): `janus login`/`setup`/`secrets`/`run` authenticate, bind
 a directory via `.janus.yaml`, read/write secrets, and inject a config's secrets
 as env vars into a subprocess. Phase-1 finish line (per CLAUDE.md) —
 "docker-compose up, create project, set secrets, `janus run` works" — is **met**.
-The one open Phase-1 line item, config inheritance/reference resolution, rolls
-forward as a follow-up.
+The last open Phase-1 line item, config inheritance/reference resolution, is now
+**done** (milestone 11) — **Phase 1 is fully complete**.
 
 Caveat carried forward: the operator `janus seal` CLI command does not yet send
 a credential, so it will receive 401 against the now-gated endpoint until it
 grows a token flag (or `janus login`); sealing over HTTP works with a bearer token
 or session cookie today.
 
-- [ ] Config inheritance resolution + secret references (`${projects...}`)
+- [x] Config inheritance resolution + secret references (`${projects...}`)
+      (milestone 11)
 - [x] Auth (passwords, service tokens) — `POST /v1/sys/seal` auth-gated
       (OIDC / federation deferred to Phase 2)
 - [x] RBAC engine — roles/scopes, deny-by-default enforcement, membership +
@@ -502,6 +503,89 @@ or session cookie today.
       reveal/write/delete, versions/diff/rollback, cascade destroy (milestone 8)
 - [x] Secrets CLI with `janus run` — login/setup/secrets/run, `.janus.yaml`
       binding, two-tier credentials, `JANUS_CONFIG_DIR` override (milestone 9)
+
+## Milestone 11 — Config inheritance + secret references ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-05-inheritance-references-design.md`
+Plan: `docs/superpowers/plans/2026-07-05-inheritance-references.md` (12 tasks)
+Docs: `docs/references.md` · Branch: `milestone-11-resolution` (subagent-driven
+development — fresh implementer per task, diff-reviewed by the controller before
+proceeding). **This is the final Phase-1 line item; Phase 1 is now complete.**
+
+Scope delivered: two read-time composition features over the project → env →
+config → secret hierarchy, in a new pure `internal/resolve` package that composes
+over two ports — `RawReader` (config coordinate → raw decrypted values,
+implemented by `internal/secrets`) and `Authorizer` (per-target `secret:read`
+check, implemented by `internal/api`). **Inheritance:** a config's `inherits_from`
+chain is walked to its root and merged **child-wins** per key (same environment
+only), with cycle detection (`409 ErrInheritanceCycle`) and missing/deleted-base
+detection (`409 ErrBrokenInheritance`); a branch config may have no own secrets
+and still read its base's. **References:** secret values embed
+`${projects.<project>.<env>.<config>.KEY}` (absolute) or `${KEY}` (local, same
+merged set), resolved **transitively** at read time — inheritance applied first,
+then references expanded — with `$$` escaping a literal `$`. A value that is
+*exactly* one reference passes the target's bytes through unchanged (binary-safe);
+an embedded reference splices bytes into the string. Two cycle guards
+(`(config,key)` frame revisit → `409 ErrReferenceCycle`) plus a depth cap of 32
+(`422 ErrReferenceDepth`); unknown target → `422 ErrUnresolvedReference`; malformed
+token → `400 ErrBadReferenceSyntax`. Resolution is **atomic** — any unresolvable
+reference fails the whole read and returns no values. Reveals **resolve by
+default**; `?raw=true` (CLI `--raw` on `get`/`run`/`download`) returns stored
+values verbatim. The masked list carries an `origin` per key
+(`own`/`inherited`/`overridden`).
+
+**Authorization asymmetry (by design):** references are **strict** —
+every dereferenced config independently requires the caller to hold `secret:read`
+(a forbidden reference fails closed `403 ErrForbiddenReference`, atomic; no
+transitive privilege escalation); inheritance is **transparent** — reading a
+branch needs no separate grant on its base (admin-controlled, same-environment
+structural content). **Audit:** a resolved reveal writes one primary
+`secret.reveal` on the config read plus one per **distinct** config dereferenced
+via a reference (`detail = "via reference from configs/<cid>"`, deduped);
+inheritance ancestors are part of the primary reveal, not separately audited.
+No secret value ever enters an audit row or error message.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 12 tasks
+- [x] 1. `internal/resolve` skeleton — `Coord`/`RawConfig`/`Provenance` types,
+      `RawReader`/`Authorizer` ports, 7 error sentinels
+- [x] 2. Reference grammar parser — `${projects.p.e.c.KEY}` + local `${KEY}` +
+      `$$` escape (table-driven)
+- [x] 3. Inheritance merge — child-wins chain walk, cycle + broken-base
+- [x] 4. Reference expansion + `Resolve`/`ResolveKey` — transitive, `(config,key)`
+      cycle frames, depth cap, atomic failure, zeroization
+- [x] 5. `internal/secrets` `ReadRaw`/`ReadRawByID` port — reuse decrypt path +
+      coordinate lookups (version-less configs read as empty own-set)
+- [x] 6. `internal/api` `Authorizer` adapter + `writeServiceError` sentinel mapping
+      (403/409/422/400)
+- [x] 7. Reveal handlers — resolve-by-default + `?raw=true` + single-key + per-deref audit
+- [x] 8. Masked-list origin markers (own/inherited/overridden, metadata-only merge)
+- [x] 9. Reference-RBAC + inheritance e2e
+- [x] 10. Audit-trail + secret-value leak e2e
+- [x] 11. CLI `--raw` on `run`/`download`/`get` + list `ORIGIN` column
+- [x] 12. Docs (`docs/references.md`), full gate sweep
+
+Verification: `go build`, `go vet`, `go test ./... -count=1` (resolve + secrets +
+api + authz + audit + store + crypto + CLI, Docker-backed testcontainers suites
+ran) all pass; `internal/crypto`, `internal/authz`, and `internal/audit` coverage
+100.0%; `gosec` (shamir excluded) 0 issues (15 recorded `#nosec`, none new for
+resolve — the pure package is stdlib-only and allocation-based); `govulncheck` 0
+affecting. An e2e proves resolved-vs-raw reveal, transitive references, an
+inheritance chain (own/inherited/overridden origins), a forbidden reference
+denied `403` atomically, and `janus run` injecting resolved values; a leak test
+proves no secret value reaches the logs or any audit row and that each
+dereferenced target is audited by path.
+
+Two defects were found and fixed during the T9 review, not carried forward: a
+**version-less inheriting config** (one that sets `inherits_from` but has never
+been written to) was unreadable because `GetLatest` returns `ErrNotFound` for a
+config with no config version, and both `rawFor` (the `RawReader` port) and
+`ListSecretsMerged` (the masked-list merge) called it unconditionally — fixed to
+treat a version-less config as an empty own-set that still follows
+`inherits_from`. The residual of the same gap, **`LatestVersion`** (used only for
+the resolved reveal's response `version` field), also 404'd on a version-less
+config — fixed to report version `0`. A regression test
+(`versionless_test.go`) locks the fix.
 
 ## Phase 2 · Sub-project A — Transit Engine ✅ complete
 

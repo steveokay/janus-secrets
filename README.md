@@ -155,8 +155,11 @@ two-level versioning (immutable config versions for diff/rollback, plus
 per-secret value history). The schema, migrations, and repositories are built
 and tested — see [docs/data-model.md](docs/data-model.md). The store is
 **crypto-blind**: it persists opaque ciphertext and never holds a key or
-plaintext. Config inheritance and secret references are deferred to a later
-milestone.
+plaintext. Configs can **inherit** from a base config in the same environment
+(child wins per key) and secret values can embed **references** —
+`${projects.<project>.<env>.<config>.KEY}` or local `${KEY}` — resolved at read
+time, transitively, with cycle detection and strict per-target authorization.
+See [docs/references.md](docs/references.md).
 
 ## CLI
 
@@ -276,8 +279,9 @@ floor.
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
-audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run` ✅.
-**Phase 1 complete.** Live tracker: [status.md](status.md).
+audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run` ✅ →
+config inheritance + secret references ✅. **Phase 1 complete.** Live tracker:
+[status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning) ✅ (sub-project A — see

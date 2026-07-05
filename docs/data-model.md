@@ -4,8 +4,9 @@
 — see [`superpowers/specs/2026-07-03-store-layer-design.md`](superpowers/specs/2026-07-03-store-layer-design.md).
 The schema, migrations, repositories, and two-level versioning (batched saves,
 history, diff, rollback) are built and tested against real Postgres. Config
-inheritance and secret references remain deferred (see the end of this doc).
-This document explains the hierarchy and the two-level versioning scheme.
+inheritance and read-time secret references are now implemented as a resolution
+layer over these reads — see [references.md](references.md). This document
+explains the hierarchy and the two-level versioning scheme.
 
 The store is **crypto-blind**: it persists and returns opaque encrypted bytes
 (`wrapped_dek`, `ciphertext`, `nonce`, `wrapped_kek`) and never holds a key or
@@ -139,15 +140,19 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   Never holds a secret value — resource/detail carry paths and non-secret
   specifics only.
 
-## What's deferred
+## Read-time resolution (implemented)
 
 The store milestone builds the secret-hierarchy schema and repositories above.
-These read-time *resolution* features are separate, later specs:
+Two read-time *resolution* features compose over these reads (in
+`internal/resolve`, documented in [references.md](references.md)):
 
 - **Config inheritance** — root config + branch configs within an environment
-  (the `inherits_from` column exists but is unresolved).
-- **Secret references** — `${projects.other.prod.KEY}` resolved at read time,
-  with cycle-checking.
+  (child wins per key); the `inherits_from` column is now resolved.
+- **Secret references** — `${projects.<project>.<env>.<config>.KEY}` (and local
+  `${KEY}`) resolved at read time, transitively, with cycle detection and strict
+  per-target authorization.
+
+Reveals resolve by default; `?raw=true` returns stored values verbatim.
 
 (Encryption orchestration — the layer that holds the unsealed keyring and turns
 plaintext into the ciphertext this store persists — shipped in `internal/secrets`.)
