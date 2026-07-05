@@ -30,3 +30,18 @@ func (a apiAuthorizer) CanReadSecrets(_ context.Context, t resolve.RawConfig) er
 func (s *Server) resolverFor(r *http.Request) *resolve.Resolver {
 	return resolve.New(s.service, apiAuthorizer{s: s, r: r})
 }
+
+// recordReveal writes the primary secret.reveal for cid plus one secret.reveal
+// per distinct config dereferenced via a reference (provenance), fail-closed.
+func (s *Server) recordReveal(r *http.Request, cid, detail string, prov []resolve.Provenance) error {
+	if err := s.record(r, "secret.reveal", "configs/"+cid+"/secrets", "success", "", detail); err != nil {
+		return err
+	}
+	for _, p := range prov {
+		if err := s.record(r, "secret.reveal", "configs/"+p.ConfigID+"/secrets",
+			"success", "", "via reference from configs/"+cid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
