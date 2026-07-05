@@ -13,8 +13,7 @@ type createUserRequest struct {
 }
 
 func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
-	if err := s.can(r, authz.UserManage, authz.Instance()); err != nil {
-		s.writeAuthzError(w, err)
+	if !s.authorize(w, r, authz.UserManage, authz.Instance(), "user.create", "users") {
 		return
 	}
 	var req createUserRequest
@@ -25,6 +24,10 @@ func (s *Server) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	id, password, err := s.auth.CreateUser(r.Context(), req.Email)
 	if err != nil {
 		s.writeAuthError(w, err) // ErrValidation on duplicate email → 400
+		return
+	}
+	if err := s.record(r, "user.create", "users/"+id, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
 	// One-time credential; same pattern as the bootstrap admin.
@@ -45,8 +48,7 @@ func (s *Server) handleUserList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUserDisable(w http.ResponseWriter, r *http.Request) {
-	if err := s.can(r, authz.UserManage, authz.Instance()); err != nil {
-		s.writeAuthzError(w, err)
+	if !s.authorize(w, r, authz.UserManage, authz.Instance(), "user.disable", "users") {
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -67,6 +69,10 @@ func (s *Server) handleUserDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.auth.DisableUser(r.Context(), id); err != nil {
 		s.writeAuthError(w, err)
+		return
+	}
+	if err := s.record(r, "user.disable", "users/"+id, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

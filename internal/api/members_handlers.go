@@ -91,8 +91,7 @@ func (s *Server) memberPut(w http.ResponseWriter, r *http.Request, spec scopeSpe
 		writeError(w, http.StatusBadRequest, CodeValidation, "a valid role is required")
 		return
 	}
-	if err := s.can(r, authz.MemberManage, spec.resource); err != nil {
-		s.writeAuthzError(w, err)
+	if !s.authorize(w, r, authz.MemberManage, spec.resource, "member.grant", memberResource(spec, userID)) {
 		return
 	}
 	// Delegation: you cannot grant a role above your own effective role here.
@@ -141,12 +140,15 @@ func (s *Server) memberPut(w http.ResponseWriter, r *http.Request, spec scopeSpe
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
+	if err := s.record(r, "member.grant", memberResource(spec, userID), "success", "", "role="+req.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) memberDelete(w http.ResponseWriter, r *http.Request, spec scopeSpec, userID string) {
-	if err := s.can(r, authz.MemberManage, spec.resource); err != nil {
-		s.writeAuthzError(w, err)
+	if !s.authorize(w, r, authz.MemberManage, spec.resource, "member.revoke", memberResource(spec, userID)) {
 		return
 	}
 	// Never-lock-out: refuse to remove the last instance owner (fail closed).
@@ -169,5 +171,29 @@ func (s *Server) memberDelete(w http.ResponseWriter, r *http.Request, spec scope
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
+	if err := s.record(r, "member.revoke", memberResource(spec, userID), "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// memberResource renders a scope-qualified member path for audit resources,
+// e.g. "instance/members/<uid>", "project/<pid>/members/<uid>".
+func memberResource(spec scopeSpec, userID string) string {
+	switch spec.level {
+	case "project":
+		return "project/" + deref(spec.projectID) + "/members/" + userID
+	case "environment":
+		return "environment/" + deref(spec.envID) + "/members/" + userID
+	default:
+		return "instance/members/" + userID
+	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

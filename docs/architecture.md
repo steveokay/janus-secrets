@@ -17,7 +17,7 @@ those below it and is testable in isolation.
 │  internal/api    HTTP handlers, middleware, routes     ✅ │
 │                  (sys + auth + token + user + member)     │
 ├──────────────────────────────────────────────────────────┤
-│  internal/auth ✅  internal/authz ✅  internal/audit (TODO)│
+│  internal/auth ✅  internal/authz ✅  internal/audit ✅    │
 ├──────────────────────────────────────────────────────────┤
 │  internal/store  Postgres repositories, migrations    ✅  │
 │                  crypto-blind: stores ciphertext only     │
@@ -48,7 +48,7 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 | `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `.../members`, sealed-state + auth + authz middleware, `Boot` composition | ✅ sys/auth/authz APIs (secret routes land with the API milestone) |
 | `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, `Principal` | ✅ implemented (OIDC/federation Phase 2) |
 | `internal/authz` | Pure deny-by-default RBAC engine (viewer/developer/admin/owner; instance/project/env scopes; `Can`, `EffectiveRole`, grant/revoke) | ✅ implemented |
-| `internal/audit` | Hash-chained append-only audit log | ⏳ planned |
+| `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export; fail-closed per-handler recording | ✅ implemented |
 | `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) — secrets CLI (`janus run`, etc.) planned | ✅ implemented (secrets CLI ⏳ planned) |
 
 ## Sealed vs. unsealed
@@ -91,7 +91,7 @@ Phase 1 is being built strictly in order (see `../CLAUDE.md` for the full list):
 
 > crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 > encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
-> auth ✅ → RBAC ✅ → **audit** → REST API → CLI with `run`.
+> auth ✅ → RBAC ✅ → audit ✅ → **REST API** → CLI with `run`.
 
 Phases 2 (transit engine + React UI + OIDC + usage metrics) and 3 (rotation +
 dynamic Postgres credentials) follow. HA/Raft, PKI/CA, SSH signing, HSM,

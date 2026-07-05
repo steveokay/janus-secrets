@@ -40,8 +40,7 @@ func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	if err := s.can(r, authz.TokenMint, res); err != nil {
-		s.writeAuthzError(w, err)
+	if !s.authorize(w, r, authz.TokenMint, res, "token.mint", "tokens") {
 		return
 	}
 	p, _ := PrincipalFrom(r.Context())
@@ -57,6 +56,10 @@ func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
 	raw, meta, err := s.auth.MintServiceToken(r.Context(), p, req.Name, req.Scope.Kind, req.Scope.ID, req.Access, ttl)
 	if err != nil {
 		s.writeAuthError(w, err)
+		return
+	}
+	if err := s.record(r, "token.mint", "tokens/"+meta.ID, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -108,12 +111,15 @@ func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	if err := s.can(r, authz.TokenRevoke, res); err != nil {
-		s.writeAuthzError(w, err)
+	if !s.authorize(w, r, authz.TokenRevoke, res, "token.revoke", "tokens/"+id) {
 		return
 	}
 	if err := s.auth.RevokeToken(r.Context(), id); err != nil {
 		s.writeAuthError(w, err)
+		return
+	}
+	if err := s.record(r, "token.revoke", "tokens/"+id, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

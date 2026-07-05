@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -33,9 +34,10 @@ type Server struct {
 	unsealer crypto.Unsealer
 	seals    crypto.SealConfigStore
 	service  *secrets.Service
-	auth     *auth.Service // nil only in unit tests that exercise no auth path
-	authz    *authz.Engine // nil only in unit-test servers that exercise no authz path
-	st       *store.Store  // for scope-chain resolution + membership/user handlers
+	auth     *auth.Service   // nil only in unit tests that exercise no auth path
+	authz    *authz.Engine   // nil only in unit-test servers that exercise no authz path
+	st       *store.Store    // for scope-chain resolution + membership/user handlers
+	audit    *audit.Recorder // nil in unit-test servers; Boot always wires a real one
 	logger   *slog.Logger
 	router   chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
@@ -47,7 +49,7 @@ type Server struct {
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	seals crypto.SealConfigStore, svc *secrets.Service, authSvc *auth.Service,
-	authorizer *authz.Engine, st *store.Store, logger *slog.Logger) *Server {
+	authorizer *authz.Engine, st *store.Store, auditRec *audit.Recorder, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
 	}
@@ -55,7 +57,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		logger = slog.Default()
 	}
 	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc,
-		auth: authSvc, authz: authorizer, st: st, logger: logger}
+		auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
@@ -69,7 +71,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		// Production always wires a non-nil auth service (Boot does), so seal is
 		// authenticated. Unit-test servers pass nil and hit the route directly.
 		if s.auth != nil && s.authz != nil {
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal)).Post("/seal", s.handleSeal)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
 		} else {
 			r.Post("/seal", s.handleSeal)
 		}
@@ -117,6 +119,13 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
 			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
 		})
+		if s.audit != nil {
+			r.Route("/v1/audit", func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Get("/verify", s.handleAuditVerify)
+				r.Get("/export", s.handleAuditExport)
+			})
+		}
 	}
 	s.router = r
 	return s
