@@ -10,11 +10,12 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > migrations, two-level versioning), the encryption-orchestration service, the
 > **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
 > stack), **authentication** (email/password sessions + scoped service tokens),
-> and **RBAC** (roles/scopes, deny-by-default enforcement) are complete and
-> tested against real Postgres. Still to come before Janus is usable as a
-> secrets manager: the hash-chained audit log, the secret-facing REST API, and
-> the secrets CLI (`janus run`). See [Roadmap](#roadmap) for the honest current
-> state.
+> **RBAC** (roles/scopes, deny-by-default enforcement), and the
+> **hash-chained audit log** (tamper-evident, fail-closed recording,
+> `verify`/`export`) are complete and tested against real Postgres. Still to
+> come before Janus is usable as a secrets manager: the secret-facing REST API
+> and the secrets CLI (`janus run`). See [Roadmap](#roadmap) for the honest
+> current state.
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
@@ -85,6 +86,24 @@ guard (the last instance owner cannot be removed, demoted, or disabled). The
 engine is a pure decision function (`internal/authz`); handlers enforce it
 explicitly, so the storage and secrets layers stay identity-free.
 
+### Audit log
+
+Every authenticated request that performs a sensitive action writes an
+**append-only, tamper-evident** event: actor, action, resource path, result, IP,
+and timestamp, plus the SHA-256 of the previous event (a hash chain). The hash is
+canonical — domain-tagged, length-prefixed fields, a presence byte so `NULL` and
+`""` never collide — and an event has **no value field by construction**, so a
+secret value can never be recorded. Each append serializes on a Postgres
+transaction advisory lock, so the chain stays contiguous under concurrency.
+Recording is **synchronous and fail-closed**: if the audit write fails, the
+request fails — no mutation is left unaudited. Services stay audit-blind; only the
+API layer records (a one-line `s.record(...)` per handler), with denied requests
+captured centrally. `GET /v1/audit/verify` walks the chain and reports integrity
+(the future UI's "chain verified" badge); `GET /v1/audit/export` streams the log
+as JSONL or CSV, filterable by time/actor/action/result, with each row carrying
+`prev_hash`+`hash` for offline verification. The engine (`internal/audit`) is
+pure and HTTP-free.
+
 ## Quickstart (dev)
 
 ```sh
@@ -125,7 +144,8 @@ milestone.
   Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
 - **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
 - **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, token,
-  user, and membership routes live; secret routes arrive with the API milestone).
+  user, membership, and audit routes live; secret routes arrive with the API
+  milestone).
 - **AuthN/Z:** Argon2id passwords, HMAC-SHA256 token hashing, opaque sessions,
   and a pure deny-by-default RBAC engine.
 - **CLI:** `cobra` (`janus server/init/unseal/seal-status/seal/migrate`).
@@ -142,11 +162,12 @@ internal/crypto/     envelope encryption, key hierarchy, unseal    ← implement
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
 internal/store/      Postgres repositories, migrations, versioning ← implemented
 internal/secrets/    encryption orchestration + secrets CRUD       ← implemented
-internal/api/        HTTP server, sys/auth/token/user/member routes ← implemented
+internal/api/        HTTP server, sys/auth/token/user/member/audit  ← implemented
+                     routes (secret routes planned)
 internal/auth/       passwords, sessions, service tokens           ← implemented
                      (OIDC/federation planned for Phase 2)
 internal/authz/      RBAC engine (roles, scopes, enforcement)      ← implemented
-internal/audit/      hash-chained audit log (planned)
+internal/audit/      hash-chained audit log                        ← implemented
 migrations/          SQL migrations
 web/                 React SPA (planned)
 docs/                subsystem docs, design specs, implementation plans
@@ -172,11 +193,12 @@ make migrate                   # apply the schema explicitly (server also auto-m
 The `internal/store`, `internal/secrets`, and `internal/api` integration tests
 run against a real PostgreSQL via
 [testcontainers](https://testcontainers.com/) and require Docker; without it
-they skip (they do not fail). The pure-logic packages `internal/crypto` and
-`internal/authz` are held to **100% statement coverage**, enforced in CI;
-crypto includes tamper, nonce-reuse, and secret-leak tests, and authz an
-exhaustive role→action matrix test. CI also runs `go vet`, `govulncheck`, and
-`gosec`. The Go
+they skip (they do not fail). The pure-logic packages `internal/crypto`,
+`internal/authz`, and `internal/audit` are held to **100% statement coverage**,
+enforced in CI; crypto includes tamper, nonce-reuse, and secret-leak tests,
+authz an exhaustive role→action matrix test, and audit hash-determinism,
+tamper, chain-break, and genesis tests. CI also runs `go vet`, `govulncheck`,
+and `gosec`. The Go
 toolchain is pinned to `go1.26.4` (via a `toolchain` directive) as a security
 floor.
 
@@ -187,8 +209,9 @@ floor.
   HMACs are stored (never raw tokens), and session/token verification requires
   an unsealed server.
 - Zero plaintext secrets or key material in logs or error messages — enforced
-  by leak tests at the crypto, secrets, and HTTP layers (the request logger is
-  structurally body-free).
+  by leak tests at the crypto, secrets, HTTP, and audit layers (the request
+  logger is structurally body-free; an audit `Event` has no value field, so a
+  secret can never enter the audit log).
 - Every ciphertext's AAD binds it to its exact storage slot (project,
   config/key path, value version), so relocated or swapped ciphertext fails
   closed.
@@ -199,6 +222,9 @@ floor.
   are unauthenticated by bootstrap necessity, matching the Vault model.
 - RBAC is deny-by-default; denied requests return a generic `403 forbidden` that
   never leaks role names, bindings, or query internals (enforced by a leak test).
+- The audit log is append-only and hash-chained; recording is fail-closed (an
+  audit-write failure fails the request), and `GET /v1/audit/verify` detects any
+  field mutation, deletion, or reorder of past events.
 
 ## Roadmap
 
@@ -206,7 +232,8 @@ floor.
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
-audit log → REST API → CLI with `run`. Live tracker: [status.md](status.md).
+audit log (hash-chained, tamper-evident) ✅ → REST API → CLI with `run`.
+Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning); React SPA; OIDC login; usage metrics.
