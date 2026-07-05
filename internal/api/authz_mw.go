@@ -19,11 +19,19 @@ func (s *Server) can(r *http.Request, action authz.Action, res authz.Resource) e
 	return s.authz.Can(r.Context(), p, scope, action, res)
 }
 
-// requireInstance gates a route on an instance-scoped action.
-func (s *Server) requireInstance(action authz.Action) func(http.Handler) http.Handler {
+// requireInstance gates a route on an instance-scoped action, recording a
+// denied audit event (best-effort→fail-closed: if the denial's own audit write
+// fails, the request 500s rather than proceed unaudited).
+func (s *Server) requireInstance(action authz.Action, auditAction, auditResource string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := s.can(r, action, authz.Instance()); err != nil {
+				if errors.Is(err, authz.ErrForbidden) {
+					if aerr := s.record(r, auditAction, auditResource, "denied", CodeForbidden, ""); aerr != nil {
+						writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+						return
+					}
+				}
 				s.writeAuthzError(w, err)
 				return
 			}

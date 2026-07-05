@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -98,6 +99,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	svc := secrets.NewService(st, kr)
 	authSvc := auth.NewService(st, kr)
 	authorizer := authz.New(store.NewRoleBindingRepo(st))
+	auditRec := audit.New(store.NewAuditRepo(st))
 	// Sweep sessions orphaned by expiry while the server was down.
 	if err := authSvc.SweepExpiredSessions(ctx); err != nil {
 		logger.Warn("expired-session sweep failed", "err", err)
@@ -106,7 +108,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, authSvc, authorizer, st, logger)
+	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, authSvc, authorizer, st, auditRec, logger)
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and
 	// POST /v1/sys/unseal retries.
