@@ -48,6 +48,12 @@ func (rec *Recorder) Record(ctx context.Context, e Event) error {
 	return err
 }
 
+// List streams events matching f to fn (export). It is a thin passthrough to
+// the store so the API layer never imports the store repo directly for reads.
+func (rec *Recorder) List(ctx context.Context, f store.AuditFilter, fn func(store.AuditRow) error) error {
+	return rec.store.List(ctx, f, fn)
+}
+
 // nz maps "" to a nil *string (SQL NULL).
 func nz(s string) *string {
 	if s == "" {

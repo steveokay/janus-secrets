@@ -119,6 +119,13 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
 			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
 		})
+		if s.audit != nil {
+			r.Route("/v1/audit", func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Get("/verify", s.handleAuditVerify)
+				r.Get("/export", s.handleAuditExport)
+			})
+		}
 	}
 	s.router = r
 	return s
