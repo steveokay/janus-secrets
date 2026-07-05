@@ -90,6 +90,16 @@ Two distinct notions, both required by the project spec:
   and can be undeleted. **Hard destroy** is a separate, explicit operation that
   actually removes rows.
 
+Migration `000005_cascade_destroy` makes hard destroy transitive: every
+*ownership* foreign key (environment→project, config→environment,
+config_version→config, secret_value→config, and the config_version_entries
+links) is `ON DELETE CASCADE`, so destroying a project (or environment) removes
+its whole subtree in one statement. The `configs.inherits_from` reference is
+deliberately left `NO ACTION`: a config that is still an inheritance base for a
+branch config cannot be destroyed (the FK violation surfaces as
+`store.ErrParentNotFound` → `409`), so an inheritance relationship is never
+silently broken by a destroy.
+
 ## Concurrency & atomicity
 
 A batched save runs in a single transaction. To keep version numbers contiguous

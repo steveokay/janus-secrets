@@ -15,7 +15,8 @@ those below it and is testable in isolation.
 │  cmd/janus (single binary: server + secrets CLI)         │
 ├──────────────────────────────────────────────────────────┤
 │  internal/api    HTTP handlers, middleware, routes     ✅ │
-│                  (sys + auth + token + user + member)     │
+│                  (sys + auth + token + user + member +    │
+│                   project/env/config/secret + versions)   │
 ├──────────────────────────────────────────────────────────┤
 │  internal/auth ✅  internal/authz ✅  internal/audit ✅    │
 ├──────────────────────────────────────────────────────────┤
@@ -45,7 +46,7 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
 | `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning | ✅ core CRUD (inheritance/references deferred) |
 | `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops | ✅ implemented |
-| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `.../members`, sealed-state + auth + authz middleware, `Boot` composition | ✅ sys/auth/authz APIs (secret routes land with the API milestone) |
+| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `.../members`, `/v1/projects` + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete, `/v1/configs/{cid}/versions` list/diff/rollback, sealed-state + auth + authz middleware, `Boot` composition | ✅ implemented (secret-facing REST API live) |
 | `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, `Principal` | ✅ implemented (OIDC/federation Phase 2) |
 | `internal/authz` | Pure deny-by-default RBAC engine (viewer/developer/admin/owner; instance/project/env scopes; `Can`, `EffectiveRole`, grant/revoke) | ✅ implemented |
 | `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export; fail-closed per-handler recording | ✅ implemented |
@@ -62,12 +63,13 @@ its own.
 
 ## How a secret flows through the system
 
-A write today (layers marked *TODO* are not built yet):
+A write today (every layer below is built ✅):
 
-1. **API** authenticates the caller (session cookie or service token → a
+1. **API** (✅) authenticates the caller (session cookie or service token → a
    `Principal`) and the handler checks RBAC via `internal/authz`
-   (deny-by-default). *(The auth + authz machinery is built ✅; the
-   secret-writing route itself lands with the REST API milestone.)*
+   (deny-by-default) before calling the encryption layer. `PUT
+   /v1/configs/{cid}/secrets` (batch) and `PUT /v1/configs/{cid}/secrets/{key}`
+   (per-key) are the write routes; each commits one new config version.
 2. The **encryption layer** (`internal/secrets`, ✅) fetches the project's
    wrapped KEK from the store, unwraps it with the in-memory master key,
    generates a fresh DEK per value, and AES-256-GCM-encrypts the secret. Each
@@ -77,11 +79,15 @@ A write today (layers marked *TODO* are not built yet):
 3. The **store** (✅) persists the resulting `EncryptedValue` (wrapped DEK +
    ciphertext + nonce) as a new immutable *config version*, batching all edits
    from one save together.
-4. The **audit log** *(TODO)* appends a hash-chained event — actor, action,
-   resource path, result — recording the key name but never the value.
+4. The **audit log** (✅) appends a hash-chained event — actor, action,
+   resource path, result — recording the key name but never the value. The API
+   records it fail-closed after the mutation commits.
 
-A read reverses steps 2–3 and, for a value reveal, also audits. Rollback
-repoints at existing ciphertext without re-encrypting. See
+A read reverses steps 2–3: `GET /v1/configs/{cid}/secrets` returns masked
+metadata (no audit), while a reveal (`?reveal=true`, or `GET
+.../secrets/{key}`) decrypts and audits `secret.reveal`. Rollback (`POST
+/v1/configs/{cid}/rollback`) repoints at existing ciphertext without
+re-encrypting. See
 [operations.md](operations.md) for how the server boots, seals, and unseals
 around all of this.
 
@@ -91,7 +97,7 @@ Phase 1 is being built strictly in order (see `../CLAUDE.md` for the full list):
 
 > crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 > encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
-> auth ✅ → RBAC ✅ → audit ✅ → **REST API** → CLI with `run`.
+> auth ✅ → RBAC ✅ → audit ✅ → REST API ✅ → **CLI with `run`**.
 
 Phases 2 (transit engine + React UI + OIDC + usage metrics) and 3 (rotation +
 dynamic Postgres credentials) follow. HA/Raft, PKI/CA, SSH signing, HSM,

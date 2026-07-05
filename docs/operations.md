@@ -2,10 +2,10 @@
 
 How to run the server, initialize and unseal it, and operate it day to day.
 The seal lifecycle shipped with the server-bootstrap milestone; **authentication
-and RBAC** (below) shipped in the auth and RBAC milestones, and the
-**hash-chained audit log** (below) shipped in the audit milestone. The
-secret-facing HTTP API and the secrets CLI (`janus run`, etc.) arrive in later
-milestones, so the identity and audit endpoints are HTTP-only for now (there is
+and RBAC** (below) shipped in the auth and RBAC milestones, the **hash-chained
+audit log** (below) shipped in the audit milestone, and the **secret-facing REST
+API** (below) shipped in the REST API milestone. The secrets CLI (`janus run`,
+etc.) arrives in a later milestone, so everything is HTTP-only for now (there is
 no `janus login` yet).
 
 ## The mental model
@@ -178,6 +178,58 @@ demoted, or disabled** (`409`) — so you can never lock yourself out. If every
 owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
+
+## Secrets API
+
+The project → environment → config → secret hierarchy and its two-level
+versioning are served over `/v1/`, JSON. Every route requires an **unsealed**
+server (503 while sealed) and the relevant **RBAC permission** (deny-by-default);
+service errors map to the standard envelope (`404 not_found`, `409 conflict`,
+`400 validation`, `503 sealed`, generic `500`). Values are never echoed in an
+error message or a log line.
+
+**Hierarchy CRUD + lifecycle.** Every resource supports create, read/list,
+soft-delete, restore, and hard-destroy. A hard-destroy of a project or
+environment cascades the whole subtree (migration `000005`); a config whose
+`inherits_from` is still referenced by a branch config cannot be destroyed
+(`409`).
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `POST /v1/projects`, `GET /v1/projects[/{pid}]` | Create / list / get projects | `project:create` (instance) / `project:read` |
+| `DELETE /v1/projects/{pid}[?destroy=true]`, `POST …/restore` | Soft-delete (or destroy) / restore a project | `project:delete` (**owner**) |
+| `POST/GET /v1/projects/{pid}/environments[/{eid}]`, `DELETE …[?destroy=true]`, `POST …/restore` | Environment CRUD + lifecycle | `env:*` / `project:read` |
+| `POST/GET /v1/projects/{pid}/environments/{eid}/configs`, `GET/DELETE /v1/configs/{cid}[?destroy=true]`, `POST /v1/configs/{cid}/restore` | Config CRUD + lifecycle | `config:*` / `config:read` |
+
+**Reading secrets — masked vs. reveal.** The distinction is endpoint-encoded and
+matches the audit rules: a **masked** read returns key names + value-version
+metadata only and is **not audited**; a **reveal** decrypts the value and **is
+audited** (`secret.reveal`).
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `GET /v1/configs/{cid}/secrets` | **Masked** list (`{key → {value_version, created_at}}`), no values, no audit | `secret:read` |
+| `GET /v1/configs/{cid}/secrets?reveal=true` | **Reveal** every key's value in one call (audited) | `secret:read` |
+| `GET /v1/configs/{cid}/secrets/{key}[?version=N]` | **Reveal** one key's latest (or historical) value (audited) | `secret:read` |
+| `GET /v1/configs/{cid}/secrets/{key}/history` | Masked value-version history for one key, no audit | `secret:read` |
+
+**Writing secrets.** Each write commits **one new immutable config version**
+(the unit of diff/rollback); a batch is all-or-nothing. Writes and deletes are
+audited (`secret.write` / `secret.delete`).
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `PUT /v1/configs/{cid}/secrets` | Batch write `{"message":…,"changes":[{"key","value","delete"}]}` — one version for all edits; duplicate key in a batch → `400` | `secret:write` |
+| `PUT /v1/configs/{cid}/secrets/{key}` | Write one key `{"value":…}` | `secret:write` |
+| `DELETE /v1/configs/{cid}/secrets/{key}` | Remove one key (new version) | `secret:write` |
+
+**Versions, diff, rollback.**
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `GET /v1/configs/{cid}/versions` | List config versions (v1, v2, …) | `config:read` |
+| `GET /v1/configs/{cid}/versions/diff?a=N&b=M` | Added / changed / removed keys between two versions (no values) | `config:read` |
+| `POST /v1/configs/{cid}/rollback` | Roll the config back to a target version — repoints at existing ciphertext, no re-encryption, as a new version | `secret:write` |
 
 ## Audit log
 

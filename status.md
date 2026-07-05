@@ -312,19 +312,83 @@ mutation stands). This is the accepted single-node trade-off — the alternative
 to the audit layer and break the crypto-blind/audit-blind boundaries. Verify
 still passes over whatever was recorded; the chain is never left inconsistent.
 
+## Milestone 8 — Secret-facing REST API ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-05-rest-api-design.md`
+Plan: `docs/superpowers/plans/2026-07-05-rest-api.md`
+Branch: `milestone-8-rest-api` (subagent-driven development; each task compiler-
+and diff-reviewed by the controller before proceeding).
+
+Scope delivered: `internal/api` now exposes the full project → environment →
+config → secret hierarchy and its two-level versioning over `/v1/`, RBAC-enforced
+and audited, so Janus is usable as a secrets manager without the CLI. Thin
+handlers reuse the existing layers — `internal/secrets.Service` for crypto ops
+(project create, secret set/reveal/rollback, diff) and the crypto-blind store
+repos for hierarchy reads/deletes — over the M6/M7 seam (`s.authorize`/`s.can`/
+`s.record`/`resolveScopeResource`); no new package. Route surface: project
+CRUD + soft-delete/restore/hard-destroy; environment and config CRUD +
+lifecycle; secret masked-list (metadata only, no audit) vs. reveal
+(one / all / historical value, each audited `secret.reveal`); batch + per-key
+secret write and delete (each a new immutable config version, all-or-nothing via
+`SetSecrets`); key value-version history; config version list / diff / rollback.
+`writeServiceError` maps every `internal/secrets`/`internal/store` sentinel to
+the HTTP envelope (sealed → 503, not-found → 404, conflict → 409, validation →
+400, integrity/unexpected → generic 500) with no internals, key material, or
+values leaked. Migration `000005` makes hard-destroy of a project/environment
+cascade the whole subtree, while `configs.inherits_from` deliberately stays
+`NO ACTION` so a branch config blocks destruction of its inheritance base
+(→ 409). Reveal, write, and delete emit audit events; masked list and history
+read metadata only and do not. All routes sit behind `RequireAuth` +
+`RequireUnsealed` (401 unauthenticated, 503 while sealed) and deny-by-default
+RBAC.
+Deferred (per spec non-goals): config inheritance resolution, secret references
+(`${projects...}`), cursor pagination, `Idempotency-Key`, binary value encoding,
+and download formats — none implemented this milestone.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 9 tasks
+- [x] 1. Migration `000005` — `ON DELETE CASCADE` for ownership FKs
+      (`inherits_from` stays `NO ACTION`; store cascade + inheritance-block tests)
+- [x] 2. `writeServiceError` — map secrets/store sentinels to the HTTP envelope
+- [x] 3. Project CRUD + lifecycle routes (create/list/get/soft-delete/restore/
+      destroy) + e2e
+- [x] 4. Environment CRUD + lifecycle routes + e2e
+- [x] 5. Config CRUD + lifecycle routes (+ `ConfigRepo.GetIncludingDeleted` for
+      restore auth) + e2e
+- [x] 6. Secret masked list + reveal (one/all/historical) + key history + e2e
+- [x] 7. Secret batch write + per-key put + delete (each → new config version) + e2e
+- [x] 8. Config version list + diff + rollback + e2e
+- [x] 9. RBAC enforcement matrix e2e + secret-value leak coverage + gates + docs
+
+Verification: `go build`, `go vet`, `go test ./... -count=1` (api + store +
+secrets + auth + authz + audit + crypto + CLI, Docker-backed testcontainers
+suites ran) all pass; `gosec` (v2.27.1, shamir excluded) 0 issues (no new
+`#nosec` needed — the new code is parameterized SQL via repos and stdlib HTTP);
+`govulncheck` 0 affecting vulnerabilities. An RBAC matrix e2e
+(`TestSecretsRBACMatrix`) proves a viewer can masked-list but is denied
+secret-write (403) and project-create (403), a developer can write but is denied
+project-destroy (403), and the instance owner can destroy. A leak test
+(`TestNoSecretValueInLogsOrErrorResponse`) writes a known sentinel value through
+the HTTP write route, reveals it, and asserts the sentinel never appears in the
+captured request-logger output nor in an error response body (a `?version=99999`
+→ 404).
+
 ## Phase-1 milestones — remaining
 
-**Runnable server with identities + RBAC, no secret routes yet.** `make dev-up`
-(or `docker compose up` + `scripts/dev-unseal.sh`) yields a running, unsealed
-server; `janus init`/`unseal`/`seal-status` work over HTTP; non-sys routes
-return 503 while sealed. Auth and RBAC now exist: `/v1/auth/*`, `/v1/tokens`,
-`/v1/users`, and the `.../members` endpoints are live and enforced
-deny-by-default, and `POST /v1/sys/seal` requires `sys:seal`. The hash-chained
-audit log is now live too: sensitive handlers record fail-closed events and
-`GET /v1/audit/verify` + `/export` are served. The secrets service is live
-in-process but still not exposed over HTTP — the secret-facing REST API comes
-next. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create project,
-set secrets, `janus run` works."
+**Runnable server with identities + RBAC + the secret-facing REST API; only the
+CLI remains.** `make dev-up` (or `docker compose up` + `scripts/dev-unseal.sh`)
+yields a running, unsealed server; `janus init`/`unseal`/`seal-status` work over
+HTTP; non-sys routes return 503 while sealed. Auth and RBAC now exist:
+`/v1/auth/*`, `/v1/tokens`, `/v1/users`, and the `.../members` endpoints are live
+and enforced deny-by-default, and `POST /v1/sys/seal` requires `sys:seal`. The
+hash-chained audit log is now live too: sensitive handlers record fail-closed
+events and `GET /v1/audit/verify` + `/export` are served. The secret-facing REST
+API is now live as well — project/env/config CRUD + lifecycle, secret
+masked-list/reveal/write/delete, and config version list/diff/rollback are served
+over `/v1/`, RBAC-enforced and audited (milestone 8). The remaining Phase-1 work
+is the secrets CLI (`janus run`) plus config inheritance/reference resolution.
+Phase-1 finish line (per CLAUDE.md): "docker-compose up, create project, set
+secrets, `janus run` works."
 
 Caveat carried forward: the operator `janus seal` CLI command does not yet send
 a credential, so it will receive 401 against the now-gated endpoint until it
@@ -338,7 +402,8 @@ or session cookie today.
       user endpoints, token/seal authorization (milestone 6)
 - [x] Hash-chained audit log — append-only `audit_events`, SHA-256 chain,
       `/v1/audit/verify` + `/export`, fail-closed per-handler recording (milestone 7)
-- [ ] REST API (`/v1/`)
+- [x] REST API (`/v1/`) — project/env/config CRUD + lifecycle, secret masked-list/
+      reveal/write/delete, versions/diff/rollback, cascade destroy (milestone 8)
 - [ ] Secrets CLI with `janus run`
 
 ## Phase-2 items already on the radar
