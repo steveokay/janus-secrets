@@ -73,6 +73,10 @@ func (s *Server) resolveScopeResource(ctx context.Context, kind, id string) (aut
 			return authz.Resource{}, err
 		}
 		return authz.Resource{ProjectID: env.ProjectID, EnvID: env.ID, ConfigID: cfg.ID}, nil
+	case "transit":
+		// Transit keys are instance-scoped; an empty id means "all keys".
+		// No parent chain to resolve — authz uses the instance binding.
+		return authz.Resource{TransitKey: id}, nil
 	default:
 		return authz.Resource{}, errBadScopeKind
 	}
