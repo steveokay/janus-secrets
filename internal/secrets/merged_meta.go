@@ -2,7 +2,10 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 // MergedMeta is one key in the inheritance-merged masked view. Origin is
@@ -41,8 +44,10 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 			}
 			return nil, ErrConflict // broken base → 409
 		}
+		// A config with no version of its own contributes an empty own-key set
+		// but still inherits from its base (a branch that only overrides/adds).
 		_, state, err := s.secrets.GetLatest(ctx, id)
-		if err != nil {
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, mapStoreErr(err)
 		}
 		lvl := map[string]storeMetaEntry{}

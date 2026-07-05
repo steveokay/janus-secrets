@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 
 	"github.com/steveokay/janus-secrets/internal/resolve"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -43,27 +44,32 @@ func (s *Service) ReadRawByID(ctx context.Context, configID string) (resolve.Raw
 	return s.rawFor(ctx, proj, env, cfg)
 }
 
-// rawFor decrypts every live secret in cfg's latest version into a raw map.
+// rawFor decrypts every live secret in cfg's latest version into a raw map. A
+// config with no version of its own contributes an empty own-value set (its
+// effective values come entirely from its inheritance base), so it is still
+// readable — a branch config that exists only to inherit + override is valid.
 func (s *Service) rawFor(ctx context.Context, proj *store.Project, env *store.Environment, cfg *store.Config) (resolve.RawConfig, error) {
 	_, state, err := s.secrets.GetLatest(ctx, cfg.ID)
-	if err != nil {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return resolve.RawConfig{}, mapStoreErr(err)
 	}
-	kek, err := s.unwrapProjectKEK(proj)
-	if err != nil {
-		return resolve.RawConfig{}, err
-	}
-	defer zeroize(kek)
 	values := make(map[string][]byte, len(state))
-	for key, sv := range state {
-		pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
+	if len(state) > 0 {
+		kek, err := s.unwrapProjectKEK(proj)
 		if err != nil {
-			for _, v := range values {
-				zeroize(v)
-			}
 			return resolve.RawConfig{}, err
 		}
-		values[key] = pt
+		defer zeroize(kek)
+		for key, sv := range state {
+			pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
+			if err != nil {
+				for _, v := range values {
+					zeroize(v)
+				}
+				return resolve.RawConfig{}, err
+			}
+			values[key] = pt
+		}
 	}
 	return resolve.RawConfig{
 		ProjectID: proj.ID, EnvID: env.ID, ConfigID: cfg.ID,
