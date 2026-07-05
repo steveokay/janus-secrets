@@ -17,21 +17,30 @@ const svcTokenCols = `id::text, name, token_hmac, created_by::text, scope_kind,
 
 func scanServiceToken(row interface{ Scan(...any) error }) (*ServiceToken, error) {
 	var t ServiceToken
+	var scopeID *string // scope_id is nullable (transit tokens may target all keys)
 	if err := row.Scan(&t.ID, &t.Name, &t.TokenHMAC, &t.CreatedBy, &t.ScopeKind,
-		&t.ScopeID, &t.Access, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt); err != nil {
+		&scopeID, &t.Access, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt); err != nil {
 		return nil, mapError(err)
+	}
+	if scopeID != nil {
+		t.ScopeID = *scopeID
 	}
 	return &t, nil
 }
 
-// Create inserts a service token. expiresAt nil means long-lived.
+// Create inserts a service token. expiresAt nil means long-lived. An empty
+// scopeID is persisted as SQL NULL (a transit token targeting all keys).
 func (r *ServiceTokenRepo) Create(ctx context.Context, name string, tokenHMAC []byte,
 	createdBy, scopeKind, scopeID, access string, expiresAt *time.Time) (*ServiceToken, error) {
+	var sid any = scopeID
+	if scopeID == "" {
+		sid = nil
+	}
 	row := r.s.pool.QueryRow(ctx,
 		`INSERT INTO service_tokens (name, token_hmac, created_by, scope_kind, scope_id, access, expires_at)
 		 VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6, $7)
 		 RETURNING `+svcTokenCols,
-		name, tokenHMAC, createdBy, scopeKind, scopeID, access, expiresAt)
+		name, tokenHMAC, createdBy, scopeKind, sid, access, expiresAt)
 	return scanServiceToken(row)
 }
 

@@ -17,9 +17,9 @@ const svcTokenPrefix = "janus_svc_"
 
 // TokenScope is a verified service token's scope, for authorization.
 type TokenScope struct {
-	Kind   string // scope_kind: "config" | "environment"
-	ID     string // scope_id
-	Access string // "read" | "readwrite"
+	Kind   string // scope_kind: "config" | "environment" | "transit"
+	ID     string // scope_id ("" for a transit token targeting all keys)
+	Access string // "read" | "readwrite" (config/env); "use" | "manage" (transit)
 }
 
 // TokenMeta is service-token metadata. It has no raw-token field by design —
@@ -52,7 +52,13 @@ func (s *Service) MintServiceToken(ctx context.Context, by Principal, name,
 	if strings.TrimSpace(name) == "" {
 		return "", TokenMeta{}, ErrValidation
 	}
-	if access != "read" && access != "readwrite" {
+	// Access validation depends on scope kind: config/env use read/readwrite;
+	// transit uses use/manage.
+	validAccess := access == "read" || access == "readwrite"
+	if scopeKind == "transit" {
+		validAccess = access == "use" || access == "manage"
+	}
+	if !validAccess {
 		return "", TokenMeta{}, ErrValidation
 	}
 	switch scopeKind {
@@ -63,6 +69,12 @@ func (s *Service) MintServiceToken(ctx context.Context, by Principal, name,
 	case "environment":
 		if _, err := s.envs.Get(ctx, scopeID); err != nil {
 			return "", TokenMeta{}, scopeErr(err)
+		}
+	case "transit":
+		if scopeID != "" { // "" = all transit keys (persisted as NULL scope_id)
+			if _, err := s.transit.GetByID(ctx, scopeID); err != nil {
+				return "", TokenMeta{}, scopeErr(err)
+			}
 		}
 	default:
 		return "", TokenMeta{}, ErrValidation

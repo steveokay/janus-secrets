@@ -13,6 +13,12 @@ import (
 	"github.com/steveokay/janus-secrets/internal/store"
 )
 
+// transitKeys is the subset of *store.TransitRepo the token-minting path needs
+// to validate a transit scope's optional key restriction (fakeable in tests).
+type transitKeys interface {
+	GetByID(ctx context.Context, id string) (*store.TransitKey, error)
+}
+
 // Service is the identity layer: it verifies passwords, mints and verifies
 // sessions and service tokens, and owns the master-key-wrapped HMAC key.
 type Service struct {
@@ -22,6 +28,7 @@ type Service struct {
 	authcfg  *store.AuthConfigRepo
 	configs  *store.ConfigRepo
 	envs     *store.EnvironmentRepo
+	transit  transitKeys
 	keyring  *crypto.Keyring
 }
 
@@ -36,6 +43,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		authcfg:  store.NewAuthConfigRepo(st),
 		configs:  store.NewConfigRepo(st),
 		envs:     store.NewEnvironmentRepo(st),
+		transit:  store.NewTransitRepo(st),
 		keyring:  kr,
 	}
 }
