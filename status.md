@@ -446,6 +446,20 @@ secret into a real child and propagates its exit code; the leak test
 (`TestCLINoSecretLeakInDiagnostics`) asserts a known value reaches only stdout
 on `get`, never stderr or an error string on `list`/error paths.
 
+Final adversarial review: **SHIP after one fix.** No secret-leak-to-stderr/error
+and no `--plain` bypass were found. One **High** (confirmed, fixed): `download
+--output` used `os.WriteFile`, which applies its mode only on file *creation*, so
+writing over a pre-existing `0644` file silently persisted revealed secrets at the
+looser mode. Fixed with an atomic temp + `O_EXCL 0600` + rename (guarantees `0600`
+regardless of a pre-existing file, refuses to follow a planted symlink, no partial
+write), plus a regression test asserting `0600` over a pre-existing `0644` target
+(skipped on Windows where POSIX modes are cosmetic). Non-blocking Low follow-ups
+carried forward: POSIX file modes are cosmetic on the Windows host (`auth.json` /
+download perms fall back to the parent ACL there); `run` forwards *all* signals
+(could restrict to Interrupt/SIGTERM); `buildChildEnv` is case-sensitive while
+Windows env vars are not; `resolveConfigID` assumes un-paginated list endpoints
+(true today — revisit if cursor pagination lands per CLAUDE.md).
+
 **Phase 1 (Core) is complete.** The CLAUDE.md finish line —
 "docker-compose up, create project, set secrets, `janus run` works" — is met.
 Config inheritance resolution and secret references (`${projects...}`) remain
