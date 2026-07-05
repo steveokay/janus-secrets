@@ -20,7 +20,11 @@ CREATE TABLE transit_key_versions (
 );
 
 -- Extend service_tokens for the transit scope: a transit token may target all
--- keys (scope_id NULL) or one key (scope_id = transit_keys.id).
+-- keys (scope_id NULL) or one key (scope_id = the transit key NAME). Transit
+-- keys are addressed by name throughout (routes, engine, enforcement), so the
+-- restriction is stored by name — widen scope_id from uuid to text to hold it
+-- (config/env scopes keep storing their UUID, now as text).
+ALTER TABLE service_tokens ALTER COLUMN scope_id TYPE text;
 ALTER TABLE service_tokens ALTER COLUMN scope_id DROP NOT NULL;
 ALTER TABLE service_tokens DROP CONSTRAINT service_tokens_scope_kind_check;
 ALTER TABLE service_tokens ADD  CONSTRAINT service_tokens_scope_kind_check

@@ -72,7 +72,10 @@ func (s *Service) MintServiceToken(ctx context.Context, by Principal, name,
 		}
 	case "transit":
 		if scopeID != "" { // "" = all transit keys (persisted as NULL scope_id)
-			if _, err := s.transit.GetByID(ctx, scopeID); err != nil {
+			// Validate and store the restriction by key NAME so it matches the
+			// name-based enforcement in authz.tokenAllows (scope.ID vs the
+			// /{name} route's Resource.TransitKey).
+			if _, err := s.transit.GetByName(ctx, scopeID); err != nil {
 				return "", TokenMeta{}, scopeErr(err)
 			}
 		}

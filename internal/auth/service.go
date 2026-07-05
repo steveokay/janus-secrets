@@ -15,8 +15,10 @@ import (
 
 // transitKeys is the subset of *store.TransitRepo the token-minting path needs
 // to validate a transit scope's optional key restriction (fakeable in tests).
+// The restriction is keyed by the transit key's NAME, matching how enforcement
+// compares scope.ID against Resource.TransitKey (the /{name} route param).
 type transitKeys interface {
-	GetByID(ctx context.Context, id string) (*store.TransitKey, error)
+	GetByName(ctx context.Context, name string) (*store.TransitKey, error)
 }
 
 // Service is the identity layer: it verifies passwords, mints and verifies

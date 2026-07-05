@@ -36,9 +36,12 @@ func (r *ServiceTokenRepo) Create(ctx context.Context, name string, tokenHMAC []
 	if scopeID == "" {
 		sid = nil
 	}
+	// scope_id is text: config/environment scopes store a UUID (as text), a
+	// transit scope stores the key NAME, and an all-keys transit token stores
+	// NULL. No ::uuid cast — a transit key name is not a UUID.
 	row := r.s.pool.QueryRow(ctx,
 		`INSERT INTO service_tokens (name, token_hmac, created_by, scope_kind, scope_id, access, expires_at)
-		 VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6, $7)
+		 VALUES ($1, $2, $3::uuid, $4, $5, $6, $7)
 		 RETURNING `+svcTokenCols,
 		name, tokenHMAC, createdBy, scopeKind, sid, access, expiresAt)
 	return scanServiceToken(row)
