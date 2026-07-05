@@ -503,6 +503,57 @@ or session cookie today.
 - [x] Secrets CLI with `janus run` — login/setup/secrets/run, `.janus.yaml`
       binding, two-tier credentials, `JANUS_CONFIG_DIR` override (milestone 9)
 
+## Phase 2 · Sub-project A — Transit Engine 🚧 plan written (implementation queued)
+
+Spec: `docs/superpowers/specs/2026-07-05-transit-engine-design.md`
+Plan: `docs/superpowers/plans/2026-07-05-transit-engine.md` (13 tasks)
+Branch: _to be created_ (`milestone-10-transit`; subagent-driven development, TDD
+per task).
+
+Phase 2 spans four largely independent subsystems, each getting its own
+spec → plan → implementation cycle: **A. Transit engine** (this one — no UI
+dependency), **B. React SPA**, **C. OIDC login**, **D. usage metrics**. CLAUDE.md's
+phase order puts the transit engine first.
+
+Planned scope: a Vault-style "encryption as a service" engine — `internal/transit`
+holding instance-scoped named keys and performing encrypt/decrypt/sign/verify/rewrap
+on data it never stores, reusing `internal/crypto` (AEAD + wrap/unwrap + the unsealed
+master key) and a crypto-blind `store.TransitRepo`. Two key types: `aes256-gcm`
+(encrypt/decrypt/rewrap/datakey) and `ed25519` (sign/verify, via new stdlib
+`crypto/ed25519` helpers). Key versioning with `latest_version` /
+`min_decryption_version` / `deletion_allowed`; rotate, trim, and datakey generation
+(plaintext + wrapped). Ciphertext/signature envelope `janus:v<N>:<base64>`; each
+version's material master-key-wrapped under a new `TransitKeyAAD(name, version)`.
+Routes under `/v1/transit/*` behind `RequireAuth` + `RequireUnsealed` + RBAC. New
+instance-scoped actions `transit:read` / `transit:use` / `transit:manage` (viewer
+reads metadata, developer uses, admin/owner manages) plus a new **`transit`
+service-token scope** (`use`/`manage`, optionally restricted to one key) so apps can
+call transit without reaching secrets or other instance actions. Management ops
+(create/rotate/trim/config/delete) are audited fail-closed (recording the key name,
+never material) and all denials captured centrally; high-frequency data-plane ops
+(encrypt/decrypt/sign/verify/rewrap/datakey) are **not** individually audited — usage
+visibility is deferred to sub-project D — matching how M7 treats masked reads.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 13 tasks
+- [ ] 1. Ed25519 crypto helpers (`GenerateEd25519Key`/`Sign`/`Verify`) + `TransitKeyAAD`
+- [ ] 2. Migration `000006` — transit tables + `service_tokens` transit-scope extension
+- [ ] 3. `store.TransitRepo` (create/append/config/trim/delete/get/list)
+- [ ] 4. Transit engine skeleton — sentinels, `janus:vN:` envelope parse/format
+- [ ] 5. Create key + aes encrypt/decrypt with versioned wrapping (+ AAD, tamper, sealed)
+- [ ] 6. Rotate, config (`min_decryption_version`), rewrap, trim
+- [ ] 7. Ed25519 sign/verify + datakey (plaintext/wrapped)
+- [ ] 8. AuthZ — transit actions, `Resource.TransitKey`, transit token capabilities
+- [ ] 9. Auth — transit token scope in mint/verify (nullable `scope_id` for all-keys)
+- [ ] 10. API — `writeServiceError` mapping + transit key management routes + Boot wiring
+- [ ] 11. API — transit data-plane routes (encrypt/decrypt/sign/verify/rewrap/datakey)
+- [ ] 12. API — mint transit-scoped service tokens end to end
+- [ ] 13. RBAC matrix + audit + leak e2e, docs (`docs/transit.md`), full gate sweep
+
+Verification: pending (targets the standard gate — `go build`/`go vet`/`go test
+./...` with Docker-backed suites, `internal/crypto` + `internal/authz` at 100%
+coverage, `gosec` 0 issues, `govulncheck` 0 affecting).
+
 ## Phase-2 items already on the radar
 
 - [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google
@@ -511,4 +562,7 @@ or session cookie today.
       auth milestone; the Phase-1 identity model must leave room for
       non-password principals and federated token types so this lands without
       rework.
-- [ ] Transit/KMS engine, React SPA, usage metrics (per CLAUDE.md Phase 2)
+- [ ] Transit/KMS engine — **specced + planned** (see the Sub-project A section
+      above; 13-task plan written, implementation queued).
+- [ ] React SPA, usage metrics (per CLAUDE.md Phase 2 — sub-projects B and D, not
+      yet specced).
