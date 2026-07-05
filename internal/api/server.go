@@ -149,6 +149,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/configs/{cid}/secrets/{key}", s.handleSecretGet)
 			r.Get("/v1/configs/{cid}/secrets/{key}/history", s.handleKeyHistory)
 		})
+		r.Group(func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Put("/v1/configs/{cid}/secrets", s.handleSecretsBatchWrite)
+			r.Put("/v1/configs/{cid}/secrets/{key}", s.handleSecretPut)
+			r.Delete("/v1/configs/{cid}/secrets/{key}", s.handleSecretDelete)
+		})
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
