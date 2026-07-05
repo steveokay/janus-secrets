@@ -194,6 +194,13 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/v1/transit/keys/{name}/config", s.handleTransitConfig)
 				r.Post("/v1/transit/keys/{name}/trim", s.handleTransitTrim)
 				r.Delete("/v1/transit/keys/{name}", s.handleTransitDelete)
+				r.Post("/v1/transit/encrypt/{name}", s.handleTransitEncrypt)
+				r.Post("/v1/transit/decrypt/{name}", s.handleTransitDecrypt)
+				r.Post("/v1/transit/sign/{name}", s.handleTransitSign)
+				r.Post("/v1/transit/verify/{name}", s.handleTransitVerify)
+				r.Post("/v1/transit/rewrap/{name}", s.handleTransitRewrap)
+				r.Post("/v1/transit/datakey/plaintext/{name}", s.handleTransitDatakeyPlaintext)
+				r.Post("/v1/transit/datakey/wrapped/{name}", s.handleTransitDatakeyWrapped)
 			})
 		}
 		if s.audit != nil {
