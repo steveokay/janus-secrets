@@ -36,6 +36,14 @@ func (r *EnvironmentRepo) Get(ctx context.Context, id string) (*Environment, err
 	return scanEnv(row)
 }
 
+// GetIncludingDeleted returns an environment by id even if soft-deleted. Used to
+// authorize restore, where the live-only Get would 404 the row being restored.
+func (r *EnvironmentRepo) GetIncludingDeleted(ctx context.Context, id string) (*Environment, error) {
+	row := r.s.pool.QueryRow(ctx,
+		`SELECT `+envCols+` FROM environments WHERE id = $1::uuid`, id)
+	return scanEnv(row)
+}
+
 // GetBySlug returns a non-deleted environment by (project, slug).
 func (r *EnvironmentRepo) GetBySlug(ctx context.Context, projectID, slug string) (*Environment, error) {
 	row := r.s.pool.QueryRow(ctx,

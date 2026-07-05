@@ -10,12 +10,14 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > migrations, two-level versioning), the encryption-orchestration service, the
 > **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
 > stack), **authentication** (email/password sessions + scoped service tokens),
-> **RBAC** (roles/scopes, deny-by-default enforcement), and the
+> **RBAC** (roles/scopes, deny-by-default enforcement), the
 > **hash-chained audit log** (tamper-evident, fail-closed recording,
-> `verify`/`export`) are complete and tested against real Postgres. Still to
-> come before Janus is usable as a secrets manager: the secret-facing REST API
-> and the secrets CLI (`janus run`). See [Roadmap](#roadmap) for the honest
-> current state.
+> `verify`/`export`), and the **secret-facing REST API** (project/env/config
+> CRUD + lifecycle, secret masked-list/reveal/write/delete, config version
+> list/diff/rollback — all RBAC-enforced and audited) are complete and tested
+> against real Postgres. Still to come before Janus is usable end-to-end: the
+> secrets CLI (`janus run`). See [Roadmap](#roadmap) for the honest current
+> state.
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
@@ -144,8 +146,9 @@ milestone.
   Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
 - **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
 - **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, token,
-  user, membership, and audit routes live; secret routes arrive with the API
-  milestone).
+  user, membership, audit, and the secret routes — projects/environments/configs,
+  `configs/{cid}/secrets` masked-list/reveal/write/delete, and `versions`
+  list/diff/rollback — all live).
 - **AuthN/Z:** Argon2id passwords, HMAC-SHA256 token hashing, opaque sessions,
   and a pure deny-by-default RBAC engine.
 - **CLI:** `cobra` (`janus server/init/unseal/seal-status/seal/migrate`).
@@ -163,7 +166,7 @@ internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
 internal/store/      Postgres repositories, migrations, versioning ← implemented
 internal/secrets/    encryption orchestration + secrets CRUD       ← implemented
 internal/api/        HTTP server, sys/auth/token/user/member/audit  ← implemented
-                     routes (secret routes planned)
+                     + project/env/config/secret/version routes
 internal/auth/       passwords, sessions, service tokens           ← implemented
                      (OIDC/federation planned for Phase 2)
 internal/authz/      RBAC engine (roles, scopes, enforcement)      ← implemented
@@ -232,7 +235,7 @@ floor.
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
-audit log (hash-chained, tamper-evident) ✅ → REST API → CLI with `run`.
+audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run`.
 Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/

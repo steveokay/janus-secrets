@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -142,4 +143,76 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// syncBuffer is a mutex-guarded buffer safe for the concurrent writes the
+// request-logger middleware performs (its logger.Info runs in a handler
+// goroutine that may still be finishing as the test issues its next request).
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestNoSecretValueInLogsOrErrorResponse writes a known sentinel secret value
+// through the HTTP write route, reveals it, and proves the value never appears
+// in (a) the captured request-logger output nor (b) an error response body. It
+// reuses the real stack harness (authStackFull) and redirects the default slog
+// logger — which Boot uses when BootConfig.Logger is nil — into a buffer so the
+// request logs are captured.
+func TestNoSecretValueInLogsOrErrorResponse(t *testing.T) {
+	var logBuf syncBuffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
+	defer slog.SetDefault(prev)
+
+	ts, _, email, password, cid := authStackFull(t)
+	cookie := login(t, ts.URL, email, password)
+
+	const sentinel = "SENTINEL-LEAK-CANARY-9f3a"
+
+	// Write the sentinel through the HTTP per-key write route.
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/CANARY", cookie, "",
+		fmt.Sprintf(`{"value":%q}`, sentinel), nil); code != 200 {
+		t.Fatalf("write CANARY: %d", code)
+	}
+
+	// Reveal it — the value is expected in the client response, never in logs.
+	var revealed struct{ Key, Value string }
+	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+cid+"/secrets/CANARY", cookie, "", "", &revealed); code != 200 {
+		t.Fatalf("reveal CANARY: %d", code)
+	}
+	if revealed.Value != sentinel {
+		t.Fatalf("reveal returned %q, want the sentinel", revealed.Value)
+	}
+
+	// (a) The request logger must never have written the sentinel value.
+	if strings.Contains(logBuf.String(), sentinel) {
+		t.Fatal("sentinel secret value leaked into captured log output")
+	}
+	// Sanity: the logger did capture the request (proves capture is wired).
+	if !strings.Contains(logBuf.String(), "/v1/configs/"+cid+"/secrets/CANARY") {
+		t.Fatalf("expected request logs to include the secret path, got: %q", logBuf.String())
+	}
+
+	// (b) An error response (nonexistent value-version -> 404) must not echo the
+	// sentinel.
+	code, errBody := rawGet(t, ts.URL+"/v1/configs/"+cid+"/secrets/CANARY?version=99999", cookie)
+	if code != http.StatusNotFound {
+		t.Fatalf("bad version: want 404, got %d (body %s)", code, errBody)
+	}
+	if strings.Contains(errBody, sentinel) {
+		t.Fatalf("sentinel secret value leaked into error response body: %s", errBody)
+	}
 }
