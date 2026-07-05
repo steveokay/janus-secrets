@@ -9,7 +9,7 @@ import (
 
 func TestAuthStateRoundTripAndMode(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir) // os.UserConfigDir honors this on linux/mac
+	t.Setenv("JANUS_CONFIG_DIR", dir) // portable isolation (XDG is ignored on Windows)
 	t.Setenv("JANUS_ADDR", "")
 	t.Setenv("JANUS_TOKEN", "")
 
@@ -38,7 +38,7 @@ func TestAuthStateRoundTripAndMode(t *testing.T) {
 
 func TestResolveAddressPrecedence(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("JANUS_CONFIG_DIR", dir)
 	t.Setenv("JANUS_ADDR", "")
 	t.Setenv("JANUS_TOKEN", "")
 	_ = saveAuth(&authState{Address: "http://file:8200"})
@@ -54,7 +54,7 @@ func TestResolveAddressPrecedence(t *testing.T) {
 	if got := resolveAddress(""); got != "http://file:8200" {
 		t.Fatalf("file should win over default, got %q", got)
 	}
-	_ = os.Remove(filepath.Join(dir, "janus", "auth.json"))
+	_ = os.Remove(filepath.Join(dir, "auth.json"))
 	if got := resolveAddress(""); got != "http://127.0.0.1:8200" {
 		t.Fatalf("default, got %q", got)
 	}
@@ -62,7 +62,7 @@ func TestResolveAddressPrecedence(t *testing.T) {
 
 func TestResolveCredentialPrecedence(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("JANUS_CONFIG_DIR", dir)
 	t.Setenv("JANUS_TOKEN", "")
 	_ = saveAuth(&authState{Session: "sess-file"})
 

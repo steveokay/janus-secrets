@@ -25,8 +25,13 @@ const defaultAddr = "http://127.0.0.1:8200"
 
 // configDir is os.UserConfigDir()/janus (~/.config/janus on linux honoring
 // XDG_CONFIG_HOME, %AppData%\janus on Windows, ~/Library/Application Support/janus
-// on macOS).
+// on macOS). JANUS_CONFIG_DIR overrides the whole path when set (used to relocate
+// config and to isolate tests portably, since os.UserConfigDir ignores
+// XDG_CONFIG_HOME on Windows).
 func configDir() (string, error) {
+	if v := os.Getenv("JANUS_CONFIG_DIR"); v != "" {
+		return v, nil
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
