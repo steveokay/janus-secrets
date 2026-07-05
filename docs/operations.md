@@ -2,9 +2,11 @@
 
 How to run the server, initialize and unseal it, and operate it day to day.
 The seal lifecycle shipped with the server-bootstrap milestone; **authentication
-and RBAC** (below) shipped in the auth and RBAC milestones. The secret-facing
-HTTP API and the secrets CLI (`janus run`, etc.) arrive in later milestones, so
-the identity endpoints are HTTP-only for now (there is no `janus login` yet).
+and RBAC** (below) shipped in the auth and RBAC milestones, and the
+**hash-chained audit log** (below) shipped in the audit milestone. The
+secret-facing HTTP API and the secrets CLI (`janus run`, etc.) arrive in later
+milestones, so the identity and audit endpoints are HTTP-only for now (there is
+no `janus login` yet).
 
 ## The mental model
 
@@ -176,6 +178,44 @@ demoted, or disabled** (`409`) — so you can never lock yourself out. If every
 owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
+
+## Audit log
+
+Every authenticated request that performs a sensitive action appends an
+immutable event to a hash chain: **actor, action, resource path, result, IP,
+timestamp**, plus the SHA-256 of the previous event. Recording is **fail-closed**
+— if the audit write fails, the request returns `500` and the caller never sees
+success for an unrecorded action. Events never contain a secret value (the event
+type has no value field); the log records key names and paths only.
+
+**What gets audited.** Mutations: token mint/revoke, user create/disable, member
+grant/revoke, `sys.seal`, and `auth.login` (success, plus failed attempts as a
+`denied`/anonymous event with the attempted email — brute-force visibility),
+`auth.logout`, `auth.password_change`. Every denied (`403`) authorization
+decision on these endpoints is recorded as a `denied` event. **Not** audited:
+masked/metadata reads (token/user/member `LIST`, `/v1/auth/me`, and
+`/v1/audit/verify` itself); `sys.init`/`sys.unseal` (pre-auth bootstrap
+operations).
+
+| Route | Behavior | Requires |
+|---|---|---|
+| `GET /v1/audit/verify` | Walks the chain, recomputing every hash and checking linkage. `{"valid":true,"count":N,"head_seq":N,"head_hash":"<hex>"}` when intact; `{"valid":false,"broken_at_seq":K,"reason":"hash_mismatch"\|"chain_break"}` on the first break. Not self-audited. | `audit:read` (owner/admin) |
+| `GET /v1/audit/export` | Streams matching events, chunked. `?format=jsonl` (default, `application/x-ndjson`) or `?format=csv`. Filters (AND-combined): `?from=`/`?to=` (RFC3339), `?actor=` (matches actor id **or** name), `?action=`, `?result=` (`success`/`denied`/`error`). Each row includes `prev_hash`+`hash` (hex) for offline verification. Self-audited (`audit.export`) **before** streaming. | `audit:read` (owner/admin) |
+
+Both are gated by `RequireAuth` + `audit:read`, so they answer `503` while the
+server is sealed and `403` for a caller without the permission. Invalid
+`format`/`from`/`to`/`result` → `400 validation`.
+
+**Tamper evidence & its limits.** `verify` detects any field mutation, deletion,
+or reordering of past events, and the chain stays contiguous under concurrency
+(each append serializes on a Postgres advisory lock). The chain is *unanchored*:
+an attacker with direct database write access could append a well-formed
+continuation or rewrite the whole chain from a point forward and recompute
+hashes — external anchoring / signatures are an explicit non-goal. Protect the
+database. The log is **append-only forever** (no pruning/retention — pruning
+would break the chain), and there is a documented crash-window caveat: a crash
+between a mutation's commit and its audit insert leaves that one action
+unaudited (the mutation stands; the chain remains consistent).
 
 ## Security posture and current caveats
 

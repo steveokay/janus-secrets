@@ -102,9 +102,9 @@ no duplicates.
 
 ## Identity & access tables
 
-Later milestones added identity and authorization tables alongside the secret
-hierarchy (migrations `000002_auth`, `000003_rbac`). They hold no secret values
-and are outside the crypto-blind ciphertext path.
+Later milestones added identity, authorization, and audit tables alongside the
+secret hierarchy (migrations `000002_auth`, `000003_rbac`, `000004_audit`). They
+hold no secret values and are outside the crypto-blind ciphertext path.
 
 - **`users`** — `id`, `email` (unique), `password_hash` (Argon2id PHC string),
   `created_at`, `updated_at`, `disabled_at` (nullable; set to soft-disable a
@@ -121,6 +121,13 @@ and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`audit_events`** — the append-only, hash-chained audit log: `seq`
+  (chain position, PK), `occurred_at`, actor (`actor_kind`/`actor_id`/
+  `actor_name`), `action`, `resource`, `detail`, `result`/`result_code`, `ip`,
+  and `prev_hash`/`hash` (SHA-256 chain). No update or delete path; the store
+  exposes only append, ordered iteration (verify), and filtered list (export).
+  Never holds a secret value — resource/detail carry paths and non-secret
+  specifics only.
 
 ## What's deferred
 
