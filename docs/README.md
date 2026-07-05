@@ -16,6 +16,9 @@ design intent; they are kept in sync with the code as milestones land.
 - [Operations: server & `janus` CLI](operations.md) — running the server, the
   seal lifecycle (init/unseal/seal), the sys HTTP API, configuration, the dev
   workflow, and the KMS auto-unseal setup. **Implemented.**
+- [CLI reference](cli.md) — the `janus` secrets client: `login`/`setup`/
+  `secrets`/`run`, the credential/address/binding precedence rules, the
+  `.janus.yaml` format, and the `run` / `--plain` semantics. **Implemented.**
 
 ## Design specs & plans
 

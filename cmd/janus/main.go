@@ -29,6 +29,11 @@ func newRootCmd() *cobra.Command {
 		newUnsealCmd(),
 		newSealStatusCmd(),
 		newSealCmd(),
+		newLoginCmd(),
+		newLogoutCmd(),
+		newSetupCmd(),
+		newSecretsCmd(),
+		newRunCmd(),
 		newVersionCmd(),
 	)
 	return root

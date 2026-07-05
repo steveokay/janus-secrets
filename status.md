@@ -373,10 +373,89 @@ the HTTP write route, reveals it, and asserts the sentinel never appears in the
 captured request-logger output nor in an error response body (a `?version=99999`
 → 404).
 
+## Milestone 9 — Secrets CLI (`janus login`/`setup`/`secrets`/`run`) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-05-cli-design.md`
+Plan: `docs/superpowers/plans/2026-07-05-cli.md`
+Docs: `docs/cli.md` · Branch: `milestone-9-cli` (subagent-driven development;
+each task TDD'd — failing test first — and diff-reviewed before proceeding).
+
+Scope delivered: the operator/developer secrets CLI on the existing `janus`
+binary, consuming the M8 `/v1/` REST API — the Phase-1 finish line. New cobra
+subcommands over small, focused, unit-tested files: a credential/config store
+(`~/.config/janus/auth.json`, `0600`), an authenticated `apiClient` (mirroring
+the unauthenticated `sysCall`) that attaches credentials, decodes the error
+envelope, and rewrites auth/seal failures into actionable messages, a
+`.janus.yaml` directory-binding resolver, and pure helpers for the env overlay
+and `env`/`json`/`yaml` formatting. Commands: `login`/`logout` (email+password
+→ stored session; best-effort server logout), `setup` (validate slugs → write
+`.janus.yaml`), `secrets list` (masked, unaudited) / `get` (raw value to
+stdout, audited) / `set` + `delete` (batched into one config version) /
+`download` (env/json/yaml with the `--plain` disk guard), and the flagship
+`run` (one audited bulk reveal → env overlay → exec with signal + exit-code
+forwarding).
+
+**Two-tier credential model:** `--token`/`JANUS_TOKEN` service tokens (bearer)
+for CI, stored session cookie for interactive humans; precedence
+`--token > JANUS_TOKEN > session`. Address precedence
+`--address > JANUS_ADDR > auth.json > http://127.0.0.1:8200`. Per-field binding
+precedence `flags > JANUS_PROJECT/ENV/CONFIG > .janus.yaml` (cwd only). Projects
+and environments match by slug, configs by name. `JANUS_CONFIG_DIR` overrides
+the whole config-dir path (relocation + portable test isolation, since
+`os.UserConfigDir` ignores `XDG_CONFIG_HOME` on Windows). stdout is data only;
+all diagnostics/prompts go to stderr. `--output` on `download` requires
+`--plain` and writes `0600`; stdout streaming is unguarded.
+
+Deferred (documented non-goals in `docs/cli.md` §11): OIDC / browser login and
+CI JWT exchange (password + `JANUS_TOKEN` only), OS keychain storage (the
+`0600` file is the store), parent-directory walk for `.janus.yaml` (cwd only),
+a global path-map directory binding (dropped for the committed `.janus.yaml` +
+flags/env as the single source of truth), and shell completions.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 13 tasks
+- [x] 1. Credential + config store (auth.json, address/credential precedence,
+      `JANUS_CONFIG_DIR`)
+- [x] 2. Authenticated API client (envelope decode + auth-error rewrite)
+- [x] 3. Slug/name → config-id resolution (per-level errors)
+- [x] 4. `.janus.yaml` binding + flag/env/file precedence (`yaml.v3` promoted
+      to a direct dep)
+- [x] 5. `login` / `logout` (session storage, echo-off prompt)
+- [x] 6. `setup` (validate + write `.janus.yaml`)
+- [x] 7. `secrets` parent + `list` (masked) + `get` (raw value to stdout)
+- [x] 8. `secrets set` + `delete` (batched into one config version)
+- [x] 9. `env`/`json`/`yaml` formatters with POSIX shell escaping
+- [x] 10. `secrets download` + `--plain` disk guard (0600)
+- [x] 11. `run` — env overlay (`--preserve-env`), signal + exit-code forwarding
+- [x] 12. E2E round-trip + `run` injection + secret-leak assertions (real
+      server via testcontainers)
+- [x] 13. Docs (`docs/cli.md`, README quickstart, operations flows), tracker,
+      full gate sweep
+
+Verification: `go build`, `go vet`, `go test ./... -count=1` (cmd/janus incl.
+the Docker-backed CLI e2e + leak tests, plus api + store + secrets + auth +
+authz + audit + crypto) all pass; `gosec` (shamir excluded) 0 issues;
+`govulncheck` 0 affecting vulnerabilities. One new `#nosec` was recorded:
+`G124` on `cmd/janus/apiclient.go` — the `janus_session` value is set on an
+**outgoing client request** cookie, where `Secure`/`HttpOnly`/`SameSite` have no
+meaning (those attributes apply only to server `Set-Cookie` responses and are
+ignored on a request), so the finding is a false positive. The e2e
+(`TestCLIRoundTrip` / `TestCLIRunInjectsExit`) drives `setup → set → get →
+list → download` against a real unsealed server and confirms `run` injects a
+secret into a real child and propagates its exit code; the leak test
+(`TestCLINoSecretLeakInDiagnostics`) asserts a known value reaches only stdout
+on `get`, never stderr or an error string on `list`/error paths.
+
+**Phase 1 (Core) is complete.** The CLAUDE.md finish line —
+"docker-compose up, create project, set secrets, `janus run` works" — is met.
+Config inheritance resolution and secret references (`${projects...}`) remain
+the one open Phase-1 line item and roll forward as a follow-up.
+
 ## Phase-1 milestones — remaining
 
-**Runnable server with identities + RBAC + the secret-facing REST API; only the
-CLI remains.** `make dev-up` (or `docker compose up` + `scripts/dev-unseal.sh`)
+**Phase 1 is complete: a runnable server with identities + RBAC + the
+secret-facing REST API + the secrets CLI.** `make dev-up` (or
+`docker compose up` + `scripts/dev-unseal.sh`)
 yields a running, unsealed server; `janus init`/`unseal`/`seal-status` work over
 HTTP; non-sys routes return 503 while sealed. Auth and RBAC now exist:
 `/v1/auth/*`, `/v1/tokens`, `/v1/users`, and the `.../members` endpoints are live
@@ -385,10 +464,13 @@ hash-chained audit log is now live too: sensitive handlers record fail-closed
 events and `GET /v1/audit/verify` + `/export` are served. The secret-facing REST
 API is now live as well — project/env/config CRUD + lifecycle, secret
 masked-list/reveal/write/delete, and config version list/diff/rollback are served
-over `/v1/`, RBAC-enforced and audited (milestone 8). The remaining Phase-1 work
-is the secrets CLI (`janus run`) plus config inheritance/reference resolution.
-Phase-1 finish line (per CLAUDE.md): "docker-compose up, create project, set
-secrets, `janus run` works."
+over `/v1/`, RBAC-enforced and audited (milestone 8). The secrets CLI is now
+live too (milestone 9): `janus login`/`setup`/`secrets`/`run` authenticate, bind
+a directory via `.janus.yaml`, read/write secrets, and inject a config's secrets
+as env vars into a subprocess. Phase-1 finish line (per CLAUDE.md) —
+"docker-compose up, create project, set secrets, `janus run` works" — is **met**.
+The one open Phase-1 line item, config inheritance/reference resolution, rolls
+forward as a follow-up.
 
 Caveat carried forward: the operator `janus seal` CLI command does not yet send
 a credential, so it will receive 401 against the now-gated endpoint until it
@@ -404,7 +486,8 @@ or session cookie today.
       `/v1/audit/verify` + `/export`, fail-closed per-handler recording (milestone 7)
 - [x] REST API (`/v1/`) — project/env/config CRUD + lifecycle, secret masked-list/
       reveal/write/delete, versions/diff/rollback, cascade destroy (milestone 8)
-- [ ] Secrets CLI with `janus run`
+- [x] Secrets CLI with `janus run` — login/setup/secrets/run, `.janus.yaml`
+      binding, two-tier credentials, `JANUS_CONFIG_DIR` override (milestone 9)
 
 ## Phase-2 items already on the radar
 

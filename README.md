@@ -5,24 +5,26 @@ PostgreSQL. It combines ideas from Doppler (project/environment/config model,
 `run` injection), Vault (transit encryption, dynamic secrets, hash-chained
 audit), and AWS KMS (encrypt-as-a-service with key versioning).
 
-> **Status: early development.** Phase 1 is in progress. The cryptographic
+> **Status: Phase 1 complete.** The cryptographic
 > core (envelope encryption + unseal), the storage layer (Postgres persistence,
 > migrations, two-level versioning), the encryption-orchestration service, the
 > **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
 > stack), **authentication** (email/password sessions + scoped service tokens),
 > **RBAC** (roles/scopes, deny-by-default enforcement), the
 > **hash-chained audit log** (tamper-evident, fail-closed recording,
-> `verify`/`export`), and the **secret-facing REST API** (project/env/config
+> `verify`/`export`), the **secret-facing REST API** (project/env/config
 > CRUD + lifecycle, secret masked-list/reveal/write/delete, config version
-> list/diff/rollback — all RBAC-enforced and audited) are complete and tested
-> against real Postgres. Still to come before Janus is usable end-to-end: the
-> secrets CLI (`janus run`). See [Roadmap](#roadmap) for the honest current
-> state.
+> list/diff/rollback — all RBAC-enforced and audited), and the **secrets CLI**
+> (`janus login`/`setup`/`secrets`/`run` — directory binding, credential
+> precedence, and env injection) are complete and tested against real Postgres.
+> Janus is now usable end-to-end: `docker compose up`, create a project, set
+> secrets, and `janus run` injects them into your process. See
+> [Roadmap](#roadmap) for what Phase 2/3 add.
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
-> [data model & versioning](docs/data-model.md), and
-> [operations](docs/operations.md).
+> [data model & versioning](docs/data-model.md),
+> [operations](docs/operations.md), and the [CLI reference](docs/cli.md).
 
 ## Why
 
@@ -138,6 +140,24 @@ and tested — see [docs/data-model.md](docs/data-model.md). The store is
 plaintext. Config inheritance and secret references are deferred to a later
 milestone.
 
+## CLI
+
+The same `janus` binary is the client. A typical developer flow:
+
+```sh
+janus login --address http://localhost:8200      # email + password → session
+cd my-service && janus setup                       # writes .janus.yaml (project/env/config)
+janus secrets set DATABASE_URL=postgres://…        # one new config version
+janus run -- ./my-service                          # inject secrets as env vars
+janus secrets download --format env --output .env --plain
+```
+
+Machine/CI: set `JANUS_TOKEN=janus_svc_…` (a scoped service token minted with
+`POST /v1/tokens`) instead of logging in — it is sent as a bearer token and
+takes precedence over any stored session. Full command reference, the
+credential/address/binding precedence rules, the `.janus.yaml` format, and the
+`run` / `--plain` semantics are in [docs/cli.md](docs/cli.md).
+
 ## Tech stack
 
 - **Server / CLI:** Go (stdlib-first, minimal dependencies).
@@ -151,7 +171,8 @@ milestone.
   list/diff/rollback — all live).
 - **AuthN/Z:** Argon2id passwords, HMAC-SHA256 token hashing, opaque sessions,
   and a pure deny-by-default RBAC engine.
-- **CLI:** `cobra` (`janus server/init/unseal/seal-status/seal/migrate`).
+- **CLI:** `cobra` (server/ops: `janus server/init/unseal/seal-status/seal/
+  migrate`; secrets: `janus login/logout/setup/secrets/run`).
 - **Web UI:** React + TypeScript + Vite, embedded in the binary via `go:embed`
   *(planned)*.
 - **Deployment:** multi-stage Dockerfile + docker-compose (app + Postgres).
@@ -159,8 +180,8 @@ milestone.
 ## Repository layout
 
 ```
-cmd/janus/           single binary: server + operator CLI (cobra); ← implemented
-                     secrets CLI (`janus run`) planned
+cmd/janus/           single binary: server + operator CLI + secrets     ← implemented
+                     CLI (login/setup/secrets/run), all cobra
 internal/crypto/     envelope encryption, key hierarchy, unseal    ← implemented
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
 internal/store/      Postgres repositories, migrations, versioning ← implemented
@@ -235,8 +256,8 @@ floor.
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
-audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run`.
-Live tracker: [status.md](status.md).
+audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run` ✅.
+**Phase 1 complete.** Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning); React SPA; OIDC login; usage metrics.
