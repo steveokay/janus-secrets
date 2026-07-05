@@ -1,8 +1,10 @@
 # Running Janus: server, seal lifecycle, and the `janus` CLI
 
 How to run the server, initialize and unseal it, and operate it day to day.
-Everything here shipped with the server-bootstrap milestone; the secret-facing
-HTTP API and the secrets CLI (`janus run`, etc.) arrive in later milestones.
+The seal lifecycle shipped with the server-bootstrap milestone; **authentication
+and RBAC** (below) shipped in the auth and RBAC milestones. The secret-facing
+HTTP API and the secrets CLI (`janus run`, etc.) arrive in later milestones, so
+the identity endpoints are HTTP-only for now (there is no `janus login` yet).
 
 ## The mental model
 
@@ -109,11 +111,11 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | Command | What it does |
 |---|---|
 | `janus server` | Run the server: open Postgres, auto-migrate, resolve the seal config, serve. Graceful shutdown on SIGINT/SIGTERM (10s drain) |
-| `janus init [--shares N] [--threshold K] [--json]` | Initialize the seal. Shamir defaults to 3-of-5; `--shares 1 --threshold 1` is the dev special case. Prints shares once (`--json` for scripting). `409 already_initialized` on repeat |
+| `janus init [--shares N] [--threshold K] [--admin-email <e>] [--json]` | Initialize the seal. Shamir defaults to 3-of-5; `--shares 1 --threshold 1` is the dev special case. Prints the shares **and the one-time initial-admin credential** once (`--json` for scripting). That admin is granted the instance-owner role. `409 already_initialized` on repeat |
 | `janus unseal [--share <hex>]` | Submit one unseal share. With no flag, reads from stdin — echo-off prompt on a TTY, plain read when piped. Under a KMS seal, takes no share and just retries the auto-unseal. Prefer stdin over `--share`: a flag value is visible in process lists and shell history |
 | `janus unseal --reset` | Discard all submitted shares (recovery from a bad share) |
 | `janus seal-status` | Show `initialized` / `sealed` / seal type / threshold / submission progress |
-| `janus seal` | Re-seal a running server — wipes the master key from memory (incident response) |
+| `janus seal` | Re-seal a running server — wipes the master key from memory (incident response). **Note:** `POST /v1/sys/seal` now requires the `sys:seal` permission, and this CLI command does not yet send a credential, so it returns `401` against a live server; seal over HTTP with an owner/admin session cookie or a suitably-scoped bearer token until the CLI grows an auth flag |
 | `janus migrate` | Apply migrations explicitly (`JANUS_DATABASE_URL`) |
 | `janus version` | Print the version |
 
@@ -130,16 +132,50 @@ travel as lowercase hex strings. Errors use the project-wide envelope
 |---|---|
 | `GET /v1/sys/health` | Liveness — always `200 {"status":"ok","initialized":b,"sealed":b}` while the process is up (compose healthcheck) |
 | `GET /v1/sys/seal-status` | `{"initialized","sealed","type","threshold","shares","progress":{"submitted","required"}}` — Shamir fields only for Shamir seals; progress only while sealed |
-| `POST /v1/sys/init` | Shamir: `{"shares":5,"threshold":3}` → one-time `{"type":"shamir","shares":["<hex>",...]}`; server stays sealed. KMS: empty body → `{"type":"awskms"}` and immediate auto-unseal. Init is serialized server-side, so racing inits produce exactly one success and `409` for the rest |
+| `POST /v1/sys/init` | Shamir: `{"shares":5,"threshold":3,"admin_email":"..."}` → one-time `{"type":"shamir","shares":["<hex>",...],"admin":{"email","password"}}`; server stays sealed. KMS: empty body → `{"type":"awskms","admin":{...}}` and immediate auto-unseal. The returned admin holds instance-owner. Init is serialized server-side, so racing inits produce exactly one success and `409` for the rest |
 | `POST /v1/sys/unseal` | Shamir: `{"share":"<hex>"}`, one per call; reaching the threshold reconstructs, verifies the KCV, and unseals. KMS: empty body retries. Idempotent when already unsealed |
 | `POST /v1/sys/unseal/reset` | Discard submitted shares |
-| `POST /v1/sys/seal` | Wipe the master key; back to sealed |
+| `POST /v1/sys/seal` | Wipe the master key; back to sealed. Requires authentication and the `sys:seal` permission (owner/admin) |
 
 Error codes: `sealed`, `not_initialized`, `already_initialized`,
 `invalid_share`, `duplicate_share`, `key_check_failed`, `validation`,
 `internal`. Status mapping: 400 for share/validation problems, 409 for repeat
 init, 503 for sealed (middleware), 500 with a generic message for
 infrastructure failures — internals never leak.
+
+## Identity & access (auth + RBAC)
+
+Once unsealed, the server enforces authentication and role-based access control.
+These endpoints are HTTP + JSON under `/v1/` and require an unsealed server.
+
+**Authenticating.** Humans log in at `POST /v1/auth/login` (email + password →
+an HTTP-only session cookie); `/v1/auth/{logout,me,password}` manage the session.
+Machines use **service tokens**: `POST /v1/tokens` mints a `janus_svc_…` token
+(returned exactly once — only its HMAC is stored) scoped to a config or
+environment with `read` or `readwrite` access. Present it as
+`Authorization: Bearer janus_svc_…`. The bootstrap admin credential from `init`
+is the first login.
+
+**Roles and scopes.** Four roles — viewer ⊂ developer ⊂ admin ⊂ owner — are
+bound to a user at **instance**, **project**, or **environment** scope:
+
+| Endpoint | Purpose | Requires |
+|---|---|---|
+| `GET/PUT/DELETE /v1/instance/members[/{uid}]` | Instance-wide role bindings | `member:read` / `member:manage` at instance |
+| `GET/PUT/DELETE /v1/projects/{pid}/members[/{uid}]` | Project role bindings | `member:*` at that project |
+| `GET/PUT/DELETE /v1/projects/{pid}/environments/{eid}/members[/{uid}]` | Environment role bindings | `member:*` at that environment |
+| `POST/GET /v1/users`, `POST /v1/users/{id}/disable` | Provision / list / deactivate users | `user:manage` (instance) |
+| `POST/GET/DELETE /v1/tokens[/{id}]` | Mint / list / revoke service tokens | `token:*` at the token's scope |
+
+Bindings inherit top-down (an instance binding applies everywhere; a project
+binding covers that project's environments and configs) and combine
+most-permissively. `PUT …/members/{uid}` with `{"role":"developer"}` grants;
+`DELETE` revokes. Two rails the operator will hit: you cannot grant a role above
+your own (delegation), and the **last instance owner cannot be removed,
+demoted, or disabled** (`409`) — so you can never lock yourself out. If every
+owner binding is somehow lost, the next server start re-grants instance-owner to
+the oldest user. Denied requests return a generic `403 forbidden` that reveals
+nothing about the policy.
 
 ## Security posture and current caveats
 
@@ -153,11 +189,15 @@ infrastructure failures — internals never leak.
 - **Sealed-by-default for future routes.** The 503 middleware is installed
   ahead of all routing, so any route added later is gated without touching
   middleware; unknown paths are 503 while sealed too.
-- **`POST /v1/sys/seal` is currently unauthenticated** — anyone with network
-  reach can seal the server (an availability-only, fail-closed lever). This is
-  accepted for single-tenant deployments behind a private network and will be
-  auth-gated in the auth milestone. Init/unseal being unauthenticated matches
-  the Vault model: init races are guarded, and unsealing requires valid
-  shares.
+- **`POST /v1/sys/seal` requires the `sys:seal` permission** (owner/admin) as
+  of the RBAC milestone. `init` and `unseal` remain unauthenticated by
+  bootstrap necessity, matching the Vault model: init races are guarded, and
+  unsealing requires valid shares. Caveat: the `janus seal` *CLI* does not yet
+  attach a credential, so it returns `401` — seal over HTTP with a session
+  cookie or bearer token until the CLI grows an auth flag.
+- **Rate limiting keys on `RemoteAddr`.** The login limiter buckets by direct
+  peer address; behind a TLS-terminating proxy that collapses to one bucket.
+  Add trusted-proxy `X-Forwarded-For` handling when a proxy is introduced (the
+  same caveat affects the conditional cookie `Secure` flag).
 - **No TLS yet** — terminate TLS at a reverse proxy for now; native TLS is a
   later milestone. Shares transit the network in the clear otherwise.

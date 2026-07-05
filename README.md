@@ -7,17 +7,19 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 
 > **Status: early development.** Phase 1 is in progress. The cryptographic
 > core (envelope encryption + unseal), the storage layer (Postgres persistence,
-> migrations, two-level versioning), the encryption-orchestration service, and
-> the **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
-> stack) are complete and tested against real Postgres. There are no
-> secret-facing HTTP routes yet — RBAC, audit, the REST API, and the secrets
-> CLI (`janus run`) are still to come. See [Roadmap](#roadmap) for the honest
-> current state.
-> This is not yet usable as a secrets manager.
+> migrations, two-level versioning), the encryption-orchestration service, the
+> **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
+> stack), **authentication** (email/password sessions + scoped service tokens),
+> and **RBAC** (roles/scopes, deny-by-default enforcement) are complete and
+> tested against real Postgres. Still to come before Janus is usable as a
+> secrets manager: the hash-chained audit log, the secret-facing REST API, and
+> the secrets CLI (`janus run`). See [Roadmap](#roadmap) for the honest current
+> state.
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
-> [architecture](docs/architecture.md), [cryptography](docs/crypto.md), and the
-> [data model & versioning](docs/data-model.md).
+> [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
+> [data model & versioning](docs/data-model.md), and
+> [operations](docs/operations.md).
 
 ## Why
 
@@ -58,10 +60,30 @@ unseal reject a wrong-but-well-formed master key before it is ever used.
 
 The server exposes the seal lifecycle under `/v1/sys/` (`health`,
 `seal-status`, `init`, `unseal`, `unseal/reset`, `seal`); every other route
-returns `503 {"error":{"code":"sealed"}}` until unsealed. `POST /v1/sys/seal`
-re-seals a running server (incident response); it is **unauthenticated until
-the auth milestone** — availability-only and fail-closed, acceptable for a
-single-tenant deployment behind your own network.
+returns `503 {"error":{"code":"sealed"}}` until unsealed. `init` and `unseal`
+are unauthenticated by bootstrap necessity (the Vault model); `POST /v1/sys/seal`
+re-seals a running server and now **requires the `sys:seal` permission**.
+
+### Identity & access
+
+Two authentication methods ship today: **email + password** (Argon2id, opaque
+Postgres-backed sessions via an HTTP-only cookie) for humans, and **scoped
+service tokens** (`janus_svc_…`, shown once at creation, only their HMAC is
+stored) for machines. A single `Principal{Kind,ID,Name}` is the seam that
+authorization, audit, and Phase-2 federation build on. The initial admin is
+created during the init ceremony (one-time password shown once).
+
+Authorization is **deny-by-default RBAC**. Four roles — viewer ⊂ developer ⊂
+admin ⊂ owner — bind to a user at **instance**, **project**, or **environment**
+scope, with top-down inheritance (an instance binding applies everywhere; a
+project binding applies to that project's environments and configs) and a
+most-permissive union across a user's bindings. Service tokens get only
+least-privilege secret/config capabilities at their exact scope and can never
+perform management or instance actions. Two safety rails: a **delegation
+constraint** (you cannot grant a role above your own) and a **never-lock-out**
+guard (the last instance owner cannot be removed, demoted, or disabled). The
+engine is a pure decision function (`internal/authz`); handlers enforce it
+explicitly, so the storage and secrets layers stay identity-free.
 
 ## Quickstart (dev)
 
@@ -102,8 +124,10 @@ milestone.
   (used as a service, not a crypto library) and a vendored copy of HashiCorp
   Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
 - **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
-- **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys API live;
-  secret routes arrive with the API milestone).
+- **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, token,
+  user, and membership routes live; secret routes arrive with the API milestone).
+- **AuthN/Z:** Argon2id passwords, HMAC-SHA256 token hashing, opaque sessions,
+  and a pure deny-by-default RBAC engine.
 - **CLI:** `cobra` (`janus server/init/unseal/seal-status/seal/migrate`).
 - **Web UI:** React + TypeScript + Vite, embedded in the binary via `go:embed`
   *(planned)*.
@@ -118,9 +142,10 @@ internal/crypto/     envelope encryption, key hierarchy, unseal    ← implement
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
 internal/store/      Postgres repositories, migrations, versioning ← implemented
 internal/secrets/    encryption orchestration + secrets CRUD       ← implemented
-internal/api/        HTTP server, sys API, middleware              ← implemented
-internal/auth/       tokens, OIDC, sessions (planned)
-internal/authz/      RBAC engine (planned)
+internal/api/        HTTP server, sys/auth/token/user/member routes ← implemented
+internal/auth/       passwords, sessions, service tokens           ← implemented
+                     (OIDC/federation planned for Phase 2)
+internal/authz/      RBAC engine (roles, scopes, enforcement)      ← implemented
 internal/audit/      hash-chained audit log (planned)
 migrations/          SQL migrations
 web/                 React SPA (planned)
@@ -147,16 +172,20 @@ make migrate                   # apply the schema explicitly (server also auto-m
 The `internal/store`, `internal/secrets`, and `internal/api` integration tests
 run against a real PostgreSQL via
 [testcontainers](https://testcontainers.com/) and require Docker; without it
-they skip (they do not fail). The `internal/crypto` package is held to **100%
-statement coverage**, enforced in CI, and includes tamper, nonce-reuse, and
-secret-leak tests. CI also runs `go vet`, `govulncheck`, and `gosec`. The Go
+they skip (they do not fail). The pure-logic packages `internal/crypto` and
+`internal/authz` are held to **100% statement coverage**, enforced in CI;
+crypto includes tamper, nonce-reuse, and secret-leak tests, and authz an
+exhaustive role→action matrix test. CI also runs `go vet`, `govulncheck`, and
+`gosec`. The Go
 toolchain is pinned to `go1.26.4` (via a `toolchain` directive) as a security
 floor.
 
 ## Security notes
 
 - AES-256-GCM for all symmetric encryption; random nonces, never reused.
-- Constant-time comparison for key-check and (later) token/MAC checks.
+- Constant-time comparison for key-check, token, and MAC checks; only token
+  HMACs are stored (never raw tokens), and session/token verification requires
+  an unsealed server.
 - Zero plaintext secrets or key material in logs or error messages — enforced
   by leak tests at the crypto, secrets, and HTTP layers (the request logger is
   structurally body-free).
@@ -166,16 +195,18 @@ floor.
 - Seal config lives in Postgres (the file-based store remains for tests). The
   server runs TLS-less behind your own network for now — terminate TLS at a
   reverse proxy; native TLS is a later milestone.
-- `POST /v1/sys/seal` is unauthenticated until the auth milestone (see
-  Quickstart note); init/unseal being unauthenticated matches the Vault model.
+- `POST /v1/sys/seal` requires the `sys:seal` permission; `init` and `unseal`
+  are unauthenticated by bootstrap necessity, matching the Vault model.
+- RBAC is deny-by-default; denied requests return a generic `403 forbidden` that
+  never leaks role names, bindings, or query internals (enforced by a leak test).
 
 ## Roadmap
 
 **Phase 1 — Core (usable Doppler replacement):**
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
-auth (passwords, service tokens) → RBAC → audit log → REST API → CLI with
-`run`. Live tracker: [status.md](status.md).
+auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
+audit log → REST API → CLI with `run`. Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning); React SPA; OIDC login; usage metrics.

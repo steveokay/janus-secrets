@@ -242,16 +242,17 @@ needed — the RBAC SQL column-list constants contain no credential-like tokens)
 every commit: the owner-grant (task 5) lands before enforcement (task 6), so the
 M5 auth/token e2e never regressed mid-sequence.
 
-## Later Phase-1 milestones (not started)
+## Phase-1 milestones — remaining
 
-**Runnable server with identities, no secret routes yet.** `make dev-up` (or
-`docker compose up` + `scripts/dev-unseal.sh`) yields a running, unsealed
+**Runnable server with identities + RBAC, no secret routes yet.** `make dev-up`
+(or `docker compose up` + `scripts/dev-unseal.sh`) yields a running, unsealed
 server; `janus init`/`unseal`/`seal-status` work over HTTP; non-sys routes
-return 503 while sealed. Auth now exists: `/v1/auth/*` and `/v1/tokens*` are
-live, and `POST /v1/sys/seal` is auth-gated. The secrets service is live
-in-process but still not exposed over HTTP — RBAC + the secret-facing REST API
-come next. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create
-project, set secrets, `janus run` works."
+return 503 while sealed. Auth and RBAC now exist: `/v1/auth/*`, `/v1/tokens`,
+`/v1/users`, and the `.../members` endpoints are live and enforced
+deny-by-default, and `POST /v1/sys/seal` requires `sys:seal`. The secrets
+service is live in-process but still not exposed over HTTP — the hash-chained
+audit log comes next, then the secret-facing REST API. Phase-1 finish line (per
+CLAUDE.md): "docker-compose up, create project, set secrets, `janus run` works."
 
 Caveat carried forward: the operator `janus seal` CLI command does not yet send
 a credential, so it will receive 401 against the now-gated endpoint until it

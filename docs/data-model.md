@@ -100,14 +100,37 @@ rejected before any write). A `UNIQUE (config_id, version)` constraint is the
 correctness backstop. N concurrent saves therefore produce versions `1..N` with
 no duplicates.
 
+## Identity & access tables
+
+Later milestones added identity and authorization tables alongside the secret
+hierarchy (migrations `000002_auth`, `000003_rbac`). They hold no secret values
+and are outside the crypto-blind ciphertext path.
+
+- **`users`** — `id`, `email` (unique), `password_hash` (Argon2id PHC string),
+  `created_at`, `updated_at`, `disabled_at` (nullable; set to soft-disable a
+  login). No plaintext password is ever stored.
+- **`sessions`** — opaque server-side sessions for the UI cookie; the raw cookie
+  is never stored (only its HMAC), and expiry is swept on boot.
+- **`service_tokens`** — scoped machine credentials; only the token HMAC is
+  stored (never the raw `janus_svc_…`), with `scope_kind`/`scope_id`, `access`,
+  and optional `expires_at`/`revoked_at`.
+- **`auth_config`** — the master-key-wrapped token-HMAC key, materialized at
+  first unseal (so a DB dump is not verifiable offline).
+- **`role_bindings`** — the RBAC store: `subject_user_id`, `scope_level`
+  (`instance`/`project`/`environment`), nullable `project_id`/`environment_id`,
+  `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
+  that exactly the right scope-id column is set per level, and a COALESCE-based
+  unique index makes each (subject, scope) binding singular (upsert-in-place).
+
 ## What's deferred
 
-The store milestone builds the schema and repositories above. These read-time
-*resolution* features are separate, later specs:
+The store milestone builds the secret-hierarchy schema and repositories above.
+These read-time *resolution* features are separate, later specs:
 
 - **Config inheritance** — root config + branch configs within an environment
   (the `inherits_from` column exists but is unresolved).
 - **Secret references** — `${projects.other.prod.KEY}` resolved at read time,
   with cycle-checking.
-- **Encryption orchestration** — the layer that holds the unsealed keyring and
-  turns plaintext into the ciphertext this store persists.
+
+(Encryption orchestration — the layer that holds the unsealed keyring and turns
+plaintext into the ciphertext this store persists — shipped in `internal/secrets`.)
