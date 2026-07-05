@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from './auth/AuthProvider'
 import { LoginPage } from './auth/LoginPage'
 import { UnsealPage } from './unseal/UnsealPage'
 import { AppLayout } from './shell/AppLayout'
+import { Sidebar } from './shell/Sidebar'
 
 function Gate() {
   const { user, loading } = useAuth()
@@ -28,9 +29,16 @@ function Gate() {
   if (!user) return <LoginPage />
 
   return (
-    <AppLayout sidebar={<nav className="text-sm text-gray-500">Projects</nav>}>
+    <AppLayout sidebar={<Sidebar />}>
       <Routes>
         <Route path="/" element={<p>Select a project.</p>} />
+        <Route path="/projects/:projectId" element={<p>Select a config.</p>} />
+        <Route path="/projects/:projectId/configs/:configId" element={<p>Editor…</p>} />
+        <Route path="/tokens" element={<p>Coming soon.</p>} />
+        <Route path="/members" element={<p>Coming soon.</p>} />
+        <Route path="/transit" element={<p>Coming soon.</p>} />
+        <Route path="/settings" element={<p>Coming soon.</p>} />
+        <Route path="/projects/:projectId/audit" element={<p>Coming soon.</p>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppLayout>
