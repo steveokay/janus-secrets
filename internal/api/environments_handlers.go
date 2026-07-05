@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -69,9 +70,13 @@ func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
-	pid := chi.URLParam(r, "pid")
 	eid := chi.URLParam(r, "eid")
-	if err := s.can(r, authz.ProjectRead, authz.Resource{ProjectID: pid, EnvID: eid}); err != nil {
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.can(r, authz.ProjectRead, res); err != nil {
 		s.writeAuthzError(w, err)
 		return
 	}
@@ -84,18 +89,21 @@ func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnvDelete(w http.ResponseWriter, r *http.Request) {
-	pid := chi.URLParam(r, "pid")
 	eid := chi.URLParam(r, "eid")
 	destroy := r.URL.Query().Get("destroy") == "true"
 	detail := "soft"
 	if destroy {
 		detail = "destroy"
 	}
-	if !s.authorize(w, r, authz.EnvDelete, authz.Resource{ProjectID: pid, EnvID: eid}, "env.delete", "environments/"+eid) {
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.EnvDelete, res, "env.delete", "environments/"+eid) {
 		return
 	}
 	repo := store.NewEnvironmentRepo(s.st)
-	var err error
 	if destroy {
 		err = repo.Destroy(r.Context(), eid)
 	} else {
@@ -113,9 +121,16 @@ func (s *Server) handleEnvDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEnvRestore(w http.ResponseWriter, r *http.Request) {
-	pid := chi.URLParam(r, "pid")
+	// A soft-deleted environment is invisible to resolveScopeResource (live rows
+	// only), so resolve its scope via a deleted-inclusive read to authorize
+	// before undeleting.
 	eid := chi.URLParam(r, "eid")
-	if !s.authorize(w, r, authz.EnvDelete, authz.Resource{ProjectID: pid, EnvID: eid}, "env.restore", "environments/"+eid) {
+	res, err := s.resolveEnvScopeIncludingDeleted(r.Context(), eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.EnvDelete, res, "env.restore", "environments/"+eid) {
 		return
 	}
 	repo := store.NewEnvironmentRepo(s.st)
@@ -133,4 +148,17 @@ func (s *Server) handleEnvRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, envView(e))
+}
+
+// resolveEnvScopeIncludingDeleted builds the project→env resource for an
+// environment that may be soft-deleted (needed to authorize restore). It reads
+// the environment row deleted-inclusively so a caller cannot reach another
+// project's environment by putting its id under a pid they control. Returns
+// store.ErrNotFound if the environment row does not exist at all.
+func (s *Server) resolveEnvScopeIncludingDeleted(ctx context.Context, eid string) (authz.Resource, error) {
+	env, err := store.NewEnvironmentRepo(s.st).GetIncludingDeleted(ctx, eid)
+	if err != nil {
+		return authz.Resource{}, err
+	}
+	return authz.Resource{ProjectID: env.ProjectID, EnvID: eid}, nil
 }

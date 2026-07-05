@@ -55,10 +55,17 @@ func (s *Server) projectScope(r *http.Request) scopeSpec {
 	return scopeSpec{level: "project", projectID: &pid, resource: authz.Resource{ProjectID: pid}}
 }
 
-func (s *Server) envScope(r *http.Request) scopeSpec {
-	pid := chi.URLParam(r, "pid")
+// envScope resolves the environment-members scope from the target env id's real
+// parent chain (via resolveScopeResource), never from the path pid, so a caller
+// cannot manage members of another project's environment by putting its id under
+// a pid they control. Returns store.ErrNotFound if the environment is missing.
+func (s *Server) envScope(r *http.Request) (scopeSpec, error) {
 	eid := chi.URLParam(r, "eid")
-	return scopeSpec{level: "environment", envID: &eid, resource: authz.Resource{ProjectID: pid, EnvID: eid}}
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		return scopeSpec{}, err
+	}
+	return scopeSpec{level: "environment", envID: &eid, resource: res}, nil
 }
 
 func (s *Server) membersList(w http.ResponseWriter, r *http.Request, spec scopeSpec) {

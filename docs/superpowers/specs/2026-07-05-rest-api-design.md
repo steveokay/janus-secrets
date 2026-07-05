@@ -192,10 +192,10 @@ Every route's gate, RBAC resource, and audit event:
 | DELETE `/projects/{pid}` (`?destroy`) | `project:delete` | `{ProjectID}` | `authorize` → `project.delete` (detail `soft`\|`destroy`) |
 | POST `/projects/{pid}/restore` | `project:delete` | `{ProjectID}` | `authorize` → `project.restore` |
 | POST `.../environments` | `env:create` | `{ProjectID}` | `authorize` → `env.create` |
-| GET environments | `project:read` | `{ProjectID,EnvID}` | `can`; no audit |
-| DELETE/restore env | `env:delete` | `{ProjectID,EnvID}` | `authorize` → `env.delete`/`env.restore` |
-| POST `.../configs` | `config:create` | `{ProjectID,EnvID}` | `authorize` → `config.create` |
-| GET config(s) | `config:read` | resolve `{cid}` | `can`; no audit |
+| GET environments | `project:read` | list `{ProjectID}`; get resolve `{eid}` | `can`; no audit |
+| DELETE/restore env | `env:delete` | resolve `{eid}` (restore: deleted-inclusive) | `authorize` → `env.delete`/`env.restore` |
+| POST `.../configs` | `config:create` | resolve `{eid}` | `authorize` → `config.create` |
+| GET config(s) | `config:read` | list resolve `{eid}`; get resolve `{cid}` | `can`; no audit |
 | DELETE/restore config | `config:delete` | resolve `{cid}` | `authorize` → `config.delete`/`config.restore` |
 | GET masked list, `/versions`, `/versions/diff`, `.../{key}/history` | `secret:read` / `config:read` | resolve `{cid}` | `can`; **no audit** |
 | GET `.../secrets/{key}`, `?reveal=true`, `?version=n` | `secret:read` | resolve `{cid}` | `authorize` → `secret.reveal` |
@@ -206,6 +206,14 @@ Every route's gate, RBAC resource, and audit event:
 - **`{cid}` resolution** reuses `resolveScopeResource(ctx, "config", cid)` → the
   full project→env→config chain; a missing id returns `store.ErrNotFound` → `404`
   before any authz decision.
+- **Nested routes resolve the RBAC resource from the target id's real parent
+  chain** (via `resolveScopeResource`), never from path params, so a caller
+  cannot reach another project's environment by putting its id under a `pid` they
+  control. This applies to the env get/delete/restore, config create/list, and
+  environment-members routes (env-restore uses a deleted-inclusive read so a
+  soft-deleted row is still authorized against its true project); env/config
+  *create-under-parent* and *list-by-parent* still identify the parent from the
+  path but authorize against the parent's resolved chain.
 - **Reveal/write vs masked** follows the M7 contract exactly: reveals and
   mutations use `s.authorize` (denials audited; success recorded post-action;
   fail-closed 500 if the record write fails), masked/metadata reads use `s.can`

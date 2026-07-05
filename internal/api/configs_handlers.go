@@ -30,9 +30,13 @@ func configView(c *store.Config) configResponse {
 }
 
 func (s *Server) handleConfigCreate(w http.ResponseWriter, r *http.Request) {
-	pid := chi.URLParam(r, "pid")
 	eid := chi.URLParam(r, "eid")
-	if !s.authorize(w, r, authz.ConfigCreate, authz.Resource{ProjectID: pid, EnvID: eid}, "config.create", "environments/"+eid+"/configs") {
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.ConfigCreate, res, "config.create", "environments/"+eid+"/configs") {
 		return
 	}
 	var req createConfigRequest
@@ -53,9 +57,13 @@ func (s *Server) handleConfigCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfigList(w http.ResponseWriter, r *http.Request) {
-	pid := chi.URLParam(r, "pid")
 	eid := chi.URLParam(r, "eid")
-	if err := s.can(r, authz.ConfigRead, authz.Resource{ProjectID: pid, EnvID: eid}); err != nil {
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.can(r, authz.ConfigRead, res); err != nil {
 		s.writeAuthzError(w, err)
 		return
 	}

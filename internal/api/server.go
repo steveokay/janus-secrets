@@ -115,9 +115,30 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		})
 		r.Route("/v1/projects/{pid}/environments/{eid}/members", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.envScope(r)) })
-			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
-			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				spec, err := s.envScope(r)
+				if err != nil {
+					s.writeServiceError(w, err)
+					return
+				}
+				s.membersList(w, r, spec)
+			})
+			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) {
+				spec, err := s.envScope(r)
+				if err != nil {
+					s.writeServiceError(w, err)
+					return
+				}
+				s.memberPut(w, r, spec, chi.URLParam(r, "uid"))
+			})
+			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) {
+				spec, err := s.envScope(r)
+				if err != nil {
+					s.writeServiceError(w, err)
+					return
+				}
+				s.memberDelete(w, r, spec, chi.URLParam(r, "uid"))
+			})
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
