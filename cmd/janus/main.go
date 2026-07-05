@@ -31,6 +31,7 @@ func newRootCmd() *cobra.Command {
 		newSealCmd(),
 		newLoginCmd(),
 		newLogoutCmd(),
+		newSetupCmd(),
 		newVersionCmd(),
 	)
 	return root
