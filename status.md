@@ -242,6 +242,76 @@ needed — the RBAC SQL column-list constants contain no credential-like tokens)
 every commit: the owner-grant (task 5) lands before enforcement (task 6), so the
 M5 auth/token e2e never regressed mid-sequence.
 
+## Milestone 7 — Hash-chained audit log ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-05-audit-log-design.md`
+Plan: `docs/superpowers/plans/2026-07-05-audit-log.md`
+Branch: `milestone-7-audit` (subagent-driven development; each task compiler- and
+diff-reviewed by the controller before proceeding).
+
+Scope delivered: `internal/audit` — a pure, HTTP-free engine over a crypto-blind
+`store.AuditRepo`. An append-only `audit_events` table (migration `000004`)
+whose every append serializes on a Postgres transaction advisory lock, so under
+concurrency the chain stays contiguous with no gaps or dupes. Each event carries
+the SHA-256 hash of the previous event; the hash is canonical (domain-tagged,
+length-prefixed fields, presence byte so NULL and "" never collide, big-endian
+seq + nanosecond timestamp — `occurred_at` is µs-truncated before both hashing
+and storage so a value read back from Postgres re-hashes identically). `Event`
+has **no value field by construction**, so a secret value can never be recorded;
+the log records actor / action / resource path / result / IP, never a value.
+`Recorder.Record` computes seq/prev_hash/hash from the chain head inside the
+store's serialized `Append`; `Verify` walks the chain and reports the first break
+(`hash_mismatch` or `chain_break`). Recording is **synchronous and fail-closed**:
+a record whose own write fails 500s the request, so no audited mutation is ever
+left unrecorded. Services stay audit-blind — only the API layer records, via a
+thin `s.record(...)` per handler after each successful mutation, with denials
+captured centrally in `s.authorize(...)` / `requireInstance` (every 403 becomes a
+`denied` row). Retrofit covers token mint/revoke, user create/disable, member
+grant/revoke, `sys.seal`, and auth login (success + anonymous failure) / logout /
+password-change. New endpoints: `GET /v1/audit/verify` (chain integrity +
+count, `audit:read`, not self-audited) and `GET /v1/audit/export` (JSONL default
+or CSV, `from`/`to`/`actor`/`action`/`result` filters, hashes hex-encoded for
+offline verification; self-audited **before** streaming so a mid-download abort
+is still recorded). `Boot` wires a real `audit.New(store.NewAuditRepo(st))`;
+unit-test servers pass `nil` (record no-ops), so the pre-existing e2e/leak suites
+stayed byte-for-byte green through the retrofit.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 7 tasks
+- [x] 1. Migration `000004` + `AuditRepo` (advisory-lock append, iterate,
+      filtered list; serialization proven under 20-way concurrency)
+- [x] 2. `internal/audit` — `Event`, canonical SHA-256 chain hash,
+      `Recorder.Record`, `Verify` (tamper + chain-break + genesis; 100% coverage)
+- [x] 3. API plumbing — recorder wired into `New`/`Boot`; `record`/`recordActor`/
+      `authorize` helpers; central denial capture (nil-recorder no-op seam)
+- [x] 4. Retrofit token/user/member/seal handlers (success + centralized denial)
+- [x] 5. Retrofit auth handlers (login success+failure, logout, password change)
+- [x] 6. `GET /v1/audit/verify` + `GET /v1/audit/export` (jsonl/csv, filters,
+      self-audit)
+- [x] 7. Real-recorder e2e (login → mint → grant → verify → export → seal),
+      leak coverage, full gate, tracker
+
+Verification: `go build`, `go vet`, `go test ./... -count=1` (audit + api + auth
++ authz + store + secrets + crypto + CLI, Docker-backed suites ran) all pass;
+`internal/audit` coverage 100.0%; `gosec` (v2.27.1, shamir excluded) 0 issues
+(the two `uint32(len)`/`uint64(int64)` conversions in `internal/audit/hash.go`
+carry recorded `#nosec G115` justifications — length is bounded, the int64→uint64
+is an intentional bit reinterpretation); `govulncheck` 0 affecting
+vulnerabilities. A real-recorder e2e (`TestAuditE2E`) proves the chain verifies,
+the expected success actions export, masked reads (token list / me) are absent, a
+`denied` row is present, and `sys.seal` is recorded; a leak test
+(`TestNoSecretValueInAuditRowsOrExport`) pushes a known password + mint-once raw
+token through audited handlers and asserts neither ever reaches any
+`audit_events` column nor the export body.
+
+Documented caveat (crash window): recording runs after the mutation commits, in
+its own advisory-locked transaction. A crash in the window between the
+mutation-commit and the audit insert leaves that one action unaudited (the
+mutation stands). This is the accepted single-node trade-off — the alternative
+(one transaction spanning service mutation + audit) would couple every service
+to the audit layer and break the crypto-blind/audit-blind boundaries. Verify
+still passes over whatever was recorded; the chain is never left inconsistent.
+
 ## Phase-1 milestones — remaining
 
 **Runnable server with identities + RBAC, no secret routes yet.** `make dev-up`
@@ -249,10 +319,12 @@ M5 auth/token e2e never regressed mid-sequence.
 server; `janus init`/`unseal`/`seal-status` work over HTTP; non-sys routes
 return 503 while sealed. Auth and RBAC now exist: `/v1/auth/*`, `/v1/tokens`,
 `/v1/users`, and the `.../members` endpoints are live and enforced
-deny-by-default, and `POST /v1/sys/seal` requires `sys:seal`. The secrets
-service is live in-process but still not exposed over HTTP — the hash-chained
-audit log comes next, then the secret-facing REST API. Phase-1 finish line (per
-CLAUDE.md): "docker-compose up, create project, set secrets, `janus run` works."
+deny-by-default, and `POST /v1/sys/seal` requires `sys:seal`. The hash-chained
+audit log is now live too: sensitive handlers record fail-closed events and
+`GET /v1/audit/verify` + `/export` are served. The secrets service is live
+in-process but still not exposed over HTTP — the secret-facing REST API comes
+next. Phase-1 finish line (per CLAUDE.md): "docker-compose up, create project,
+set secrets, `janus run` works."
 
 Caveat carried forward: the operator `janus seal` CLI command does not yet send
 a credential, so it will receive 401 against the now-gated endpoint until it
@@ -264,7 +336,8 @@ or session cookie today.
       (OIDC / federation deferred to Phase 2)
 - [x] RBAC engine — roles/scopes, deny-by-default enforcement, membership +
       user endpoints, token/seal authorization (milestone 6)
-- [ ] Hash-chained audit log
+- [x] Hash-chained audit log — append-only `audit_events`, SHA-256 chain,
+      `/v1/audit/verify` + `/export`, fail-closed per-handler recording (milestone 7)
 - [ ] REST API (`/v1/`)
 - [ ] Secrets CLI with `janus run`
 

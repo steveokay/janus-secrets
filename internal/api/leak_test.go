@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 // TestNoShareMaterialInLogsOrErrors drives the full init/unseal lifecycle with
@@ -67,4 +69,77 @@ func TestNoShareMaterialInLogsOrErrors(t *testing.T) {
 	if !strings.Contains(logs, "/v1/sys/unseal") {
 		t.Fatalf("expected request logs, got: %q", logs)
 	}
+}
+
+// TestNoSecretValueInAuditRowsOrExport runs a mutating flow that pushes known
+// secret material (a chosen password, plus the mint-once raw service token)
+// through audited handlers, then asserts that neither secret ever appears in
+// (a) any column of any audit_events row, nor (b) the /v1/audit/export output.
+// The audit design forbids a value field on Event; this is the belt-and-braces
+// end-to-end proof against a real recorder.
+func TestNoSecretValueInAuditRowsOrExport(t *testing.T) {
+	ts, srv, email, password, configID := authStackFull(t)
+	cookie := login(t, ts.URL, email, password)
+
+	const sentinelPassword = "SENTINEL-known-secret-value-9c3f-do-not-leak"
+
+	// Password change carries the sentinel through an audited handler
+	// (auth.password_change); the subsequent login carries it again (auth.login).
+	if code := doAuthed(t, "POST", ts.URL+"/v1/auth/password", cookie, "",
+		fmt.Sprintf(`{"old":%q,"new":%q}`, password, sentinelPassword), nil); code != 204 {
+		t.Fatalf("password change: %d", code)
+	}
+	cookie = login(t, ts.URL, email, sentinelPassword)
+
+	// Mint a token — the raw token is a mint-once secret that must never be
+	// audited (the handler records only "tokens/<id>").
+	var minted struct{ Token, ID string }
+	mintBody := fmt.Sprintf(`{"name":"leak","scope":{"kind":"config","id":%q},"access":"read"}`, configID)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", cookie, "", mintBody, &minted); code != 200 || minted.Token == "" {
+		t.Fatalf("mint: %d %+v", code, minted)
+	}
+
+	secrets := []string{sentinelPassword, minted.Token}
+
+	// (a) Dump every column of every audit_events row via the store repo (its
+	// SELECT lists all columns) and scan each field for the secrets.
+	repo := store.NewAuditRepo(srv.st)
+	var dump strings.Builder
+	rows := 0
+	if err := repo.Iterate(context.Background(), func(a store.AuditRow) error {
+		rows++
+		fmt.Fprintf(&dump, "%d|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%x|%x\n",
+			a.Seq, a.OccurredAt.Format("2006-01-02T15:04:05.000000Z07:00"),
+			a.ActorKind, derefStr(a.ActorID), a.ActorName, a.Action, a.Resource,
+			derefStr(a.Detail), a.Result, derefStr(a.ResultCode), a.IP, a.PrevHash, a.Hash)
+		return nil
+	}); err != nil {
+		t.Fatalf("iterate audit rows: %v", err)
+	}
+	if rows == 0 {
+		t.Fatal("no audit rows written; flow did not exercise the recorder")
+	}
+	for _, sec := range secrets {
+		if strings.Contains(dump.String(), sec) {
+			t.Fatalf("secret value leaked into an audit_events row")
+		}
+	}
+
+	// (b) The export output must likewise contain no secret material.
+	code, exBody := rawGet(t, ts.URL+"/v1/audit/export?format=jsonl", cookie)
+	if code != 200 {
+		t.Fatalf("export: %d", code)
+	}
+	for _, sec := range secrets {
+		if strings.Contains(exBody, sec) {
+			t.Fatal("secret value leaked into /v1/audit/export output")
+		}
+	}
+}
+
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

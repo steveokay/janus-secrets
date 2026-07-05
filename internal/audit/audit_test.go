@@ -128,6 +128,26 @@ func TestVerifyPropagatesStoreError(t *testing.T) {
 	}
 }
 
+func TestListPassthrough(t *testing.T) {
+	r, _ := rec(t)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if err := r.Record(ctx, Event{Actor: Actor{Kind: "user", Name: "a"}, Action: "token.mint", Result: "success", IP: "ip"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var seen []int64
+	if err := r.List(ctx, store.AuditFilter{Action: "token.mint"}, func(row store.AuditRow) error {
+		seen = append(seen, row.Seq)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || seen[0] != 1 || seen[1] != 2 {
+		t.Fatalf("list = %v", seen)
+	}
+}
+
 func strptr(s string) *string { return &s }
 
 // ts is a fixed, microsecond-truncated timestamp for hash-determinism tests.
