@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,43 @@ func TestDownloadOutputRequiresPlain(t *testing.T) {
 	b, err := os.ReadFile(target)
 	if err != nil || !strings.Contains(string(b), "API_KEY=s3cr3t") {
 		t.Fatalf("file contents: %s (%v)", b, err)
+	}
+}
+
+// TestDownloadOutputForces0600OnPreexistingFile guards the High finding from the
+// M9 adversarial review: os.WriteFile only applies perm on create, so writing over
+// a pre-existing looser-mode file would have leaked secrets at 0644. writeSecretFile
+// (temp+O_EXCL 0600+rename) must yield 0600 regardless of the prior file.
+func TestDownloadOutputForces0600OnPreexistingFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are cosmetic on Windows")
+	}
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_ADDR", "")
+	t.Setenv("JANUS_TOKEN", "")
+	ts := downloadServer()
+	defer ts.Close()
+
+	target := filepath.Join(t.TempDir(), "preexisting.env")
+	// Pre-create the target world/group-readable, as a committed placeholder might be.
+	if err := os.WriteFile(target, []byte("PLACEHOLDER=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runCmd(t, newSecretsCmd(), "download", "--format", "env", "--output", target, "--plain",
+		"--address", ts.URL, "--project", "acme", "--env", "dev", "--config", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("download over pre-existing file left mode %v, want 0600", fi.Mode().Perm())
+	}
+	b, err := os.ReadFile(target)
+	if err != nil || !strings.Contains(string(b), "API_KEY=s3cr3t") || strings.Contains(string(b), "PLACEHOLDER") {
+		t.Fatalf("file should be replaced with secrets, got: %s (%v)", b, err)
 	}
 }

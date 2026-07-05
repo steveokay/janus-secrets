@@ -40,7 +40,7 @@ func newSecretsDownloadCmd() *cobra.Command {
 				_, err := cmd.OutOrStdout().Write(data)
 				return err
 			}
-			if err := os.WriteFile(output, data, 0o600); err != nil {
+			if err := writeSecretFile(output, data); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %d secret(s) to %s\n", len(resp.Secrets), output)
@@ -52,4 +52,31 @@ func newSecretsDownloadCmd() *cobra.Command {
 	cmd.Flags().StringVar(&output, "output", "", "write to a file instead of stdout (requires --plain)")
 	cmd.Flags().BoolVar(&plain, "plain", false, "permit writing plaintext secrets to disk")
 	return cmd
+}
+
+// writeSecretFile writes plaintext secrets to path atomically at mode 0600. It
+// writes to a temp file opened O_EXCL (so it never follows a planted symlink and
+// never inherits a pre-existing file's looser mode) then renames over the target,
+// which also makes the write atomic — no truncated/partial secret file on failure.
+// Mirrors saveAuth's pattern in config_store.go.
+func writeSecretFile(path string, data []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_EXCL, 0o600) // #nosec G304 -- caller-chosen output path, O_EXCL blocks symlink/preexisting follow
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
