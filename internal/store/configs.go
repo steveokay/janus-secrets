@@ -36,6 +36,15 @@ func (r *ConfigRepo) Get(ctx context.Context, id string) (*Config, error) {
 	return scanConfig(row)
 }
 
+// GetIncludingDeleted returns a config by id regardless of soft-delete state.
+// Used to authorize restore of a soft-deleted config. ErrNotFound only if the
+// row does not exist at all (soft-deleted or hard-destroyed).
+func (r *ConfigRepo) GetIncludingDeleted(ctx context.Context, id string) (*Config, error) {
+	row := r.s.pool.QueryRow(ctx,
+		`SELECT `+configCols+` FROM configs WHERE id = $1::uuid`, id)
+	return scanConfig(row)
+}
+
 // GetByName returns a non-deleted config by (environment, name).
 func (r *ConfigRepo) GetByName(ctx context.Context, environmentID, name string) (*Config, error) {
 	row := r.s.pool.QueryRow(ctx,

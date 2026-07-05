@@ -135,6 +135,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Delete("/v1/projects/{pid}/environments/{eid}", s.handleEnvDelete)
 			r.Post("/v1/projects/{pid}/environments/{eid}/restore", s.handleEnvRestore)
 		})
+		r.Group(func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Post("/v1/projects/{pid}/environments/{eid}/configs", s.handleConfigCreate)
+			r.Get("/v1/projects/{pid}/environments/{eid}/configs", s.handleConfigList)
+			r.Get("/v1/configs/{cid}", s.handleConfigGet)
+			r.Delete("/v1/configs/{cid}", s.handleConfigDelete)
+			r.Post("/v1/configs/{cid}/restore", s.handleConfigRestore)
+		})
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
