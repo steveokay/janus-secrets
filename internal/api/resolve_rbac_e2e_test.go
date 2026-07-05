@@ -1,12 +1,15 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"testing"
+
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 func TestResolveReferenceRBACAndInheritance(t *testing.T) {
-	ts, _, ownerEmail, ownerPass, _ := authStackFull(t)
+	ts, srv, ownerEmail, ownerPass, _ := authStackFull(t)
 	owner := login(t, ts.URL, ownerEmail, ownerPass)
 
 	type idResp struct{ ID string `json:"id"` }
@@ -44,6 +47,20 @@ func TestResolveReferenceRBACAndInheritance(t *testing.T) {
 	// (a) resolved reveal dereferences billing (dev can't read) → 403 atomic.
 	if code := doAuthed(t, "GET", webSecrets+"?reveal=true", dev, "", "", nil); code != http.StatusForbidden {
 		t.Fatalf("forbidden reference: want 403, got %d", code)
+	}
+	// (a') the denied deref leaves a fail-closed denied secret.reveal on web —
+	// a denied secret-access attempt is never unaudited.
+	var sawDenied bool
+	if err := store.NewAuditRepo(srv.st).Iterate(context.Background(), func(a store.AuditRow) error {
+		if a.Action == "secret.reveal" && a.Resource == "configs/"+web.ID+"/secrets" && a.Result == "denied" {
+			sawDenied = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("iterate audit: %v", err)
+	}
+	if !sawDenied {
+		t.Fatal("forbidden reference produced no denied secret.reveal audit event")
 	}
 	// (b) raw reveal does not dereference → dev can read app → 200.
 	if code := doAuthed(t, "GET", webSecrets+"?reveal=true&raw=true", dev, "", "", nil); code != 200 {

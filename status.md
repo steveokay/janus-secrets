@@ -604,7 +604,11 @@ reference dereference:** `resolveRef`'s `ReadRaw` decrypts the target's own
 values but uses only its coordinates; the values were never zeroized (and the
 config was decrypted twice) — added `defer zeroizeMap(target.Values)`. **(3) LOW
 — splice buffer not zeroized** when an embedded reference fails partway through a
-string splice — zeroize `buf` on the error path. The review otherwise cleared the
+string splice — zeroize `buf` on the error path. **(4) LOW — a denied reference
+dereference wrote no audit event:** a reveal refused by a forbidden reference
+failed closed (403, atomic) but left no trail; now both reveal handlers record a
+fail-closed `denied` `secret.reveal` on the config read (mirroring the central
+`authorize()` denial pattern; e2e-asserted). The review otherwise cleared the
 parser edge cases, both cycle guards, the depth cap, return-value aliasing,
 error→HTTP mapping, strict per-target authz, provenance dedup, and the leak
 surface.

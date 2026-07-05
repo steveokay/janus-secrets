@@ -117,8 +117,11 @@ A resolved reveal writes one primary `secret.reveal` on the config being read,
 plus one `secret.reveal` per **distinct** config dereferenced via a reference
 (`detail = "via reference from configs/<cid>"`, resource = the target path,
 deduped per reveal). Inheritance ancestors are **not** separately audited — they
-are part of the primary reveal. Recording is fail-closed; no secret value ever
-enters an audit row.
+are part of the primary reveal. A reveal refused by a **forbidden reference**
+writes a fail-closed `denied` `secret.reveal` on the config being read
+(`detail = "forbidden reference"`), so a denied secret-access attempt is never
+unaudited (surfaced by `/v1/audit/export?result=denied`). Recording is
+fail-closed; no secret value ever enters an audit row.
 
 ## Non-goals
 

@@ -40,6 +40,9 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 		}
 		values, prov, err := s.resolverFor(r).Resolve(r.Context(), cid)
 		if err != nil {
+			if !s.auditResolveDenial(w, r, "configs/"+cid+"/secrets", err) {
+				return
+			}
 			s.writeServiceError(w, err)
 			return
 		}
@@ -125,6 +128,9 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 	}
 	val, prov, err := s.resolverFor(r).ResolveKey(r.Context(), cid, key)
 	if err != nil {
+		if !s.auditResolveDenial(w, r, "configs/"+cid+"/secrets/"+key, err) {
+			return
+		}
 		s.writeServiceError(w, err)
 		return
 	}

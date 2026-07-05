@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/steveokay/janus-secrets/internal/authz"
@@ -44,4 +45,23 @@ func (s *Server) recordReveal(r *http.Request, cid, detail string, prov []resolv
 		}
 	}
 	return nil
+}
+
+// auditResolveDenial records a fail-closed denied secret.reveal when a resolution
+// was refused by authorization (a forbidden reference on the read path),
+// mirroring authorize()'s central denial auditing so a denied secret-access
+// attempt is never unaudited. It targets the resource the caller requested (the
+// exact forbidden target id is not exposed by the atomic failure). Non-authz
+// resolution failures (cycle, unresolved, bad syntax) are config errors, not
+// access decisions, and are not audited here. Returns false iff the denial's own
+// audit write failed — the caller must then 500 and stop (do not leak the 403).
+func (s *Server) auditResolveDenial(w http.ResponseWriter, r *http.Request, resource string, err error) bool {
+	if !errors.Is(err, resolve.ErrForbiddenReference) {
+		return true
+	}
+	if aerr := s.record(r, "secret.reveal", resource, "denied", CodeForbidden, "forbidden reference"); aerr != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return false
+	}
+	return true
 }
