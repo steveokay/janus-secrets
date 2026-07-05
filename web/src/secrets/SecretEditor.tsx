@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints, MaskedSecret } from '../lib/endpoints'
-import { Buffer, emptyBuffer, setValue, removeKey, addKey, summarize, toChanges, isDirty } from './dirty'
+import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 
 const badge: Record<MaskedSecret['origin'], string> = {
   own: 'bg-green-100 text-green-700',
@@ -15,13 +15,15 @@ export function SecretEditor() {
   const cid = configId!
   const qc = useQueryClient()
   const masked = useQuery({ queryKey: ['config', cid, 'masked'], queryFn: () => endpoints.maskedSecrets(cid) })
-  const raw = useQuery({ queryKey: ['config', cid, 'raw'], queryFn: () => endpoints.rawOwnValues(cid) })
+  const raw = useQuery({ queryKey: ['config', cid, 'raw'], queryFn: () => endpoints.rawConfig(cid) })
   const [buffer, setBuffer] = useState<Buffer>(emptyBuffer())
   const [editing, setEditing] = useState<Record<string, boolean>>({})
   const [revealed, setRevealed] = useState<Record<string, string>>({})
 
-  const original = raw.data ?? {}
-  const version = masked.data ? Math.max(0, ...Object.values(masked.data).map((m) => m.value_version)) : 0
+  const original = raw.data?.secrets ?? {}
+  // The config version (from the raw reveal) — not the max per-secret value
+  // version, which diverges from it under two-level versioning.
+  const version = raw.data?.version ?? 0
   const summary = useMemo(() => summarize(buffer, original), [buffer, original])
   const dirty = isDirty(buffer, original)
 
@@ -51,7 +53,11 @@ export function SecretEditor() {
 
   if (masked.isLoading || raw.isLoading) return <p>Loading…</p>
   if (masked.isError) return <p role="alert">Could not load secrets.</p>
-  const rows = Object.entries(masked.data ?? {})
+  const maskedRows = masked.data ?? {}
+  const rows = Object.entries(maskedRows)
+  // Keys added in the buffer that don't exist yet in the config — rendered as
+  // pending rows so a new key is visible and cancellable before save.
+  const addedKeys = Object.keys(buffer).filter((k) => !(k in maskedRows) && buffer[k].value !== null)
 
   return (
     <div>
@@ -104,6 +110,23 @@ export function SecretEditor() {
               </tr>
             )
           })}
+          {addedKeys.map((key) => (
+            <tr key={key} className="border-t bg-green-50">
+              <td className="py-1 font-mono">{key} <span className="text-xs text-green-600">(new)</span></td>
+              <td className="py-1 font-mono">
+                <input
+                  aria-label={`value for ${key}`}
+                  value={buffer[key].value ?? ''}
+                  onChange={(e) => setBuffer((b) => setValue(b, key, e.target.value))}
+                  className="w-full rounded border p-1"
+                />
+              </td>
+              <td className="py-1"><span className={`rounded px-1.5 ${badge.own}`}>own</span></td>
+              <td className="py-1">
+                <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => revert(b, key))} className="text-red-400">✕</button>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
       <AddKeyRow onAdd={(k, v) => setBuffer((b) => addKey(b, k, v))} />

@@ -6,14 +6,18 @@ import { renderApp } from '../test/render'
 import { SecretEditor } from './SecretEditor'
 
 function seed() {
+  // MSW matches on path only and ignores the query string, so a single handler
+  // must branch on the query param the way the real server does: masked list
+  // when there's no ?reveal, raw own-values (+ config version) when raw=true.
   server.use(
-    http.get('/v1/configs/c1/secrets', () =>
-      HttpResponse.json({ secrets: {
+    http.get('/v1/configs/c1/secrets', ({ request }) => {
+      if (new URL(request.url).searchParams.get('reveal') === 'true')
+        return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
+      return HttpResponse.json({ secrets: {
         DB_URL: { value_version: 3, created_at: '', origin: 'own' },
         SENTRY_DSN: { value_version: 1, created_at: '', origin: 'inherited' },
-      } })),
-    http.get('/v1/configs/c1/secrets?reveal=true&raw=true', () =>
-      HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })),
+      } })
+    }),
   )
 }
 

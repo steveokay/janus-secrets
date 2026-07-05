@@ -47,10 +47,10 @@ export const endpoints = {
     api.get<{ key: string; value: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}`),
   revealAll: (cid: string) =>
     api.get<{ version: number; secrets: Record<string, string> }>(`/v1/configs/${cid}/secrets?reveal=true`),
-  rawOwnValues: (cid: string) =>
-    api
-      .get<{ version: number; secrets: Record<string, string> }>(`/v1/configs/${cid}/secrets?reveal=true&raw=true`)
-      .then((r) => r.secrets),
+  // The config's own stored values verbatim (unresolved), plus the config
+  // version — the editable truth the secret editor diffs against.
+  rawConfig: (cid: string) =>
+    api.get<{ version: number; secrets: Record<string, string> }>(`/v1/configs/${cid}/secrets?reveal=true&raw=true`),
   saveSecrets: (cid: string, changes: SecretChange[], message: string) =>
     api.put<VersionResult>(`/v1/configs/${cid}/secrets`, { message, changes }),
 }

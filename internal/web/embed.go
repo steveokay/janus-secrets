@@ -36,9 +36,14 @@ func Handler() http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		if p := strings.TrimPrefix(r.URL.Path, "/"); p != "" && p != "index.html" {
 			if f, err := sub.Open(p); err == nil {
+				info, statErr := f.Stat()
 				_ = f.Close()
-				fileServer.ServeHTTP(w, r)
-				return
+				// Serve only real files; a directory path falls through to the SPA
+				// shell rather than emitting a directory listing.
+				if statErr == nil && !info.IsDir() {
+					fileServer.ServeHTTP(w, r)
+					return
+				}
 			}
 		}
 		h.Set("Content-Type", "text/html; charset=utf-8")

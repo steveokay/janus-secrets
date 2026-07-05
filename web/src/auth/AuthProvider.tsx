@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { endpoints, User } from '../lib/endpoints'
-import { ApiError } from '../lib/api'
+import { queryClient } from '../lib/queryClient'
 
 interface AuthState {
   user: User | null
@@ -18,9 +18,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true)
     try {
       setUser(await endpoints.me())
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) setUser(null)
-      else throw e
+    } catch {
+      // Any failure to load /me — 401 (unauthenticated) or 503 (sealed) — means
+      // "not authenticated" for the UI; the Gate handles the sealed case via
+      // seal-status. Swallow it so no promise rejection dangles.
+      setUser(null)
     } finally {
       setLoading(false)
     }
@@ -28,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function logout() {
     await endpoints.logout()
     setUser(null)
+    queryClient.clear() // drop any cached secret plaintext on sign-out
   }
   useEffect(() => { void refresh() }, [])
 

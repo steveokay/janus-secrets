@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient, setAuthEventHandler } from './lib/queryClient'
 import { endpoints, SealStatus } from './lib/endpoints'
@@ -12,17 +12,23 @@ import { SecretEditor } from './secrets/SecretEditor'
 import { Placeholder } from './shell/Placeholder'
 
 function Gate() {
-  const { user, loading } = useAuth()
+  const { user, loading, refresh } = useAuth()
   const [seal, setSeal] = useState<SealStatus | null>(null)
-  const navigate = useNavigate()
 
   useEffect(() => { endpoints.sealStatus().then(setSeal).catch(() => setSeal(null)) }, [])
   useEffect(() => {
     setAuthEventHandler((kind) => {
-      if (kind === 'sealed') endpoints.sealStatus().then(setSeal)
-      else navigate('/login')
+      if (kind === 'sealed') {
+        endpoints.sealStatus().then(setSeal)
+      } else {
+        // A 401 from any query means the session expired: drop cached data
+        // (incl. any secret plaintext) and re-bootstrap — /me will 401 and
+        // Gate falls back to the login screen.
+        queryClient.clear()
+        void refresh()
+      }
     })
-  }, [navigate])
+  }, [refresh])
 
   if (!seal || loading) return <p className="mt-24 text-center">Loading…</p>
   if (seal.initialized === false)
