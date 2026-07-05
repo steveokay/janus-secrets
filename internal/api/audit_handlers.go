@@ -147,9 +147,11 @@ func (s *Server) streamAuditJSONL(w http.ResponseWriter, r *http.Request, f stor
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Content-Disposition", `attachment; filename="audit.jsonl"`)
 	enc := json.NewEncoder(w)
-	_ = s.audit.List(r.Context(), f, func(a store.AuditRow) error {
+	if err := s.audit.List(r.Context(), f, func(a store.AuditRow) error {
 		return enc.Encode(toExportRow(a))
-	})
+	}); err != nil {
+		s.abortExport(r, err)
+	}
 }
 
 func (s *Server) streamAuditCSV(w http.ResponseWriter, r *http.Request, f store.AuditFilter) {
@@ -158,7 +160,7 @@ func (s *Server) streamAuditCSV(w http.ResponseWriter, r *http.Request, f store.
 	cw := csv.NewWriter(w)
 	_ = cw.Write([]string{"seq", "occurred_at", "actor_kind", "actor_id", "actor_name",
 		"action", "resource", "detail", "result", "result_code", "ip", "prev_hash", "hash"})
-	_ = s.audit.List(r.Context(), f, func(a store.AuditRow) error {
+	err := s.audit.List(r.Context(), f, func(a store.AuditRow) error {
 		row := toExportRow(a)
 		return cw.Write([]string{
 			itoa64(row.Seq), row.OccurredAt, row.ActorKind, strOrEmpty(row.ActorID), row.ActorName,
@@ -167,6 +169,25 @@ func (s *Server) streamAuditCSV(w http.ResponseWriter, r *http.Request, f store.
 		})
 	})
 	cw.Flush()
+	if err == nil {
+		err = cw.Error() // a write that failed only at Flush time
+	}
+	if err != nil {
+		s.abortExport(r, err)
+	}
+}
+
+// abortExport handles a mid-stream export failure. A 200 status, headers, and
+// part of the body are already committed, so we cannot switch to an error
+// envelope. We log the failure server-side (never silent) and abort the
+// response with http.ErrAbortHandler, so the client sees a broken transfer
+// rather than mistaking a truncated file for a complete one — completeness is
+// the whole point of an offline-verifiable audit export. The self-audited
+// export event was recorded before streaming, so the attempt is still logged.
+func (s *Server) abortExport(r *http.Request, err error) {
+	s.logger.Error("audit export stream failed; response aborted (truncated)",
+		"err", err, "path", r.URL.Path)
+	panic(http.ErrAbortHandler)
 }
 
 func strOrEmpty(s *string) string {
