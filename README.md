@@ -24,7 +24,8 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
 > [data model & versioning](docs/data-model.md),
-> [operations](docs/operations.md), and the [CLI reference](docs/cli.md).
+> [operations](docs/operations.md), the [CLI reference](docs/cli.md), and the
+> [transit engine](docs/transit.md).
 
 ## Why
 
@@ -107,6 +108,23 @@ captured centrally. `GET /v1/audit/verify` walks the chain and reports integrity
 as JSONL or CSV, filterable by time/actor/action/result, with each row carrying
 `prev_hash`+`hash` for offline verification. The engine (`internal/audit`) is
 pure and HTTP-free.
+
+### Transit (encryption as a service)
+
+The first Phase-2 subsystem is live: a Vault-style **transit engine**
+(`internal/transit`) that encrypts, decrypts, signs, verifies, rewraps, and mints
+data keys against **instance-scoped named keys whose material never leaves the
+server in plaintext** — Janus holds the keys, your app holds the ciphertext, and
+Janus never persists the data you pass through it. Two key types (`aes256-gcm` for
+encrypt/decrypt/rewrap/datakey, `ed25519` for sign/verify), key **versioning**
+(`latest_version`, `min_decryption_version`, `deletion_allowed`) with rotate,
+trim, and rewrap-forward, and a `janus:v<N>:<base64>` envelope. Each version's
+material is master-key-wrapped under a name+version AAD, so a copied version row
+fails to unwrap. Routes under `/v1/transit/*` are RBAC-enforced by three
+instance-scoped actions (`transit:read`/`use`/`manage`) and a new **transit
+service-token scope** so an app can call transit without reaching secrets;
+management ops are audited (recording the key name, never material) while
+high-frequency data-plane ops are not. See [docs/transit.md](docs/transit.md).
 
 ## Quickstart (dev)
 
@@ -192,6 +210,8 @@ internal/auth/       passwords, sessions, service tokens           ← implement
                      (OIDC/federation planned for Phase 2)
 internal/authz/      RBAC engine (roles, scopes, enforcement)      ← implemented
 internal/audit/      hash-chained audit log                        ← implemented
+internal/transit/    transit engine (encrypt/decrypt/sign/verify,  ← implemented
+                     key versioning) — Phase 2 sub-project A
 migrations/          SQL migrations
 web/                 React SPA (planned)
 docs/                subsystem docs, design specs, implementation plans
@@ -260,7 +280,8 @@ audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run`
 **Phase 1 complete.** Live tracker: [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
-sign/verify, key versioning); React SPA; OIDC login; usage metrics.
+sign/verify, key versioning) ✅ (sub-project A — see
+[docs/transit.md](docs/transit.md)); React SPA; OIDC login; usage metrics.
 
 **Phase 3 — Rotation + dynamic:** scheduled static rotation; sync integrations
 (GitHub Actions, Kubernetes); dynamic Postgres credentials with a lease manager.
