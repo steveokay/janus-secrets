@@ -14,9 +14,10 @@ those below it and is testable in isolation.
 ┌──────────────────────────────────────────────────────────┐
 │  cmd/janus (single binary: server + secrets CLI)         │
 ├──────────────────────────────────────────────────────────┤
-│  internal/api    HTTP handlers, middleware, routes  (TODO)│
+│  internal/api    HTTP handlers, middleware, routes     ✅ │
+│                  (sys + auth + token + user + member)     │
 ├──────────────────────────────────────────────────────────┤
-│  internal/auth   internal/authz   internal/audit    (TODO)│
+│  internal/auth ✅  internal/authz ✅  internal/audit (TODO)│
 ├──────────────────────────────────────────────────────────┤
 │  internal/store  Postgres repositories, migrations    ✅  │
 │                  crypto-blind: stores ciphertext only     │
@@ -44,9 +45,9 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
 | `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning | ✅ core CRUD (inheritance/references deferred) |
 | `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops | ✅ implemented |
-| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, sealed-state middleware, `Boot` composition | ✅ sys API (secret routes land with the API milestone) |
-| `internal/auth` | Passwords, service tokens, OIDC, sessions | ⏳ planned |
-| `internal/authz` | RBAC engine (viewer/developer/admin/owner) | ⏳ planned |
+| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `.../members`, sealed-state + auth + authz middleware, `Boot` composition | ✅ sys/auth/authz APIs (secret routes land with the API milestone) |
+| `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, `Principal` | ✅ implemented (OIDC/federation Phase 2) |
+| `internal/authz` | Pure deny-by-default RBAC engine (viewer/developer/admin/owner; instance/project/env scopes; `Can`, `EffectiveRole`, grant/revoke) | ✅ implemented |
 | `internal/audit` | Hash-chained append-only audit log | ⏳ planned |
 | `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) — secrets CLI (`janus run`, etc.) planned | ✅ implemented (secrets CLI ⏳ planned) |
 
@@ -63,8 +64,10 @@ its own.
 
 A write today (layers marked *TODO* are not built yet):
 
-1. **API** *(TODO — the sys API exists; secret routes await auth)*
-   authenticates the caller (session or service token) and checks RBAC.
+1. **API** authenticates the caller (session cookie or service token → a
+   `Principal`) and the handler checks RBAC via `internal/authz`
+   (deny-by-default). *(The auth + authz machinery is built ✅; the
+   secret-writing route itself lands with the REST API milestone.)*
 2. The **encryption layer** (`internal/secrets`, ✅) fetches the project's
    wrapped KEK from the store, unwraps it with the in-memory master key,
    generates a fresh DEK per value, and AES-256-GCM-encrypts the secret. Each
@@ -88,7 +91,7 @@ Phase 1 is being built strictly in order (see `../CLAUDE.md` for the full list):
 
 > crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 > encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
-> **auth** → RBAC → audit → REST API → CLI with `run`.
+> auth ✅ → RBAC ✅ → **audit** → REST API → CLI with `run`.
 
 Phases 2 (transit engine + React UI + OIDC + usage metrics) and 3 (rotation +
 dynamic Postgres credentials) follow. HA/Raft, PKI/CA, SSH signing, HSM,
