@@ -32,6 +32,29 @@ func TestVerifyRejectsMalformedKey(t *testing.T) {
 	}
 }
 
+func TestSignWithSeedMatchesFullKeyAndVerifies(t *testing.T) {
+	pub, priv, err := GenerateEd25519Key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("seed-signed message")
+	seed := priv[:32] // ed25519 seed is the first 32 bytes of the expanded key
+
+	sig, err := SignWithSeed(seed, msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !Verify(pub, msg, sig) {
+		t.Fatal("seed-derived signature must verify under the matching public key")
+	}
+	if !bytes.Equal(sig, Sign(priv, msg)) {
+		t.Fatal("SignWithSeed(seed) must equal Sign(full priv)")
+	}
+	if _, err := SignWithSeed([]byte("too-short"), msg); err != ErrInvalidKeySize {
+		t.Fatalf("short seed: want ErrInvalidKeySize, got %v", err)
+	}
+}
+
 func TestGenerateEd25519KeyRandFailure(t *testing.T) {
 	restore := randReader
 	randReader = failReader{}

@@ -16,9 +16,20 @@ func GenerateEd25519Key() (pub, priv []byte, err error) {
 	return pk, sk, nil
 }
 
-// Sign signs msg with an Ed25519 private key.
+// Sign signs msg with an Ed25519 private key (the 64-byte expanded form).
 func Sign(priv, msg []byte) []byte {
 	return ed25519.Sign(ed25519.PrivateKey(priv), msg)
+}
+
+// SignWithSeed signs msg using a 32-byte Ed25519 seed, reconstructing the private
+// key via ed25519.NewKeyFromSeed. The transit engine stores the seed (wrapped) —
+// KeySize == ed25519.SeedSize == 32 — and reconstructs to sign. Returns
+// ErrInvalidKeySize for a wrong-length seed (never panics).
+func SignWithSeed(seed, msg []byte) ([]byte, error) {
+	if len(seed) != ed25519.SeedSize {
+		return nil, ErrInvalidKeySize
+	}
+	return ed25519.Sign(ed25519.NewKeyFromSeed(seed), msg), nil
 }
 
 // Verify reports whether sig is a valid Ed25519 signature of msg under pub. A
