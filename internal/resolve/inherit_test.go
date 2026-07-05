@@ -20,6 +20,16 @@ func (f *fakeReader) ReadRawByID(_ context.Context, id string) (RawConfig, error
 	if !ok {
 		return RawConfig{}, errFakeNotFound
 	}
+	// Return owned copies of the value bytes: the real RawReader (secrets
+	// service) freshly decrypts on every read, so the resolver is free to zero
+	// the returned map. Copy here so zeroizing doesn't corrupt the fixture.
+	vals := make(map[string][]byte, len(rc.Values))
+	for k, v := range rc.Values {
+		cp := make([]byte, len(v))
+		copy(cp, v)
+		vals[k] = cp
+	}
+	rc.Values = vals
 	return rc, nil
 }
 func (f *fakeReader) ReadRaw(_ context.Context, c Coord) (RawConfig, error) {
