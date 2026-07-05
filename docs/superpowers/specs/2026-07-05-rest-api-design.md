@@ -33,9 +33,10 @@ already-built `internal/secrets` service into a network API.
    deferred to the CLI milestone, when retries actually happen.
 5. **Delete model — full lifecycle.** `DELETE` soft-deletes (recoverable);
    `POST …/restore` undeletes; `DELETE …?destroy=true` hard-destroys
-   (owner-gated, irreversible, cascades). For projects, environments, and
-   configs. Secret deletion is a separate versioned tombstone via
-   `DELETE …/secrets/{key}`.
+   (owner-gated, irreversible, cascades to the whole subtree via a new
+   `ON DELETE CASCADE` migration — see Architecture). For projects,
+   environments, and configs. Secret deletion is a separate versioned tombstone
+   via `DELETE …/secrets/{key}`.
 
 ## Architecture
 
@@ -60,6 +61,13 @@ The store already backs every operation: `ProjectRepo`/`EnvironmentRepo`/
 
 `internal/audit` needs **no change**: `Event.Action` is a free-form string, so the
 new action names are just new strings passed to `s.record`.
+
+**One schema change — migration `000005`** — alters the ownership foreign keys to
+`ON DELETE CASCADE` so `Destroy` reclaims a resource's whole subtree (the core
+schema shipped them as `NO ACTION`, which would fail on any non-empty resource);
+`configs.inherits_from` is left `NO ACTION` on purpose. Details under "Error
+handling & edge cases". No store repo signatures change — `Destroy` already
+issues the `DELETE`; the cascade is now honored by the database.
 
 ### File organization
 
@@ -230,10 +238,20 @@ never leak.
 - **Soft-deleted reads:** a soft-deleted project/env/config (and its secrets)
   reads as `404 not_found`; `restore` brings it back. Deleted IDs are
   indistinguishable from never-existed (no existence oracle).
-- **Hard-destroy** removes the resource and cascades to all descendants (a
-  destroyed project takes its envs/configs/secrets and its wrapped KEK with it),
-  irreversible, `owner` + `project:delete`. `?destroy=true` is the only
-  hard-delete path. The implementation confirms the FK cascade in the migration.
+- **Hard-destroy cascades (via migration `000005`).** The core schema's
+  ownership foreign keys were originally `NO ACTION`, so `Destroy` would fail on
+  any non-empty resource. Migration `000005` alters the **ownership** FKs to
+  `ON DELETE CASCADE` — `environments.project_id`, `configs.environment_id`,
+  `secret_values.config_id`, `config_versions.config_id`, and
+  `config_version_entries` (→ `config_versions`, `secret_values`) — so a
+  `?destroy=true` removes the whole subtree in one delete: a destroyed project
+  takes its environments, configs, config versions, secret values, and its
+  wrapped KEK with it. **`configs.inherits_from` stays `NO ACTION`
+  deliberately** — a branch config must not be silently deleted because its base
+  was destroyed, so destroying a config still referenced as an inheritance base
+  returns `409 conflict` (`store.ErrParentNotFound`). Hard-destroy is
+  irreversible; owner-gated for projects (`project:delete` is owner-only),
+  admin-gated for env/config. `?destroy=true` is the only hard-delete path.
 
 ## Testing
 
