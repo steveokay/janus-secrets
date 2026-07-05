@@ -285,7 +285,11 @@ config inheritance + secret references ✅. **Phase 1 complete.** Live tracker:
 
 **Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
 sign/verify, key versioning) ✅ (sub-project A — see
-[docs/transit.md](docs/transit.md)); React SPA; OIDC login; usage metrics.
+[docs/transit.md](docs/transit.md)); React SPA — core editor ✅ (sub-project B
+milestone 1: embedded SPA, unseal/login, project/env/config nav + create, secret
+editor with masked values / audited reveal / batched Save-as-vN — see
+[docs/web.md](docs/web.md); diff/audit/tokens/dashboard/transit UI to follow);
+OIDC login; usage metrics.
 
 **Phase 3 — Rotation + dynamic:** scheduled static rotation; sync integrations
 (GitHub Actions, Kubernetes); dynamic Postgres credentials with a lease manager.
