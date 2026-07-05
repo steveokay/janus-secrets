@@ -9,13 +9,17 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 )
 
-// RequireUnsealed returns 503 {"error":{"code":"sealed"}} for every route
-// except /v1/sys/* while the keyring is sealed. Sys routes stay reachable so
-// the operator can initialize and unseal.
+// RequireUnsealed returns 503 {"error":{"code":"sealed"}} for /v1/* API
+// routes (except /v1/sys/*) while the keyring is sealed. Non-API paths — the
+// embedded SPA and its assets — and /v1/sys/* are always served so the
+// operator can load the UI and initialize/unseal from it.
 func RequireUnsealed(kr *crypto.Keyring) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasPrefix(r.URL.Path, "/v1/sys/") {
+			// Non-API paths (the embedded SPA and its assets) and /v1/sys/* are
+			// served regardless of seal state: the UI must load while sealed to
+			// present the unseal screen.
+			if !strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/v1/sys/") {
 				next.ServeHTTP(w, r)
 				return
 			}
