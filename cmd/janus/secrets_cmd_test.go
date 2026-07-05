@@ -22,9 +22,13 @@ func secretsServer(t *testing.T) *httptest.Server {
 		_, _ = w.Write([]byte(`{"configs":[{"id":"c1","name":"dev"}]}`))
 	})
 	mux.HandleFunc("/v1/configs/c1/secrets", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"version":3,"secrets":{"API_KEY":{"value_version":2,"created_at":"2026-07-05T00:00:00Z"}}}`))
+		_, _ = w.Write([]byte(`{"secrets":{"API_KEY":{"value_version":2,"created_at":"2026-07-05T00:00:00Z","origin":"own"}}}`))
 	})
 	mux.HandleFunc("/v1/configs/c1/secrets/API_KEY", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("raw") == "true" {
+			_, _ = w.Write([]byte(`{"key":"API_KEY","value":"RAWVAL"}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"key":"API_KEY","value":"s3cr3t","value_version":2}`))
 	})
 	return httptest.NewServer(mux)
@@ -71,5 +75,39 @@ func TestSecretsGetPrintsRawValue(t *testing.T) {
 	}
 	if strings.TrimRight(out, "\n") != "s3cr3t" {
 		t.Fatalf("get output = %q, want s3cr3t", out)
+	}
+}
+
+func TestSecretsGetRawFlag(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_ADDR", "")
+	t.Setenv("JANUS_TOKEN", "")
+	ts := secretsServer(t)
+	defer ts.Close()
+
+	out, _, err := runCmd(t, newSecretsCmd(), "get", "API_KEY", "--raw",
+		"--address", ts.URL, "--project", "acme", "--env", "dev", "--config", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimRight(out, "\n") != "RAWVAL" {
+		t.Fatalf("get --raw output = %q, want RAWVAL (raw=true not forwarded?)", out)
+	}
+}
+
+func TestSecretsListShowsOrigin(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_ADDR", "")
+	t.Setenv("JANUS_TOKEN", "")
+	ts := secretsServer(t)
+	defer ts.Close()
+
+	out, _, err := runCmd(t, newSecretsCmd(), "list",
+		"--address", ts.URL, "--project", "acme", "--env", "dev", "--config", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "ORIGIN") || !strings.Contains(out, "own") {
+		t.Fatalf("list output missing ORIGIN column / origin value: %q", out)
 	}
 }
