@@ -63,7 +63,7 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthzError(w, err)
 		return
 	}
-	cv, metas, err := s.service.ListSecrets(r.Context(), cid)
+	metas, err := s.service.ListSecretsMerged(r.Context(), cid)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -73,9 +73,10 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 		masked[m.Key] = map[string]any{
 			"value_version": m.ValueVersion,
 			"created_at":    m.CreatedAt.UTC().Format(time.RFC3339),
+			"origin":        m.Origin,
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"version": cv.Version, "secrets": masked})
+	writeJSON(w, http.StatusOK, map[string]any{"secrets": masked})
 }
 
 // handleSecretGet reveals one key's latest value, or a historical value with
