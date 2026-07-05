@@ -37,6 +37,13 @@ var keyNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 func validKeyName(name string) bool { return keyNameRe.MatchString(name) }
 
+// zeroize overwrites b with zeros to clear key material from memory.
+func zeroize(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 // mapStoreErr translates store sentinels to transit sentinels.
 func mapStoreErr(err error) error {
 	switch {
