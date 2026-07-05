@@ -46,6 +46,12 @@ func (s *Service) Verify(ctx context.Context, name string, input []byte, signatu
 	if k.KeyType != TypeEd25519 {
 		return false, ErrWrongKeyType
 	}
+	// Honor min_decryption_version symmetrically with Decrypt: raising the floor
+	// retires old signing versions, so a signature made under a version below it
+	// must not verify even while that version row still exists.
+	if version < k.MinDecryptionVersion {
+		return false, ErrVersionTooOld
+	}
 	for _, v := range k.Versions {
 		if v.Version == version {
 			return crypto.Verify(v.PublicKey, input, sig), nil

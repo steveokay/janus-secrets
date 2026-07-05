@@ -84,11 +84,15 @@ the returned `plaintext`) are **base64**. Ciphertext and signature travel as the
   distinguished to the caller.
 - **sign** (ed25519) — signs the input with the `latest_version` private key →
   `janus:v<N>:<sig>`.
-- **verify** (ed25519) — parses the version, verifies with that version's public
-  key. A bad signature is `{"valid": false}` — **not** an error.
+- **verify** (ed25519) — parses the version, rejects a version
+  `< min_decryption_version` (`ErrVersionTooOld` — raising the floor retires old
+  signing versions), then verifies with that version's public key. A bad
+  signature is `{"valid": false}` — **not** an error.
 - **rewrap** — decrypts an old ciphertext (if `≥ min_decryption_version`) and
   re-encrypts it under `latest_version`. **The plaintext is never returned** —
-  this rolls data forward after a rotation without exposing it.
+  this rolls data forward after a rotation without exposing it. If the original
+  was encrypted with `associated_data`, the same value must be supplied so the
+  AEAD tag validates and the binding is preserved on the new ciphertext.
 - **datakey** — generates a fresh random 256-bit data key (DEK) and returns it
   **wrapped** under the key's latest version. Two explicit endpoints so plaintext
   exposure is always deliberate: `/datakey/wrapped/{name}` returns only the
@@ -117,7 +121,7 @@ the server is sealed).
 | `POST /v1/transit/decrypt/{name}` | `{ciphertext, associated_data?}` | `{plaintext}` | `transit:use` |
 | `POST /v1/transit/sign/{name}` | `{input}` | `{signature}` | `transit:use` |
 | `POST /v1/transit/verify/{name}` | `{input, signature}` | `{valid}` | `transit:use` |
-| `POST /v1/transit/rewrap/{name}` | `{ciphertext}` | `{ciphertext}` | `transit:use` |
+| `POST /v1/transit/rewrap/{name}` | `{ciphertext, associated_data?}` | `{ciphertext}` | `transit:use` |
 | `POST /v1/transit/datakey/plaintext/{name}` | | `{ciphertext, plaintext}` | `transit:use` |
 | `POST /v1/transit/datakey/wrapped/{name}` | | `{ciphertext}` | `transit:use` |
 

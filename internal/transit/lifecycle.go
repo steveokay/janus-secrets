@@ -34,15 +34,18 @@ func (s *Service) UpdateConfig(ctx context.Context, name string, minDec *int, de
 	return mapStoreErr(s.repo.UpdateConfig(ctx, k.ID, minDec, delAllowed))
 }
 
-// Rewrap decrypts an old ciphertext and re-encrypts under the latest version.
-// Plaintext is never returned.
-func (s *Service) Rewrap(ctx context.Context, name, ciphertext string) (string, error) {
-	pt, err := s.Decrypt(ctx, name, ciphertext, nil)
+// Rewrap decrypts an old ciphertext and re-encrypts under the latest version,
+// preserving the caller's associated_data binding on both sides. Plaintext is
+// never returned. aad must match what was bound at encrypt time (nil if none),
+// exactly as Decrypt requires — otherwise the AEAD fails and rewrap returns
+// ErrBadCiphertext.
+func (s *Service) Rewrap(ctx context.Context, name, ciphertext string, aad []byte) (string, error) {
+	pt, err := s.Decrypt(ctx, name, ciphertext, aad)
 	if err != nil {
 		return "", err
 	}
 	defer zeroize(pt)
-	return s.Encrypt(ctx, name, pt, nil)
+	return s.Encrypt(ctx, name, pt, aad)
 }
 
 // Trim permanently deletes versions below minAvailable (<= min_decryption_version).

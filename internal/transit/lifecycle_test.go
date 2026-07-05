@@ -23,7 +23,7 @@ func TestRotateRewrapMinVersionTrim(t *testing.T) {
 		t.Fatalf("old decrypt: %q %v", pt, err)
 	}
 	// Rewrap upgrades to latest, no plaintext exposed.
-	ctV2, err := svc.Rewrap(ctx, k, ctV1)
+	ctV2, err := svc.Rewrap(ctx, k, ctV1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

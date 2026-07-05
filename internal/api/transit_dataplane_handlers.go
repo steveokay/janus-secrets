@@ -130,12 +130,20 @@ func (s *Server) handleTransitRewrap(w http.ResponseWriter, r *http.Request) {
 	if !s.transitUse(w, r, name) {
 		return
 	}
-	var req struct{ Ciphertext string }
+	var req struct{ Ciphertext, AssociatedData string }
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Ciphertext == "" {
 		writeError(w, http.StatusBadRequest, CodeValidation, "ciphertext is required")
 		return
 	}
-	ct, err := s.transit.Rewrap(r.Context(), name, req.Ciphertext)
+	var aad []byte
+	if req.AssociatedData != "" {
+		var derr error
+		if aad, derr = base64.StdEncoding.DecodeString(req.AssociatedData); derr != nil {
+			writeError(w, http.StatusBadRequest, CodeValidation, "associated_data must be base64")
+			return
+		}
+	}
+	ct, err := s.transit.Rewrap(r.Context(), name, req.Ciphertext, aad)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -153,10 +161,16 @@ func (s *Server) handleTransitDatakeyPlaintext(w http.ResponseWriter, r *http.Re
 		s.writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"ciphertext": ct,
 		"plaintext":  base64.StdEncoding.EncodeToString(dek),
-	})
+	}
+	// The plaintext DEK is returned deliberately (this is the explicit
+	// plaintext endpoint); zero our copy once it is encoded into the response.
+	for i := range dek {
+		dek[i] = 0
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleTransitDatakeyWrapped(w http.ResponseWriter, r *http.Request) {
