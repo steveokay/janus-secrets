@@ -51,6 +51,7 @@ func (c *apiClient) call(method, path string, in, out any) error {
 	case c.cred.Bearer != "":
 		req.Header.Set("Authorization", "Bearer "+c.cred.Bearer)
 	case c.cred.Cookie != "":
+		// #nosec G124 -- outgoing client request cookie; Secure/HttpOnly/SameSite apply only to server Set-Cookie responses and are ignored here.
 		req.AddCookie(&http.Cookie{Name: "janus_session", Value: c.cred.Cookie})
 	}
 	resp, err := c.hc.Do(req)

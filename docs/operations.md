@@ -4,9 +4,10 @@ How to run the server, initialize and unseal it, and operate it day to day.
 The seal lifecycle shipped with the server-bootstrap milestone; **authentication
 and RBAC** (below) shipped in the auth and RBAC milestones, the **hash-chained
 audit log** (below) shipped in the audit milestone, and the **secret-facing REST
-API** (below) shipped in the REST API milestone. The secrets CLI (`janus run`,
-etc.) arrives in a later milestone, so everything is HTTP-only for now (there is
-no `janus login` yet).
+API** (below) shipped in the REST API milestone. The **secrets CLI**
+(`janus login`/`setup`/`secrets`/`run`) shipped in the CLI milestone — its
+developer/CI flows are summarized under [Secrets CLI](#secrets-cli-developer--ci-flows)
+below and documented in full in [cli.md](cli.md).
 
 ## The mental model
 
@@ -230,6 +231,69 @@ audited (`secret.write` / `secret.delete`).
 | `GET /v1/configs/{cid}/versions` | List config versions (v1, v2, …) | `config:read` |
 | `GET /v1/configs/{cid}/versions/diff?a=N&b=M` | Added / changed / removed keys between two versions (no values) | `config:read` |
 | `POST /v1/configs/{cid}/rollback` | Roll the config back to a target version — repoints at existing ciphertext, no re-encryption, as a new version | `secret:write` |
+
+## Secrets CLI (developer & CI flows)
+
+The same `janus` binary is the client for the secrets routes above. Full
+reference — every command, the credential/address/binding precedence tables, the
+`.janus.yaml` format, and the `run` / `--plain` semantics — is in
+[cli.md](cli.md). The operator-facing essentials:
+
+**Credentials.** Two tiers. Humans run `janus login` (email + password →
+a `janus_session` cookie stored in `<config-dir>/auth.json`, mode `0600`);
+sessions have a 24h server TTL, so re-login daily. Machines/CI set
+`JANUS_TOKEN=janus_svc_…` (a scoped service token minted with `POST /v1/tokens`,
+shown once), sent as a bearer token. Precedence per request:
+`--token > JANUS_TOKEN > stored session`. Address precedence:
+`--address > JANUS_ADDR > auth.json > http://127.0.0.1:8200`. The config
+directory is `os.UserConfigDir()/janus` (`~/.config/janus`, `%AppData%\janus`,
+or `~/Library/Application Support/janus`); **`JANUS_CONFIG_DIR` overrides it**
+wholesale — use it to relocate CLI state or to isolate a CI run portably.
+
+**Binding a directory.** `janus setup --project P --env E --config C` validates
+each against the server, then writes `.janus.yaml` (human slugs only, safe to
+commit) into the cwd. Projects/environments match by slug, configs by name.
+Precedence per field: `--project/--env/--config flags > JANUS_PROJECT/ENV/CONFIG
+> .janus.yaml` (cwd only — no parent-directory walk). Teammates who clone inherit
+the binding.
+
+**Human developer flow:**
+
+```sh
+janus login --address http://localhost:8200   # → session in auth.json
+cd my-service && janus setup                    # → .janus.yaml (validated)
+janus secrets set DATABASE_URL=postgres://…     # one new config version
+janus secrets list                              # masked KEY/VERSION/UPDATED (not audited)
+janus run -- ./my-service                       # secrets injected as env vars
+```
+
+`janus run` does one **audited** bulk reveal, overlays the secrets onto the
+parent environment (the **secret wins** on a name clash; `--preserve-env` flips
+that so an existing env var wins), then execs the command after the required
+`--`. The child inherits stdin/stdout/stderr; signals are forwarded (best-effort
+on Windows) and the child's exit code is propagated verbatim. Secret values only
+ever reach the child's environment — never disk, never the CLI's own logs.
+
+**CI / machine flow** (no interactive login):
+
+```sh
+export JANUS_TOKEN=janus_svc_…                  # scoped, read or read/write
+export JANUS_ADDR=https://janus.internal
+janus run --project acme --env prod --config prod -- ./deploy.sh
+```
+
+**Exporting to a file.** `janus secrets download --format env|json|yaml` streams
+to stdout by default (a `> file` redirect is your own act — no flag needed). To
+have the CLI write the file itself you must pass `--plain` (`--output PATH`
+without it refuses and writes nothing); with `--plain --output` the file is
+created mode `0600`. Prefer streaming or ephemeral files — a plaintext `.env` on
+disk is the CLI's least-safe output.
+
+**Operator note (`janus seal`).** The `janus seal` command still sends no
+credential and so returns `401` against the now-gated `POST /v1/sys/seal`; seal
+over HTTP with an owner/admin session cookie or bearer token, or add a `--token`
+flag, until the sys CLI grows one. This is unrelated to the secrets CLI's own
+credential handling.
 
 ## Audit log
 
