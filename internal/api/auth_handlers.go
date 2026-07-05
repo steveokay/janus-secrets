@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 )
@@ -23,11 +24,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	cookie, err := s.auth.Login(r.Context(), req.Email, []byte(req.Password))
 	if err != nil {
+		// Failed login: audit as a denied, anonymous attempt (the attempted
+		// email is an input, not a secret) for brute-force visibility. Audit
+		// failure must not change M5's byte-identical login error, so this
+		// record is best-effort — no mutation occurred to leave unaudited.
+		code := "invalid_credentials"
+		if !errors.Is(err, auth.ErrInvalidCredentials) {
+			code = "error"
+		}
+		_ = s.recordActor(r, audit.Actor{Kind: "anonymous", Name: req.Email}, "auth.login", "", "denied", code, "")
 		s.writeAuthError(w, err)
 		return
 	}
 	p, err := s.auth.VerifySession(r.Context(), cookie)
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	if err := s.recordActor(r, audit.Actor{Kind: string(auth.KindUser), ID: p.ID, Name: p.Name}, "auth.login", "", "success", "", ""); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
@@ -62,6 +76,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 			s.writeAuthError(w, err)
 			return
 		}
+	}
+	if err := s.record(r, "auth.logout", "", "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
 	}
 	// Expire the cookie client-side regardless. Same flags as sessionCookie.
 	expired := sessionCookie(r, "", 0) // #nosec G124 -- see sessionCookie: flags are set there
@@ -99,6 +117,10 @@ func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.auth.ChangePassword(r.Context(), p.ID, []byte(req.Old), []byte(req.New)); err != nil {
 		s.writeAuthError(w, err)
+		return
+	}
+	if err := s.record(r, "auth.password_change", "users/"+p.ID, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
