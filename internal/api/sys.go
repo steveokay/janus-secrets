@@ -383,5 +383,9 @@ func (s *Server) handleSeal(w http.ResponseWriter, r *http.Request) {
 	// Auth-gated in production via RequireAuth (see New); the seam there lets
 	// unit-test servers without an auth service still exercise the handler.
 	s.keyring.Seal()
+	if err := s.record(r, "sys.seal", "", "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"sealed": true})
 }
