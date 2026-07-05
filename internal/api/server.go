@@ -119,6 +119,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
 			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.envScope(r), chi.URLParam(r, "uid")) })
 		})
+		r.Group(func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Post("/v1/projects", s.handleProjectCreate)
+			r.Get("/v1/projects", s.handleProjectList)
+			r.Get("/v1/projects/{pid}", s.handleProjectGet)
+			r.Delete("/v1/projects/{pid}", s.handleProjectDelete)
+			r.Post("/v1/projects/{pid}/restore", s.handleProjectRestore)
+		})
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
