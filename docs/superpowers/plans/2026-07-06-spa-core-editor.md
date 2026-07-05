@@ -464,13 +464,13 @@ node_modules/
 dist/
 ```
 
-Append to the **root** `.gitignore` (keep the committed placeholder, ignore built assets):
-
-```
-# Built SPA assets (the placeholder index.html is committed; real build output is not)
-/internal/web/dist/*
-!/internal/web/dist/index.html
-```
+> **Root `.gitignore` — nothing to add.** The repo's root `.gitignore` already
+> has a blanket `dist/` rule, so `web/dist` and the built assets under
+> `internal/web/dist/` are already ignored. The placeholder
+> `internal/web/dist/index.html` was force-added (`git add -f`) and committed in
+> Task 1, so it stays tracked (git does not re-ignore a tracked file). Do **not**
+> add a re-include rule — it would be redundant and the blanket `dist/` correctly
+> keeps real build output out of git.
 
 - [ ] **Step 2: Create the source + test files**
 
