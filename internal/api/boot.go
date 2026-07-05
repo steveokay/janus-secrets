@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/steveokay/janus-secrets/internal/auth"
+	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -96,11 +97,16 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 
 	svc := secrets.NewService(st, kr)
 	authSvc := auth.NewService(st, kr)
+	authorizer := authz.New(store.NewRoleBindingRepo(st))
 	// Sweep sessions orphaned by expiry while the server was down.
 	if err := authSvc.SweepExpiredSessions(ctx); err != nil {
 		logger.Warn("expired-session sweep failed", "err", err)
 	}
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, authSvc, logger)
+	// Never-lock-out: guarantee at least one instance owner exists.
+	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
+		logger.Warn("instance-owner reconciliation failed", "err", err)
+	}
+	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, authSvc, authorizer, st, logger)
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and
 	// POST /v1/sys/unseal retries.
@@ -111,4 +117,31 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		}
 	}
 	return srv, st, nil
+}
+
+// reconcileInstanceOwner grants the oldest user instance owner when users exist
+// but no instance owner does — self-heals an M5→M6 upgrade and guarantees the
+// server can never be left with nobody able to administer it.
+func reconcileInstanceOwner(ctx context.Context, st *store.Store, e *authz.Engine, logger *slog.Logger) error {
+	n, err := e.CountInstanceOwners(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	users := store.NewUserRepo(st)
+	cnt, err := users.Count(ctx)
+	if err != nil {
+		return err
+	}
+	if cnt == 0 {
+		return nil // uninitialized; the init ceremony grants the owner
+	}
+	oldest, err := users.Oldest(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Warn("no instance owner found; granting the oldest user instance owner", "user", oldest.Email)
+	return e.Grant(ctx, store.RoleBindingInput{SubjectUserID: oldest.ID, ScopeLevel: "instance", Role: "owner"})
 }

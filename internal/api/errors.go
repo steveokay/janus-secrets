@@ -22,6 +22,7 @@ const (
 	CodeValidation         = "validation"
 	CodeInternal           = "internal"
 	CodeUnauthenticated    = "unauthenticated"
+	CodeForbidden          = "forbidden"
 	CodeRateLimited        = "rate_limited"
 )
 

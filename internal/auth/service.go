@@ -110,28 +110,77 @@ func (s *Service) WrappedHMACKeyForTest(ctx context.Context) ([]byte, error) {
 }
 
 // CreateInitialAdmin creates the bootstrap admin with a generated one-time
-// password (returned exactly once; only its Argon2id hash is stored). Called
-// from the init ceremony only. Returns ErrValidation if any user exists.
-func (s *Service) CreateInitialAdmin(ctx context.Context, email string) (string, error) {
+// password (returned exactly once; only its Argon2id hash is stored). Returns
+// (userID, password). Returns ErrValidation if any user exists. Called from the
+// init ceremony only.
+func (s *Service) CreateInitialAdmin(ctx context.Context, email string) (string, string, error) {
 	n, err := s.users.Count(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if n > 0 {
-		return "", ErrValidation
+		return "", "", ErrValidation
 	}
+	return s.createUser(ctx, email)
+}
+
+// CreateUser creates a user with a generated one-time password (returned once).
+// Unlike CreateInitialAdmin it does not enforce the zero-users guard.
+func (s *Service) CreateUser(ctx context.Context, email string) (string, string, error) {
+	return s.createUser(ctx, email)
+}
+
+func (s *Service) createUser(ctx context.Context, email string) (string, string, error) {
 	password, err := randToken(24) // 32 chars base64url
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	pw := []byte(password)
 	hash, err := HashPassword(pw)
 	zeroize(pw)
 	if err != nil {
+		return "", "", err
+	}
+	u, err := s.users.Create(ctx, email, &hash)
+	if err != nil {
+		if errors.Is(err, store.ErrAlreadyExists) {
+			return "", "", ErrValidation
+		}
+		return "", "", err
+	}
+	return u.ID, password, nil
+}
+
+// UserInfo is a non-secret user summary.
+type UserInfo struct {
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	Disabled bool   `json:"disabled"`
+}
+
+// ListUsers returns all users (no secrets).
+func (s *Service) ListUsers(ctx context.Context) ([]UserInfo, error) {
+	list, err := s.users.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UserInfo, 0, len(list))
+	for _, u := range list {
+		out = append(out, UserInfo{ID: u.ID, Email: u.Email, Disabled: u.DisabledAt != nil})
+	}
+	return out, nil
+}
+
+// DisableUser marks a user disabled (sessions/logins stop working).
+func (s *Service) DisableUser(ctx context.Context, id string) error {
+	return s.users.SetDisabled(ctx, id, true)
+}
+
+// userByEmailForTest exposes a user id lookup for integration tests.
+func (s *Service) userByEmailForTest(ctx context.Context, email string) (string, error) {
+	u, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
 		return "", err
 	}
-	if _, err := s.users.Create(ctx, email, &hash); err != nil {
-		return "", err
-	}
-	return password, nil
+	return u.ID, nil
 }

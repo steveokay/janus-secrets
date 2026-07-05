@@ -14,14 +14,15 @@ import (
 // fakeVerifier implements authVerifier for middleware tests.
 type fakeVerifier struct {
 	principal auth.Principal
+	scope     *auth.TokenScope
 	err       error
 }
 
 func (f *fakeVerifier) VerifySession(context.Context, string) (auth.Principal, error) {
 	return f.principal, f.err
 }
-func (f *fakeVerifier) VerifyServiceToken(context.Context, string) (auth.Principal, error) {
-	return f.principal, f.err
+func (f *fakeVerifier) VerifyServiceToken(context.Context, string) (auth.Principal, *auth.TokenScope, error) {
+	return f.principal, f.scope, f.err
 }
 
 func TestRequireAuth(t *testing.T) {

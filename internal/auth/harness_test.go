@@ -134,7 +134,7 @@ func newTestService(t *testing.T) (*Service, string, string) {
 	}
 	emailSeq++
 	email := fmt.Sprintf("admin%d@example.com", emailSeq)
-	password, err := svc.CreateInitialAdmin(ctx, email)
+	_, password, err := svc.CreateInitialAdmin(ctx, email)
 	if err != nil {
 		t.Fatal(err)
 	}

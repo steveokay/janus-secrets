@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 // zero overwrites b with zeros (best-effort; see internal/crypto).
@@ -204,8 +205,8 @@ func (s *Server) writeInitError(w http.ResponseWriter, err error) {
 	}
 }
 
-// bootstrapAdmin creates the initial admin during init. Skipped when no auth
-// service is wired (unit-test servers).
+// bootstrapAdmin creates the initial admin during init and grants it the
+// instance-owner role. Skipped when no auth service is wired (unit-test servers).
 func (s *Server) bootstrapAdmin(ctx context.Context, email string) (*adminCredential, error) {
 	if s.auth == nil {
 		return nil, nil
@@ -213,9 +214,15 @@ func (s *Server) bootstrapAdmin(ctx context.Context, email string) (*adminCreden
 	if email == "" {
 		email = "admin@localhost"
 	}
-	password, err := s.auth.CreateInitialAdmin(ctx, email)
+	userID, password, err := s.auth.CreateInitialAdmin(ctx, email)
 	if err != nil {
 		return nil, err
+	}
+	if s.authz != nil {
+		if err := s.authz.Grant(ctx, store.RoleBindingInput{
+			SubjectUserID: userID, ScopeLevel: "instance", Role: "owner"}); err != nil {
+			return nil, err
+		}
 	}
 	return &adminCredential{Email: email, Password: password}, nil
 }
