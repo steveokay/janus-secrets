@@ -94,16 +94,21 @@ The frame the user sees on every screen. Right now: a bare top bar with the word
 The #1 "empty paper" complaint: after login you land on
 `"Select or create a project to begin."` — one gray sentence on white.
 
-- [ ] **P0** **Real landing state**: a welcoming hero with the Janus mark, a short
+- [x] **P0** **Real landing state**: a welcoming hero with the Janus mark, a short
       value line, and prominent **"Create your first project"** / "Open recent"
-      CTAs. Never a lone sentence.
-- [ ] **P1** **Project overview dashboard** (once a project is selected): cards for
+      CTAs. Never a lone sentence. *(Slice 2 — hero when no projects, link-card
+      list when projects exist.)*
+- [x] **P1** **Project overview dashboard** (once a project is selected): cards for
       each environment→config with secret counts, last-updated, and a
       **"Reads 24h"** stat (ties into Phase 2 sub-project D usage metrics),
-      recent activity from the audit log, and quick actions.
-- [ ] **P1** **Richer empty states everywhere** (no configs, no secrets, no
+      recent activity from the audit log, and quick actions. *(Slice 2 — env
+      cards with key counts + last-change from masked metadata; "Reads 24h" is
+      a placeholder pill until Phase-2D; recent activity stays in B3.)*
+- [x] **P1** **Richer empty states everywhere** (no configs, no secrets, no
       tokens): a small illustration/icon + heading + one-line explainer + a CTA
-      button. Reusable `<EmptyState>` component.
+      button. Reusable `<EmptyState>` component. *(Slice 2 — `<EmptyState>`
+      shipped; applied to overview zero-envs + editor zero-keys; remaining
+      screens adopt it as they land.)*
 - [ ] **P2** Lightweight onboarding checklist ("create project → add environment →
       add secrets → run `janus run`") for first-time users.
 
@@ -235,6 +240,14 @@ empty/loaded state using the component kit above rather than bespoke markup.
      into the inline-error-surfaces work.
 2. **Slice 2 — Landing + empty states** (P0 §2): dashboard/landing + reusable
    `<EmptyState>`. Kills the literal empty page.
+   **→ SHIPPED** (branch `milestone-14-ui-slice2`):
+   [`docs/superpowers/plans/2026-07-06-ui-slice2-landing-overview.md`](docs/superpowers/plans/2026-07-06-ui-slice2-landing-overview.md).
+   Also fixed in this slice: two **API-shape mock drifts** that unit tests
+   couldn't catch (`/v1/auth/me` returns `{kind,id,name}` not `{email}` —
+   crashed the whole authed shell to a blank page in real browsers; sealed
+   `seal-status.progress` is `{submitted,required}` not a number). Rule going
+   forward: verify msw mock shapes against the Go handlers, and smoke the
+   built bundle in a real browser before calling a UI slice done.
 3. **Slice 3 — Secret editor polish** (P0/P1 §3) on top of a **component kit**
    (§4) and **feedback/toasts** (§5).
 4. **Slice 4 — Auth/unseal polish + a11y pass** (§6–§7).
