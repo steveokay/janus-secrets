@@ -58,52 +58,59 @@ export function VersionHistory({ cid, dirty }: { cid: string; dirty: boolean }) 
   const latest = list[0]?.version
 
   return (
-    <ul className="flex flex-col gap-1.5">
-      {list.map((v) => (
-        <li key={v.version} className="rounded-card border border-line-soft">
-          <button
-            type="button"
-            onClick={() => setOpenDiff((s) => (s === v.version ? null : v.version))}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-line-soft/50"
-          >
-            <Pill tone={v.version === latest ? 'success' : 'brand'}>v{v.version}</Pill>
-            <span className={cn('flex-1 truncate text-[13px]', v.message ? 'text-ink' : 'text-faint')}>
-              {v.message || 'no message'}
-            </span>
-          </button>
-          <div className="flex items-center justify-between px-3 pb-2 text-[11.5px] text-faint">
-            <span>{v.created_by} · {timeAgo(v.created_at)}</span>
-            {v.version === latest ? (
-              <span className="text-[10.5px] font-bold uppercase tracking-[.1em]">current</span>
-            ) : (
-              <button
-                type="button"
-                disabled={dirty || rollback.isPending}
-                title={dirty ? 'Save or discard your changes first' : undefined}
-                onClick={() => setConfirming(v)}
-                className="rounded border border-line bg-card px-2 py-0.5 text-[11.5px] font-semibold disabled:opacity-40"
-              >
-                Roll back
-              </button>
-            )}
-          </div>
-          {openDiff === v.version && (
-            <div className="border-t border-line-soft px-3 py-2">
-              {v.version === 1
-                ? <p className="text-[12px] text-faint">Initial version</p>
-                : <DiffView cid={cid} version={v.version} />}
+    <>
+      {dirty && (
+        <p className="mb-2 rounded border border-warning/40 bg-warning-soft px-3 py-1.5 text-[12px] text-warning">
+          Save or discard your changes to enable rollback.
+        </p>
+      )}
+      <ul className="flex flex-col gap-1.5">
+        {list.map((v) => (
+          <li key={v.version} className="rounded-card border border-line-soft">
+            <button
+              type="button"
+              onClick={() => setOpenDiff((s) => (s === v.version ? null : v.version))}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-line-soft/50"
+            >
+              <Pill tone={v.version === latest ? 'success' : 'brand'}>v{v.version}</Pill>
+              <span className={cn('flex-1 truncate text-[13px]', v.message ? 'text-ink' : 'text-faint')}>
+                {v.message || 'no message'}
+              </span>
+            </button>
+            <div className="flex items-center justify-between px-3 pb-2 text-[11.5px] text-faint">
+              <span>{v.created_by} · {timeAgo(v.created_at)}</span>
+              {v.version === latest ? (
+                <span className="text-[10.5px] font-bold uppercase tracking-[.1em]">current</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={dirty || rollback.isPending}
+                  title={dirty ? 'Save or discard your changes first' : undefined}
+                  onClick={() => setConfirming(v)}
+                  className="rounded border border-line bg-card px-2 py-0.5 text-[11.5px] font-semibold disabled:opacity-40"
+                >
+                  Roll back
+                </button>
+              )}
             </div>
-          )}
-        </li>
-      ))}
-      <ConfirmDialog
-        open={confirming !== null}
-        onOpenChange={(o) => { if (!o) setConfirming(null) }}
-        title={`Roll back to v${confirming?.version}?`}
-        body={`This creates a new version that restores v${confirming?.version}'s keys — nothing is deleted.`}
-        confirmLabel="Roll back"
-        onConfirm={() => { if (confirming) rollback.mutate(confirming); setConfirming(null) }}
-      />
-    </ul>
+            {openDiff === v.version && (
+              <div className="border-t border-line-soft px-3 py-2">
+                {v.version === 1
+                  ? <p className="text-[12px] text-faint">Initial version</p>
+                  : <DiffView cid={cid} version={v.version} />}
+              </div>
+            )}
+          </li>
+        ))}
+        <ConfirmDialog
+          open={confirming !== null}
+          onOpenChange={(o) => { if (!o) setConfirming(null) }}
+          title={`Roll back to v${confirming?.version}?`}
+          body={`This creates a new version that restores v${confirming?.version}'s keys — nothing is deleted.`}
+          confirmLabel="Roll back"
+          onConfirm={() => { if (confirming) rollback.mutate(confirming); setConfirming(null) }}
+        />
+      </ul>
+    </>
   )
 }

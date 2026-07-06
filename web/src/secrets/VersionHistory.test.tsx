@@ -72,3 +72,23 @@ test('dirty editor disables rollback with hint', async () => {
   expect(btns[0]).toBeDisabled()
   expect(btns[0]).toHaveAttribute('title', 'Save or discard your changes first')
 })
+
+test('rollback failure shows danger toast', async () => {
+  server.use(
+    http.get('/v1/configs/c1/versions', () => HttpResponse.json(VERSIONS)),
+    http.post('/v1/configs/c1/rollback', () =>
+      HttpResponse.json({ error: { code: 'conflict', message: 'stale' } }, { status: 409 }),
+    ),
+  )
+  mount()
+  const rollbacks = await screen.findAllByRole('button', { name: 'Roll back' })
+  await userEvent.click(rollbacks[0])
+  await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Roll back' }))
+  expect(await screen.findByText('Rollback failed.')).toBeInTheDocument()
+})
+
+test('dirty state renders a visible rollback hint', async () => {
+  server.use(http.get('/v1/configs/c1/versions', () => HttpResponse.json(VERSIONS)))
+  mount(true)
+  expect(await screen.findByText('Save or discard your changes to enable rollback.')).toBeInTheDocument()
+})
