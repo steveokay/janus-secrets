@@ -13,6 +13,7 @@ import { SecretEditor } from './secrets/SecretEditor'
 import { Placeholder } from './shell/Placeholder'
 import { Landing } from './home/Landing'
 import { ProjectOverview } from './home/ProjectOverview'
+import { AuditPage } from './audit/AuditPage'
 
 function Gate() {
   const { user, loading, refresh } = useAuth()
@@ -45,7 +46,7 @@ function Gate() {
         <Route path="/" element={<Landing />} />
         <Route path="/projects/:projectId" element={<ProjectOverview />} />
         <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
-        <Route path="/projects/:projectId/audit" element={<Placeholder feature="Audit viewer" />} />
+        <Route path="/projects/:projectId/audit" element={<AuditPage />} />
         <Route path="/tokens" element={<Placeholder feature="Token management" />} />
         <Route path="/members" element={<Placeholder feature="Member management" />} />
         <Route path="/transit" element={<Placeholder feature="Transit UI" />} />
