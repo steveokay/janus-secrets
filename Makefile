@@ -29,13 +29,13 @@ cover:
 
 dev:
 	@echo "Run these in two terminals (same-origin via Vite's /v1 proxy):"
-	@echo "  1) cd web && npm run dev      # Vite dev server on :5173, proxies /v1 -> :8200"
-	@echo "  2) make dev-up                # Go server + Postgres on :8200"
+	@echo "  1) cd web && npm run dev      # Vite dev server on :5173, proxies /v1 -> :8210"
+	@echo "  2) make dev-up                # Go server on :8210, Postgres on :5433"
 
 dev-up: build
 	docker compose up -d --build
 	./scripts/dev-unseal.sh
 
 migrate:
-	JANUS_DATABASE_URL=$${JANUS_DATABASE_URL:-postgres://janus:janus-dev@127.0.0.1:5432/janus?sslmode=disable} \
+	JANUS_DATABASE_URL=$${JANUS_DATABASE_URL:-postgres://janus:janus-dev@127.0.0.1:5433/janus?sslmode=disable} \
 		go run ./cmd/janus migrate

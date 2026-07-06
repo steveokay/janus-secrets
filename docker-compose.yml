@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: janus-dev
       POSTGRES_DB: janus
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
       JANUS_DATABASE_URL: postgres://janus:janus-dev@postgres:5432/janus?sslmode=disable
       JANUS_SEAL_TYPE: shamir
     ports:
-      - "127.0.0.1:8200:8200"
+      - "127.0.0.1:8210:8200"
     depends_on:
       postgres:
         condition: service_healthy

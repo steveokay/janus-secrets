@@ -3,7 +3,7 @@
 # master key — never use this flow outside local development.
 set -euo pipefail
 
-ADDR="${JANUS_ADDR:-http://127.0.0.1:8200}"
+ADDR="${JANUS_ADDR:-http://127.0.0.1:8210}"
 SHARE_FILE=".dev/janus-share"
 JANUS="${JANUS_BIN:-bin/janus}"
 
