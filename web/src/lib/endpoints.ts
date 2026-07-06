@@ -46,7 +46,7 @@ export interface AuditEventFilters {
   from?: string; to?: string; actor?: string; action?: string; result?: string
 }
 
-function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number }): string {
+function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
     if (v !== undefined && v !== '') q.set(k, String(v))
@@ -106,5 +106,5 @@ export const endpoints = {
   listAuditEvents: (f: AuditEventFilters & { cursor?: number; limit?: number }) =>
     api.get<{ events: AuditEvent[]; next_cursor: number | null }>(`/v1/audit/events?${auditParams(f)}`),
   auditExportUrl: (f: AuditEventFilters, format: 'jsonl' | 'csv') =>
-    `/v1/audit/export?${auditParams({ ...f })}&format=${format}`,
+    `/v1/audit/export?${auditParams({ ...f, format })}`,
 }
