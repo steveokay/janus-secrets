@@ -76,7 +76,8 @@ Dev-only: `puppeteer-core` (real-browser smoke — new slice-end rule).
 7. **`web/scripts/smoke.mjs`** (+ `npm run smoke`) — puppeteer-core drive of the
    BUILT bundle served by the dev container (or `vite preview`): intercepts
    `/v1/*` with REAL-shape fixtures (me `{kind,id,name}`, seal-status, projects,
-   versions), asserts the authenticated shell renders non-empty and no
+   environments — the shell's boot surface; unmatched `/v1/*` gets a clean 404
+   envelope), asserts the authenticated shell renders non-empty and no
    pageerrors. Codifies the real-browser smoke rule from the Slice-2 incident.
 
 ## Security
