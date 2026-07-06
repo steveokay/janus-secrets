@@ -17,6 +17,8 @@ export interface Config { id: string; environment_id: string; name: string; inhe
 export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden' }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionResult { version: number; id: string; created_at: string }
+export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
+export interface VersionDiff { a: number; b: number; added: string[]; changed: string[]; removed: string[] }
 
 export const endpoints = {
   // sys / auth
@@ -56,4 +58,12 @@ export const endpoints = {
     api.get<{ version: number; secrets: Record<string, string> }>(`/v1/configs/${cid}/secrets?reveal=true&raw=true`),
   saveSecrets: (cid: string, changes: SecretChange[], message: string) =>
     api.put<VersionResult>(`/v1/configs/${cid}/secrets`, { message, changes }),
+
+  // versions (B2): reads are config:read and NOT audited; diff is key NAMES only.
+  listVersions: (cid: string) =>
+    api.get<{ versions: VersionMeta[] }>(`/v1/configs/${cid}/versions`).then((r) => r.versions),
+  diffVersions: (cid: string, a: number, b: number) =>
+    api.get<VersionDiff>(`/v1/configs/${cid}/versions/diff?a=${a}&b=${b}`),
+  rollback: (cid: string, target_version: number, message: string) =>
+    api.post<VersionResult>(`/v1/configs/${cid}/rollback`, { target_version, message }),
 }
