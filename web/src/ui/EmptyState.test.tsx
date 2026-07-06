@@ -21,3 +21,10 @@ test('omits icon wrap and hint when not provided', () => {
   expect(screen.getByText('Bare')).toBeInTheDocument()
   expect(container.querySelector('.bg-brand-soft')).toBeNull()
 })
+
+test('className overrides the default margin via cn()', () => {
+  const { container } = render(<EmptyState title="Inline" className="mt-8" />)
+  const el = container.firstElementChild!
+  expect(el).toHaveClass('mt-8')
+  expect(el).not.toHaveClass('mt-16')
+})
