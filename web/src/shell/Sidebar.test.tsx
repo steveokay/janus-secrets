@@ -15,4 +15,6 @@ test('renders projects, then the selected project’s env → config tree', asyn
   expect(await screen.findByText('Acme')).toBeInTheDocument()
   expect(await screen.findByText('prod')).toBeInTheDocument() // env label
   expect(await screen.findByRole('link', { name: /^prod$/i })).toHaveAttribute('href', '/projects/p1/configs/c1')
+  // Active config link is marked for styling and a11y.
+  expect(screen.getByRole('link', { name: /^prod$/i })).toHaveAttribute('aria-current', 'page')
 })

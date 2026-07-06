@@ -77,6 +77,21 @@ Append-only `audit_events` table. Every authenticated request that touches a sec
 - List endpoints: cursor pagination. Mutations: idempotency via client-supplied `Idempotency-Key` where destructive.
 - Rate limiting on auth endpoints. Strict CORS (UI is same-origin embedded, so effectively none).
 
+## Web UI visual system (locked — do not restyle ad hoc)
+
+The SPA's visual design is **approved and canonical**:
+
+- **Mockup (source of truth for look & feel):** `docs/design/ui-mockup.html` — open in a browser; it shows the app shell, secret editor, auth/unseal, component kit, and dark mode.
+- **Spec (tokens + rules):** `docs/superpowers/specs/2026-07-06-ui-visual-design.md`.
+- **Punch-list / rollout tracker:** `fe-improvements.md`.
+
+Rules for ANY change under `web/`:
+
+- Colors/type/radius/shadows come from the Tailwind theme tokens defined by the spec — **never raw palette classes** (`gray-400`, `blue-600`, hex literals) in components.
+- One accent (violet `brand`); semantic green/amber/red express state only. Env coding: dev=blue, staging=amber, prod=red.
+- Monospace is reserved for secret keys/values; sans for all chrome.
+- New screens/components must match the mockup, or compose from its tokens/kit if not shown there. When a visual question isn't answered by mockup or spec, ask — don't improvise a new style.
+
 ## CLI (`janus`)
 
 Core secrets commands (same `janus` binary as the server): `janus login`, `janus setup` (bind directory to project/config), `janus secrets get/set/list/delete`, `janus run -- <cmd>` (inject secrets as env vars into subprocess — flagship feature), `janus secrets download --format env|json|yaml`. Config in `~/.config/janus/`. Never write plaintext secrets to disk unless the user explicitly passes `--plain` to a download command.

@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Janus UI — Visual Redesign Proposal</title>
+<style>
+  :root {
+    --page: #F6F6FA;
+    --card: #FFFFFF;
+    --border: #E5E3F0;
+    --border-soft: #EEECF6;
+    --ink: #211D35;
+    --muted: #6E6A85;
+    --faint: #9B97B0;
+    --accent: #6A5CF5;
+    --accent-deep: #5546E0;
+    --accent-soft: #EFECFE;
+    --accent-line: #D8D2FB;
+    --ok: #178A50;
+    --ok-soft: #E4F5EC;
+    --warn: #B45309;
+    --warn-soft: #FCF0DF;
+    --danger: #C92A2A;
+    --danger-soft: #FBE9E9;
+    --info: #2563EB;
+    --info-soft: #E7EFFD;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --shadow-card: 0 1px 2px rgba(33,29,53,.05), 0 4px 16px rgba(33,29,53,.05);
+    --shadow-pop: 0 4px 10px rgba(33,29,53,.08), 0 16px 40px rgba(33,29,53,.12);
+    --r: 8px;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--page); }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    margin: 0;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px 96px; }
+
+  /* ---------- pitch-page chrome ---------- */
+  .masthead { padding: 56px 0 40px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .masthead h1 { font-size: 34px; line-height: 1.15; margin: 10px 0 8px; letter-spacing: -0.02em; text-wrap: balance; }
+  .masthead p { max-width: 60ch; margin: 0; color: var(--muted); font-size: 15.5px; }
+  .eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-deep); }
+  .section { margin-top: 72px; }
+  .section > h2 { font-size: 21px; letter-spacing: -0.01em; margin: 6px 0 6px; }
+  .section > .lede { color: var(--muted); font-size: 14.5px; max-width: 72ch; margin: 0 0 22px; }
+  .note { font-size: 13px; color: var(--faint); margin-top: 14px; }
+  .before { display:inline-block; font-size: 12px; color: var(--faint); border: 1px dashed var(--border); border-radius: 999px; padding: 2px 10px; margin-right: 6px; }
+
+  /* ---------- shared mock primitives ---------- */
+  .frame {
+    background: linear-gradient(180deg, #ECEAF6, #E3E0F0);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    overflow-x: auto;
+  }
+  .browser {
+    min-width: 1020px;
+    background: var(--page);
+    border-radius: 10px;
+    box-shadow: var(--shadow-pop);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .browser-bar { display: flex; align-items: center; gap: 8px; padding: 9px 14px; background: #FBFBFD; border-bottom: 1px solid var(--border-soft); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #DEDCE9; }
+  .urlbox { flex: 1; max-width: 380px; margin-left: 10px; font-size: 11.5px; color: var(--faint); background: var(--page); border: 1px solid var(--border-soft); border-radius: 6px; padding: 3px 12px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 2px 10px; line-height: 1.6; }
+  .pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.danger { background: var(--danger-soft); color: var(--danger); }
+  .pill.info { background: var(--info-soft); color: var(--info); }
+  .pill.accent { background: var(--accent-soft); color: var(--accent-deep); }
+  .pill.muted { background: #F0EFF6; color: var(--muted); }
+
+  .btn { display: inline-flex; align-items: center; gap: 7px; font-family: var(--sans); font-size: 13px; font-weight: 600; border-radius: var(--r); padding: 7px 14px; border: 1px solid transparent; cursor: default; line-height: 1.4; }
+  .btn.primary { background: var(--accent); color: #fff; box-shadow: 0 1px 2px rgba(85,70,224,.35); }
+  .btn.secondary { background: var(--card); color: var(--ink); border-color: var(--border); box-shadow: 0 1px 2px rgba(33,29,53,.05); }
+  .btn.ghost { background: transparent; color: var(--muted); }
+  .btn.danger { background: var(--danger); color: #fff; }
+  .btn.sm { font-size: 12px; padding: 4px 10px; }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; color: var(--faint); background: transparent; border: none; }
+  .iconbtn:hover { background: var(--accent-soft); color: var(--accent-deep); }
+  svg.i { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.7; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  /* ---------- app shell mock ---------- */
+  .topbar { display: flex; align-items: center; gap: 18px; padding: 10px 18px; background: var(--card); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+  .crumb { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+  .crumb b { color: var(--ink); font-weight: 600; }
+  .crumb .sep { color: #C9C6DB; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-deep); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 1px solid var(--accent-line); }
+
+  .shell { display: flex; min-height: 560px; background: var(--page); }
+  .sidebar { width: 236px; flex: none; background: var(--card); border-right: 1px solid var(--border); padding: 14px 10px; font-size: 13px; }
+  .side-h { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; color: var(--faint); padding: 0 8px; margin: 14px 0 6px; }
+  .proj-select { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 4px 4px; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r); background: #FBFBFD; font-weight: 600; font-size: 13px; }
+  .proj-select span.caret { color: var(--faint); font-size: 10px; }
+  .env { margin: 8px 4px 0; }
+  .env-tab { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 6px; font-weight: 600; font-size: 12px; color: var(--muted); }
+  .env-tab .ed { width: 7px; height: 7px; border-radius: 2px; }
+  .env-tab .count { margin-left: auto; font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .cfg { display: flex; align-items: center; gap: 7px; margin: 1px 0 1px 14px; padding: 5px 9px; border-radius: 6px; color: var(--muted); font-size: 12.5px; position: relative; }
+  .cfg:hover { background: #F3F2F9; }
+  .cfg.active { background: var(--accent-soft); color: var(--accent-deep); font-weight: 600; }
+  .cfg.active::before { content: ""; position: absolute; left: -14px; top: 5px; bottom: 5px; width: 3px; border-radius: 3px; background: var(--accent); }
+  .nav-item { display: flex; align-items: center; gap: 9px; padding: 6px 9px; margin: 1px 4px; border-radius: 6px; color: var(--muted); font-size: 12.5px; }
+  .nav-item:hover { background: #F3F2F9; color: var(--ink); }
+
+  .main { flex: 1; padding: 22px 26px; min-width: 0; display: flex; flex-direction: column; }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+  .page-head h3 { margin: 0; font-size: 17px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+  .page-sub { font-size: 12.5px; color: var(--faint); margin-top: 2px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; }
+  .search { display: flex; align-items: center; gap: 7px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 6px 11px; font-size: 12.5px; color: var(--faint); width: 190px; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-card); }
+  .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table th { text-align: left; font-size: 10.5px; letter-spacing: .1em; color: var(--faint); font-weight: 700; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #FBFBFD; }
+  .table td { padding: 9px 14px; border-bottom: 1px solid var(--border-soft); vertical-align: middle; }
+  .table tr:last-child td { border-bottom: none; }
+  .table tr.row:hover td { background: #FAFAFE; }
+  .k { font-family: var(--mono); font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .v { font-family: var(--mono); font-size: 12.5px; color: var(--muted); letter-spacing: .08em; }
+  .v.plain { color: var(--ink); letter-spacing: 0; }
+  .rowmark { width: 3px; padding: 0 !important; }
+  tr.edited .rowmark { background: var(--warn); }
+  tr.added .rowmark { background: var(--ok); }
+  tr.removed .rowmark { background: var(--danger); }
+  tr.removed .k, tr.removed .v { text-decoration: line-through; opacity: .45; }
+  .acts { display: flex; gap: 2px; justify-content: flex-end; opacity: .85; }
+  .vv { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  .dirtybar { margin-top: 14px; display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--accent-line); border-radius: 10px; padding: 10px 16px; box-shadow: var(--shadow-card); }
+  .dirtybar .sum { font-size: 12.5px; color: var(--muted); display: flex; gap: 12px; }
+  .dirtybar .sum b { font-weight: 600; }
+  .dirtybar .spacer { flex: 1; }
+  .chg-add { color: var(--ok); } .chg-edit { color: var(--warn); } .chg-del { color: var(--danger); }
+
+  .toast { position: absolute; right: 18px; bottom: 18px; display: flex; align-items: center; gap: 9px; background: #262238; color: #EDEBF7; font-size: 12.5px; border-radius: 9px; padding: 9px 14px; box-shadow: var(--shadow-pop); }
+  .toast .tick { color: #5DD39E; }
+
+  /* ---------- foundations ---------- */
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; box-shadow: var(--shadow-card); }
+  .panel h4 { margin: 0 0 4px; font-size: 14px; }
+  .panel .sub { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .sw { width: 104px; }
+  .sw .chip { height: 44px; border-radius: 8px; border: 1px solid rgba(33,29,53,.08); }
+  .sw .nm { font-size: 11.5px; font-weight: 600; margin-top: 5px; }
+  .sw .hx { font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  .typerow { display: flex; align-items: baseline; gap: 16px; padding: 7px 0; border-bottom: 1px solid var(--border-soft); }
+  .typerow:last-child { border-bottom: none; }
+  .typerow .tag { font-family: var(--mono); font-size: 10.5px; color: var(--faint); width: 118px; flex: none; }
+  .kit-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink); }
+  .input { font-family: var(--sans); font-size: 13px; padding: 7px 11px; border: 1px solid var(--border); border-radius: var(--r); background: var(--card); color: var(--ink); width: 210px; }
+  .input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+  .input.err { border-color: var(--danger); }
+  .errtext { font-size: 11.5px; color: var(--danger); font-weight: 500; }
+  .skel { border-radius: 6px; background: linear-gradient(90deg, #EFEDF7 25%, #F7F6FB 50%, #EFEDF7 75%); background-size: 200% 100%; animation: sh 1.4s infinite linear; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+  /* ---------- auth mocks ---------- */
+  .auth-stage { background: linear-gradient(160deg, #F1EFFA, #E9E6F6 60%, #E4E9F5); border: 1px solid var(--border); border-radius: 12px; padding: 42px 20px; display: flex; justify-content: center; }
+  .auth-card { width: 330px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 28px 28px 24px; box-shadow: var(--shadow-pop); }
+  .auth-card h4 { margin: 14px 0 2px; font-size: 17px; letter-spacing: -0.01em; }
+  .auth-card .sub { font-size: 12.5px; color: var(--muted); margin: 0 0 18px; }
+  .auth-card .field { margin-bottom: 12px; }
+  .auth-card .input { width: 100%; }
+  .shard-ring { display: flex; gap: 5px; margin: 4px 0 14px; }
+  .shard { flex: 1; height: 6px; border-radius: 3px; background: #ECEAF5; }
+  .shard.done { background: var(--accent); }
+
+  /* ---------- dark mode ---------- */
+  .darkwrap { background: #141221; border-radius: 12px; border: 1px solid #2A2740; padding: 22px; overflow-x: auto; }
+  .dk { min-width: 640px; }
+  .dk .card-d { background: #1D1A2F; border: 1px solid #2C2944; border-radius: 10px; overflow: hidden; }
+  .dk table { width: 100%; border-collapse: collapse; font-size: 13px; color: #EAE8F4; }
+  .dk th { text-align: left; font-size: 10.5px; letter-spacing: .1em; color: #7A7694; font-weight: 700; padding: 10px 14px; border-bottom: 1px solid #2C2944; background: #211E36; }
+  .dk td { padding: 9px 14px; border-bottom: 1px solid #262239; }
+  .dk tr:last-child td { border-bottom: none; }
+  .dk .k { color: #EAE8F4; }
+  .dk .v { color: #8A86A3; }
+  .dk .pill.ok { background: rgba(23,138,80,.18); color: #5DD39E; }
+  .dk .pill.accent { background: rgba(106,92,245,.2); color: #A79CFF; }
+  .dk .pill.muted { background: rgba(255,255,255,.07); color: #8A86A3; }
+  .dk .pill.info { background: rgba(37,99,235,.18); color: #7FA6F5; }
+  .dk .vv { color: #605C7A; }
+
+  /* ---------- change list ---------- */
+  .delta { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .delta .item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 15px 17px; box-shadow: var(--shadow-card); }
+  .delta .item h5 { margin: 0 0 5px; font-size: 13.5px; display: flex; gap: 8px; align-items: center; }
+  .delta .item p { margin: 0; font-size: 12.8px; color: var(--muted); }
+  .delta .n { flex: none; width: 20px; height: 20px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-deep); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+  footer.colophon { margin-top: 80px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 12px; color: var(--faint); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <span class="eyebrow">Janus · fe-improvements — Slice 1–3 · visual direction</span>
+      <h1>From “empty paper” to product-grade</h1>
+      <p>The mockups below apply one token system — violet-biased neutrals, a single accent, mono reserved for
+         secrets — to the screens that exist today. Same layout skeleton, same components, redesigned surface.</p>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <span class="pill accent"><span class="d"></span>Proposed</span>
+      <span class="pill muted">Doppler-inspired · light-first</span>
+    </div>
+  </header>
+
+  <!-- ============ HERO: the app shell + secret editor ============ -->
+  <section class="section" style="margin-top: 28px;">
+    <h2>The flagship screen: shell + secret editor</h2>
+    <p class="lede">
+      <span class="before">today</span> bare top bar, borderless nav links in gray-400, a naked table with ✎ 👁 ✕ glyphs.
+      <span class="before">proposed</span> branded top bar with breadcrumb and seal pill, sectioned sidebar with env colors and an active-item rail,
+      the editor as a card-based table with origin pills, hover actions, diff-marked rows, and a dirty-state bar.
+    </p>
+
+    <div class="frame">
+      <div class="browser">
+        <div class="browser-bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="urlbox">janus.internal/projects/acme-api/configs/prod-root</span>
+        </div>
+
+        <div class="topbar">
+          <span class="brand">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 1.5 L17.5 6 V14 L10 18.5 L2.5 14 V6 Z" fill="none" stroke="#6A5CF5" stroke-width="1.6"/>
+              <path d="M10 1.5 V18.5 M10 10 L17.5 6 M10 10 L2.5 6" stroke="#6A5CF5" stroke-width="1.1" opacity=".55"/>
+              <path d="M10 1.5 L17.5 6 V14 L10 18.5 Z" fill="#6A5CF5" opacity=".18"/>
+            </svg>
+            Janus
+          </span>
+          <span class="crumb"><b>acme-api</b> <span class="sep">/</span> production <span class="sep">/</span> <b>root</b></span>
+          <span class="topbar-right">
+            <span class="pill ok"><span class="d"></span>Unsealed</span>
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="color:#9B97B0"><path d="M12 3a6 6 0 0 1 6 6c0 4 2 5 2 5H4s2-1 2-5a6 6 0 0 1 6-6Z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+            <span class="avatar">SO</span>
+          </span>
+        </div>
+
+        <div class="shell">
+          <div class="sidebar">
+            <div class="side-h">Project</div>
+            <div class="proj-select">acme-api <span class="caret">▾</span></div>
+
+            <div class="side-h">Environments <svg class="i" viewBox="0 0 24 24" style="width:12px;height:12px"><path d="M12 5v14M5 12h14"/></svg></div>
+
+            <div class="env">
+              <div class="env-tab"><span class="ed" style="background:#2563EB"></span>development <span class="count">14</span></div>
+              <div class="cfg">root</div>
+              <div class="cfg">feature-payments&nbsp;<span class="pill info" style="font-size:9.5px;padding:0 6px">↳ root</span></div>
+            </div>
+            <div class="env">
+              <div class="env-tab"><span class="ed" style="background:#B45309"></span>staging <span class="count">14</span></div>
+              <div class="cfg">root</div>
+            </div>
+            <div class="env">
+              <div class="env-tab"><span class="ed" style="background:#C92A2A"></span>production <span class="count">16</span></div>
+              <div class="cfg active">root</div>
+            </div>
+
+            <div class="side-h" style="margin-top:22px">Instance</div>
+            <div class="nav-item"><svg class="i" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h10"/></svg> Audit log</div>
+            <div class="nav-item"><svg class="i" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12 20 3M16 7l3 3"/></svg> Service tokens</div>
+            <div class="nav-item"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16.5 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.8-1.9-5.1-4.5-5.8"/></svg> Members</div>
+            <div class="nav-item"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7Z"/></svg> Transit</div>
+            <div class="nav-item"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg> Settings</div>
+          </div>
+
+          <div class="main" style="position:relative">
+            <div class="page-head">
+              <div>
+                <h3>root <span class="pill danger" style="font-size:10px"><span class="d"></span>production</span></h3>
+                <div class="page-sub">16 keys · v7 · updated 2h ago by steve</div>
+              </div>
+              <div class="toolbar">
+                <span class="search"><svg class="i" viewBox="0 0 24 24" style="width:13px;height:13px"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg> Filter keys…</span>
+                <span class="btn secondary sm"><svg class="i" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></svg> Import .env</span>
+                <span class="btn secondary sm"><svg class="i" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M12 8v8M12 8a3 3 0 1 0-3-3M12 16a3 3 0 1 1-3 3M12 12h6a3 3 0 1 0 3-3"/></svg> History</span>
+              </div>
+            </div>
+
+            <div class="card" style="overflow:hidden">
+              <table class="table">
+                <thead>
+                  <tr><th style="width:3px"></th><th>Key</th><th>Value</th><th>Origin</th><th style="text-align:right">Ver</th><th style="width:120px"></th></tr>
+                </thead>
+                <tbody>
+                  <tr class="row">
+                    <td class="rowmark"></td>
+                    <td class="k">DATABASE_URL</td>
+                    <td class="v">••••••••••••••••••••••••</td>
+                    <td><span class="pill ok" style="font-size:10px">own</span></td>
+                    <td class="vv" style="text-align:right">4</td>
+                    <td><span class="acts">
+                      <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+                      <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></span>
+                      <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/></svg></span>
+                      <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>
+                    </span></td>
+                  </tr>
+                  <tr class="row edited">
+                    <td class="rowmark"></td>
+                    <td class="k">STRIPE_SECRET_KEY</td>
+                    <td class="v plain">sk_live_9f2…c41a</td>
+                    <td><span class="pill ok" style="font-size:10px">own</span></td>
+                    <td class="vv" style="text-align:right">7</td>
+                    <td><span class="acts"><span class="pill warn" style="font-size:9.5px">edited</span></span></td>
+                  </tr>
+                  <tr class="row">
+                    <td class="rowmark"></td>
+                    <td class="k">REDIS_URL</td>
+                    <td class="v">••••••••••••••</td>
+                    <td><span class="pill muted" style="font-size:10px">inherited</span></td>
+                    <td class="vv" style="text-align:right">2</td>
+                    <td><span class="acts">
+                      <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></span>
+                      <span class="iconbtn"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></span>
+                    </span></td>
+                  </tr>
+                  <tr class="row">
+                    <td class="rowmark"></td>
+                    <td class="k">LOG_LEVEL</td>
+                    <td class="v plain">warn</td>
+                    <td><span class="pill accent" style="font-size:10px">overridden</span></td>
+                    <td class="vv" style="text-align:right">3</td>
+                    <td></td>
+                  </tr>
+                  <tr class="row added">
+                    <td class="rowmark"></td>
+                    <td class="k">SENTRY_DSN <span class="pill ok" style="font-size:9.5px">new</span></td>
+                    <td class="v plain">https://f81b@o44.ingest.sentry.io/91</td>
+                    <td><span class="pill ok" style="font-size:10px">own</span></td>
+                    <td class="vv" style="text-align:right">—</td>
+                    <td></td>
+                  </tr>
+                  <tr class="row removed">
+                    <td class="rowmark"></td>
+                    <td class="k">LEGACY_API_KEY</td>
+                    <td class="v">••••••••••</td>
+                    <td><span class="pill muted" style="font-size:10px">own</span></td>
+                    <td class="vv" style="text-align:right">1</td>
+                    <td><span class="acts"><span class="pill danger" style="font-size:9.5px">removed</span></span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="dirtybar">
+              <span class="sum">
+                <span><b class="chg-add">+1</b> added</span>
+                <span><b class="chg-edit">1</b> changed</span>
+                <span><b class="chg-del">1</b> removed</span>
+              </span>
+              <span class="spacer"></span>
+              <span class="btn ghost sm">Review diff</span>
+              <span class="btn secondary sm">Discard</span>
+              <span class="btn primary sm">Save as v8</span>
+            </div>
+
+            <div class="toast"><span class="tick">✓</span> STRIPE_SECRET_KEY copied — read audited</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Reveals and copies stay audited exactly as today — the toast makes the audit affordance visible instead of hiding it.</p>
+  </section>
+
+  <!-- ============ what changes ============ -->
+  <section class="section">
+    <h2>The eight changes that carry the redesign</h2>
+    <div class="delta">
+      <div class="item"><h5><span class="n">1</span>Design tokens first</h5><p>Palette, type scale, radius, and shadows wired into Tailwind theme config. Components reference roles (brand, surface, muted) — never raw gray-400. Dark mode falls out nearly free.</p></div>
+      <div class="item"><h5><span class="n">2</span>Surfaces &amp; depth</h5><p>Tinted page background, white cards with hairline border + soft shadow. Content sits <em>on</em> the page instead of bleeding white-into-white.</p></div>
+      <div class="item"><h5><span class="n">3</span>Brand mark + top bar</h5><p>Geometric split-hexagon mark (two faces of Janus: encrypt/decrypt), breadcrumb, seal-status pill, and user avatar menu replacing two loose outlined buttons.</p></div>
+      <div class="item"><h5><span class="n">4</span>Env color coding</h5><p>Doppler's signature: dev blue, staging amber, prod red — repeated in the sidebar, the config header, and any destructive confirm. Prod always <em>feels</em> different.</p></div>
+      <div class="item"><h5><span class="n">5</span>Editor as a real grid</h5><p>Card table, sticky header, hover-revealed icon actions with tooltips, origin pills, diff rails (green/amber/red edge) on pending rows, and the dirty-state bar with Save as vN.</p></div>
+      <div class="item"><h5><span class="n">6</span>Mono = secret</h5><p>ui-monospace exclusively for keys and values; sans for all chrome. The texture contrast makes secret material instantly scannable — it's the product's typographic signature.</p></div>
+      <div class="item"><h5><span class="n">7</span>Feedback surfaces</h5><p>Toasts for save/copy/errors, skeleton loaders instead of “Loading…”, styled dialogs instead of bare inline forms. Every action visibly lands.</p></div>
+      <div class="item"><h5><span class="n">8</span>No more blank pages</h5><p>Branded landing with “Create your first project” CTA; every empty list gets an icon + one-liner + action. A lone gray sentence never ships again.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ foundations ============ -->
+  <section class="section">
+    <h2>Foundations: the token system</h2>
+    <p class="lede">Everything above derives from this. Neutrals carry a slight violet bias so even "gray" screens feel like the brand.</p>
+    <div class="grid2">
+      <div class="panel">
+        <h4>Palette</h4>
+        <p class="sub">One accent. Semantic colors reserved for state — they never decorate.</p>
+        <div class="swatches">
+          <div class="sw"><div class="chip" style="background:#6A5CF5"></div><div class="nm">brand</div><div class="hx">#6A5CF5</div></div>
+          <div class="sw"><div class="chip" style="background:#211D35"></div><div class="nm">ink</div><div class="hx">#211D35</div></div>
+          <div class="sw"><div class="chip" style="background:#6E6A85"></div><div class="nm">muted</div><div class="hx">#6E6A85</div></div>
+          <div class="sw"><div class="chip" style="background:#F6F6FA"></div><div class="nm">page</div><div class="hx">#F6F6FA</div></div>
+          <div class="sw"><div class="chip" style="background:#FFFFFF"></div><div class="nm">card</div><div class="hx">#FFFFFF</div></div>
+          <div class="sw"><div class="chip" style="background:#E5E3F0"></div><div class="nm">border</div><div class="hx">#E5E3F0</div></div>
+        </div>
+        <div class="swatches" style="margin-top:12px">
+          <div class="sw"><div class="chip" style="background:#178A50"></div><div class="nm">success</div><div class="hx">#178A50</div></div>
+          <div class="sw"><div class="chip" style="background:#B45309"></div><div class="nm">warning</div><div class="hx">#B45309</div></div>
+          <div class="sw"><div class="chip" style="background:#C92A2A"></div><div class="nm">danger</div><div class="hx">#C92A2A</div></div>
+          <div class="sw"><div class="chip" style="background:#2563EB"></div><div class="nm">info</div><div class="hx">#2563EB</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h4>Type scale</h4>
+        <p class="sub">System sans for chrome; ui-monospace strictly for secret material.</p>
+        <div class="typerow"><span class="tag">page-title / 17 / 600</span><span style="font-size:17px;font-weight:600">Production · root</span></div>
+        <div class="typerow"><span class="tag">section / 14 / 600</span><span style="font-size:14px;font-weight:600">Pending changes</span></div>
+        <div class="typerow"><span class="tag">body / 13.5 / 400</span><span style="font-size:13.5px">Saving creates one immutable config version.</span></div>
+        <div class="typerow"><span class="tag">label / 10.5 / 700 / caps</span><span style="font-size:10.5px;font-weight:700;letter-spacing:.12em;color:#9B97B0">ENVIRONMENTS</span></div>
+        <div class="typerow"><span class="tag">secret / mono 12.5</span><span class="k">DATABASE_URL=<span style="color:#6E6A85;font-weight:400">postgres://…</span></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ component kit ============ -->
+  <section class="section">
+    <h2>Component kit</h2>
+    <p class="lede">Built once (hand-rolled Tailwind or shadcn/ui — open decision in fe-improvements §0), used on every screen including the five “coming soon” pages.</p>
+    <div class="grid2">
+      <div class="panel">
+        <h4>Buttons &amp; badges</h4>
+        <p class="sub">Four variants, visible focus rings, loading states.</p>
+        <div class="kit-row">
+          <span class="btn primary">Save as v8</span>
+          <span class="btn secondary">Discard</span>
+          <span class="btn ghost">Cancel</span>
+          <span class="btn danger">Destroy secret</span>
+        </div>
+        <div class="kit-row">
+          <span class="pill ok"><span class="d"></span>Unsealed</span>
+          <span class="pill danger"><span class="d"></span>Sealed</span>
+          <span class="pill ok">own</span>
+          <span class="pill muted">inherited</span>
+          <span class="pill accent">overridden</span>
+          <span class="pill ok" style="border:1px solid #BCE5CE">✓ chain verified</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h4>Inputs &amp; loading</h4>
+        <p class="sub">Labels, error text, disabled states, skeletons over “Loading…”.</p>
+        <div class="kit-row" style="align-items:flex-start">
+          <label class="field">Key
+            <input class="input" style="font-family:var(--mono)" value="STRIPE_SECRET_KEY" readonly>
+          </label>
+          <label class="field">Key
+            <input class="input err" style="font-family:var(--mono)" value="stripe key" readonly>
+            <span class="errtext">Use A–Z, 0–9 and underscores.</span>
+          </label>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; max-width:340px">
+          <div class="skel" style="height:14px; width:88%"></div>
+          <div class="skel" style="height:14px; width:70%"></div>
+          <div class="skel" style="height:14px; width:79%"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ auth ============ -->
+  <section class="section">
+    <h2>First impressions: login &amp; unseal</h2>
+    <p class="lede">The literal first screens anyone sees. Centered branded cards on a softly graded stage; the unseal screen gets a share-progress meter so the ceremony feels intentional.</p>
+    <div class="grid2">
+      <div class="auth-stage">
+        <div class="auth-card">
+          <svg width="26" height="26" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M10 1.5 L17.5 6 V14 L10 18.5 L2.5 14 V6 Z" fill="none" stroke="#6A5CF5" stroke-width="1.6"/>
+            <path d="M10 1.5 V18.5" stroke="#6A5CF5" stroke-width="1.1" opacity=".55"/>
+            <path d="M10 1.5 L17.5 6 V14 L10 18.5 Z" fill="#6A5CF5" opacity=".18"/>
+          </svg>
+          <h4>Sign in to Janus</h4>
+          <p class="sub">Self-hosted secrets for acme.internal</p>
+          <label class="field">Email <input class="input" value="steve@acme.dev" readonly></label>
+          <label class="field">Password <input class="input" type="password" value="••••••••••" readonly></label>
+          <span class="btn primary" style="width:100%; justify-content:center; margin-top:6px">Sign in</span>
+          <div style="text-align:center; margin-top:12px; font-size:12px; color:#9B97B0">or continue with SSO</div>
+        </div>
+      </div>
+      <div class="auth-stage" style="background:linear-gradient(160deg,#EFEDF9,#E7E3F4 55%,#EDE4EE)">
+        <div class="auth-card">
+          <span class="pill danger"><span class="d"></span>Sealed</span>
+          <h4>Unseal Janus</h4>
+          <p class="sub">2 of 3 key shares provided</p>
+          <div class="shard-ring"><span class="shard done"></span><span class="shard done"></span><span class="shard"></span></div>
+          <label class="field">Key share <input class="input" style="font-family:var(--mono)" value="janus-share-3-of-5:Zm9v…" readonly></label>
+          <div style="display:flex; gap:8px; margin-top:6px">
+            <span class="btn primary" style="flex:1; justify-content:center">Submit share</span>
+            <span class="btn secondary">Reset</span>
+          </div>
+          <div style="margin-top:12px; font-size:11.5px; color:#9B97B0">Shares are held in memory only and never logged.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ dark mode ============ -->
+  <section class="section">
+    <h2>Dark mode (P1, nearly free once tokens land)</h2>
+    <p class="lede">Class-based Tailwind dark variant, toggled from the user menu, persisted to localStorage. Same tokens, remapped: deep violet-black surfaces, lifted accent, semantic colors brightened for contrast.</p>
+    <div class="darkwrap">
+      <div class="dk">
+        <div class="card-d">
+          <table>
+            <thead><tr><th>Key</th><th>Value</th><th>Origin</th><th style="text-align:right">Ver</th></tr></thead>
+            <tbody>
+              <tr><td class="k">DATABASE_URL</td><td class="v">••••••••••••••••••••</td><td><span class="pill ok" style="font-size:10px">own</span></td><td class="vv" style="text-align:right">4</td></tr>
+              <tr><td class="k">LOG_LEVEL</td><td class="v" style="color:#EAE8F4">warn</td><td><span class="pill accent" style="font-size:10px">overridden</span></td><td class="vv" style="text-align:right">3</td></tr>
+              <tr><td class="k">REDIS_URL</td><td class="v">••••••••••••••</td><td><span class="pill info" style="font-size:10px">inherited</span></td><td class="vv" style="text-align:right">2</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <span>Janus · visual direction for fe-improvements.md slices 1–3 · light-first, dark-mode P1</span>
+    <span>Accent #6A5CF5 · neutrals violet-biased · mono reserved for secrets</span>
+  </footer>
+</div>
+
+</html>

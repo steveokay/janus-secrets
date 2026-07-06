@@ -1,6 +1,11 @@
 # Front-End Improvements — Janus Web UI
 
 > **Status:** ideas / backlog tracker. Nothing here is built yet unless checked.
+> **Visual design: APPROVED 2026-07-06.** Canonical mockup:
+> [`docs/design/ui-mockup.html`](docs/design/ui-mockup.html) · spec (tokens + hard
+> rules): [`docs/superpowers/specs/2026-07-06-ui-visual-design.md`](docs/superpowers/specs/2026-07-06-ui-visual-design.md).
+> All slices below implement that mockup — agents must not restyle ad hoc
+> (enforced via the "Web UI visual system" section in CLAUDE.md).
 > **Direction (locked):** a modern, polished, *Doppler-inspired* light theme —
 > clean, appealing, product-grade — with an optional dark mode. The current
 > milestone-1 SPA is function-first (white-on-white, hairline borders, tiny glyph
@@ -24,19 +29,23 @@ them off as they ship. Priorities:
 A shared design system so screens stop looking ad-hoc. Today there are no tokens
 at all — every component picks raw Tailwind grays.
 
-- [ ] **P0** Define a **color palette**: slate neutral ramp for surfaces/text, one
+- [x] **P0** Define a **color palette**: slate neutral ramp for surfaces/text, one
       accent (indigo/violet — Doppler leans violet), plus semantic colors
       (success/green, warning/amber, danger/red, info/blue). Wire as Tailwind
       theme tokens in `tailwind.config.js` (e.g. `brand`, `surface`, `muted`) so
-      components reference roles, not raw `gray-400`.
-- [ ] **P0** **Typography scale**: a proper sans (Inter or system UI stack),
+      components reference roles, not raw `gray-400`. *(Slice 1 — plus a vitest
+      gate banning raw palette classes AND hex literals in `web/src`.)*
+- [x] **P0** **Typography scale**: a proper sans (Inter or system UI stack),
       defined sizes/weights for page title / section / body / caption; a mono
       stack (JetBrains Mono / ui-monospace) reserved for secret keys & values.
-- [ ] **P0** **Surfaces & depth**: a page background tint (`slate-50`), white
+      *(Slice 1 — system stacks, mono reserved for secret material.)*
+- [x] **P0** **Surfaces & depth**: a page background tint (`slate-50`), white
       **cards** with `rounded-lg`, a hairline border **and** a soft shadow so
-      content sits *on* the page instead of bleeding into it.
-- [ ] **P0** **Spacing & radius rhythm**: consistent padding scale, consistent
-      corner radius, consistent gaps. Pick one and apply everywhere.
+      content sits *on* the page instead of bleeding into it. *(Slice 1 —
+      `page`/`card`/`line` tokens + `shadow-card`/`shadow-pop`.)*
+- [x] **P0** **Spacing & radius rhythm**: consistent padding scale, consistent
+      corner radius, consistent gaps. Pick one and apply everywhere. *(Slice 1 —
+      radius 8px controls / 10px cards / pills full.)*
 - [ ] **P1** **Dark mode**: `class`-based Tailwind dark variant + a top-bar toggle,
       persisted to `localStorage`. Design tokens above should make this mostly free.
 - [ ] **P2** **Motion**: subtle 150ms transitions on hover/focus/expand; respect
@@ -47,6 +56,11 @@ at all — every component picks raw Tailwind grays.
 by default). shadcn would accelerate buttons/dialogs/menus/toasts/tooltips and
 raise quality fast; worth a short discussion given the "minimal deps" ethos.
 
+> **Decision (2026-07-06, Slice 1 planning): shadcn-lean.** Adopt the pattern,
+> not the whole kit: Radix `DropdownMenu` + `lucide-react` + `cn()`
+> (clsx + tailwind-merge) ship in Slice 1; Dialog/Toast/Tooltip primitives are
+> adopted in Slice 3 when the component kit (§4) is built.
+
 ---
 
 ## 1. App shell & branding (P0)
@@ -54,18 +68,20 @@ raise quality fast; worth a short discussion given the "minimal deps" ethos.
 The frame the user sees on every screen. Right now: a bare top bar with the word
 "Janus" and two outlined buttons.
 
-- [ ] **P0** **Brand mark + wordmark** in the top bar — Janus = the two-faced
+- [x] **P0** **Brand mark + wordmark** in the top bar — Janus = the two-faced
       Roman god (fitting for a symmetric encrypt/decrypt product). An inline SVG
       mark + styled wordmark. Also a **favicon** and page `<title>` per route.
-- [ ] **P0** **Top bar redesign**: logo left; center/left **breadcrumb**
+      *(Slice 1 — split-hexagon mark via `currentColor`, favicon.svg, `useTitle`.)*
+- [x] **P0** **Top bar redesign**: logo left; center/left **breadcrumb**
       (Project › Environment › Config); right side a **seal-status pill**
       (green "Unsealed" / red "Sealed") and a **user menu** (avatar/initials →
       dropdown: email, change password, dark-mode toggle, log out) instead of two
-      loose buttons.
-- [ ] **P1** **Sidebar redesign**: section headers ("PROJECTS", "INSTANCE"),
+      loose buttons. *(Slice 1 — dark-mode toggle deferred with dark mode itself.)*
+- [x] **P1** **Sidebar redesign**: section headers ("PROJECTS", "INSTANCE"),
       **icons** on each nav item, clear **active-item** highlight (accent bar +
       tint), hover states, and grouping. Replace the tiny `＋` glyphs with proper
-      icon-buttons with tooltips.
+      icon-buttons with tooltips. *(Slice 1 — tooltips deferred to the §4 kit;
+      icon-buttons have aria-labels.)*
 - [ ] **P1** **Environment tabs** (Doppler signature): show dev/staging/prod as
       color-coded tabs/pills (prod = red-tinted as a "danger" cue) rather than a
       plain nested list.
@@ -196,6 +212,27 @@ empty/loaded state using the component kit above rather than bespoke markup.
 
 1. **Slice 1 — Foundations + shell** (P0 §0–§1): design tokens, typography,
    surfaces, top-bar/branding, sidebar. Instantly kills the "blank/cheap" feel.
+   **→ SHIPPED** (branch `milestone-13-ui-slice1`): [`docs/superpowers/plans/2026-07-06-ui-slice1-tokens-shell.md`](docs/superpowers/plans/2026-07-06-ui-slice1-tokens-shell.md).
+   Covered: §0 tokens/typography/surfaces/rhythm, §1 brand+top bar+sidebar, the
+   no-raw-palette+hex test gate, plus pulled-forward token conversions of §6
+   auth/unseal cards and §3/§5 dialogs+editor classes (mechanical only — their
+   full redesigns stay in Slices 2–4).
+
+   **Slice 1 review follow-ups** (from per-task code reviews; fold into the
+   slices noted):
+   - *Slice 3:* wrap the secret-editor table in a `div` for radius clipping
+     (`overflow-hidden rounded-*` on a bare `<table>` is engine-dependent and
+     breaks under `border-collapse`); replace the editor's inline badge map with
+     `<Pill>` so origin tones can't desync from the tone table.
+   - *P2 a11y:* mark the Brand icon `aria-hidden` when the wordmark is present
+     (screen readers currently hear "Janus" twice); give Breadcrumb proper
+     `<ol>/<li>` structure per the WAI-ARIA breadcrumb pattern.
+   - *P2:* `envTone()` matches env *name* prefixes — a prod env renamed e.g.
+     "Live" silently loses its red danger cue; consider matching on slug.
+   - *B3 slice:* sidebar Audit link dead-clicks to `/` when no project is
+     selected (pre-existing; give it a real home when the audit viewer lands).
+   - *§5 errors:* ChangePassword surfaces `ApiError.message` verbatim — fold
+     into the inline-error-surfaces work.
 2. **Slice 2 — Landing + empty states** (P0 §2): dashboard/landing + reusable
    `<EmptyState>`. Kills the literal empty page.
 3. **Slice 3 — Secret editor polish** (P0/P1 §3) on top of a **component kit**

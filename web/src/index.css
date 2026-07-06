@@ -1,3 +1,16 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-page text-ink antialiased;
+  }
+  body {
+    @apply font-sans text-[13.5px] leading-normal;
+  }
+  /* Spec §"Shape, depth, motion": visible 2px brand focus on every interactive element. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-page;
+  }
+}

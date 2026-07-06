@@ -15,19 +15,19 @@ export function ChangePasswordForm({ onDone, onClose }: { onDone: () => void; on
     finally { setBusy(false) }
   }
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/30">
-      <form onSubmit={submit} className="w-80 rounded bg-white p-4 shadow">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30">
+      <form onSubmit={submit} className="w-80 rounded-card border border-line bg-card p-5 shadow-pop">
         <h2 className="mb-3 text-lg font-semibold">Change password</h2>
         <label className="mb-2 flex flex-col text-sm">Current password
-          <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required className="rounded border p-1" />
+          <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required className="rounded border border-line px-3 py-2 text-[13px] font-normal" />
         </label>
         <label className="mb-2 flex flex-col text-sm">New password
-          <input type="password" value={next} onChange={(e) => setNext(e.target.value)} required className="rounded border p-1" />
+          <input type="password" value={next} onChange={(e) => setNext(e.target.value)} required className="rounded border border-line px-3 py-2 text-[13px] font-normal" />
         </label>
-        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border px-2 py-1">Cancel</button>
-          <button type="submit" disabled={busy} className="rounded bg-blue-600 px-2 py-1 text-white disabled:opacity-50">Change password</button>
+          <button type="button" onClick={onClose} className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold">Cancel</button>
+          <button type="submit" disabled={busy} className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50">Change password</button>
         </div>
       </form>
     </div>

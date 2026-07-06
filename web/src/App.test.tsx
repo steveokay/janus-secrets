@@ -33,5 +33,7 @@ test('unsealed + unauthenticated routes to login', async () => {
 test('unsealed + authenticated shows the app shell', async () => {
   boot({ initialized: true, sealed: false, type: 'shamir' }, 200)
   render(<App />)
-  expect(await screen.findByText(/me@corp\.io/i)).toBeInTheDocument()
+  // Email moved into the user-menu dropdown; the shell shows the avatar + seal pill.
+  expect(await screen.findByRole('button', { name: /user menu/i })).toBeInTheDocument()
+  expect(screen.getByText(/unsealed/i)).toBeInTheDocument()
 })

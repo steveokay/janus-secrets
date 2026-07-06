@@ -1,24 +1,24 @@
-import { useState } from 'react'
-import { useAuth } from '../auth/AuthProvider'
-import { ChangePasswordForm } from '../auth/ChangePassword'
+import { Brand } from '../ui/Brand'
+import { Pill } from '../ui/Pill'
+import { Breadcrumb } from './Breadcrumb'
+import { UserMenu } from './UserMenu'
 
 export function TopBar({ sealed }: { sealed: boolean }) {
-  const { user, logout } = useAuth()
-  const [showPw, setShowPw] = useState(false)
   return (
-    <header className="flex items-center justify-between border-b px-4 py-2">
-      <span className="font-semibold text-blue-700">Janus</span>
-      <div className="flex items-center gap-4 text-sm">
-        <span>{sealed ? '🔒 sealed' : '🔓 unsealed'}</span>
-        {user && (
-          <span className="flex items-center gap-2">
-            {user.email}
-            <button onClick={() => setShowPw(true)} className="rounded border px-2 py-0.5">Change password</button>
-            <button onClick={() => void logout()} className="rounded border px-2 py-0.5">Log out</button>
-          </span>
+    <header className="flex items-center gap-5 border-b border-line bg-card px-4 py-2">
+      <Brand />
+      <Breadcrumb />
+      <div className="ml-auto flex items-center gap-3.5">
+        {/* Gate renders UnsealPage whenever the server is sealed, so this pill is
+            effectively always "Unsealed" today; it exists so the shell stays honest
+            if Gate's branch order ever changes. */}
+        {sealed ? (
+          <Pill tone="danger" dot>Sealed</Pill>
+        ) : (
+          <Pill tone="success" dot>Unsealed</Pill>
         )}
+        <UserMenu />
       </div>
-      {showPw && <ChangePasswordForm onDone={() => setShowPw(false)} onClose={() => setShowPw(false)} />}
     </header>
   )
 }
