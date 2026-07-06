@@ -27,3 +27,19 @@ test('with projects: link cards + new-project button', async () => {
   expect(screen.getByRole('link', { name: /storefront/ })).toHaveAttribute('href', '/projects/p2')
   expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument()
 })
+
+test('error state announces failure', async () => {
+  server.use(http.get('/v1/projects', () => HttpResponse.error()))
+  renderApp(<Landing />, { withAuth: false })
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load projects.')
+})
+
+test('loading skeletons are aria-hidden', () => {
+  server.use(http.get('/v1/projects', async () => {
+    await new Promise((r) => setTimeout(r, 1000))
+    return HttpResponse.json({ projects: [] })
+  }))
+  const { container } = renderApp(<Landing />, { withAuth: false })
+  const skeleton = container.querySelector('[aria-hidden]')
+  expect(skeleton).not.toBeNull()
+})

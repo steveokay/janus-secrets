@@ -19,7 +19,7 @@ export function Landing() {
 
   if (projects.isLoading) {
     return (
-      <div className="mx-auto mt-20 flex max-w-md flex-col gap-2">
+      <div aria-hidden className="mx-auto mt-20 flex max-w-md flex-col gap-2">
         {[0, 1, 2].map((i) => <div key={i} className="h-12 rounded-card bg-line-soft" />)}
       </div>
     )
