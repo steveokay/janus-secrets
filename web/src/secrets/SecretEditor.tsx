@@ -3,14 +3,16 @@ import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints, MaskedSecret } from '../lib/endpoints'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
+import { useTitle } from '../lib/title'
 
 const badge: Record<MaskedSecret['origin'], string> = {
-  own: 'bg-green-100 text-green-700',
-  inherited: 'bg-blue-100 text-blue-700',
-  overridden: 'bg-amber-100 text-amber-700',
+  own: 'bg-success-soft text-success',
+  inherited: 'bg-line-soft text-muted',
+  overridden: 'bg-brand-soft text-brand-deep',
 }
 
 export function SecretEditor() {
+  useTitle('Secrets')
   const { configId } = useParams()
   const cid = configId!
   const qc = useQueryClient()
@@ -62,25 +64,25 @@ export function SecretEditor() {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-muted">
           {dirty ? `Pending: +${summary.added} added · ${summary.changed} changed · ${summary.removed} removed` : `${rows.length} keys`}
         </span>
         <button
           onClick={() => save.mutate()}
           disabled={!dirty || save.isPending}
-          className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-40"
+          className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
         >
           {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
         </button>
       </div>
-      {save.isError && <p role="alert" className="mb-2 text-sm text-red-600">Save failed.</p>}
-      <table className="w-full text-sm">
-        <thead><tr className="text-left text-gray-400"><th>KEY</th><th>VALUE</th><th>ORIGIN</th><th>v</th></tr></thead>
+      {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
+      <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
+        <thead><tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint"><th>KEY</th><th>VALUE</th><th>ORIGIN</th><th>v</th></tr></thead>
         <tbody>
           {rows.map(([key, meta]) => {
             const removedRow = key in buffer && buffer[key].value === null
             return (
-              <tr key={key} className={`border-t ${removedRow ? 'line-through opacity-50' : ''}`}>
+              <tr key={key} className={`border-t border-line-soft ${removedRow ? 'line-through opacity-50' : ''}`}>
                 <td className="py-1 font-mono">{key}</td>
                 <td className="py-1 font-mono">
                   {editing[key] ? (
@@ -88,42 +90,42 @@ export function SecretEditor() {
                       aria-label={`value for ${key}`}
                       value={valueOf(key)}
                       onChange={(e) => setBuffer((b) => setValue(b, key, e.target.value))}
-                      className="w-full rounded border p-1"
+                      className="w-full rounded border border-line px-2.5 py-1 font-mono text-[12.5px]"
                     />
                   ) : (
                     <>
                       {key in revealed ? revealed[key] : '•••••••'}
                       {meta.origin !== 'inherited' && (
-                        <button aria-label={`edit ${key}`} onClick={() => setEditing((s) => ({ ...s, [key]: true }))} className="ml-2 text-gray-400">✎</button>
+                        <button aria-label={`edit ${key}`} onClick={() => setEditing((s) => ({ ...s, [key]: true }))} className="ml-2 text-faint hover:text-brand-deep">✎</button>
                       )}
                       {!(key in revealed) && (
-                        <button aria-label={`reveal ${key}`} onClick={() => void reveal(key)} className="ml-1 text-gray-400">👁</button>
+                        <button aria-label={`reveal ${key}`} onClick={() => void reveal(key)} className="ml-1 text-faint hover:text-brand-deep">👁</button>
                       )}
                       {meta.origin !== 'inherited' && !removedRow && (
-                        <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => removeKey(b, key))} className="ml-1 text-red-400">✕</button>
+                        <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => removeKey(b, key))} className="ml-1 text-danger/70 hover:text-danger">✕</button>
                       )}
                     </>
                   )}
                 </td>
                 <td className="py-1"><span className={`rounded px-1.5 ${badge[meta.origin]}`}>{meta.origin}</span></td>
-                <td className="py-1 text-gray-400">{meta.value_version}</td>
+                <td className="py-1 text-faint">{meta.value_version}</td>
               </tr>
             )
           })}
           {addedKeys.map((key) => (
-            <tr key={key} className="border-t bg-green-50">
-              <td className="py-1 font-mono">{key} <span className="text-xs text-green-600">(new)</span></td>
+            <tr key={key} className="border-t border-line-soft bg-success-soft/50">
+              <td className="py-1 font-mono">{key} <span className="text-xs text-success">(new)</span></td>
               <td className="py-1 font-mono">
                 <input
                   aria-label={`value for ${key}`}
                   value={buffer[key].value ?? ''}
                   onChange={(e) => setBuffer((b) => setValue(b, key, e.target.value))}
-                  className="w-full rounded border p-1"
+                  className="w-full rounded border border-line px-2.5 py-1 font-mono text-[12.5px]"
                 />
               </td>
               <td className="py-1"><span className={`rounded px-1.5 ${badge.own}`}>own</span></td>
               <td className="py-1">
-                <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => revert(b, key))} className="text-red-400">✕</button>
+                <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => revert(b, key))} className="text-danger/70 hover:text-danger">✕</button>
               </td>
             </tr>
           ))}
@@ -139,12 +141,12 @@ function AddKeyRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
   const [value, setValue] = useState('')
   return (
     <div className="mt-3 flex gap-2">
-      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border p-1 font-mono" />
-      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border p-1 font-mono" />
+      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line px-2.5 py-1.5 font-mono text-[12.5px]" />
+      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line px-2.5 py-1.5 font-mono text-[12.5px]" />
       <button
         disabled={!key}
         onClick={() => { onAdd(key, value); setKey(''); setValue('') }}
-        className="rounded border px-2 disabled:opacity-40"
+        className="rounded border border-line bg-card px-3 text-[13px] font-semibold disabled:opacity-40"
       >
         ＋ Add key
       </button>
