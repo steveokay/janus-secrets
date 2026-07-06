@@ -10,6 +10,8 @@ import { AppLayout } from './shell/AppLayout'
 import { Sidebar } from './shell/Sidebar'
 import { SecretEditor } from './secrets/SecretEditor'
 import { Placeholder } from './shell/Placeholder'
+import { Landing } from './home/Landing'
+import { ProjectOverview } from './home/ProjectOverview'
 
 function Gate() {
   const { user, loading, refresh } = useAuth()
@@ -39,8 +41,8 @@ function Gate() {
   return (
     <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
       <Routes>
-        <Route path="/" element={<div className="mt-16 text-center text-muted">Select or create a project to begin.</div>} />
-        <Route path="/projects/:projectId" element={<div className="mt-16 text-center text-muted">Select a config from the sidebar.</div>} />
+        <Route path="/" element={<Landing />} />
+        <Route path="/projects/:projectId" element={<ProjectOverview />} />
         <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
         <Route path="/projects/:projectId/audit" element={<Placeholder feature="Audit viewer" />} />
         <Route path="/tokens" element={<Placeholder feature="Token management" />} />

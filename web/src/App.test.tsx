@@ -13,13 +13,13 @@ afterEach(() => queryClient.clear())
 function boot(seal: object, me: number) {
   server.use(
     http.get('/v1/sys/seal-status', () => HttpResponse.json(seal)),
-    http.get('/v1/auth/me', () => (me === 200 ? HttpResponse.json({ email: 'me@corp.io' }) : new HttpResponse(null, { status: me }))),
+    http.get('/v1/auth/me', () => (me === 200 ? HttpResponse.json({ kind: 'user', id: 'u1', name: 'me@corp.io' }) : new HttpResponse(null, { status: me }))),
     http.get('/v1/projects', () => HttpResponse.json({ projects: [] })),
   )
 }
 
 test('sealed server routes to the unseal screen', async () => {
-  boot({ initialized: true, sealed: true, type: 'shamir', threshold: 2, shares: 3, progress: 0 }, 401)
+  boot({ initialized: true, sealed: true, type: 'shamir', threshold: 2, shares: 3, progress: { submitted: 0, required: 2 } }, 401)
   render(<App />)
   expect(await screen.findByText(/unseal janus/i)).toBeInTheDocument()
 })

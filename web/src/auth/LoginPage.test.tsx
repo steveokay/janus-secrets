@@ -7,7 +7,7 @@ import { LoginPage } from './LoginPage'
 
 function mockMe(status: number) {
   server.use(http.get('/v1/auth/me', () =>
-    status === 200 ? HttpResponse.json({ email: 'me@corp.io' }) : new HttpResponse(null, { status }),
+    status === 200 ? HttpResponse.json({ kind: 'user', id: 'u1', name: 'me@corp.io' }) : new HttpResponse(null, { status }),
   ))
 }
 
@@ -15,7 +15,7 @@ test('successful login triggers /me refresh', async () => {
   mockMe(401) // initial mount: not logged in
   let loggedIn = false
   server.use(
-    http.post('/v1/auth/login', () => { loggedIn = true; return HttpResponse.json({ email: 'me@corp.io' }) }),
+    http.post('/v1/auth/login', () => { loggedIn = true; return HttpResponse.json({ user: { id: 'u1', email: 'me@corp.io' } }) }),
   )
   renderApp(<LoginPage />, { withAuth: true })
   await userEvent.type(screen.getByLabelText(/email/i), 'me@corp.io')

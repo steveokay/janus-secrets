@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints, MaskedSecret } from '../lib/endpoints'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
+import { EmptyState } from '../ui/EmptyState'
 
 const badge: Record<MaskedSecret['origin'], string> = {
   own: 'bg-success-soft text-success',
@@ -76,6 +77,13 @@ export function SecretEditor() {
         </button>
       </div>
       {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
+      {rows.length === 0 && addedKeys.length === 0 ? (
+        <EmptyState
+          className="mt-10"
+          title="No secrets yet"
+          hint="Add your first key below — it's encrypted before it ever touches the database."
+        />
+      ) : (
       <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
         <thead><tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint"><th>KEY</th><th>VALUE</th><th>ORIGIN</th><th>v</th></tr></thead>
         <tbody>
@@ -131,6 +139,7 @@ export function SecretEditor() {
           ))}
         </tbody>
       </table>
+      )}
       <AddKeyRow onAdd={(k, v) => setBuffer((b) => addKey(b, k, v))} />
     </div>
   )

@@ -5,10 +5,10 @@ import { endpoints } from './endpoints'
 test('sealStatus parses the shamir shape', async () => {
   server.use(
     http.get('/v1/sys/seal-status', () =>
-      HttpResponse.json({ initialized: true, sealed: true, type: 'shamir', threshold: 3, shares: 5, progress: 1 }),
+      HttpResponse.json({ initialized: true, sealed: true, type: 'shamir', threshold: 3, shares: 5, progress: { submitted: 1, required: 3 } }),
     ),
   )
-  await expect(endpoints.sealStatus()).resolves.toMatchObject({ sealed: true, threshold: 3, progress: 1 })
+  await expect(endpoints.sealStatus()).resolves.toMatchObject({ sealed: true, threshold: 3, progress: { submitted: 1, required: 3 } })
 })
 
 test('listProjects unwraps the projects array', async () => {

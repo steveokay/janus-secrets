@@ -6,7 +6,7 @@ import { renderApp } from '../test/render'
 import { UserMenu } from './UserMenu'
 
 function mockMe() {
-  server.use(http.get('/v1/auth/me', () => HttpResponse.json({ email: 'steve@acme.dev' })))
+  server.use(http.get('/v1/auth/me', () => HttpResponse.json({ kind: 'user', id: 'u1', name: 'steve@acme.dev' })))
 }
 
 test('shows initials; opens menu with email, change password, log out', async () => {

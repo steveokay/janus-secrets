@@ -3,8 +3,10 @@ import { server } from '../test/msw'
 import { api, ApiError } from './api'
 
 test('GET returns parsed JSON', async () => {
-  server.use(http.get('/v1/auth/me', () => HttpResponse.json({ email: 'a@b.io' })))
-  await expect(api.get('/v1/auth/me')).resolves.toEqual({ email: 'a@b.io' })
+  // Generic client passthrough test; body mirrors the REAL /v1/auth/me shape
+  // (never mock invented shapes on real endpoints — see fe-improvements.md).
+  server.use(http.get('/v1/auth/me', () => HttpResponse.json({ kind: 'user', id: 'u1', name: 'a@b.io' })))
+  await expect(api.get('/v1/auth/me')).resolves.toEqual({ kind: 'user', id: 'u1', name: 'a@b.io' })
 })
 
 test('error envelope becomes a typed ApiError', async () => {

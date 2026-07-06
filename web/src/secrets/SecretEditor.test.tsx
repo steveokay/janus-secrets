@@ -43,3 +43,17 @@ test('clicking reveal fetches the audited value and shows it', async () => {
   await waitFor(() => expect(revealed).toBe(true))
   expect(await screen.findByText('postgres://a')).toBeInTheDocument()
 })
+
+test('empty config shows the empty state', async () => {
+  server.use(
+    http.get('/v1/configs/cEmpty/secrets', ({ request }) => {
+      if (new URL(request.url).searchParams.get('reveal') === 'true')
+        return HttpResponse.json({ version: 0, secrets: {} })
+      return HttpResponse.json({ secrets: {} })
+    }),
+  )
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/cEmpty', withAuth: false })
+  expect(await screen.findByText('No secrets yet')).toBeInTheDocument()
+  // AddKeyRow must still be present so the user can add the first key:
+  expect(screen.getByLabelText('new key')).toBeInTheDocument()
+})

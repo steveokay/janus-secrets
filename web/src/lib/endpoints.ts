@@ -1,14 +1,16 @@
 import { api } from './api'
 
+export interface SealProgress { submitted: number; required: number }
 export interface SealStatus {
   initialized: boolean
   sealed: boolean
   type: 'shamir' | 'awskms'
   threshold?: number
   shares?: number
-  progress?: number
+  progress?: SealProgress
 }
-export interface User { email: string }
+// /v1/auth/me principal: for users, `name` is the email address.
+export interface User { kind: 'user' | 'service_token'; id: string; name: string }
 export interface Project { id: string; slug: string; name: string }
 export interface Environment { id: string; slug: string; name: string }
 export interface Config { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
@@ -23,7 +25,8 @@ export const endpoints = {
   unsealKms: () => api.post<SealStatus>('/v1/sys/unseal', {}),
   unsealReset: () => api.post<SealStatus>('/v1/sys/unseal/reset'),
   me: () => api.get<User>('/v1/auth/me'),
-  login: (email: string, password: string) => api.post<User>('/v1/auth/login', { email, password }),
+  login: (email: string, password: string) =>
+    api.post<{ user: { id: string; email: string } }>('/v1/auth/login', { email, password }),
   logout: () => api.post<void>('/v1/auth/logout'),
   changePassword: (current_password: string, new_password: string) =>
     api.post<void>('/v1/auth/password', { current_password, new_password }),
