@@ -46,6 +46,47 @@ export interface AuditEventFilters {
   from?: string; to?: string; actor?: string; action?: string; result?: string
 }
 
+// tokens & users & members (B4)
+export interface TokenMeta {
+  id: string; name: string
+  scope_kind: 'config' | 'environment' | 'transit'
+  scope_id: string
+  access: string
+  created_by: string
+  created_at: string
+  expires_at?: string
+  revoked_at?: string
+}
+export interface MintTokenRequest {
+  name: string
+  scope: { kind: 'config' | 'environment' | 'transit'; id: string }
+  access: string
+  ttl_seconds?: number
+}
+export interface MintTokenResult {
+  token: string
+  id: string
+  name: string
+  scope: { kind: 'config' | 'environment' | 'transit'; id: string }
+  access: string
+  expires_at: string | null
+}
+export interface UserInfo { id: string; email: string; disabled: boolean }
+export type MemberRole = 'viewer' | 'developer' | 'admin' | 'owner'
+export interface Member { user_id: string; role: MemberRole }
+export type MemberScope =
+  | { kind: 'instance' }
+  | { kind: 'project'; pid: string }
+  | { kind: 'environment'; pid: string; eid: string }
+
+export function memberScopePath(s: MemberScope): string {
+  switch (s.kind) {
+    case 'instance': return '/v1/instance/members'
+    case 'project': return `/v1/projects/${s.pid}/members`
+    case 'environment': return `/v1/projects/${s.pid}/environments/${s.eid}/members`
+  }
+}
+
 function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
@@ -107,4 +148,18 @@ export const endpoints = {
     api.get<{ events: AuditEvent[]; next_cursor: number | null }>(`/v1/audit/events?${auditParams(f)}`),
   auditExportUrl: (f: AuditEventFilters, format: 'jsonl' | 'csv') =>
     `/v1/audit/export?${auditParams({ ...f, format })}`,
+
+  // tokens & users & members (B4). Raw token / one-time password appear ONLY in
+  // mint/create responses — never cached, logged, or shown twice.
+  mintToken: (req: MintTokenRequest) => api.post<MintTokenResult>('/v1/tokens', req),
+  listTokens: () => api.get<{ tokens: TokenMeta[] }>('/v1/tokens').then((r) => r.tokens),
+  revokeToken: (id: string) => api.del<void>(`/v1/tokens/${id}`),
+  createUser: (email: string) =>
+    api.post<{ id: string; email: string; password: string }>('/v1/users', { email }),
+  listUsers: () => api.get<{ users: UserInfo[] }>('/v1/users').then((r) => r.users),
+  disableUser: (id: string) => api.post<void>(`/v1/users/${id}/disable`),
+  listMembers: (s: MemberScope) => api.get<{ members: Member[] }>(memberScopePath(s)).then((r) => r.members),
+  putMember: (s: MemberScope, uid: string, role: MemberRole) =>
+    api.put<void>(`${memberScopePath(s)}/${uid}`, { role }),
+  deleteMember: (s: MemberScope, uid: string) => api.del<void>(`${memberScopePath(s)}/${uid}`),
 }
