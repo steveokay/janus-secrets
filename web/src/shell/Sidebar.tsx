@@ -1,60 +1,94 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, matchPath } from 'react-router-dom'
+import { Plus, ScrollText, KeyRound, Users, Shield, Settings } from 'lucide-react'
 import { useProjects, useEnvironments, useConfigs } from '../secrets/nav'
 import { CreateProjectForm, CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
 import { Config } from '../lib/endpoints'
+import { envTone, envDotClass } from '../ui/env'
+import { cn } from '../ui/cn'
 
 // Sidebar is rendered as a sibling of <Routes> (inside AppLayout), not nested
 // within a matched <Route>, so useParams() would always be empty here.
-// Derive the active projectId from the URL directly via matchPath instead.
-function useActiveProjectId() {
+// Derive the active ids from the URL directly via matchPath instead.
+function useActiveIds() {
   const location = useLocation()
-  return matchPath('/projects/:projectId/*', location.pathname)?.params.projectId
+  return {
+    projectId: matchPath('/projects/:projectId/*', location.pathname)?.params.projectId,
+    configId: matchPath('/projects/:projectId/configs/:configId', location.pathname)?.params.configId,
+  }
 }
 
 type OpenForm = null | 'project' | 'env' | { config: { eid: string; bases: Config[] } }
 
-function EnvConfigs({
-  pid,
-  eid,
-  name,
-  onAddConfig,
-}: {
+function SectionLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="mb-1 mt-4 flex items-center justify-between px-2 text-[10.5px] font-bold uppercase tracking-[.12em] text-faint">
+      <span>{children}</span>
+      {action}
+    </div>
+  )
+}
+
+function IconAdd({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-brand-soft hover:text-brand-deep"
+    >
+      <Plus size={13} strokeWidth={1.7} />
+    </button>
+  )
+}
+
+function EnvConfigs({ pid, eid, name, activeConfigId, onAddConfig }: {
   pid: string
   eid: string
   name: string
+  activeConfigId?: string
   onAddConfig: (eid: string, bases: Config[]) => void
 }) {
   const configs = useConfigs(pid, eid)
   return (
-    <li>
-      <div className="mt-1 flex items-center justify-between text-xs uppercase tracking-wide text-gray-400">
-        <span>{name}</span>
-        <button
-          type="button"
-          onClick={() => onAddConfig(eid, configs.data ?? [])}
-          aria-label={`add config to ${name}`}
-          className="normal-case text-blue-500"
-        >
-          ＋
-        </button>
+    <li className="mx-1 mt-2">
+      <div className="flex items-center justify-between px-2 text-[12px] font-semibold text-muted">
+        <span className="flex items-center gap-2">
+          <span className={cn('h-[7px] w-[7px] rounded-[2px]', envDotClass[envTone(name)])} />
+          {name}
+        </span>
+        <IconAdd label={`add config to ${name}`} onClick={() => onAddConfig(eid, configs.data ?? [])} />
       </div>
-      <ul className="ml-2">
-        {configs.data?.map((c) => (
-          <li key={c.id}>
-            <Link to={`/projects/${pid}/configs/${c.id}`} className="block rounded px-1 py-0.5 hover:bg-gray-100">
-              {c.name}
-              {c.inherits_from && <span className="ml-1 text-xs text-blue-500">↳</span>}
-            </Link>
-          </li>
-        ))}
+      <ul className="mt-0.5">
+        {configs.data?.map((c) => {
+          const active = c.id === activeConfigId
+          return (
+            <li key={c.id} className="relative ml-3.5">
+              {active && <span className="absolute -left-3.5 bottom-[5px] top-[5px] w-[3px] rounded-full bg-brand" />}
+              <Link
+                to={`/projects/${pid}/configs/${c.id}`}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'block rounded px-2 py-1 text-[12.5px] text-muted hover:bg-line-soft',
+                  active && 'bg-brand-soft font-semibold text-brand-deep hover:bg-brand-soft',
+                )}
+              >
+                {c.name}
+                {c.inherits_from && <span className="ml-1 text-[11px] text-info">↳</span>}
+              </Link>
+            </li>
+          )
+        })}
       </ul>
     </li>
   )
 }
 
+const navItem =
+  'mx-1 flex items-center gap-2.5 rounded px-2 py-1.5 text-[12.5px] text-muted hover:bg-line-soft hover:text-ink'
+
 export function Sidebar() {
-  const projectId = useActiveProjectId()
+  const { projectId, configId } = useActiveIds()
   const navigate = useNavigate()
   const projects = useProjects()
   const envs = useEnvironments(projectId)
@@ -62,20 +96,22 @@ export function Sidebar() {
 
   return (
     <nav className="text-sm">
-      <div className="mb-3 flex items-center gap-1">
-        <select
-          value={projectId ?? ''}
-          onChange={(e) => navigate(`/projects/${e.target.value}`)}
-          className="w-full rounded border p-1"
-          aria-label="project"
-        >
-          <option value="" disabled>Select a project…</option>
-          {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <button type="button" onClick={() => setOpen('project')} aria-label="add project" className="rounded border px-2 py-1 text-blue-500">＋</button>
-      </div>
+      <SectionLabel action={<IconAdd label="add project" onClick={() => setOpen('project')} />}>Project</SectionLabel>
+      <select
+        value={projectId ?? ''}
+        onChange={(e) => navigate(`/projects/${e.target.value}`)}
+        aria-label="project"
+        className="mx-1 w-[calc(100%-8px)] rounded border border-line bg-card px-2.5 py-1.5 text-[13px] font-semibold text-ink"
+      >
+        <option value="" disabled>Select a project…</option>
+        {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+
       {projectId && (
         <>
+          <SectionLabel action={<IconAdd label="add environment" onClick={() => setOpen('env')} />}>
+            Environments
+          </SectionLabel>
           <ul>
             {envs.data?.map((e) => (
               <EnvConfigs
@@ -83,22 +119,20 @@ export function Sidebar() {
                 pid={projectId}
                 eid={e.id}
                 name={e.name}
+                activeConfigId={configId}
                 onAddConfig={(eid, bases) => setOpen({ config: { eid, bases } })}
               />
             ))}
           </ul>
-          <button type="button" onClick={() => setOpen('env')} className="mt-1 text-blue-500">＋ Env</button>
         </>
       )}
-      <div className="mt-4 border-t pt-2 text-gray-400">
-        <Link to={`/projects/${projectId ?? ''}/audit`} className="block">Audit</Link>
-        <Link to="/tokens" className="block">Tokens</Link>
-        <Link to="/members" className="block">Members</Link>
-        <div className="mt-2 border-t pt-2">
-          <Link to="/transit" className="block">Transit</Link>
-          <Link to="/settings" className="block">Settings</Link>
-        </div>
-      </div>
+
+      <SectionLabel>Instance</SectionLabel>
+      <Link to={`/projects/${projectId ?? ''}/audit`} className={navItem}><ScrollText size={15} strokeWidth={1.7} /> Audit</Link>
+      <Link to="/tokens" className={navItem}><KeyRound size={15} strokeWidth={1.7} /> Tokens</Link>
+      <Link to="/members" className={navItem}><Users size={15} strokeWidth={1.7} /> Members</Link>
+      <Link to="/transit" className={navItem}><Shield size={15} strokeWidth={1.7} /> Transit</Link>
+      <Link to="/settings" className={navItem}><Settings size={15} strokeWidth={1.7} /> Settings</Link>
 
       {open === 'project' && (
         <CreateProjectForm

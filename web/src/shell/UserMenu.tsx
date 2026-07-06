@@ -10,7 +10,7 @@ export function UserMenu() {
   const { user, logout } = useAuth()
   const [showPw, setShowPw] = useState(false)
   if (!user) return null
-  const initials = user.email.slice(0, 2).toUpperCase()
+  const initials = (user.email.split('@')[0] || user.email).slice(0, 2).toUpperCase()
 
   return (
     <>
