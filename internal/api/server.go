@@ -208,6 +208,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Use(RequireAuth(s.auth))
 				r.Get("/verify", s.handleAuditVerify)
 				r.Get("/export", s.handleAuditExport)
+				r.Get("/events", s.handleAuditEvents)
 			})
 		}
 	}
