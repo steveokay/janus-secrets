@@ -13,6 +13,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/transit"
+	"github.com/steveokay/janus-secrets/internal/web"
 )
 
 // BootConfig is everything `janus server` derives from the environment.
@@ -111,6 +112,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
 	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, transitSvc, authSvc, authorizer, st, auditRec, logger)
+	srv.MountUI(web.Handler())
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and
 	// POST /v1/sys/unseal retries.

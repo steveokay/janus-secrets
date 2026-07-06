@@ -218,6 +218,16 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 // Handler exposes the router (used by tests and ListenAndServe).
 func (s *Server) Handler() http.Handler { return s.router }
 
+// MountUI installs h as the router's fallback for any route the /v1 API does not
+// match — i.e. the embedded SPA and its assets. Call after New, before serving.
+// nil is a no-op (unit-test servers with no UI keep chi's default 404).
+func (s *Server) MountUI(h http.Handler) {
+	if h == nil {
+		return
+	}
+	s.router.NotFound(h.ServeHTTP)
+}
+
 // ListenAndServe serves until ctx is canceled, then drains for up to 10s.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	srv := &http.Server{

@@ -1,12 +1,26 @@
-.PHONY: dev dev-up test lint build migrate cover
+.PHONY: dev dev-up test lint build migrate cover web-deps web-build web-test
+
+web-deps:
+	cd web && npm ci
+
+web-test:
+	cd web && npm run test -- --run
+
+# Build the SPA and stage it where go:embed picks it up.
+web-build:
+	cd web && npm ci && npm run build
+	rm -rf internal/web/dist
+	mkdir -p internal/web/dist
+	cp -r web/dist/. internal/web/dist/
 
 test:
 	go test -race ./...
+	cd web && npm run test -- --run
 
 lint:
 	go vet ./...
 
-build:
+build: web-build
 	go build -o bin/janus ./cmd/janus
 
 cover:
@@ -14,7 +28,9 @@ cover:
 	go tool cover -func=crypto.out | tail -1
 
 dev:
-	@echo "make dev: hot-reload arrives with the web UI milestone; use 'make dev-up'"; exit 1
+	@echo "Run these in two terminals (same-origin via Vite's /v1 proxy):"
+	@echo "  1) cd web && npm run dev      # Vite dev server on :5173, proxies /v1 -> :8200"
+	@echo "  2) make dev-up                # Go server + Postgres on :8200"
 
 dev-up: build
 	docker compose up -d --build

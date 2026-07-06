@@ -9,3 +9,6 @@ dist/
 .idea/
 .vscode/
 .claude/
+
+# Visual-companion brainstorm scratch (superpowers)
+.superpowers/

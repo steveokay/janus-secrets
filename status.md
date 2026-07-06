@@ -688,6 +688,74 @@ uuid`. Fixed by validating/storing the restriction by name (`GetByName`) and
 widening `scope_id` to `text` (config/env scopes keep their UUID, now as text).
 The all-keys transit token (NULL `scope_id`) was already correct.
 
+## Phase 2 · Sub-project B — React SPA (milestone 1: core editor) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-06-spa-core-editor-design.md`
+Plan: `docs/superpowers/plans/2026-07-06-spa-core-editor.md` (15 tasks)
+Docs: `docs/web.md` · Branch: `milestone-12-spa-core` (subagent-driven
+development — fresh implementer per task, diff-reviewed by the controller).
+
+The first slice of the web UI: a Vite **React + TS + Tailwind** SPA embedded in
+the `janus` binary via `go:embed` and served **same-origin** by the chi server.
+A new `internal/web` package holds `//go:embed dist` + `Handler()` (static assets
++ SPA fallback for deep links + a restrictive CSP); `Server.MountUI` mounts it as
+the router `NotFound` fallback after `/v1`, and `RequireUnsealed` was narrowed to
+gate only `/v1/*` API paths so the SPA loads while sealed (to present the unseal
+screen). **No new `/v1` endpoints** — the SPA consumes the existing
+auth/sys/projects/environments/configs/secrets routes.
+
+Delivered (project-centric nav, per the approved design): bootstrap guards
+(seal-status → uninitialized notice / unseal screen / login / app); **in-UI
+Shamir unseal** (per-share progress + reset; KMS auto-unseal), with shares held
+only in ephemeral state; password/session **login** + **change-password**;
+project switcher + environment/config tree with **lightweight create** forms
+(config inherits only from a same-environment base — server-enforced); and the
+flagship **secret editor** — masked list with `own`/`inherited`/`overridden`
+origin badges (not audited), per-key **audited reveal**, editing of the config's
+**own raw values** (inherited rows not editable in place), a pure client-side
+**dirty buffer** (add/edit/delete) with a live pending summary, and batched
+**Save as vN** (one `PUT …/secrets` = one config version) with an unsaved-changes
+guard. Revealed plaintext and Shamir shares never enter the Query cache or
+storage. Deferred areas (audit viewer, version diff/rollback, token/member
+management, dashboard, transit UI) render "Coming soon" placeholders; their specs
+are later B-slices. Tooling: React Router v6 + TanStack Query + a thin typed
+`fetch` client; Vitest + React Testing Library + MSW; multi-stage Dockerfile
+(web build → embed → go build) + Makefile `web-build`/`web-test`/`dev` wiring.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 15 tasks
+- [x] 1. `internal/web` embed + SPA-fallback handler + CSP
+- [x] 2. Serve SPA — narrow seal gate to `/v1/*` + `MountUI` + boot wiring
+- [x] 3. Scaffold Vite + React-TS + Tailwind + Vitest
+- [x] 4. Typed `fetch` client + `ApiError` + MSW harness
+- [x] 5. Typed endpoint fns + query client (global 401/503 routing)
+- [x] 6. Auth context + login + change-password
+- [x] 7. Unseal screen (shamir shares/progress/reset; kms auto)
+- [x] 8. App shell + router + bootstrap guards
+- [x] 9. Project switcher + env/config tree sidebar
+- [x] 10. Lightweight create forms (project/env/config)
+- [x] 11. Pure dirty-buffer logic
+- [x] 12. Secret editor — masked list + origin badges + audited reveal
+- [x] 13. Secret editor — edit/add/delete + batched Save as vN + unsaved guard
+- [x] 14. Coming-soon placeholders for deferred areas + empty states
+- [x] 15. Dockerfile web stage + Makefile wiring + docs + gate sweep
+
+Verification: `go build`/`go vet`/`go test ./... -count=1` (incl. `internal/web`
+and `internal/api` UI-mount/seal-gate tests, Docker-backed) all pass; the web
+suite (`npm run test`) and `npm run typecheck` are green; `make build` produces
+an embedded binary; `gosec` (shamir excluded) 0 issues; `govulncheck` 0
+affecting; crypto/authz/audit coverage unchanged at 100% (no changes there).
+
+Two real defects were caught in the per-task review, not carried forward: **(1)**
+the plan's `Sidebar` read the active project via `useParams()`, but the sidebar
+renders as a *sibling* of `<Routes>` (never inside a matched `<Route>`), so
+`useParams()` returns nothing — it would have failed in production, not just
+tests; fixed to derive the id from the URL via `useLocation()` + `matchPath`.
+**(2)** the shared test render helper rendered components bare, so `SecretEditor`
+(which legitimately uses `useParams()` inside a matched route in the real app)
+saw no `configId` under test; fixed by wrapping the rendered element in a
+matching `<Route>` in the harness (component left correct).
+
 ## Phase-2 items already on the radar
 
 - [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google
@@ -698,5 +766,8 @@ The all-keys transit token (NULL `scope_id`) was already correct.
       rework.
 - [x] Transit/KMS engine — **complete** (see the Sub-project A section above;
       `internal/transit`, `/v1/transit/*`, transit token scope, `docs/transit.md`).
-- [ ] React SPA, usage metrics (per CLAUDE.md Phase 2 — sub-projects B and D, not
-      yet specced).
+- [x] React SPA — **milestone 1 (core editor) complete** (see the Sub-project B
+      section above; `web/` + `internal/web`, `docs/web.md`). Later B-slices:
+      version diff/rollback, audit viewer, token/member management, dashboard +
+      usage metrics, transit UI.
+- [ ] Usage metrics (per CLAUDE.md Phase 2 — sub-project D, not yet specced).
