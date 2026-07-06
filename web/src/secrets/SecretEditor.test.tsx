@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
+import { ToastProvider } from '../ui/Toast'
 import { SecretEditor } from './SecretEditor'
 
 function seed() {
@@ -56,4 +57,17 @@ test('empty config shows the empty state', async () => {
   expect(await screen.findByText('No secrets yet')).toBeInTheDocument()
   // AddKeyRow must still be present so the user can add the first key:
   expect(screen.getByLabelText('new key')).toBeInTheDocument()
+})
+
+test('History button opens the version sheet', async () => {
+  seed()
+  server.use(
+    http.get('/v1/configs/c1/versions', () => HttpResponse.json({ versions: [
+      { version: 1, message: 'first', created_by: 'x@y.io', created_at: '2026-07-04T10:00:00Z' },
+    ] })),
+  )
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await userEvent.click(await screen.findByRole('button', { name: /history/i }))
+  expect(await screen.findByText('Version history')).toBeInTheDocument()
+  expect(await screen.findByText('first')).toBeInTheDocument()
 })
