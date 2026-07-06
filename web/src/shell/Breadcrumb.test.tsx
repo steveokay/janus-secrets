@@ -18,6 +18,17 @@ test('renders project / env / config for the active config route', async () => {
 })
 
 test('renders nothing outside a project route', () => {
+  server.use(http.get('/v1/projects', () => HttpResponse.json({ projects: [] })))
   const { container } = renderApp(<Breadcrumb />, { route: '/', withAuth: false })
   expect(container.querySelector('nav')).toBeNull()
+})
+
+test('project-only route shows just the project name', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'acme', name: 'acme-api' }] })),
+    http.get('/v1/projects/p1/environments', () => HttpResponse.json({ environments: [] })),
+  )
+  const { container } = renderApp(<Breadcrumb />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByText('acme-api')).toBeInTheDocument()
+  expect(container.textContent).not.toContain('/')
 })

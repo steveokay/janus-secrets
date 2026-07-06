@@ -37,10 +37,10 @@ function Gate() {
   if (!user) return <LoginPage />
 
   return (
-    <AppLayout sidebar={<Sidebar />}>
+    <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
       <Routes>
-        <Route path="/" element={<div className="mt-16 text-center text-gray-500">Select or create a project to begin.</div>} />
-        <Route path="/projects/:projectId" element={<div className="mt-16 text-center text-gray-500">Select a config from the sidebar.</div>} />
+        <Route path="/" element={<div className="mt-16 text-center text-muted">Select or create a project to begin.</div>} />
+        <Route path="/projects/:projectId" element={<div className="mt-16 text-center text-muted">Select a config from the sidebar.</div>} />
         <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
         <Route path="/projects/:projectId/audit" element={<Placeholder feature="Audit viewer" />} />
         <Route path="/tokens" element={<Placeholder feature="Token management" />} />

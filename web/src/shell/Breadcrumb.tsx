@@ -39,7 +39,12 @@ export function Breadcrumb() {
       {parts.map((p, i) => (
         <Fragment key={p.key}>
           {i > 0 && <span aria-hidden className="text-line">/</span>}
-          <span className={p.strong ? 'font-semibold text-ink' : undefined}>{p.label}</span>
+          <span
+            aria-current={i === parts.length - 1 ? 'page' : undefined}
+            className={p.strong ? 'font-semibold text-ink' : undefined}
+          >
+            {p.label}
+          </span>
         </Fragment>
       ))}
     </nav>
