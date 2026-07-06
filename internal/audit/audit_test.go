@@ -45,6 +45,44 @@ func (m *memStore) List(_ context.Context, _ store.AuditFilter, fn func(store.Au
 	return m.Iterate(context.Background(), fn)
 }
 
+// ListPage is a minimal in-memory mirror of the store's keyset pagination:
+// newest-first, seq < beforeSeq (0 = from head), filtered, limited.
+func (m *memStore) ListPage(_ context.Context, f store.AuditFilter, beforeSeq int64, limit int) ([]store.AuditRow, error) {
+	var out []store.AuditRow
+	for i := len(m.rows) - 1; i >= 0; i-- {
+		r := m.rows[i]
+		if beforeSeq != 0 && r.Seq >= beforeSeq {
+			continue
+		}
+		if f.Action != "" && r.Action != f.Action {
+			continue
+		}
+		if f.Result != "" && r.Result != f.Result {
+			continue
+		}
+		if f.Actor != "" {
+			actorID := ""
+			if r.ActorID != nil {
+				actorID = *r.ActorID
+			}
+			if actorID != f.Actor && r.ActorName != f.Actor {
+				continue
+			}
+		}
+		if f.From != nil && r.OccurredAt.Before(*f.From) {
+			continue
+		}
+		if f.To != nil && r.OccurredAt.After(*f.To) {
+			continue
+		}
+		out = append(out, r)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 var errBoom = errStub("boom")
 
 type errStub string
@@ -145,6 +183,23 @@ func TestListPassthrough(t *testing.T) {
 	}
 	if len(seen) != 2 || seen[0] != 1 || seen[1] != 2 {
 		t.Fatalf("list = %v", seen)
+	}
+}
+
+func TestListPagePassthrough(t *testing.T) {
+	r, _ := rec(t)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		if err := r.Record(ctx, Event{Actor: Actor{Kind: "user", Name: "a"}, Action: "token.mint", Result: "success", IP: "ip"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := r.ListPage(ctx, store.AuditFilter{}, 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].Seq != 3 || rows[1].Seq != 2 {
+		t.Fatalf("listpage = %+v", rows)
 	}
 }
 

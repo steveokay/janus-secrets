@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/steveokay/janus-secrets/internal/store"
 )
@@ -149,4 +151,141 @@ func TestAuditE2E(t *testing.T) {
 	}
 
 	_ = strings.TrimSpace
+}
+
+// TestAuditEventsPagination pins GET /v1/audit/events: seq-descending keyset
+// pagination, filter validation, auth, wire shape parity with export rows,
+// and — critically — that reading the events endpoint does NOT itself append
+// an audit event (precedent: /verify).
+func TestAuditEventsPagination(t *testing.T) {
+	ts, srv, email, password, configID := authStackFull(t)
+	adminCookie := login(t, ts.URL, email, password) // records auth.login
+
+	// --- Grow the log with a few more audited actions. ---
+	var minted struct {
+		ID string `json:"id"`
+	}
+	mintBody := fmt.Sprintf(`{"name":"ci","scope":{"kind":"config","id":%q},"access":"read"}`, configID)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", adminCookie, "", mintBody, &minted); code != 200 || minted.ID == "" {
+		t.Fatalf("mint: %d %+v", code, minted)
+	}
+	var member struct{ ID, Password string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/users", adminCookie, "", `{"email":"events-dev@corp.io"}`, &member); code != 200 || member.ID == "" {
+		t.Fatalf("create user: %d %+v", code, member)
+	}
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/instance/members/"+member.ID, adminCookie, "", `{"role":"developer"}`, nil); code != 204 {
+		t.Fatalf("grant member: %d", code)
+	}
+
+	repo := store.NewAuditRepo(srv.st)
+	headSeq := func() int64 {
+		t.Helper()
+		rows, err := repo.ListPage(context.Background(), store.AuditFilter{}, 0, 1)
+		if err != nil {
+			t.Fatalf("head seq lookup: %v", err)
+		}
+		if len(rows) == 0 {
+			t.Fatal("expected at least one audit row seeded already")
+		}
+		return rows[0].Seq
+	}
+
+	// --- Unauthenticated -> 401. ---
+	if code := doAuthed(t, "GET", ts.URL+"/v1/audit/events", "", "", "", nil); code != 401 {
+		t.Fatalf("unauthenticated events: want 401, got %d", code)
+	}
+
+	// --- Validation errors -> 400. ---
+	for _, q := range []string{"limit=0", "limit=201", "limit=abc", "cursor=abc", "result=bogus"} {
+		code, body := rawGet(t, ts.URL+"/v1/audit/events?"+q, adminCookie)
+		if code != 400 {
+			t.Fatalf("query %q: want 400, got %d body=%s", q, code, body)
+		}
+	}
+
+	type wireEvent struct {
+		Seq        int64   `json:"seq"`
+		OccurredAt string  `json:"occurred_at"`
+		ActorKind  string  `json:"actor_kind"`
+		ActorName  string  `json:"actor_name"`
+		Action     string  `json:"action"`
+		Resource   string  `json:"resource"`
+		Result     string  `json:"result"`
+		PrevHash   string  `json:"prev_hash"`
+		Hash       string  `json:"hash"`
+	}
+	type wirePage struct {
+		Events     []wireEvent `json:"events"`
+		NextCursor *int64      `json:"next_cursor"`
+	}
+
+	// --- CRITICAL: GET /events must not self-audit. ---
+	before := headSeq()
+	var page1 wirePage
+	if code := doAuthed(t, "GET", ts.URL+"/v1/audit/events?limit=2", adminCookie, "", "", &page1); code != 200 {
+		t.Fatalf("events page1: %d", code)
+	}
+	after := headSeq()
+	if after != before {
+		t.Fatalf("GET /v1/audit/events must not self-audit: head seq before=%d after=%d", before, after)
+	}
+
+	// --- Shape + ordering assertions on page 1. ---
+	if len(page1.Events) != 2 {
+		t.Fatalf("want 2 events, got %d: %+v", len(page1.Events), page1.Events)
+	}
+	if page1.Events[0].Seq <= page1.Events[1].Seq {
+		t.Fatalf("expected newest-first ordering, got seqs %d, %d", page1.Events[0].Seq, page1.Events[1].Seq)
+	}
+	for _, e := range page1.Events {
+		if _, err := hex.DecodeString(e.PrevHash); err != nil {
+			t.Fatalf("prev_hash not hex: %q (%v)", e.PrevHash, err)
+		}
+		if _, err := hex.DecodeString(e.Hash); err != nil {
+			t.Fatalf("hash not hex: %q (%v)", e.Hash, err)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, e.OccurredAt); err != nil {
+			t.Fatalf("occurred_at not RFC3339Nano: %q (%v)", e.OccurredAt, err)
+		}
+	}
+	if page1.NextCursor == nil || *page1.NextCursor != page1.Events[1].Seq {
+		t.Fatalf("next_cursor = %v, want %d", page1.NextCursor, page1.Events[1].Seq)
+	}
+
+	// --- Walk pages to exhaustion; every page strictly lower than the last. ---
+	seen := map[int64]bool{}
+	for _, e := range page1.Events {
+		seen[e.Seq] = true
+	}
+	minSeqSoFar := page1.Events[len(page1.Events)-1].Seq
+	cursor := *page1.NextCursor
+	reachedEnd := false
+	for i := 0; i < 1000; i++ {
+		var page wirePage
+		url := fmt.Sprintf("%s/v1/audit/events?limit=2&cursor=%d", ts.URL, cursor)
+		if code := doAuthed(t, "GET", url, adminCookie, "", "", &page); code != 200 {
+			t.Fatalf("events page walk: %d", code)
+		}
+		for _, e := range page.Events {
+			if e.Seq >= minSeqSoFar {
+				t.Fatalf("expected strictly decreasing seqs, got %d after min %d", e.Seq, minSeqSoFar)
+			}
+			if seen[e.Seq] {
+				t.Fatalf("seq %d returned twice across pages", e.Seq)
+			}
+			seen[e.Seq] = true
+			minSeqSoFar = e.Seq
+		}
+		if page.NextCursor == nil {
+			reachedEnd = true
+			break
+		}
+		cursor = *page.NextCursor
+	}
+	if !reachedEnd {
+		t.Fatal("did not reach a final page (next_cursor null) within 1000 iterations")
+	}
+	if len(seen) < 4 { // at least auth.login, token.mint, user.create, member.grant
+		t.Fatalf("expected to walk at least 4 events, saw %d", len(seen))
+	}
 }

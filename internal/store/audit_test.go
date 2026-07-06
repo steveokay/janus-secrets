@@ -12,6 +12,13 @@ import (
 // which it derives from head — a stand-in for the real engine closure.
 func appendConst(t *testing.T, repo *AuditRepo, action string) AuditRow {
 	t.Helper()
+	return appendResult(t, repo, action, "success")
+}
+
+// appendResult is appendConst with an explicit result, for seeding rows with a
+// non-default result (e.g. "denied") alongside the happy-path helper above.
+func appendResult(t *testing.T, repo *AuditRepo, action, result string) AuditRow {
+	t.Helper()
 	row, err := repo.Append(context.Background(), func(h AuditHead) (AuditRow, error) {
 		prev := h.Hash
 		if prev == nil {
@@ -22,7 +29,7 @@ func appendConst(t *testing.T, repo *AuditRepo, action string) AuditRow {
 		return AuditRow{
 			Seq: h.Seq + 1, OccurredAt: time.Now().UTC().Truncate(time.Microsecond),
 			ActorKind: "user", ActorName: "a@b.c", Action: action, Resource: "r",
-			Result: "success", IP: "1.2.3.4", PrevHash: prev, Hash: self,
+			Result: result, IP: "1.2.3.4", PrevHash: prev, Hash: self,
 		}, nil
 	})
 	if err != nil {
@@ -87,4 +94,78 @@ func TestAuditAppendSerializes(t *testing.T) {
 			t.Fatalf("missing seq %d (got %d distinct)", i, len(seqs))
 		}
 	}
+}
+
+func TestAuditListPage(t *testing.T) {
+	if testStore == nil {
+		t.Skip("postgres/docker not available")
+	}
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewAuditRepo(testStore)
+
+	// Seed 5 events, actions "a.1".."a.5" (seq 1..5); "a.3" is the denied one.
+	for i := 1; i <= 5; i++ {
+		action := "a." + itoa(i)
+		result := "success"
+		if i == 3 {
+			result = "denied"
+		}
+		appendResult(t, repo, action, result)
+	}
+
+	seqsOf := func(rows []AuditRow) []int64 {
+		out := make([]int64, len(rows))
+		for i, r := range rows {
+			out[i] = r.Seq
+		}
+		return out
+	}
+	assertSeqs := func(t *testing.T, rows []AuditRow, want []int64) {
+		t.Helper()
+		got := seqsOf(rows)
+		if len(got) != len(want) {
+			t.Fatalf("seqs = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("seqs = %v, want %v", got, want)
+			}
+		}
+	}
+
+	// Page 1: from head, limit 2 -> newest-first [5,4].
+	page1, err := repo.ListPage(ctx, AuditFilter{}, 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSeqs(t, page1, []int64{5, 4})
+
+	// Page 2: before seq 4, limit 2 -> [3,2].
+	page2, err := repo.ListPage(ctx, AuditFilter{}, 4, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSeqs(t, page2, []int64{3, 2})
+
+	// Page 3: before seq 2, limit 2 -> [1] (only one row remains).
+	page3, err := repo.ListPage(ctx, AuditFilter{}, 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSeqs(t, page3, []int64{1})
+
+	// Filter + cursor compose: denied filter from head -> exactly the denied row.
+	denied, err := repo.ListPage(ctx, AuditFilter{Result: "denied"}, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSeqs(t, denied, []int64{3})
+
+	// Limit respected: from head, limit 1 -> just the newest row.
+	limited, err := repo.ListPage(ctx, AuditFilter{}, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSeqs(t, limited, []int64{5})
 }

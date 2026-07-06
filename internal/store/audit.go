@@ -127,4 +127,53 @@ func (r *AuditRepo) List(ctx context.Context, f AuditFilter, fn func(AuditRow) e
 	return mapError(rows.Err())
 }
 
+// ListPage returns events matching f, newest-first, with seq-keyset
+// pagination: rows with seq < beforeSeq (beforeSeq 0 = from head), at most
+// limit rows.
+func (r *AuditRepo) ListPage(ctx context.Context, f AuditFilter, beforeSeq int64, limit int) ([]AuditRow, error) {
+	var where []string
+	var args []any
+	add := func(cond string, val any) { args = append(args, val); where = append(where, cond) }
+	if f.From != nil {
+		add("occurred_at >= $"+itoa(len(args)+1), *f.From)
+	}
+	if f.To != nil {
+		add("occurred_at <= $"+itoa(len(args)+1), *f.To)
+	}
+	if f.Action != "" {
+		add("action = $"+itoa(len(args)+1), f.Action)
+	}
+	if f.Result != "" {
+		add("result = $"+itoa(len(args)+1), f.Result)
+	}
+	if f.Actor != "" {
+		n := itoa(len(args) + 1)
+		args = append(args, f.Actor)
+		where = append(where, "(actor_id = $"+n+" OR actor_name = $"+n+")")
+	}
+	args = append(args, beforeSeq)
+	cursorN := itoa(len(args))
+	where = append(where, "($"+cursorN+" = 0 OR seq < $"+cursorN+")")
+	sql := `SELECT ` + auditCols + ` FROM audit_events`
+	if len(where) > 0 {
+		sql += ` WHERE ` + strings.Join(where, " AND ")
+	}
+	args = append(args, limit)
+	sql += ` ORDER BY seq DESC LIMIT $` + itoa(len(args))
+	rows, err := r.s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []AuditRow
+	for rows.Next() {
+		a, err := scanAuditRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, mapError(rows.Err())
+}
+
 func itoa(n int) string { return strconv.Itoa(n) }

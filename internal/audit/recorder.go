@@ -12,6 +12,7 @@ type Store interface {
 	Append(ctx context.Context, compute func(store.AuditHead) (store.AuditRow, error)) (store.AuditRow, error)
 	Iterate(ctx context.Context, fn func(store.AuditRow) error) error
 	List(ctx context.Context, f store.AuditFilter, fn func(store.AuditRow) error) error
+	ListPage(ctx context.Context, f store.AuditFilter, beforeSeq int64, limit int) ([]store.AuditRow, error)
 }
 
 // Recorder appends events and verifies the chain.
@@ -52,6 +53,11 @@ func (rec *Recorder) Record(ctx context.Context, e Event) error {
 // the store so the API layer never imports the store repo directly for reads.
 func (rec *Recorder) List(ctx context.Context, f store.AuditFilter, fn func(store.AuditRow) error) error {
 	return rec.store.List(ctx, f, fn)
+}
+
+// ListPage exposes paginated reads for the API's events endpoint.
+func (rec *Recorder) ListPage(ctx context.Context, f store.AuditFilter, beforeSeq int64, limit int) ([]store.AuditRow, error) {
+	return rec.store.ListPage(ctx, f, beforeSeq, limit)
 }
 
 // nz maps "" to a nil *string (SQL NULL).

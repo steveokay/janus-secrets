@@ -29,6 +29,63 @@ func (s *Server) handleAuditVerify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// auditEventsResponse is the wire shape of a page of GET /v1/audit/events.
+type auditEventsResponse struct {
+	Events     []auditExportRow `json:"events"`
+	NextCursor *int64           `json:"next_cursor"`
+}
+
+// handleAuditEvents serves the viewer: paginated, filterable, NOT self-audited
+// (precedent: verify; audit reads are not in the must-audit set — `authorize`
+// only records DENIALS, never successes, so this matches /verify exactly).
+func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r, authz.AuditRead, authz.Instance(), "audit.events", "audit") {
+		return
+	}
+	if s.audit == nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "audit is not configured")
+		return
+	}
+	filter, _, err := parseAuditFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 200 {
+			writeError(w, http.StatusBadRequest, CodeValidation, "limit must be 1-200")
+			return
+		}
+		limit = n
+	}
+	var cursor int64
+	if v := r.URL.Query().Get("cursor"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, CodeValidation, "cursor must be a positive integer")
+			return
+		}
+		cursor = n
+	}
+	rows, err := s.audit.ListPage(r.Context(), filter, cursor, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	out := make([]auditExportRow, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, toExportRow(a))
+	}
+	var next *int64
+	if len(rows) == limit && limit > 0 {
+		last := rows[len(rows)-1].Seq
+		next = &last
+	}
+	writeJSON(w, http.StatusOK, auditEventsResponse{Events: out, NextCursor: next})
+}
+
 // handleAuditExport streams filtered events as JSONL (default) or CSV. The
 // export is self-audited BEFORE any body is written, so an aborted download is
 // still recorded; if that audit write fails, respond 500 before streaming.
