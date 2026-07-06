@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { History } from 'lucide-react'
 import { endpoints, MaskedSecret } from '../lib/endpoints'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
 import { EmptyState } from '../ui/EmptyState'
+import { Sheet } from '../ui/Sheet'
+import { VersionHistory } from './VersionHistory'
 
 const badge: Record<MaskedSecret['origin'], string> = {
   own: 'bg-success-soft text-success',
@@ -22,6 +25,7 @@ export function SecretEditor() {
   const [buffer, setBuffer] = useState<Buffer>(emptyBuffer())
   const [editing, setEditing] = useState<Record<string, boolean>>({})
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [showHistory, setShowHistory] = useState(false)
 
   const original = raw.data?.secrets ?? {}
   // The config version (from the raw reveal) — not the max per-secret value
@@ -68,13 +72,22 @@ export function SecretEditor() {
         <span className="text-sm text-muted">
           {dirty ? `Pending: +${summary.added} added · ${summary.changed} changed · ${summary.removed} removed` : `${rows.length} keys`}
         </span>
-        <button
-          onClick={() => save.mutate()}
-          disabled={!dirty || save.isPending}
-          className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
-        >
-          {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
+          >
+            <History size={14} strokeWidth={1.7} /> History
+          </button>
+          <button
+            onClick={() => save.mutate()}
+            disabled={!dirty || save.isPending}
+            className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
+          >
+            {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
+          </button>
+        </div>
       </div>
       {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
       {rows.length === 0 && addedKeys.length === 0 ? (
@@ -141,6 +154,9 @@ export function SecretEditor() {
       </table>
       )}
       <AddKeyRow onAdd={(k, v) => setBuffer((b) => addKey(b, k, v))} />
+      <Sheet open={showHistory} onOpenChange={setShowHistory} title="Version history">
+        <VersionHistory cid={cid} dirty={dirty} />
+      </Sheet>
     </div>
   )
 }

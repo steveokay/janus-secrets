@@ -140,8 +140,11 @@ list with masked dots and a save button.
 - [ ] **P2** **Reveal ergonomics**: reveal-all toggle, auto-re-mask on blur/idle,
       "copied!" confirmation, never persist revealed plaintext (keep the current
       security invariant — ephemeral state only).
-- [ ] **P2** **Version history drawer**: list config versions with author/time and
+- [x] **P2** **Version history drawer**: list config versions with author/time and
       one-click rollback (there's an API for this; today it's a placeholder).
+      *(B2 — Sheet drawer with key-name-only diffs (zero values on this
+      surface), confirm-gated audited rollback, disabled + visibly hinted while
+      the editor is dirty.)*
 - [ ] **P2** Keyboard support: `⌘/Ctrl+S` to save, arrow/enter navigation between
       rows, `Esc` to cancel an edit.
 
@@ -155,10 +158,13 @@ Stop re-styling primitives per screen; build once, use everywhere.
       state, with proper focus rings.
 - [ ] **P1** **Input / Select / Textarea** with consistent styling, labels, error
       text, and disabled states.
-- [ ] **P1** **Modal/Dialog** (replaces the current bare create/change-password
+- [x] **P1** **Modal/Dialog** (replaces the current bare create/change-password
       forms): focus-trapped, `Esc`-to-close, backdrop, header/body/footer.
-- [ ] **P1** **Toast/notification** system for save success, errors, copied, etc.
-      (currently no feedback surface at all).
+      *(B2 — `ConfirmDialog` (Radix AlertDialog) + `Sheet` slide-over shipped;
+      migrating CreateForms/ChangePassword onto them is Slice 3.)*
+- [x] **P1** **Toast/notification** system for save success, errors, copied, etc.
+      (currently no feedback surface at all). *(B2 — app-level `ToastProvider` +
+      `useToast`; rollback flows use it; editor save/copy toasts land in Slice 3.)*
 - [ ] **P1** **Badge**, **Tooltip**, **Card**, **Tabs**, **Skeleton** loaders.
 - [ ] **P2** **Dropdown menu** (Radix/headless) for the user menu and row actions.
 
