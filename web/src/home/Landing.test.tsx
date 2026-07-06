@@ -35,10 +35,7 @@ test('error state announces failure', async () => {
 })
 
 test('loading skeletons are aria-hidden', () => {
-  server.use(http.get('/v1/projects', async () => {
-    await new Promise((r) => setTimeout(r, 1000))
-    return HttpResponse.json({ projects: [] })
-  }))
+  server.use(http.get('/v1/projects', () => new Promise(() => {})))
   const { container } = renderApp(<Landing />, { withAuth: false })
   const skeleton = container.querySelector('[aria-hidden]')
   expect(skeleton).not.toBeNull()

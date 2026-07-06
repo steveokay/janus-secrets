@@ -52,7 +52,7 @@ test('empty config shows the empty state', async () => {
       return HttpResponse.json({ secrets: {} })
     }),
   )
-  renderApp(<SecretEditor />, { route: '/projects/p1/configs/cEmpty' })
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/cEmpty', withAuth: false })
   expect(await screen.findByText('No secrets yet')).toBeInTheDocument()
   // AddKeyRow must still be present so the user can add the first key:
   expect(screen.getByLabelText('new key')).toBeInTheDocument()
