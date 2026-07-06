@@ -10,7 +10,7 @@ export function UserMenu() {
   const { user, logout } = useAuth()
   const [showPw, setShowPw] = useState(false)
   if (!user) return null
-  const initials = (user.email.split('@')[0] || user.email).slice(0, 2).toUpperCase()
+  const initials = (user.name.split('@')[0] || user.name).slice(0, 2).toUpperCase()
 
   return (
     <>
@@ -27,7 +27,7 @@ export function UserMenu() {
             sideOffset={6}
             className="min-w-[210px] rounded-card border border-line bg-card p-1.5 shadow-pop"
           >
-            <div className="px-2.5 pb-1.5 pt-1 text-[12px] text-faint">{user.email}</div>
+            <div className="px-2.5 pb-1.5 pt-1 text-[12px] text-faint">{user.name}</div>
             <Menu.Separator className="my-1 h-px bg-line-soft" />
             <Menu.Item className={item} onSelect={() => setShowPw(true)}>
               Change password

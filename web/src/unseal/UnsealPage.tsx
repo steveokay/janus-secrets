@@ -55,12 +55,12 @@ export function UnsealPage({ onUnsealed }: { onUnsealed: () => void }) {
         <div>
           <h1 className="text-[17px] font-semibold tracking-tight">Unseal Janus</h1>
           <p className="text-[12.5px] text-muted">
-            {(status.progress ?? 0)} of {status.threshold} shares submitted
+            {status.progress?.submitted ?? 0} of {status.threshold} shares submitted
           </p>
         </div>
         <div className="flex gap-1.5" aria-hidden>
           {Array.from({ length: status.threshold ?? 0 }, (_, i) => (
-            <span key={i} className={cn('h-1.5 flex-1 rounded-full', i < (status.progress ?? 0) ? 'bg-brand' : 'bg-line-soft')} />
+            <span key={i} className={cn('h-1.5 flex-1 rounded-full', i < (status.progress?.submitted ?? 0) ? 'bg-brand' : 'bg-line-soft')} />
           ))}
         </div>
         <label className="flex flex-col gap-1 text-[12px] font-semibold">Unseal key share

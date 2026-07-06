@@ -6,12 +6,12 @@ import { renderApp } from '../test/render'
 import { UnsealPage } from './UnsealPage'
 
 test('shamir: submitting shares advances progress then calls onUnsealed', async () => {
-  const status = { initialized: true, sealed: true, type: 'shamir', threshold: 2, shares: 3, progress: 0 }
+  const status = { initialized: true, sealed: true, type: 'shamir', threshold: 2, shares: 3, progress: { submitted: 0, required: 2 } }
   server.use(
     http.get('/v1/sys/seal-status', () => HttpResponse.json(status)),
     http.post('/v1/sys/unseal', () => {
-      status.progress += 1
-      if (status.progress >= status.threshold) status.sealed = false
+      status.progress.submitted += 1
+      if (status.progress.submitted >= status.threshold) status.sealed = false
       return HttpResponse.json(status)
     }),
   )
