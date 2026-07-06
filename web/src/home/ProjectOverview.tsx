@@ -12,7 +12,12 @@ import { useTitle } from '../lib/title'
 import { timeAgo } from '../lib/time'
 import { CreateEnvironmentForm } from '../structure/CreateForms'
 
-function ConfigRow({ pid, config, meta }: { pid: string; config: Config; meta?: Record<string, MaskedSecret> }) {
+function ConfigRow({ pid, config, meta, metaError }: {
+  pid: string
+  config: Config
+  meta?: Record<string, MaskedSecret>
+  metaError?: boolean
+}) {
   const keys = meta ? Object.keys(meta).length : undefined
   const last = meta
     ? Object.values(meta).reduce<string | null>((acc, m) => (!acc || m.created_at > acc ? m.created_at : acc), null)
@@ -27,7 +32,13 @@ function ConfigRow({ pid, config, meta }: { pid: string; config: Config; meta?: 
         {config.inherits_from && <span className="ml-1 text-[11px] text-info">↳</span>}
       </span>
       <span className="text-[11.5px] tabular-nums text-faint">
-        {keys === undefined ? '— keys' : keys === 0 ? '0 keys' : `${keys} keys · ${timeAgo(last!)}`}
+        {metaError
+          ? <span title="Couldn't load key metadata" className="text-danger/70">keys unavailable</span>
+          : keys === undefined
+            ? '— keys'
+            : keys === 0
+              ? '0 keys'
+              : `${keys} keys${last ? ` · ${timeAgo(last)}` : ''}`}
       </span>
     </Link>
   )
@@ -55,7 +66,9 @@ function EnvCard({ pid, name, configs, error }: { pid: string; name: string; con
       {configs?.length === 0 && (
         <p className="border-t border-line-soft px-4 py-2.5 text-[12.5px] text-faint">No configs yet</p>
       )}
-      {configs?.map((c, i) => <ConfigRow key={c.id} pid={pid} config={c} meta={metas[i]?.data} />)}
+      {configs?.map((c, i) => (
+        <ConfigRow key={c.id} pid={pid} config={c} meta={metas[i]?.data} metaError={!!metas[i]?.error} />
+      ))}
     </section>
   )
 }

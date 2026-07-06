@@ -44,3 +44,24 @@ test('zero environments shows EmptyState with create action', async () => {
   await userEvent.click(screen.getByRole('button', { name: /create environment/i }))
   expect(await screen.findByRole('heading', { name: /new environment/i })).toBeInTheDocument()
 })
+
+test('environments fetch failure shows the page-level error', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'acme', name: 'acme-api' }] })),
+    http.get('/v1/projects/p1/environments', () => HttpResponse.error()),
+  )
+  renderApp(<ProjectOverview />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load environments.')
+})
+
+test('configs fetch failure shows the card-level error', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'acme', name: 'acme-api' }] })),
+    http.get('/v1/projects/p1/environments', () =>
+      HttpResponse.json({ environments: [{ id: 'e1', slug: 'prod', name: 'production' }] }),
+    ),
+    http.get('/v1/projects/p1/environments/e1/configs', () => HttpResponse.error()),
+  )
+  renderApp(<ProjectOverview />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByText("Couldn't load configs.")).toBeInTheDocument()
+})
