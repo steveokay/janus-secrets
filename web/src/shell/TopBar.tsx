@@ -9,6 +9,9 @@ export function TopBar({ sealed }: { sealed: boolean }) {
       <Brand />
       <Breadcrumb />
       <div className="ml-auto flex items-center gap-3.5">
+        {/* Gate renders UnsealPage whenever the server is sealed, so this pill is
+            effectively always "Unsealed" today; it exists so the shell stays honest
+            if Gate's branch order ever changes. */}
         {sealed ? (
           <Pill tone="danger" dot>Sealed</Pill>
         ) : (
