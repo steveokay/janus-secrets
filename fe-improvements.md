@@ -52,6 +52,11 @@ at all — every component picks raw Tailwind grays.
 by default). shadcn would accelerate buttons/dialogs/menus/toasts/tooltips and
 raise quality fast; worth a short discussion given the "minimal deps" ethos.
 
+> **Decision (2026-07-06, Slice 1 planning): shadcn-lean.** Adopt the pattern,
+> not the whole kit: Radix `DropdownMenu` + `lucide-react` + `cn()`
+> (clsx + tailwind-merge) ship in Slice 1; Dialog/Toast/Tooltip primitives are
+> adopted in Slice 3 when the component kit (§4) is built.
+
 ---
 
 ## 1. App shell & branding (P0)
@@ -201,6 +206,12 @@ empty/loaded state using the component kit above rather than bespoke markup.
 
 1. **Slice 1 — Foundations + shell** (P0 §0–§1): design tokens, typography,
    surfaces, top-bar/branding, sidebar. Instantly kills the "blank/cheap" feel.
+   **→ PLANNED:** [`docs/superpowers/plans/2026-07-06-ui-slice1-tokens-shell.md`](docs/superpowers/plans/2026-07-06-ui-slice1-tokens-shell.md)
+   (branch `milestone-13-ui-slice1`). Covers: §0 tokens/typography/surfaces/rhythm,
+   §1 brand+top bar+sidebar, the no-raw-palette test gate, plus pulled-forward
+   token conversions of §6 auth/unseal cards and §3/§5 dialogs+editor classes
+   (mechanical only — their full redesigns stay in Slices 2–4). Items below get
+   checked off when the slice merges.
 2. **Slice 2 — Landing + empty states** (P0 §2): dashboard/landing + reusable
    `<EmptyState>`. Kills the literal empty page.
 3. **Slice 3 — Secret editor polish** (P0/P1 §3) on top of a **component kit**

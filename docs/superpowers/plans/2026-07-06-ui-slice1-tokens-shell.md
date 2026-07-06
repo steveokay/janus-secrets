@@ -1122,7 +1122,7 @@ Expected: success (embedded assets rebuilt by `npm run build` land where `go:emb
 
 - [ ] **Step 3: Check off the shipped items in `fe-improvements.md`**
 
-Mark `[x]` exactly these boxes: §0 color palette, §0 typography scale, §0 surfaces & depth, §0 spacing & radius rhythm; §1 brand mark + favicon/titles, §1 top bar redesign, §1 sidebar redesign. Add one line under §0's open decision: `Decision (Slice 1): shadcn-lean — Radix DropdownMenu + lucide-react + cn(); full kit adoption in Slice 3.` Leave everything else unchecked (env *tabs* remain P1 — the sidebar env color dots shipped, the tab strip in the editor header is Slice 3).
+Mark `[x]` exactly these boxes: §0 color palette, §0 typography scale, §0 surfaces & depth, §0 spacing & radius rhythm; §1 brand mark + favicon/titles, §1 top bar redesign, §1 sidebar redesign. Also change the Slice 1 rollout entry's "**→ PLANNED:**" marker to "**→ SHIPPED:**". (The shadcn-lean decision is already recorded under §0.) Leave everything else unchecked (env *tabs* remain P1 — the sidebar env color dots shipped, the tab strip in the editor header is Slice 3).
 
 - [ ] **Step 4: Commit**
 
