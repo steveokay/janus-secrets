@@ -144,25 +144,27 @@ export function AuditPage() {
         >
           Reset
         </button>
-        <div className="ml-auto flex flex-col items-end gap-1">
-          <div className="flex gap-2">
-            <a
-              download
-              href={endpoints.auditExportUrl(applied, 'jsonl')}
-              className="rounded border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-ink"
-            >
-              Export JSONL
-            </a>
-            <a
-              download
-              href={endpoints.auditExportUrl(applied, 'csv')}
-              className="rounded border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-ink"
-            >
-              Export CSV
-            </a>
+        {!forbidden && (
+          <div className="ml-auto flex flex-col items-end gap-1">
+            <div className="flex gap-2">
+              <a
+                download
+                href={endpoints.auditExportUrl(applied, 'jsonl')}
+                className="rounded border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-ink"
+              >
+                Export JSONL
+              </a>
+              <a
+                download
+                href={endpoints.auditExportUrl(applied, 'csv')}
+                className="rounded border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-ink"
+              >
+                Export CSV
+              </a>
+            </div>
+            <p className="text-[11px] text-faint">Exports are audited.</p>
           </div>
-          <p className="text-[11px] text-faint">Exports are audited.</p>
-        </div>
+        )}
       </div>
 
       {forbidden ? (
