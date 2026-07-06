@@ -756,6 +756,26 @@ tests; fixed to derive the id from the URL via `useLocation()` + `matchPath`.
 saw no `configId` under test; fixed by wrapping the rendered element in a
 matching `<Route>` in the harness (component left correct).
 
+Final adversarial review (whole-milestone diff): **no critical security
+defects** — the seal gate, path-traversal handling, CSP, reveal-into-cache, and
+unseal-share handling all verified clean. Six functional/hygiene findings were
+fixed before merge (commit `8ab5082`): **(1)** a newly added key lived only in
+the dirty buffer and rendered no row — now shown as a visible, editable,
+removable row; **(2)** `logout()` did not clear the Query cache — now clears it
+so no revealed plaintext survives sign-out; **(3)** a 401 from any query
+client-navigated to `/login`, leaving stale cached data — now clears the cache
+and re-bootstraps auth; **(4)** the save button's version label read a
+value-version — now reads the real config version via a new `endpoints.rawConfig`
+(`?reveal=true&raw=true`); **(5)** `refresh()` did not swallow a `/me` 503 — now
+treats any `/me` failure (401 or 503) as "not authenticated"; **(6)** `embed.go`
+could emit a directory listing — now serves only real files, with directory
+paths falling through to the SPA shell. A test-harness bug surfaced while fixing
+#4: **MSW v2 matches on path only and ignores the query string**, so the masked
+(`…/secrets`) and raw (`…/secrets?reveal=true&raw=true`) handlers collided on one
+path; fixed by consolidating each into a single handler that branches on
+`new URL(request.url).searchParams` the way the real server does. Merged to main
+via **PR #21** (merge commit `716d7d9`).
+
 ## Phase-2 items already on the radar
 
 - [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google
