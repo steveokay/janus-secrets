@@ -179,10 +179,10 @@ Run: `npx vitest run src/ui/Brand.test.tsx` — FAIL (module missing).
 export function Brand({ markOnly = false, size = 20 }: { markOnly?: boolean; size?: number }) {
   return (
     <span className="flex items-center gap-2 text-[15px] font-bold tracking-tight text-ink">
-      <svg width={size} height={size} viewBox="0 0 20 20" role="img" aria-label="Janus logo">
-        <path d="M10 1.5 L17.5 6 V14 L10 18.5 L2.5 14 V6 Z" fill="none" stroke="#6A5CF5" strokeWidth="1.6" />
-        <path d="M10 1.5 V18.5 M10 10 L17.5 6 M10 10 L2.5 6" stroke="#6A5CF5" strokeWidth="1.1" opacity=".55" />
-        <path d="M10 1.5 L17.5 6 V14 L10 18.5 Z" fill="#6A5CF5" opacity=".18" />
+      <svg width={size} height={size} viewBox="0 0 20 20" role="img" aria-label="Janus logo" className="text-brand">
+        <path d="M10 1.5 L17.5 6 V14 L10 18.5 L2.5 14 V6 Z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M10 1.5 V18.5 M10 10 L17.5 6 M10 10 L2.5 6" stroke="currentColor" strokeWidth="1.1" opacity=".55" />
+        <path d="M10 1.5 L17.5 6 V14 L10 18.5 Z" fill="currentColor" opacity=".18" />
       </svg>
       {!markOnly && <span>Janus</span>}
     </span>
@@ -190,7 +190,7 @@ export function Brand({ markOnly = false, size = 20 }: { markOnly?: boolean; siz
 }
 ```
 
-(The two hex literals here are the one sanctioned exception: an SVG logo is artwork, not themed UI; the palette gate in Task 10 only scans Tailwind palette *classes*, so this passes.)
+(No hex literals: the mark inherits the accent via `className="text-brand"` + `currentColor`, so the gate's hex-literal ban (Task 10, merged design) passes. `public/favicon.svg` keeps its hex values — it's a static asset outside `src/` and is not scanned.)
 
 - [ ] **Step 3: Create `web/public/favicon.svg`**
 
@@ -1048,12 +1048,14 @@ git commit -m "refactor(web): convert dialogs, placeholders, secret editor to de
 
 ---
 
-### Task 10: Palette gate — no raw Tailwind palette classes ever again
+### Task 10: Palette gate — no raw palette classes or hex literals ever again
+
+*(Merged rule set from the reconciled parallel design `2026-07-06-spa-foundations-slice1-design.md`: adds the hex-literal ban, file:line reporting, scans test files too, and lives in `web/src/test/`.)*
 
 **Files:**
-- Create: `web/src/ui/no-raw-palette.test.ts`
+- Create: `web/src/test/no-raw-palette.test.ts`
 
-- [ ] **Step 1: Write the gate test** — `web/src/ui/no-raw-palette.test.ts`
+- [ ] **Step 1: Write the gate test** — `web/src/test/no-raw-palette.test.ts`
 
 ```ts
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -1061,11 +1063,17 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Enforces spec hard rule #1 (docs/superpowers/specs/2026-07-06-ui-visual-design.md):
-// components use theme tokens, never raw Tailwind palette classes.
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..')
+// (a) no raw Tailwind palette classes — components use theme tokens;
+// (b) no hex color literals in src — token hexes live in tailwind.config.js,
+//     static assets in public/ are not scanned.
+// Scans every .ts/.tsx/.css under web/src including tests; the only exclusion
+// is this file itself (its regexes would self-match).
+const SELF = fileURLToPath(import.meta.url)
+const SRC = join(dirname(SELF), '..')
 
 const RAW_PALETTE =
-  /\b(?:bg|text|border|ring|fill|stroke|divide|from|via|to|placeholder|accent|caret|decoration|outline|shadow)-(?:gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d+)?\b/g
+  /\b(?:bg|text|border|ring|ring-offset|fill|stroke|divide|from|via|to|placeholder|accent|caret|decoration|outline|shadow)-(?:gray|slate|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d+)?\b/
+const HEX_LITERAL = /#[0-9a-fA-F]{3,8}\b/
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -1074,12 +1082,16 @@ function walk(dir: string): string[] {
   })
 }
 
-test('no raw Tailwind palette classes in web/src (use theme tokens)', () => {
-  const files = walk(SRC).filter((f) => /\.(ts|tsx|css)$/.test(f) && !/\.test\.(ts|tsx)$/.test(f))
+test('no raw Tailwind palette classes or hex literals in web/src (use theme tokens)', () => {
+  const files = walk(SRC).filter((f) => /\.(ts|tsx|css)$/.test(f) && f !== SELF)
   const offenders: string[] = []
   for (const f of files) {
-    const hits = readFileSync(f, 'utf8').match(RAW_PALETTE)
-    if (hits) offenders.push(`${f}: ${[...new Set(hits)].join(', ')}`)
+    readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      const raw = line.match(RAW_PALETTE)
+      if (raw) offenders.push(`${f}:${i + 1} ${raw[0]}`)
+      const hex = line.match(HEX_LITERAL)
+      if (hex) offenders.push(`${f}:${i + 1} hex literal ${hex[0]}`)
+    })
   }
   expect(offenders).toEqual([])
 })
@@ -1087,14 +1099,14 @@ test('no raw Tailwind palette classes in web/src (use theme tokens)', () => {
 
 - [ ] **Step 2: Run it**
 
-Run: `npx vitest run src/ui/no-raw-palette.test.ts`
-Expected: PASS — Tasks 6–9 removed every raw class. If it fails, the failure message lists file + offending classes; fix those files with the token equivalents from the spec's tables, do not touch the test.
+Run: `npx vitest run src/test/no-raw-palette.test.ts`
+Expected: PASS — Tasks 6–9 removed every raw class and Task 2's Brand mark uses `currentColor` (no hex). If it fails, the message lists `file:line` + the offending match; fix those files with token equivalents from the spec's tables, do not touch the test.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/ui/no-raw-palette.test.ts
-git commit -m "test(web): gate forbidding raw Tailwind palette classes in src"
+git add src/test/no-raw-palette.test.ts
+git commit -m "test(web): gate forbidding raw palette classes and hex literals in src"
 ```
 
 ---

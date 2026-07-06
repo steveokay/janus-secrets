@@ -1,5 +1,21 @@
 # SPA Slice 1 — Visual Foundations + Shell + Core Kit (implementation design)
 
+> **RECONCILED 2026-07-06 — superseded by the executing plan.** This doc was
+> authored in a parallel session; the single source of truth for Slice 1
+> execution is
+> [`docs/superpowers/plans/2026-07-06-ui-slice1-tokens-shell.md`](../plans/2026-07-06-ui-slice1-tokens-shell.md)
+> (branch `milestone-13-ui-slice1`, in progress). Merge outcome:
+> **Adopted from this doc:** the stronger enforcement gate — hex-literal ban in
+> `src/`, file:line reporting, tests scanned too, gate at
+> `web/src/test/no-raw-palette.test.ts`; Brand mark SVG via
+> `currentColor`/`text-brand` (no hex literals).
+> **Not adopted:** token naming `border`/`border-soft` and `rounded-control`
+> (Task 1 already shipped `line`/`line-soft` and radius `DEFAULT`=8px per the
+> visual spec's mapping note); §4 component kit and §2 empty states stay in
+> Slices 3/2 per the tracker's rollout.
+> **Still valid:** the banked B2 decisions below (Sheet drawer, per-version
+> diff, rollback-with-confirm) carry forward as input to the B2 slice.
+
 - **Status:** design approved 2026-07-06 (scope + mechanism approved by Steve).
 - **Visual authority:** this slice *implements* the locked
   [`2026-07-06-ui-visual-design.md`](2026-07-06-ui-visual-design.md) and
