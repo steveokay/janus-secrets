@@ -787,7 +787,27 @@ via **PR #21** (merge commit `716d7d9`).
 - [x] Transit/KMS engine — **complete** (see the Sub-project A section above;
       `internal/transit`, `/v1/transit/*`, transit token scope, `docs/transit.md`).
 - [x] React SPA — **milestone 1 (core editor) complete** (see the Sub-project B
-      section above; `web/` + `internal/web`, `docs/web.md`). Later B-slices:
-      version diff/rollback, audit viewer, token/member management, dashboard +
-      usage metrics, transit UI.
+      section above; `web/` + `internal/web`, `docs/web.md`).
 - [ ] Usage metrics (per CLAUDE.md Phase 2 — sub-project D, not yet specced).
+
+### Next up: remaining SPA feature slices (before C/D)
+
+Decision (2026-07-06): build out the remaining **SPA feature slices** — the
+"Coming soon" placeholder screens — next, ahead of sub-projects C (OIDC) and D
+(usage-metrics backend). Each is its own brainstorm → spec → plan →
+subagent-driven slice consuming existing `/v1` APIs:
+
+- [ ] **B2** — config version history: list, diff, rollback (existing
+      versions/diff/rollback API; natural extension of the M1 editor)
+- [ ] **B3** — audit viewer: event list + filters, chain-verify badge, export
+      (existing `/v1/audit/verify` + `/export`)
+- [ ] **B4** — token + member management (existing `/v1/tokens`, `/v1/users`,
+      `.../members`; unblocks creating users from the UI)
+- [ ] **B5** — transit UI (existing `/v1/transit/*`)
+- [ ] **B6** — usage-metrics dashboard (consumes sub-project D; build after/with D)
+
+Separately, **FE visual polish** (a Doppler-inspired theme: design tokens,
+branding, component kit, richer empty states) is tracked in
+[`fe-improvements.md`](fe-improvements.md) and deliberately **deferred** until
+after these functional slices — the placeholder screens are built plainly now and
+restyled in the polish pass.
