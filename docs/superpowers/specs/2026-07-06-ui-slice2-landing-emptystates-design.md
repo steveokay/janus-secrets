@@ -90,6 +90,9 @@ Replaces the "Select a config from the sidebar." div.
   `text-[12.5px] text-danger` "Couldn't load configs."
   Count/last-change queries that fail render "— keys" (`text-faint`), never
   block the row link.
+  *(Amended post-review: failed count queries render "keys unavailable" in
+  `text-danger/70` with a tooltip instead of "— keys", so an error is
+  distinguishable from still-loading; the row link stays active either way.)*
 - Title: `useTitle(project.name)` once resolved.
 - **Security:** masked metadata only (`maskedSecrets`); never `revealAll`/
   `rawConfig`; no audit events from rendering this page.
