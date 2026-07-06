@@ -1,6 +1,11 @@
 # Front-End Improvements — Janus Web UI
 
 > **Status:** ideas / backlog tracker. Nothing here is built yet unless checked.
+> **Visual design: APPROVED 2026-07-06.** Canonical mockup:
+> [`docs/design/ui-mockup.html`](docs/design/ui-mockup.html) · spec (tokens + hard
+> rules): [`docs/superpowers/specs/2026-07-06-ui-visual-design.md`](docs/superpowers/specs/2026-07-06-ui-visual-design.md).
+> All slices below implement that mockup — agents must not restyle ad hoc
+> (enforced via the "Web UI visual system" section in CLAUDE.md).
 > **Direction (locked):** a modern, polished, *Doppler-inspired* light theme —
 > clean, appealing, product-grade — with an optional dark mode. The current
 > milestone-1 SPA is function-first (white-on-white, hairline borders, tiny glyph
