@@ -57,3 +57,38 @@ test('rollback posts target_version and message', async () => {
   await expect(endpoints.rollback('c1', 1, 'Rollback to v1')).resolves.toMatchObject({ version: 3 })
   expect(body).toEqual({ target_version: 1, message: 'Rollback to v1' })
 })
+
+test('listAuditEvents builds params and returns envelope', async () => {
+  let url = ''
+  server.use(http.get('/v1/audit/events', ({ request }) => {
+    url = request.url
+    return HttpResponse.json({ events: [
+      { seq: 5, occurred_at: '2026-07-06T10:00:00.000000001Z', actor_kind: 'user', actor_id: 'u1',
+        actor_name: 'steve@acme.dev', action: 'secret.write', resource: 'configs/c1', detail: null,
+        result: 'success', result_code: null, ip: '127.0.0.1', prev_hash: 'aa', hash: 'bb' },
+    ], next_cursor: 5 })
+  }))
+  const r = await endpoints.listAuditEvents({ actor: 'steve', result: 'denied', cursor: 9, limit: 2 })
+  expect(r.next_cursor).toBe(5)
+  const q = new URL(url).searchParams
+  expect(q.get('actor')).toBe('steve')
+  expect(q.get('result')).toBe('denied')
+  expect(q.get('cursor')).toBe('9')
+  expect(q.get('limit')).toBe('2')
+  expect(q.get('from')).toBeNull()
+})
+
+test('verifyAudit returns the verify result', async () => {
+  server.use(http.get('/v1/audit/verify', () =>
+    HttpResponse.json({ valid: true, count: 42, head_seq: 42, head_hash: 'ff' })))
+  await expect(endpoints.verifyAudit()).resolves.toMatchObject({ valid: true, count: 42 })
+})
+
+test('auditExportUrl carries filters and format', () => {
+  const u = endpoints.auditExportUrl({ actor: 'steve', result: 'denied' }, 'csv')
+  const q = new URL(u, 'http://x').searchParams
+  expect(u.startsWith('/v1/audit/export?')).toBe(true)
+  expect(q.get('format')).toBe('csv')
+  expect(q.get('actor')).toBe('steve')
+  expect(q.get('result')).toBe('denied')
+})
