@@ -9,6 +9,7 @@ test.each([
   ['qa', 'warning'],
   ['prod', 'danger'],
   ['production', 'danger'],
+  ['PROD', 'danger'],
   ['custom-env', 'info'],
 ])('envTone(%s) → %s', (slug, tone) => {
   expect(envTone(slug)).toBe(tone)
