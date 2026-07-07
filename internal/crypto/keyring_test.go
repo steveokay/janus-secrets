@@ -215,6 +215,41 @@ func TestAuthKeyWrapUnwrap(t *testing.T) {
 	}
 }
 
+func TestOIDCClientSecretWrapRoundTrip(t *testing.T) {
+	k := NewKeyring()
+	if err := k.Unseal(testKey(0xAA)); err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("super-secret-oidc-client-value-of-arbitrary-length")
+
+	ct, err := k.WrapOIDCClientSecret(secret)
+	if err != nil {
+		t.Fatalf("wrap: %v", err)
+	}
+	got, err := k.UnwrapOIDCClientSecret(ct)
+	if err != nil {
+		t.Fatalf("unwrap: %v", err)
+	}
+	if string(got) != string(secret) {
+		t.Fatalf("round-trip mismatch: got %q", got)
+	}
+
+	ct.Data[0] ^= 0xff
+	if _, err := k.UnwrapOIDCClientSecret(ct); err == nil {
+		t.Fatal("expected error unwrapping tampered ciphertext")
+	}
+}
+
+func TestOIDCClientSecretWrapSealed(t *testing.T) {
+	k := NewKeyring() // sealed
+	if _, err := k.WrapOIDCClientSecret([]byte("x")); err != ErrSealed {
+		t.Fatalf("want ErrSealed, got %v", err)
+	}
+	if _, err := k.UnwrapOIDCClientSecret(Ciphertext{Nonce: make([]byte, NonceSize)}); err != ErrSealed {
+		t.Fatalf("want ErrSealed, got %v", err)
+	}
+}
+
 func TestKeyringDoubleSeal(t *testing.T) {
 	k := NewKeyring()
 	k.Seal() // sealing an already-sealed keyring must not panic
