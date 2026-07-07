@@ -4,6 +4,7 @@ import { Shield, Lock, Unlock, Plus } from 'lucide-react'
 import { endpoints, TransitKey, TransitKeyType } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
 import { Pill } from '../ui/Pill'
+import { KeyActions } from './KeyActions'
 import { EmptyState } from '../ui/EmptyState'
 import { useTitle } from '../lib/title'
 import { cn } from '../ui/cn'
@@ -120,30 +121,38 @@ function KeyRow({ k, selected, onSelect }: {
   selected: boolean
   onSelect: () => void
 }) {
+  // Row is a plain container so the select affordance and the actions menu are
+  // SIBLINGS — nesting the menu trigger inside the select <button> would be
+  // invalid HTML and swallow clicks.
   return (
-    <button
-      type="button"
+    <div
       data-key-row
       data-key-name={k.name}
       aria-current={selected ? 'true' : undefined}
-      onClick={onSelect}
       className={cn(
-        'flex w-full items-center gap-3 border-t border-line-soft px-3 py-2 text-left first:border-t-0 hover:bg-line-soft',
+        'flex items-center gap-3 border-t border-line-soft px-3 py-2 first:border-t-0 hover:bg-line-soft',
         selected && 'bg-brand-soft hover:bg-brand-soft',
       )}
     >
-      <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">{k.name}</span>
-      <Pill tone={typeTone[k.type]}>{k.type}</Pill>
-      <Pill tone="muted">v{k.latest_version}</Pill>
-      {k.min_decryption_version > 1 && (
-        <span className="text-[11.5px] text-faint">min v{k.min_decryption_version}</span>
-      )}
-      {k.deletion_allowed ? (
-        <Unlock size={14} strokeWidth={1.7} className="text-faint" aria-label="deletion allowed" />
-      ) : (
-        <Lock size={14} strokeWidth={1.7} className="text-faint" aria-label="deletion protected" />
-      )}
-    </button>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-ink">{k.name}</span>
+        <Pill tone={typeTone[k.type]}>{k.type}</Pill>
+        <Pill tone="muted">v{k.latest_version}</Pill>
+        {k.min_decryption_version > 1 && (
+          <span className="text-[11.5px] text-faint">min v{k.min_decryption_version}</span>
+        )}
+        {k.deletion_allowed ? (
+          <Unlock size={14} strokeWidth={1.7} className="text-faint" aria-label="deletion allowed" />
+        ) : (
+          <Lock size={14} strokeWidth={1.7} className="text-faint" aria-label="deletion protected" />
+        )}
+      </button>
+      <KeyActions keyMeta={k} />
+    </div>
   )
 }
 
