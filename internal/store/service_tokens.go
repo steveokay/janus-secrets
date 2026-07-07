@@ -13,17 +13,26 @@ func NewServiceTokenRepo(s *Store) *ServiceTokenRepo { return &ServiceTokenRepo{
 
 // #nosec G101 -- this is a SQL column list, not a hardcoded credential.
 const svcTokenCols = `id::text, name, token_hmac, created_by::text, scope_kind,
-	scope_id::text, access, created_at, expires_at, revoked_at`
+	scope_id::text, access, created_at, expires_at, revoked_at, federation_binding::text`
 
 func scanServiceToken(row interface{ Scan(...any) error }) (*ServiceToken, error) {
 	var t ServiceToken
-	var scopeID *string // scope_id is nullable (transit tokens may target all keys)
-	if err := row.Scan(&t.ID, &t.Name, &t.TokenHMAC, &t.CreatedBy, &t.ScopeKind,
-		&scopeID, &t.Access, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt); err != nil {
+	// scope_id is nullable (transit tokens may target all keys); created_by is
+	// nullable for federated tokens; federation_binding is nullable for
+	// human-minted tokens.
+	var scopeID, createdBy, fedBinding *string
+	if err := row.Scan(&t.ID, &t.Name, &t.TokenHMAC, &createdBy, &t.ScopeKind,
+		&scopeID, &t.Access, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt, &fedBinding); err != nil {
 		return nil, mapError(err)
 	}
 	if scopeID != nil {
 		t.ScopeID = *scopeID
+	}
+	if createdBy != nil {
+		t.CreatedBy = *createdBy
+	}
+	if fedBinding != nil {
+		t.FederationBinding = *fedBinding
 	}
 	return &t, nil
 }
@@ -44,6 +53,23 @@ func (r *ServiceTokenRepo) Create(ctx context.Context, name string, tokenHMAC []
 		 VALUES ($1, $2, $3::uuid, $4, $5, $6, $7)
 		 RETURNING `+svcTokenCols,
 		name, tokenHMAC, createdBy, scopeKind, sid, access, expiresAt)
+	return scanServiceToken(row)
+}
+
+// CreateFederated inserts a service token minted by CI federation: created_by
+// is NULL and federation_binding records the matched binding that minted it.
+func (r *ServiceTokenRepo) CreateFederated(ctx context.Context, name string, tokenHMAC []byte,
+	scopeKind, scopeID, access string, expiresAt *time.Time, bindingID string) (*ServiceToken, error) {
+	var sid any = scopeID
+	if scopeID == "" {
+		sid = nil
+	}
+	row := r.s.pool.QueryRow(ctx,
+		`INSERT INTO service_tokens
+		   (name, token_hmac, created_by, scope_kind, scope_id, access, expires_at, federation_binding)
+		 VALUES ($1, $2, NULL, $3, $4, $5, $6, $7::uuid)
+		 RETURNING `+svcTokenCols,
+		name, tokenHMAC, scopeKind, sid, access, expiresAt, bindingID)
 	return scanServiceToken(row)
 }
 
