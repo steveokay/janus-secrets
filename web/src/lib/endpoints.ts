@@ -95,7 +95,7 @@ export interface TransitKey {
   latest_version: number
   min_decryption_version: number
   deletion_allowed: boolean
-  versions: number[]
+  versions: readonly number[]
 }
 export interface TransitKeyConfig { min_decryption_version?: number; deletion_allowed?: boolean }
 

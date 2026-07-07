@@ -5,6 +5,7 @@ import { endpoints, TransitKey, TransitKeyType } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
 import { Pill } from '../ui/Pill'
 import { KeyActions } from './KeyActions'
+import { Playground } from './Playground'
 import { EmptyState } from '../ui/EmptyState'
 import { useTitle } from '../lib/title'
 import { cn } from '../ui/cn'
@@ -210,8 +211,12 @@ export function TransitPage() {
         </div>
       )}
 
-      {/* playground slot */}
-      {selected && null}
+      {/* Playground for the selected key. `key={selected}` remounts on switch,
+          clearing all input/result state so no crypto output leaks across keys. */}
+      {selected && (() => {
+        const k = rows.find((x) => x.name === selected)
+        return k ? <Playground key={selected} keyMeta={k} /> : null
+      })()}
 
       {creating && <CreateKeyForm onClose={() => setCreating(false)} />}
     </div>
