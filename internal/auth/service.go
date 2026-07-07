@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"runtime"
+	"sync"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -32,6 +33,13 @@ type Service struct {
 	envs     *store.EnvironmentRepo
 	transit  transitKeys
 	keyring  *crypto.Keyring
+
+	oidcProviders  *store.OIDCProviderRepo
+	oidcIdentities *store.OIDCIdentityRepo
+	oidcAuthReqs   *store.OIDCAuthRequestRepo
+
+	oidcMu    sync.Mutex
+	oidcCache *oidcVerifier
 }
 
 // NewService builds the repositories from st. kr is the (possibly still
@@ -47,6 +55,10 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		envs:     store.NewEnvironmentRepo(st),
 		transit:  store.NewTransitRepo(st),
 		keyring:  kr,
+
+		oidcProviders:  store.NewOIDCProviderRepo(st),
+		oidcIdentities: store.NewOIDCIdentityRepo(st),
+		oidcAuthReqs:   store.NewOIDCAuthRequestRepo(st),
 	}
 }
 

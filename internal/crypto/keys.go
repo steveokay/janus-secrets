@@ -62,6 +62,13 @@ func AuthKeyAAD() []byte {
 	return []byte("janus:auth:token-hmac")
 }
 
+// OIDCClientSecretAAD binds a wrapped OIDC client secret to the auth domain so
+// it can never be confused with a project KEK, the token-HMAC key, or any other
+// wrapped value.
+func OIDCClientSecretAAD() []byte {
+	return []byte("janus:auth:oidc-client-secret")
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

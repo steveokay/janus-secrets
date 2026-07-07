@@ -85,6 +85,28 @@ func (k *Keyring) UnwrapAuthKey(ct Ciphertext) ([]byte, error) {
 	return UnwrapKey(k.master, ct, AuthKeyAAD())
 }
 
+// WrapOIDCClientSecret encrypts an OIDC provider client secret (arbitrary
+// length) under the master key. Unlike WrapAuthKey it does not require
+// 32-byte input, so it calls Encrypt directly rather than WrapKey.
+func (k *Keyring) WrapOIDCClientSecret(secret []byte) (Ciphertext, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return Ciphertext{}, ErrSealed
+	}
+	return Encrypt(k.master, secret, OIDCClientSecretAAD())
+}
+
+// UnwrapOIDCClientSecret decrypts a secret wrapped by WrapOIDCClientSecret.
+func (k *Keyring) UnwrapOIDCClientSecret(ct Ciphertext) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return nil, ErrSealed
+	}
+	return Decrypt(k.master, ct, OIDCClientSecretAAD())
+}
+
 // NewDEK generates a fresh DEK and wraps it under projectKEK in one call,
 // minimizing the plaintext DEK's lifetime. Refuses to run while sealed.
 //

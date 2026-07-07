@@ -90,3 +90,40 @@ type Diff struct {
 	Changed []string
 	Removed []string
 }
+
+// OIDCProvider is a configured OIDC identity provider. WrappedClientSecret is
+// the master-key-wrapped client secret (never plaintext at rest).
+type OIDCProvider struct {
+	ID                  string
+	Name                string
+	Issuer              string
+	ClientID            string
+	WrappedClientSecret []byte
+	Scopes              []string
+	RedirectURL         string
+	Enabled             bool
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// OIDCIdentity links a provider subject to a Janus user. (Issuer, Subject) is
+// the durable federated identity; email is only used to match on first login.
+type OIDCIdentity struct {
+	ID          string
+	UserID      string
+	Issuer      string
+	Subject     string
+	CreatedAt   time.Time
+	LastLoginAt time.Time
+}
+
+// OIDCAuthRequest is a short-lived, single-use login state row created at the
+// start of an Authorization-Code flow and consumed at the callback.
+type OIDCAuthRequest struct {
+	State        string
+	Nonce        string
+	PKCEVerifier string
+	ProviderID   string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+}

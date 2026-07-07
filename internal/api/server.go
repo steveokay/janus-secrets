@@ -74,6 +74,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		// authenticated. Unit-test servers pass nil and hit the route directly.
 		if s.auth != nil && s.authz != nil {
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Get("/oidc", s.handleOIDCConfigGet)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Put("/oidc", s.handleOIDCConfigPut)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Delete("/oidc", s.handleOIDCConfigDelete)
 		} else {
 			r.Post("/seal", s.handleSeal)
 		}
@@ -82,6 +85,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		loginLimiter := newIPRateLimiter(10.0/60.0, 5) // 10/min sustained, burst 5
 		r.Route("/v1/auth", func(r chi.Router) {
 			r.With(loginLimiter.middleware).Post("/login", s.handleLogin)
+			r.With(loginLimiter.middleware).Get("/oidc/status", s.handleOIDCStatus)
+			r.With(loginLimiter.middleware).Get("/oidc/login", s.handleOIDCLogin)
+			r.With(loginLimiter.middleware).Get("/oidc/callback", s.handleOIDCCallback)
 			r.Group(func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
 				r.Post("/logout", s.handleLogout)
