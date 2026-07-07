@@ -16,6 +16,7 @@ import { ProjectBoard } from './home/ProjectBoard'
 import { AuditPage } from './audit/AuditPage'
 import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
+import { TransitPage } from './transit/TransitPage'
 import { PaletteProvider } from './palette/PaletteProvider'
 
 function Gate() {
@@ -54,7 +55,7 @@ function Gate() {
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/tokens" element={<TokensPage />} />
           <Route path="/members" element={<MembersPage />} />
-          <Route path="/transit" element={<Placeholder feature="Transit UI" />} />
+          <Route path="/transit" element={<TransitPage />} />
           <Route path="/settings" element={<Placeholder feature="Settings" />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, matchPath } from 'react-router-dom'
-import { LayoutGrid, ScrollText, KeyRound, Users, Settings, Plus } from 'lucide-react'
+import { LayoutGrid, ScrollText, KeyRound, Users, Shield, Settings, Plus } from 'lucide-react'
 import { useProjects, useEnvironments, useConfigs } from '../secrets/nav'
 import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
 import { Config } from '../lib/endpoints'
@@ -88,6 +88,7 @@ const PRIMARY = [
   { to: '/audit', label: 'Activity', Icon: ScrollText, match: (p: string) => p === '/audit' },
   { to: '/members', label: 'Members', Icon: Users, match: (p: string) => p === '/members' },
   { to: '/tokens', label: 'Tokens', Icon: KeyRound, match: (p: string) => p === '/tokens' },
+  { to: '/transit', label: 'Transit', Icon: Shield, match: (p: string) => p === '/transit' },
   { to: '/settings', label: 'Settings', Icon: Settings, match: (p: string) => p === '/settings' },
 ]
 
