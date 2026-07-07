@@ -59,6 +59,18 @@ test('empty config shows the empty state', async () => {
   expect(screen.getByLabelText('new key')).toBeInTheDocument()
 })
 
+test('a key added via AddKeyRow shows an added row with a discard action', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByLabelText('new key'), 'NEW_KEY')
+  await userEvent.type(screen.getByLabelText('new value'), 'v')
+  await userEvent.click(screen.getByRole('button', { name: /add key/i }))
+  expect(await screen.findByText('NEW_KEY')).toBeInTheDocument()
+  expect(screen.getByText('added')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /discard new_key/i })).toBeInTheDocument()
+})
+
 test('History button opens the version sheet', async () => {
   seed()
   server.use(
