@@ -8,7 +8,7 @@ import {
   UserInfo,
   memberScopePath,
 } from '../lib/endpoints'
-import { ApiError } from '../lib/api'
+import { ApiError, apiErrorTitle } from '../lib/api'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { Pill } from '../ui/Pill'
 import { Sheet } from '../ui/Sheet'
@@ -21,13 +21,6 @@ import { useTitle } from '../lib/title'
 const ROLES: MemberRole[] = ['viewer', 'developer', 'admin', 'owner']
 
 type ScopeKind = MemberScope['kind']
-
-// Danger toast carries the server's curated message for 403/409 (delegation
-// ceiling, last-owner, self-guard etc.); anything else is a generic failure —
-// never leak raw error internals.
-function mutationErrorTitle(e: unknown): string {
-  return e instanceof ApiError && (e.status === 403 || e.status === 409) ? e.message : 'Request failed.'
-}
 
 // Resolve a member's user_id to an email using the (best-effort) users list;
 // falls back to a truncated id when the users list is unavailable or the user
@@ -56,7 +49,7 @@ function AddMemberSheet({ scope, members, users, onClose }: {
       toast({ title: 'Member added' })
       onClose()
     },
-    onError: (e) => toast({ title: mutationErrorTitle(e), tone: 'danger' }),
+    onError: (e) => toast({ title: apiErrorTitle(e), tone: 'danger' }),
   })
 
   return (
@@ -90,7 +83,7 @@ function AddMemberSheet({ scope, members, users, onClose }: {
           </select>
         </label>
         {mutation.isError && (
-          <p role="alert" className="text-[12.5px] text-danger">{mutationErrorTitle(mutation.error)}</p>
+          <p role="alert" className="text-[12.5px] text-danger">{apiErrorTitle(mutation.error)}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <button
@@ -127,7 +120,7 @@ function CreateUserSheet({ onClose, onCreated }: {
       void qc.invalidateQueries({ queryKey: ['users'] })
       onCreated(r.password)
     },
-    onError: (e) => toast({ title: mutationErrorTitle(e), tone: 'danger' }),
+    onError: (e) => toast({ title: apiErrorTitle(e), tone: 'danger' }),
   })
 
   return (
@@ -148,7 +141,7 @@ function CreateUserSheet({ onClose, onCreated }: {
           />
         </label>
         {mutation.isError && (
-          <p role="alert" className="text-[12.5px] text-danger">{mutationErrorTitle(mutation.error)}</p>
+          <p role="alert" className="text-[12.5px] text-danger">{apiErrorTitle(mutation.error)}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <button
@@ -181,7 +174,7 @@ export function MembersPage() {
   const [eid, setEid] = useState('')
 
   const projects = useProjects()
-  const envs = useEnvironments(scopeKind !== 'instance' ? pid || undefined : undefined)
+  const envs = useEnvironments(scopeKind === 'environment' ? pid || undefined : undefined)
 
   const scope: MemberScope | null =
     scopeKind === 'instance'
@@ -220,7 +213,7 @@ export function MembersPage() {
       setPendingRole(null)
     },
     onError: (e) => {
-      toast({ title: mutationErrorTitle(e), tone: 'danger' })
+      toast({ title: apiErrorTitle(e), tone: 'danger' })
       setPendingRole(null)
     },
   })
@@ -233,7 +226,7 @@ export function MembersPage() {
       setRemoveTarget(null)
     },
     onError: (e) => {
-      toast({ title: mutationErrorTitle(e), tone: 'danger' })
+      toast({ title: apiErrorTitle(e), tone: 'danger' })
       setRemoveTarget(null)
     },
   })
@@ -246,7 +239,7 @@ export function MembersPage() {
       setDisableTarget(null)
     },
     onError: (e) => {
-      toast({ title: mutationErrorTitle(e), tone: 'danger' })
+      toast({ title: apiErrorTitle(e), tone: 'danger' })
       setDisableTarget(null)
     },
   })

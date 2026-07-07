@@ -176,6 +176,36 @@ test('create user: sheet email input POSTs and RevealOnce shows the one-time pas
   expect(await screen.findByText('init-pw-onetime')).toBeInTheDocument()
 })
 
+test('create user: one-time password lives only in the reveal modal — never a toast, gone after close', async () => {
+  mockUsers([])
+  mockInstanceMembers([])
+  server.use(http.post('/v1/users', () =>
+    HttpResponse.json({ id: 'u9', email: 'fresh@example.com', password: 'init-pw-onetime' })))
+
+  mount()
+  await userEvent.click(await screen.findByRole('button', { name: 'Create user' }))
+
+  const createSheet = await screen.findByRole('dialog')
+  await userEvent.type(within(createSheet).getByLabelText('email'), 'fresh@example.com')
+  await userEvent.click(within(createSheet).getByRole('button', { name: 'Create' }))
+
+  // The password surfaces in the RevealOnce modal (a dialog)...
+  const revealed = await screen.findByText('init-pw-onetime')
+  expect(revealed).toBeInTheDocument()
+  expect(revealed.closest('[role="dialog"]')).not.toBeNull()
+
+  // ...but never in a toast title. The toast viewport is a role=region surface;
+  // the password value must never appear inside it.
+  for (const region of screen.queryAllByRole('region')) {
+    expect(within(region).queryByText('init-pw-onetime')).not.toBeInTheDocument()
+  }
+
+  // Closing the reveal ("I've stored it") removes the password from the DOM.
+  const modal = await screen.findByRole('dialog', { name: 'Initial password' })
+  await userEvent.click(within(modal).getByRole('button', { name: "I've stored it" }))
+  await waitFor(() => expect(screen.queryByText('init-pw-onetime')).not.toBeInTheDocument())
+})
+
 test('disable user self-guard: 409 surfaces the exact server message as a danger toast', async () => {
   mockUsers([{ id: 'u2', email: 'me@example.com', disabled: false }])
   mockInstanceMembers([])

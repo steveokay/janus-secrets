@@ -28,6 +28,14 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T
 }
 
+// Danger toast / inline error title for a failed mutation. Only surfaces the
+// server's curated message for 403/409 (delegation ceiling, last-owner,
+// self-guard etc.); anything else collapses to a generic failure so raw error
+// internals never leak to the UI (no-leak posture).
+export function apiErrorTitle(e: unknown): string {
+  return e instanceof ApiError && (e.status === 403 || e.status === 409) ? e.message : 'Request failed.'
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),

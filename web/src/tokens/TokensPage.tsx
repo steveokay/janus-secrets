@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { endpoints, TokenMeta, MintTokenResult } from '../lib/endpoints'
-import { ApiError } from '../lib/api'
+import { ApiError, apiErrorTitle } from '../lib/api'
 import { useProjects, useEnvironments, useConfigs } from '../secrets/nav'
 import { Pill, Tone } from '../ui/Pill'
 import { Sheet } from '../ui/Sheet'
@@ -15,13 +15,6 @@ import { timeAgo } from '../lib/time'
 type ScopeKind = TokenMeta['scope_kind']
 
 const kindTone: Record<ScopeKind, Tone> = { config: 'brand', environment: 'info', transit: 'muted' }
-
-// Danger toast carries the server's curated message for 403/409 (delegation
-// ceiling, last-owner, self-guard etc.); anything else is a generic failure —
-// never leak raw error internals.
-function mutationErrorTitle(e: unknown): string {
-  return e instanceof ApiError && (e.status === 403 || e.status === 409) ? e.message : 'Request failed.'
-}
 
 // Best-effort scope name resolution over the nav query caches (populated by
 // the sidebar/breadcrumb as the user browses). Falls back to a truncated id
@@ -93,7 +86,7 @@ function MintTokenSheet({ onClose, onMinted }: {
       void qc.invalidateQueries({ queryKey: ['tokens'] })
       onMinted(r)
     },
-    onError: (e) => toast({ title: mutationErrorTitle(e), tone: 'danger' }),
+    onError: (e) => toast({ title: apiErrorTitle(e), tone: 'danger' }),
   })
 
   return (
@@ -192,7 +185,7 @@ function MintTokenSheet({ onClose, onMinted }: {
           />
         </label>
         {mutation.isError && (
-          <p role="alert" className="text-[12.5px] text-danger">{mutationErrorTitle(mutation.error)}</p>
+          <p role="alert" className="text-[12.5px] text-danger">{apiErrorTitle(mutation.error)}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <button
@@ -232,7 +225,7 @@ export function TokensPage() {
       setRevokeTarget(null)
     },
     onError: (e) => {
-      toast({ title: mutationErrorTitle(e), tone: 'danger' })
+      toast({ title: apiErrorTitle(e), tone: 'danger' })
       setRevokeTarget(null)
     },
   })
