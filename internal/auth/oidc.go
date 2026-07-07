@@ -167,6 +167,12 @@ func (s *Service) oidcVerifierFor(ctx context.Context) (*oidcVerifier, error) {
 	return v, nil
 }
 
+// SweepExpiredOIDCRequests removes stale login-state rows (called at boot),
+// mirroring SweepExpiredSessions.
+func (s *Service) SweepExpiredOIDCRequests(ctx context.Context) error {
+	return s.oidcAuthReqs.DeleteExpired(ctx)
+}
+
 // StartOIDCLogin persists a login-state row and returns the provider authorize
 // URL (state + nonce + PKCE S256). ErrNotFound if OIDC not configured/enabled.
 func (s *Service) StartOIDCLogin(ctx context.Context) (string, error) {

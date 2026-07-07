@@ -107,6 +107,10 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := authSvc.SweepExpiredSessions(ctx); err != nil {
 		logger.Warn("expired-session sweep failed", "err", err)
 	}
+	// Sweep OIDC login-state orphaned by expiry while the server was down.
+	if err := authSvc.SweepExpiredOIDCRequests(ctx); err != nil {
+		logger.Warn("expired-oidc-request sweep failed", "err", err)
+	}
 	// Never-lock-out: guarantee at least one instance owner exists.
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
