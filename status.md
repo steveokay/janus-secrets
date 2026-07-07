@@ -850,8 +850,65 @@ cookie path and asserts 400 + no session. Also fixed a non-blocking status nit
 and added the state-binding cookie assertions. Re-verified: full suite green,
 gosec 0 (17 `#nosec`), govulncheck 0 affecting.
 
-**Follow-up:** sub-project **C2** — OIDC-federated CI machine identity (GitHub
-Actions JWT exchange → scoped short-lived credential) — is the next slice.
+**Follow-up:** sub-project **C2** — OIDC-federated CI machine identity — is now
+**complete** (see the C2 section below).
+
+## Phase 2 · Sub-project C2 — OIDC CI federation (machines) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-08-oidc-ci-federation-design.md`
+Plan: `docs/superpowers/plans/2026-07-08-oidc-ci-federation.md` (14 tasks)
+Docs: `docs/ci-federation.md` · Branch: `worktree-oidc-ci-federation` (Go-only,
+isolated worktree parallel to the UI agent; subagent-driven development — fresh
+implementer per task, diff-reviewed by the controller).
+
+CI jobs exchange a GitHub Actions OIDC token for a **short-lived, scoped
+`janus_svc_` service token** — no stored long-lived CI secret. The exchange
+reuses C1's go-oidc/JWKS verification path (pointed at the federation issuer with
+a required audience) and the existing service-token issuance. Completes the
+CLAUDE.md "Federation" Phase-2 item (human C1 + machine C2).
+
+Delivered: the exchange endpoint `POST /v1/auth/oidc/federate` (public, behind
+`RequireUnsealed`, rate-limited) — verify (JWKS sig, iss, exp, **aud exact**) →
+match a **single** enabled trust binding on structured claim conditions → mint a
+token with the binding's scope/access and TTL. Admin config gated by the existing
+`oidc:manage` action: `GET/PUT/DELETE /v1/sys/oidc/federation` (issuer/audience/
+enabled) and `GET/POST/DELETE /v1/sys/oidc/federation/bindings[/{id}]`, audited.
+Storage: migration `000009_oidc_federation` (`oidc_federation_config`,
+`oidc_federation_bindings`), plus `service_tokens.created_by` made nullable + a
+`federation_binding` FK column (federated tokens have no human minter) via a new
+`MintFederatedToken` path.
+
+Safety rules (enforced + tested): every binding **must** include a `repository`
+claim; **exactly one** binding must match (0 or >1 → denied, ambiguous denied as
+such); audience required + exact-matched; TTL per-binding **capped at 1h**
+(default 15m). Every exchange failure returns one indistinguishable
+`federation_denied` (401); the raw JWT is never logged/audited (a leak test
+drives a full exchange and asserts the JWT + minted token appear in no log line
+or `audit_events` row). Federation uses the same crypto-lib exception recorded in
+`CLAUDE.md` for C1 (go-oidc / x-oauth2 / go-jose); the config holds no secret
+(JWKS trust, nothing to wrap).
+
+- [x] 1. Migration `000009` + models
+- [x] 2. Federation store repos (config + bindings)
+- [x] 3. `service_tokens` nullable minter + `CreateFederated`
+- [x] 4. `MintFederatedToken`
+- [x] 5. Service wiring (federation repos + verifier cache)
+- [x] 6. Federation config + binding CRUD with validation
+- [x] 7. Claim matcher (exactly-one, deny-ambiguous)
+- [x] 8. `federationVerifierFor` + `FederateCILogin` exchange
+- [x] 9. API — `POST /v1/auth/oidc/federate`
+- [x] 10. API — `/v1/sys/oidc/federation` config (oidc:manage, audited)
+- [x] 11. API — `/v1/sys/oidc/federation/bindings` CRUD (oidc:manage, audited)
+- [x] 12. Client-JWT leak test
+- [x] 13. Full gate sweep
+- [x] 14. Docs (`docs/ci-federation.md`), cross-links, this tracker
+
+Verification: `go build`/`go vet`/`go test ./... -count=1` (auth + api + store +
+crypto + CLI, Docker-backed testcontainers) all pass; `internal/crypto` coverage
+100.0%; `gosec` (shamir excluded) 0 issues (17 `#nosec`); `govulncheck` 0
+affecting. Exchange tests cover happy path, wrong audience, expired token,
+no-match, ambiguous match, TTL-cap + `repository`-required config validation,
+RBAC on all admin routes, and the JWT leak test.
 
 ## Phase-2 items already on the radar
 

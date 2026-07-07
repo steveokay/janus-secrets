@@ -149,5 +149,5 @@ For the SPA / UI agent:
 ## Follow-up
 
 Sub-project **C2** — OIDC-federated CI machine identity (GitHub Actions JWT
-exchange → scoped short-lived credential) — is the next slice and builds on the
-same generic OIDC verification path.
+exchange → scoped short-lived credential) — is **implemented**, reusing this same
+generic OIDC verification path. See [`docs/ci-federation.md`](ci-federation.md).
