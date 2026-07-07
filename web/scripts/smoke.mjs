@@ -38,10 +38,25 @@ page.on('request', (req) => {
 await page.goto(BASE + '/', { waitUntil: 'networkidle0', timeout: 20000 })
 await new Promise((r) => setTimeout(r, 800))
 const html = await page.evaluate(() => document.getElementById('root')?.innerHTML ?? '')
+
+// Dark pass: seed the stored theme, reload, and confirm html.dark applied +
+// the shell still renders. Request interception + fixtures persist across reload.
+await page.evaluateOnNewDocument(() => localStorage.setItem('janus.theme', 'dark'))
+await page.reload({ waitUntil: 'networkidle0', timeout: 20000 })
+await new Promise((r) => setTimeout(r, 800))
+const darkOn = await page.evaluate(() => document.documentElement.classList.contains('dark'))
+const darkHtml = await page.evaluate(() => document.getElementById('root')?.innerHTML ?? '')
+const darkBg = await page.evaluate(() =>
+  getComputedStyle(document.documentElement).backgroundColor,
+)
+
 await browser.close()
 
-if (errors.length || html.length < 500 || !html.includes('Janus')) {
-  console.error('SMOKE FAILED', JSON.stringify({ errors, rootLength: html.length }, null, 2))
+const lightOk = errors.length === 0 && html.length >= 500 && html.includes('Janus')
+const darkOk = darkOn && darkHtml.length >= 500 && darkHtml.includes('Janus')
+if (!lightOk || !darkOk) {
+  console.error('SMOKE FAILED', JSON.stringify(
+    { errors, rootLength: html.length, darkOn, darkRootLength: darkHtml.length, darkBg }, null, 2))
   process.exit(1)
 }
-console.log(`smoke ok — authed shell rendered (${html.length} chars)`)
+console.log(`smoke ok — light (${html.length} chars) + dark (${darkHtml.length} chars, bg ${darkBg})`)
