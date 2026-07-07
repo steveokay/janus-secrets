@@ -11,8 +11,10 @@
       (function () {
         try {
           var t = localStorage.getItem('janus.theme');
+          // Mirror ThemeProvider.readStored(): anything not 'light'/'dark' is
+          // treated as system, so a corrupt value follows the OS (no flash).
           var dark = t === 'dark' ||
-            ((t === 'system' || !t) && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (dark) document.documentElement.classList.add('dark');
         } catch (e) { /* ignore */ }
       })();

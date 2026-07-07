@@ -52,8 +52,13 @@ const darkBg = await page.evaluate(() =>
 
 await browser.close()
 
+// Gate the actual rendered background, not just the class: if theme.css failed
+// to bundle/load, html.dark would still be present (JS-added) while the page
+// stayed light. #0B0B10 (dark page) sums to 38; #F6F6FA (light) sums to 742.
+const darkBgNums = (darkBg.match(/\d+/g) || []).map(Number)
+const darkBgIsDark = darkBgNums.length >= 3 && darkBgNums[0] + darkBgNums[1] + darkBgNums[2] < 120
 const lightOk = errors.length === 0 && html.length >= 500 && html.includes('Janus')
-const darkOk = darkOn && darkHtml.length >= 500 && darkHtml.includes('Janus')
+const darkOk = darkOn && darkBgIsDark && darkHtml.length >= 500 && darkHtml.includes('Janus')
 if (!lightOk || !darkOk) {
   console.error('SMOKE FAILED', JSON.stringify(
     { errors, rootLength: html.length, darkOn, darkRootLength: darkHtml.length, darkBg }, null, 2))
