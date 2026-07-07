@@ -74,6 +74,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		// authenticated. Unit-test servers pass nil and hit the route directly.
 		if s.auth != nil && s.authz != nil {
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Get("/oidc", s.handleOIDCConfigGet)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Put("/oidc", s.handleOIDCConfigPut)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Delete("/oidc", s.handleOIDCConfigDelete)
 		} else {
 			r.Post("/seal", s.handleSeal)
 		}
