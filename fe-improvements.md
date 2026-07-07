@@ -31,7 +31,7 @@ Canonical: `docs/design/ui-redesign-mockup.html` + spec
 - [x] **R1** dual-theme foundation (CSS-var tokens, ThemeProvider, toggle, dark palette) — delivers the long-deferred dark-mode P1 item.
 - [x] **R2** shell & ⌘K command palette (Doppler primary nav + contextual project tree; global ⌘K fuzzy search over projects/configs/secret key names + nav actions; topbar theme toggle; instance /audit route)
 - [x] **R3** projects list & env-columns project board & create-project modal (searchable/sortable card grid with grid⇄list toggle + config counts; env-column board with inheritance nesting, add-config/add-env, breadcrumb + `janus run` hint; polished create-project modal)
-- [ ] **R4** screen polish pass (editor, version history, audit, tokens, members, auth/unseal)
+- [x] **R4** screen polish pass (editor, version history, audit, tokens, members, auth/unseal) — dark-AA `text-brand-deep`→`text-brand-text` migration + guard test; project-board env-loading skeleton, sr-only h1, cycle-safe config tree; ⌘K palette a11y (`aria-activedescendant`, group roles, IME guard, reopen-clear). Dark-render audit of all six screens: clean.
 
 ---
 
