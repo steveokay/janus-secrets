@@ -80,6 +80,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation", s.handleFederationConfigGet)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Put("/oidc/federation", s.handleFederationConfigPut)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation", s.handleFederationConfigDelete)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation/bindings", s.handleFederationBindingsList)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Post("/oidc/federation/bindings", s.handleFederationBindingCreate)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/bindings/{id}", s.handleFederationBindingDelete)
 		} else {
 			r.Post("/seal", s.handleSeal)
 		}

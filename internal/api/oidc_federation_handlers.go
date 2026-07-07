@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/steveokay/janus-secrets/internal/auth"
 )
 
@@ -106,6 +107,75 @@ func (s *Server) handleFederationConfigDelete(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := s.record(r, "oidc.federation.config.delete", "oidc/federation", "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type fedBindingRequest struct {
+	Name        string            `json:"name"`
+	MatchClaims map[string]string `json:"match_claims"`
+	ScopeKind   string            `json:"scope_kind"`
+	ScopeID     string            `json:"scope_id"`
+	Access      string            `json:"access"`
+	TTLSeconds  int               `json:"ttl_seconds"`
+	Enabled     bool              `json:"enabled"`
+}
+
+func (s *Server) handleFederationBindingsList(w http.ResponseWriter, r *http.Request) {
+	list, err := s.auth.ListFederationBindings(r.Context())
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if list == nil {
+		list = []auth.FederationBindingView{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleFederationBindingCreate(w http.ResponseWriter, r *http.Request) {
+	var req fedBindingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	b, err := s.auth.CreateFederationBinding(r.Context(), auth.FederationBindingInput{
+		Name: req.Name, MatchClaims: req.MatchClaims, ScopeKind: req.ScopeKind,
+		ScopeID: req.ScopeID, Access: req.Access, TTLSeconds: req.TTLSeconds, Enabled: req.Enabled,
+	})
+	if err != nil {
+		if errors.Is(err, auth.ErrValidation) {
+			writeError(w, http.StatusBadRequest, CodeValidation, "invalid binding")
+			return
+		}
+		if errors.Is(err, auth.ErrNotFound) {
+			writeError(w, http.StatusBadRequest, CodeValidation, "unknown scope")
+			return
+		}
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "oidc.federation.binding.write", "oidc/federation/"+b.Name, "success", "",
+		"scope="+b.ScopeKind+":"+b.ScopeID); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, b)
+}
+
+func (s *Server) handleFederationBindingDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.auth.DeleteFederationBinding(r.Context(), id); err != nil {
+		if errors.Is(err, auth.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "not found")
+			return
+		}
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "oidc.federation.binding.delete", "oidc/federation/"+id, "success", "", ""); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
