@@ -16,6 +16,7 @@ import { ProjectOverview } from './home/ProjectOverview'
 import { AuditPage } from './audit/AuditPage'
 import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
+import { PaletteProvider } from './palette/PaletteProvider'
 
 function Gate() {
   const { user, loading, refresh } = useAuth()
@@ -43,19 +44,22 @@ function Gate() {
   if (!user) return <LoginPage />
 
   return (
-    <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/projects/:projectId" element={<ProjectOverview />} />
-        <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
-        <Route path="/projects/:projectId/audit" element={<AuditPage />} />
-        <Route path="/tokens" element={<TokensPage />} />
-        <Route path="/members" element={<MembersPage />} />
-        <Route path="/transit" element={<Placeholder feature="Transit UI" />} />
-        <Route path="/settings" element={<Placeholder feature="Settings" />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AppLayout>
+    <PaletteProvider>
+      <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/projects/:projectId" element={<ProjectOverview />} />
+          <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
+          <Route path="/projects/:projectId/audit" element={<AuditPage />} />
+          <Route path="/audit" element={<AuditPage />} />
+          <Route path="/tokens" element={<TokensPage />} />
+          <Route path="/members" element={<MembersPage />} />
+          <Route path="/transit" element={<Placeholder feature="Transit UI" />} />
+          <Route path="/settings" element={<Placeholder feature="Settings" />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AppLayout>
+    </PaletteProvider>
   )
 }
 

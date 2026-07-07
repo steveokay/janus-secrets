@@ -4,6 +4,7 @@ import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route, matchPath } from 'react-router-dom'
 import { AuthProvider } from '../auth/AuthProvider'
 import { ThemeProvider } from '../theme/ThemeProvider'
+import { PaletteProvider } from '../palette/PaletteProvider'
 
 // Mirrors the dynamic path patterns declared in App.tsx's <Routes>. Rendered
 // components may call useParams(), which only resolves against a matched
@@ -25,11 +26,13 @@ export function renderApp(ui: ReactElement, { route = '/', withAuth = true }: { 
     <QueryClientProvider client={qc}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[route]}>
-          {wrap(
-            <Routes>
-              <Route path={pattern} element={ui} />
-            </Routes>,
-          )}
+          <PaletteProvider>
+            {wrap(
+              <Routes>
+                <Route path={pattern} element={ui} />
+              </Routes>,
+            )}
+          </PaletteProvider>
         </MemoryRouter>
       </ThemeProvider>
     </QueryClientProvider>,
