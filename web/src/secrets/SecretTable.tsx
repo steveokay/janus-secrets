@@ -128,7 +128,9 @@ export function SecretTable({
 
             {/* Actions */}
             <span className="flex justify-end gap-1">
-              {isEditing ? null : st.change === 'added' ? (
+              {isEditing ? (
+                <IconButton label={`cancel edit ${key}`} onClick={() => onRevert(key)}><X {...ICON} /></IconButton>
+              ) : st.change === 'added' ? (
                 <>
                   <IconButton label={`edit ${key}`} onClick={() => onEdit(key)}><Pencil {...ICON} /></IconButton>
                   <IconButton label={`discard ${key}`} onClick={() => onRevert(key)}><X {...ICON} /></IconButton>

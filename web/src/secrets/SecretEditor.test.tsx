@@ -71,6 +71,16 @@ test('a key added via AddKeyRow shows an added row with a discard action', async
   expect(screen.getByRole('button', { name: /discard new_key/i })).toBeInTheDocument()
 })
 
+test('cancelling an in-progress edit exits without changes', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
+  expect(screen.getByRole('textbox', { name: /value for db_url/i })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /cancel edit db_url/i }))
+  expect(screen.queryByRole('textbox', { name: /value for db_url/i })).toBeNull()
+})
+
 test('the key filter narrows visible rows', async () => {
   seed()
   renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })

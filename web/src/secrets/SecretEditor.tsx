@@ -49,6 +49,7 @@ export function SecretEditor() {
     onSuccess: () => {
       setBuffer(emptyBuffer())
       setEditing({})
+      setRevealed({}) // saved values changed server-side — drop stale plaintext
       setReviewOpen(false)
       void qc.invalidateQueries({ queryKey: ['config', cid] })
     },
