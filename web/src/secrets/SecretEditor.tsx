@@ -9,6 +9,8 @@ import { EmptyState } from '../ui/EmptyState'
 import { Sheet } from '../ui/Sheet'
 import { SecretTable } from './SecretTable'
 import { EditorToolbar } from './EditorToolbar'
+import { DirtyBar } from './DirtyBar'
+import { ReviewDiffDialog } from './ReviewDiffDialog'
 import { VersionHistory } from './VersionHistory'
 
 export function SecretEditor() {
@@ -25,9 +27,7 @@ export function SecretEditor() {
   const [filter, setFilter] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [, setImportOpen] = useState(false)
-  // Reserved for Task 4 (review-diff modal).
-  const [, setReviewOpen] = useState(false)
-  void setReviewOpen
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   const original = raw.data?.secrets ?? {}
   // The config version (from the raw reveal) — not the max per-secret value
@@ -48,9 +48,16 @@ export function SecretEditor() {
     onSuccess: () => {
       setBuffer(emptyBuffer())
       setEditing({})
+      setReviewOpen(false)
       void qc.invalidateQueries({ queryKey: ['config', cid] })
     },
   })
+
+  function discard() {
+    setBuffer(emptyBuffer())
+    setEditing({})
+    setReviewOpen(false)
+  }
 
   async function reveal(key: string) {
     const r = await endpoints.revealKey(cid, key)
@@ -90,18 +97,6 @@ export function SecretEditor() {
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm text-muted">
-          {dirty ? `Pending: +${summary.added} added · ${summary.changed} changed · ${summary.removed} removed` : `${Object.keys(maskedRows).length} keys`}
-        </span>
-        <button
-          onClick={() => save.mutate()}
-          disabled={!dirty || save.isPending}
-          className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
-        >
-          {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
-        </button>
-      </div>
       {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
       <EditorToolbar
         filter={filter}
@@ -132,10 +127,30 @@ export function SecretEditor() {
           onRevert={undo}
         />
       )}
+      {dirty && (
+        <DirtyBar
+          summary={summary}
+          version={version}
+          saving={save.isPending}
+          onReview={() => setReviewOpen(true)}
+          onDiscard={discard}
+          onSave={() => save.mutate()}
+        />
+      )}
       <AddKeyRow onAdd={(k, v) => setBuffer((b) => addKey(b, k, v))} />
       <Sheet open={showHistory} onOpenChange={setShowHistory} title="Version history">
         <VersionHistory cid={cid} dirty={dirty} />
       </Sheet>
+      <ReviewDiffDialog
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        buffer={buffer}
+        masked={maskedRows}
+        original={original}
+        version={version}
+        saving={save.isPending}
+        onSave={() => save.mutate()}
+      />
     </div>
   )
 }
