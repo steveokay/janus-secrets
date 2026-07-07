@@ -38,13 +38,13 @@ Canonical: `docs/design/ui-redesign-mockup.html` + spec
 The dark redesign (R1–R4) and all feature slices B2–B5 are shipped. What's left in
 this tracker, roughly by size:
 
-- **§3 Secret editor redesign (P0/P1) — the largest remaining chunk.** The editor
-  was themed (tokens) and dark-audited but NOT restructured: still owed are the
-  aligned **table layout**, **origin pills**, **per-row icon actions**
-  (reveal/copy/edit/delete), the **dirty-state bar** ("2 changed · 1 added"),
-  **diff-preview on save**, **search/filter + `.env` bulk paste**, inline
-  **add-secret UX**, reveal ergonomics, and editor **keyboard support**
-  (`⌘S`, row nav). *(Version-history drawer is done — B2.)*
+- **§3 Secret editor redesign — DONE** (mockup §06): grid table, origin pills,
+  per-row reveal/copy/edit/discard/revert/restore, dirty-bar (Review diff /
+  Discard / Save as vN), key filter, Import .env, inherited→override. Remaining
+  P2 follow-ups only: reveal-all toggle + auto-re-mask on blur/idle, editor
+  **keyboard support** (`⌘S`, row nav), and the hand-rolled Review/Import dialogs
+  want `aria-modal`/Escape/focus-trap (or compose the Sheet primitive) + a
+  "no matches" state when filtered to empty.
 - **§4 kit primitives (P1):** formal **Button** variants, **Input/Select/Textarea**,
   and **Tooltip/Card/Tabs/Skeleton** components. *(Dialog, Toast, Dropdown, Pill
   already shipped.)*
@@ -163,27 +163,23 @@ The #1 "empty paper" complaint: after login you land on
 This is where users spend their time; it should feel best. Today it's a plain
 list with masked dots and a save button.
 
-- [ ] **P0** **Table layout**: aligned columns (Key · Value · Origin · actions),
-      sticky header, zebra/hover rows, monospace keys & values, comfortable row
-      height. Reads like a real key/value grid.
-- [ ] **P0** **Origin badges as pills**: `own` / `inherited` / `overridden` as
-      colored, tooltipped pills (inherited = muted, overridden = accent) so the
-      inheritance model is legible at a glance.
-- [ ] **P0** **Per-row actions**: reveal (eye) with a clear audited affordance,
-      **copy-to-clipboard**, edit, delete — as icon-buttons that appear/emphasize
-      on row hover.
-- [ ] **P1** **Dirty-state bar**: a sticky footer/banner summarizing pending
-      changes ("2 changed · 1 added · 1 removed") with **Save as vN** and
-      **Discard**, plus color-coded row markers for added/edited/removed.
-- [ ] **P1** **Diff preview on save**: before committing a config version, show a
-      before→after diff of the batch (leverages the existing versions/diff API).
-- [ ] **P1** **Search / filter** secrets by key; **`.env` bulk paste/import** into
-      the dirty buffer (huge Doppler-parity quality-of-life win).
-- [ ] **P1** **Add-secret UX**: an inline "add row" with key+value that validates
-      key format, instead of a bare input pair.
-- [ ] **P2** **Reveal ergonomics**: reveal-all toggle, auto-re-mask on blur/idle,
-      "copied!" confirmation, never persist revealed plaintext (keep the current
-      security invariant — ephemeral state only).
+- [x] **P0** **Table layout**: aligned columns (Key · Value · Origin · Ver · Actions),
+      sticky header, hover rows, monospace keys & values. *(§3 redesign — mockup §06 grid table.)*
+- [x] **P0** **Origin badges as pills**: `own` / `inherited` / `overridden` as
+      colored `<Pill>`s (own=green, inherited=muted, overridden=violet). *(§3 redesign.)*
+- [x] **P0** **Per-row actions**: reveal (eye, audited) + **copy-to-clipboard** on
+      hover; edit / discard / revert / restore icon-buttons by row state. *(§3 redesign.)*
+- [x] **P1** **Dirty-state bar**: bottom bar summarizing pending changes
+      ("+N added · N changed · N removed") with **Save as vN**, **Discard**, and
+      **Review diff**, plus color-coded left rails + change chips per row. *(§3 redesign.)*
+- [x] **P1** **Diff preview on save**: **Review diff** modal lists pending key
+      names by change type before committing (value-free surface). *(§3 redesign.)*
+- [x] **P1** **Search / filter** secrets by key; **`.env` bulk paste/import** into
+      the dirty buffer. *(§3 redesign — toolbar filter + Import .env modal.)*
+- [x] **P1** **Add-secret UX**: added keys render as visible, editable, discardable
+      pending rows; inherited rows edit-to-override. *(§3 redesign.)*
+- [ ] **P2** **Reveal ergonomics**: reveal-all toggle + auto-re-mask on blur/idle
+      still TODO; "copied" toast + ephemeral-only plaintext DONE in §3. *(P2 follow-up.)*
 - [x] **P2** **Version history drawer**: list config versions with author/time and
       one-click rollback (there's an API for this; today it's a placeholder).
       *(B2 — Sheet drawer with key-name-only diffs (zero values on this
