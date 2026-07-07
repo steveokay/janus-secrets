@@ -33,14 +33,42 @@ export function CreateProjectForm({ onCreated, onClose }: { onCreated: (p: Proje
     (p) => { void qc.invalidateQueries({ queryKey: ['projects'] }); onCreated(p) },
   )
   return (
-    <Dialog title="New project">
-      <form onSubmit={submit} className="flex flex-col gap-2">
-        <label className="text-[12px] font-semibold">Slug<input aria-label="slug" value={slug} onChange={(e) => setSlug(e.target.value)} required className="w-full rounded border border-line px-3 py-2 text-[13px] font-normal" /></label>
-        <label className="text-[12px] font-semibold">Name<input aria-label="name" value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded border border-line px-3 py-2 text-[13px] font-normal" /></label>
-        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold">Cancel</button>
-          <button type="submit" disabled={busy} className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50">Create</button>
+    <Dialog title="Create project">
+      <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+        Group your Development, Staging, and Production secrets. Each project holds
+        multiple configs with versioned history and per-environment access.
+      </p>
+      <form onSubmit={submit} className="flex flex-col gap-2.5">
+        <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
+          Name
+          <input
+            aria-label="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. api-gateway"
+            required
+            className="rounded border border-line bg-card px-3 py-2 text-[13px] font-normal text-ink placeholder:text-faint"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
+          Slug
+          <input
+            aria-label="slug"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="api-gateway"
+            required
+            className="rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink placeholder:text-faint"
+          />
+        </label>
+        {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
+        <div className="mt-1 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink">
+            Cancel
+          </button>
+          <button type="submit" disabled={busy} className="rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-50">
+            Create project
+          </button>
         </div>
       </form>
     </Dialog>

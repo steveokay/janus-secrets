@@ -16,6 +16,7 @@ test('creating a project posts slug+name and calls onCreated', async () => {
   )
   const onCreated = vi.fn()
   renderApp(<CreateProjectForm onCreated={onCreated} onClose={() => {}} />, { withAuth: false })
+  expect(screen.getByText(/each project holds/i)).toBeInTheDocument()
   await userEvent.type(screen.getByLabelText(/slug/i), 'acme')
   await userEvent.type(screen.getByLabelText(/name/i), 'Acme')
   await userEvent.click(screen.getByRole('button', { name: /create/i }))
