@@ -29,7 +29,7 @@ them off as they ship. Priorities:
 Canonical: `docs/design/ui-redesign-mockup.html` + spec
 `docs/superpowers/specs/2026-07-07-dark-redesign-design.md`. Slices:
 - [x] **R1** dual-theme foundation (CSS-var tokens, ThemeProvider, toggle, dark palette) — delivers the long-deferred dark-mode P1 item.
-- [ ] **R2** shell & ⌘K command palette
+- [x] **R2** shell & ⌘K command palette (Doppler primary nav + contextual project tree; global ⌘K fuzzy search over projects/configs/secret key names + nav actions; topbar theme toggle; instance /audit route)
 - [ ] **R3** projects list & env-columns project board & create-project modal
 - [ ] **R4** screen polish pass (editor, version history, audit, tokens, members, auth/unseal)
 
