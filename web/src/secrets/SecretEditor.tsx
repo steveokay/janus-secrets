@@ -1,31 +1,34 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { History } from 'lucide-react'
-import { endpoints, MaskedSecret } from '../lib/endpoints'
+import { endpoints } from '../lib/endpoints'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
+import { useToast } from '../ui/Toast'
 import { EmptyState } from '../ui/EmptyState'
 import { Sheet } from '../ui/Sheet'
+import { SecretTable } from './SecretTable'
+import { EditorToolbar } from './EditorToolbar'
+import { DirtyBar } from './DirtyBar'
+import { ReviewDiffDialog } from './ReviewDiffDialog'
+import { ImportEnvDialog } from './ImportEnvDialog'
 import { VersionHistory } from './VersionHistory'
-
-const badge: Record<MaskedSecret['origin'], string> = {
-  own: 'bg-success-soft text-success',
-  inherited: 'bg-line-soft text-muted',
-  overridden: 'bg-brand-soft text-brand-text',
-}
 
 export function SecretEditor() {
   useTitle('Secrets')
   const { configId } = useParams()
   const cid = configId!
   const qc = useQueryClient()
+  const toast = useToast()
   const masked = useQuery({ queryKey: ['config', cid, 'masked'], queryFn: () => endpoints.maskedSecrets(cid) })
   const raw = useQuery({ queryKey: ['config', cid, 'raw'], queryFn: () => endpoints.rawConfig(cid) })
   const [buffer, setBuffer] = useState<Buffer>(emptyBuffer())
   const [editing, setEditing] = useState<Record<string, boolean>>({})
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [filter, setFilter] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   const original = raw.data?.secrets ?? {}
   // The config version (from the raw reveal) — not the max per-secret value
@@ -46,117 +49,117 @@ export function SecretEditor() {
     onSuccess: () => {
       setBuffer(emptyBuffer())
       setEditing({})
+      setRevealed({}) // saved values changed server-side — drop stale plaintext
+      setReviewOpen(false)
       void qc.invalidateQueries({ queryKey: ['config', cid] })
     },
   })
 
+  function discard() {
+    setBuffer(emptyBuffer())
+    setEditing({})
+    setReviewOpen(false)
+  }
+  // Stage pasted .env pairs into the buffer (existing keys → edits, new → adds).
+  function applyImport(pairs: Record<string, string>) {
+    setBuffer((b) => Object.entries(pairs).reduce((acc, [k, v]) => setValue(acc, k, v), b))
+    const n = Object.keys(pairs).length
+    if (n > 0) toast({ title: `Imported ${n} key${n === 1 ? '' : 's'}` })
+  }
+
   async function reveal(key: string) {
     const r = await endpoints.revealKey(cid, key)
     setRevealed((m) => ({ ...m, [key]: r.value }))
+    return r.value
   }
-  function valueOf(key: string): string {
-    return key in buffer ? (buffer[key].value ?? '') : (original[key] ?? '')
+  // Copying a secret is a read — reveal (audited) first if needed, then copy.
+  async function copy(key: string) {
+    const value = key in revealed ? revealed[key] : await reveal(key)
+    try {
+      await navigator.clipboard?.writeText(value)
+      toast({ title: `Copied ${key}` })
+    } catch {
+      /* clipboard unavailable / denied — no-op */
+    }
+  }
+  function edit(key: string) {
+    setEditing((s) => ({ ...s, [key]: true }))
+  }
+  function changeValue(key: string, value: string) {
+    setBuffer((b) => setValue(b, key, value))
+  }
+  function remove(key: string) {
+    setBuffer((b) => removeKey(b, key))
+  }
+  function undo(key: string) {
+    setBuffer((b) => revert(b, key))
+    setEditing((s) => { const { [key]: _drop, ...rest } = s; return rest })
   }
 
   if (masked.isLoading || raw.isLoading) return <p>Loading…</p>
   if (masked.isError) return <p role="alert">Could not load secrets.</p>
   const maskedRows = masked.data ?? {}
-  const rows = Object.entries(maskedRows)
-  // Keys added in the buffer that don't exist yet in the config — rendered as
-  // pending rows so a new key is visible and cancellable before save.
+  // Ordered key list: existing masked keys, then keys added only in the buffer.
   const addedKeys = Object.keys(buffer).filter((k) => !(k in maskedRows) && buffer[k].value !== null)
+  const rows = [...Object.keys(maskedRows), ...addedKeys]
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm text-muted">
-          {dirty ? `Pending: +${summary.added} added · ${summary.changed} changed · ${summary.removed} removed` : `${rows.length} keys`}
-        </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowHistory(true)}
-            className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
-          >
-            <History size={14} strokeWidth={1.7} /> History
-          </button>
-          <button
-            onClick={() => save.mutate()}
-            disabled={!dirty || save.isPending}
-            className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
-          >
-            {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
-          </button>
-        </div>
-      </div>
       {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
-      {rows.length === 0 && addedKeys.length === 0 ? (
+      <EditorToolbar
+        filter={filter}
+        onFilter={setFilter}
+        onImport={() => setImportOpen(true)}
+        onHistory={() => setShowHistory(true)}
+      />
+      {rows.length === 0 ? (
         <EmptyState
           className="mt-10"
           title="No secrets yet"
           hint="Add your first key below — it's encrypted before it ever touches the database."
         />
       ) : (
-      <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
-        <thead><tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint"><th>KEY</th><th>VALUE</th><th>ORIGIN</th><th>v</th></tr></thead>
-        <tbody>
-          {rows.map(([key, meta]) => {
-            const removedRow = key in buffer && buffer[key].value === null
-            return (
-              <tr key={key} className={`border-t border-line-soft ${removedRow ? 'line-through opacity-50' : ''}`}>
-                <td className="py-1 font-mono">{key}</td>
-                <td className="py-1 font-mono">
-                  {editing[key] ? (
-                    <input
-                      aria-label={`value for ${key}`}
-                      value={valueOf(key)}
-                      onChange={(e) => setBuffer((b) => setValue(b, key, e.target.value))}
-                      className="w-full rounded border border-line px-2.5 py-1 font-mono text-[12.5px]"
-                    />
-                  ) : (
-                    <>
-                      {key in revealed ? revealed[key] : '•••••••'}
-                      {meta.origin !== 'inherited' && (
-                        <button aria-label={`edit ${key}`} onClick={() => setEditing((s) => ({ ...s, [key]: true }))} className="ml-2 text-faint hover:text-brand-text">✎</button>
-                      )}
-                      {!(key in revealed) && (
-                        <button aria-label={`reveal ${key}`} onClick={() => void reveal(key)} className="ml-1 text-faint hover:text-brand-text">👁</button>
-                      )}
-                      {meta.origin !== 'inherited' && !removedRow && (
-                        <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => removeKey(b, key))} className="ml-1 text-danger/70 hover:text-danger">✕</button>
-                      )}
-                    </>
-                  )}
-                </td>
-                <td className="py-1"><span className={`rounded px-1.5 ${badge[meta.origin]}`}>{meta.origin}</span></td>
-                <td className="py-1 text-faint">{meta.value_version}</td>
-              </tr>
-            )
-          })}
-          {addedKeys.map((key) => (
-            <tr key={key} className="border-t border-line-soft bg-success-soft/50">
-              <td className="py-1 font-mono">{key} <span className="text-xs text-success">(new)</span></td>
-              <td className="py-1 font-mono">
-                <input
-                  aria-label={`value for ${key}`}
-                  value={buffer[key].value ?? ''}
-                  onChange={(e) => setBuffer((b) => setValue(b, key, e.target.value))}
-                  className="w-full rounded border border-line px-2.5 py-1 font-mono text-[12.5px]"
-                />
-              </td>
-              <td className="py-1"><span className={`rounded px-1.5 ${badge.own}`}>own</span></td>
-              <td className="py-1">
-                <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => revert(b, key))} className="text-danger/70 hover:text-danger">✕</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        <SecretTable
+          rows={rows}
+          masked={maskedRows}
+          buffer={buffer}
+          original={original}
+          editing={editing}
+          revealed={revealed}
+          filter={filter}
+          onReveal={(key) => void reveal(key)}
+          onCopy={(key) => void copy(key)}
+          onEdit={edit}
+          onChangeValue={changeValue}
+          onRemove={remove}
+          onRevert={undo}
+        />
+      )}
+      {dirty && (
+        <DirtyBar
+          summary={summary}
+          version={version}
+          saving={save.isPending}
+          onReview={() => setReviewOpen(true)}
+          onDiscard={discard}
+          onSave={() => save.mutate()}
+        />
       )}
       <AddKeyRow onAdd={(k, v) => setBuffer((b) => addKey(b, k, v))} />
       <Sheet open={showHistory} onOpenChange={setShowHistory} title="Version history">
         <VersionHistory cid={cid} dirty={dirty} />
       </Sheet>
+      <ReviewDiffDialog
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        buffer={buffer}
+        masked={maskedRows}
+        original={original}
+        version={version}
+        saving={save.isPending}
+        onSave={() => save.mutate()}
+      />
+      <ImportEnvDialog open={importOpen} onClose={() => setImportOpen(false)} onApply={applyImport} />
     </div>
   )
 }
@@ -166,12 +169,12 @@ function AddKeyRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
   const [value, setValue] = useState('')
   return (
     <div className="mt-3 flex gap-2">
-      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line px-2.5 py-1.5 font-mono text-[12.5px]" />
-      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line px-2.5 py-1.5 font-mono text-[12.5px]" />
+      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-card px-2.5 py-1.5 font-mono text-[12.5px] text-ink" />
+      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-card px-2.5 py-1.5 font-mono text-[12.5px] text-ink" />
       <button
         disabled={!key}
         onClick={() => { onAdd(key, value); setKey(''); setValue('') }}
-        className="rounded border border-line bg-card px-3 text-[13px] font-semibold disabled:opacity-40"
+        className="rounded border border-line bg-card px-3 text-[13px] font-semibold text-ink disabled:opacity-40"
       >
         ＋ Add key
       </button>

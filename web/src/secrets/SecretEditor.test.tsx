@@ -59,6 +59,45 @@ test('empty config shows the empty state', async () => {
   expect(screen.getByLabelText('new key')).toBeInTheDocument()
 })
 
+test('a key added via AddKeyRow shows an added row with a discard action', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByLabelText('new key'), 'NEW_KEY')
+  await userEvent.type(screen.getByLabelText('new value'), 'v')
+  await userEvent.click(screen.getByRole('button', { name: /add key/i }))
+  expect(await screen.findByText('NEW_KEY')).toBeInTheDocument()
+  expect(screen.getByText('added')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /discard new_key/i })).toBeInTheDocument()
+})
+
+test('cancelling an in-progress edit exits without changes', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
+  expect(screen.getByRole('textbox', { name: /value for db_url/i })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /cancel edit db_url/i }))
+  expect(screen.queryByRole('textbox', { name: /value for db_url/i })).toBeNull()
+})
+
+test('the key filter narrows visible rows', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByRole('searchbox', { name: /filter keys/i }), 'sentry')
+  expect(screen.queryByText('DB_URL')).toBeNull()
+  expect(screen.getByText('SENTRY_DSN')).toBeInTheDocument()
+})
+
+test('toolbar exposes Import .env and History', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  expect(screen.getByRole('button', { name: /import \.env/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
+})
+
 test('History button opens the version sheet', async () => {
   seed()
   server.use(

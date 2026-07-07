@@ -48,10 +48,12 @@ test('a newly added key renders a visible, editable, saveable row', async () => 
   await userEvent.type(screen.getByLabelText(/new value/i), 'on')
   await userEvent.click(screen.getByRole('button', { name: /add key/i }))
 
-  // The pending add is now a visible, editable row (not buffer-invisible).
-  const row = await screen.findByLabelText(/value for FEATURE_X/i)
-  expect(row).toHaveValue('on')
+  // The pending add is a visible row (not buffer-invisible) and editable via
+  // its edit action — the input shows the value the user just entered.
+  expect(await screen.findByText('FEATURE_X')).toBeInTheDocument()
   expect(screen.getByText(/\+1 added/i)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /edit feature_x/i }))
+  expect(screen.getByRole('textbox', { name: /value for FEATURE_X/i })).toHaveValue('on')
   // Version label reflects the real config version (6 → 7), not a value-version.
   await userEvent.click(screen.getByRole('button', { name: /save as v7/i }))
   await waitFor(() => expect(put).toEqual({ message: '', changes: [{ key: 'FEATURE_X', value: 'on' }] }))
@@ -69,7 +71,7 @@ test('a pending add can be cancelled before save', async () => {
   await userEvent.type(await screen.findByLabelText(/new key/i), 'OOPS')
   await userEvent.type(screen.getByLabelText(/new value/i), 'x')
   await userEvent.click(screen.getByRole('button', { name: /add key/i }))
-  await screen.findByLabelText(/value for OOPS/i)
-  await userEvent.click(screen.getByRole('button', { name: /remove OOPS/i }))
-  expect(screen.queryByLabelText(/value for OOPS/i)).toBeNull()
+  await screen.findByText('OOPS')
+  await userEvent.click(screen.getByRole('button', { name: /discard OOPS/i }))
+  expect(screen.queryByText('OOPS')).toBeNull()
 })
