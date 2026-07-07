@@ -10,6 +10,7 @@ import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
 import { useTitle } from '../lib/title'
 import { CreateProjectForm } from '../structure/CreateForms'
+import { InstanceReadsStrip } from '../metrics/ReadsStrip'
 
 type Sort = 'name-asc' | 'name-desc'
 
@@ -109,6 +110,7 @@ export function ProjectsList() {
 
   return (
     <div>
+      <InstanceReadsStrip />
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-[17px] font-semibold tracking-tight text-ink">Projects</h2>
         <button
