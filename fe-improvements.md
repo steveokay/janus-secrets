@@ -214,8 +214,13 @@ First impression before the app even loads.
 These currently show "Coming soon" and their own specs are separate Phase-2 work;
 listed here so the *visual* treatment stays consistent when they land: **audit
 viewer** *(SHIPPED — B3: chain-verify badge, filterable paginated table over new
-`/v1/audit/events`, audited JSONL/CSV export downloads)*, **token management**,
-**member management**, **transit UI**, **usage-metrics dashboard**. Give each a
+`/v1/audit/events`, audited JSONL/CSV export downloads)*, **token management**
+*(SHIPPED — B4: mint/revoke with show-once raw value, users with show-once
+password + disable guardrails, role management at instance/project/env scope
+with server-guardrail surfacing)*, **member management** *(SHIPPED — B4:
+mint/revoke with show-once raw value, users with show-once password + disable
+guardrails, role management at instance/project/env scope with server-guardrail
+surfacing)*, **transit UI**, **usage-metrics dashboard**. Give each a
 designed empty/loaded state using the component kit above rather than bespoke
 markup.
 
