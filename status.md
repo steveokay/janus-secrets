@@ -776,6 +776,71 @@ path; fixed by consolidating each into a single handler that branches on
 `new URL(request.url).searchParams` the way the real server does. Merged to main
 via **PR #21** (merge commit `716d7d9`).
 
+## Phase 2 · Sub-project C1 — OIDC login (humans) ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-07-oidc-login-design.md`
+Plan: `docs/superpowers/plans/2026-07-07-oidc-login.md` (15 tasks)
+Docs: `docs/oidc.md` · Branch: `worktree-oidc-federation` (Go-only, developed in
+an isolated git worktree parallel to the UI agent; subagent-driven development —
+fresh implementer per task, diff-reviewed by the controller).
+
+Human sign-in to the web UI through an external OpenID Connect provider —
+**Authorization Code + PKCE (S256) + state + nonce**. Single provider
+(single-tenant), generic OIDC, tested against an in-package mock IdP and designed
+for GitHub/Google. An OIDC user is an ordinary `KindUser` principal that receives
+the same `janus_session` cookie a password login issues; RBAC is unchanged.
+
+Delivered: the login flow behind `RequireUnsealed` (`GET /v1/auth/oidc/status`
+→ `{"enabled":bool}`; `GET …/login` → 302 to the IdP setting single-use
+state/nonce/PKCE; `GET …/callback` → verify state, PKCE-exchange, verify ID token
+issuer/audience/JWKS-signature/nonce, require `email_verified`, resolve a
+**pre-provisioned** user by verified email, link by stable `(issuer, subject)`,
+issue session, 302 to `/`). Admin provider config (`GET/PUT/DELETE /v1/sys/oidc`)
+gated by a new **`oidc:manage`** instance action (admin/owner), audited on write
+(`oidc.config.write`/`oidc.config.delete`, recording issuer + client_id only).
+The **client secret** is AES-256-GCM wrapped under the master key (AAD
+`janus:auth:oidc-client-secret`, arbitrary-length `Encrypt`, not `WrapKey`),
+write-only, surfaced as `secret_set` and never logged/returned/audited. Storage:
+migration `000007_oidc` (`oidc_providers`, `oidc_identities` with
+`UNIQUE(issuer,subject)`, `oidc_auth_requests` single-use/expiring state, swept
+at boot). No auto-provisioning; every callback failure returns one
+indistinguishable error (no account enumeration).
+
+Third-party crypto-lib exception (approved 2026-07-07, recorded in `CLAUDE.md`):
+JWT/JWKS verification uses `github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2`,
+and (transitively) `github.com/go-jose/go-jose/v4` rather than hand-rolled JOSE;
+the envelope/transit/unseal crypto remains stdlib + `x/crypto` only.
+
+- [x] Design spec (brainstorming) + user review
+- [x] Implementation plan (writing-plans) — 15 tasks
+- [x] 1. Deps (go-oidc/v3, x/oauth2, go-jose/v4 test-only) — oauth2 pinned to
+      keep golang-migrate from downgrading
+- [x] 2. Crypto — `OIDCClientSecretAAD` + keyring `Wrap/UnwrapOIDCClientSecret`
+- [x] 3–6. Migration `000007` + models + three store repos (provider / identity /
+      single-use auth-request)
+- [x] 7. `oidc:manage` action (admin/owner union) + RBAC matrix
+- [x] 8. Extract `createSession` as the single session-mint path
+- [x] 9. Service — provider config (`Set/Get/DeleteOIDCProvider`, verifier cache)
+- [x] 10. `StartOIDCLogin` (state/nonce/PKCE) + callback verification vs mock IdP
+- [x] 11. Pre-provisioned resolution (by-`(iss,sub)`, else verified-email match)
+- [x] 12. API — `/v1/auth/oidc/status|login|callback` (+ success audit via Principal)
+- [x] 13. API — `/v1/sys/oidc` config (GET/PUT/DELETE, `oidc:manage`, audited)
+- [x] 14. Client-secret leak test + expired-login-state boot sweep
+- [x] 15. Docs (`docs/oidc.md`), `CLAUDE.md` crypto-lib carve-out, this tracker
+
+Verification: `go build`/`go vet`/`go test ./... -count=1` (auth + api + authz +
+audit + store + crypto + CLI, Docker-backed testcontainers) all pass;
+`internal/crypto` coverage 100.0%; `gosec` (shamir excluded) 0 issues;
+`govulncheck` 0 affecting. `TestOIDCClientSecretNeverLeaks` drives a full
+configure + login against the mock IdP with a canary secret and asserts it
+reaches no log line, no response body, and no `audit_events` row. During the
+gate sweep `govulncheck` flagged **GO-2026-4945** (a JWE decryption panic in
+`go-jose/v4`) as reachable through the ID-token verify path; fixed by bumping
+`go-jose/v4` v4.0.5 → **v4.1.4**.
+
+**Follow-up:** sub-project **C2** — OIDC-federated CI machine identity (GitHub
+Actions JWT exchange → scoped short-lived credential) — is the next slice.
+
 ## Phase-2 items already on the radar
 
 - [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google

@@ -55,6 +55,7 @@ Rules:
 - Key rotation: rotating a project KEK re-wraps DEKs lazily; rotating the master key re-wraps all project KEKs (online operation).
 - Zero plaintext secrets in logs, error messages, or audit entries — audit records key names/paths, never values. Enforce with tests.
 - Constant-time comparison for all token/MAC checks.
+- OIDC/JOSE exception (approved 2026-07-07): OIDC login (sub-project C) uses audited third-party libraries — `github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2`, and (transitively) `github.com/go-jose/go-jose/v4` — for JWT/JWKS verification, rather than hand-rolling JOSE. This is the sole third-party crypto-adjacent exception; the envelope/transit/unseal crypto remains stdlib + `x/crypto` only.
 
 ## AuthN / AuthZ
 
