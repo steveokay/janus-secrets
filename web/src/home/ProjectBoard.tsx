@@ -28,15 +28,25 @@ function ConfigCard({ pid, config, depth }: { pid: string; config: Config; depth
   )
 }
 
-function ConfigNodes({ pid, roots, all, depth }: { pid: string; roots: Config[]; all: Config[]; depth: number }) {
+// `seen` = the ancestor id path; a child already on the path is dropped so a
+// cyclic `inherits_from` (shouldn't reach the DB, but be defensive) can never
+// recurse forever.
+function ConfigNodes({ pid, roots, all, depth, seen = new Set<string>() }: {
+  pid: string; roots: Config[]; all: Config[]; depth: number; seen?: Set<string>
+}) {
   return (
     <>
-      {roots.map((c) => (
-        <div key={c.id} className="flex flex-col gap-1.5">
-          <ConfigCard pid={pid} config={c} depth={depth} />
-          <ConfigNodes pid={pid} roots={all.filter((x) => x.inherits_from === c.id)} all={all} depth={depth + 1} />
-        </div>
-      ))}
+      {roots.map((c) => {
+        if (seen.has(c.id)) return null
+        const next = new Set(seen).add(c.id)
+        const children = all.filter((x) => x.inherits_from === c.id && !next.has(x.id))
+        return (
+          <div key={c.id} className="flex flex-col gap-1.5">
+            <ConfigCard pid={pid} config={c} depth={depth} />
+            <ConfigNodes pid={pid} roots={children} all={all} depth={depth + 1} seen={next} />
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -99,6 +109,7 @@ export function ProjectBoard() {
 
   return (
     <div>
+      <h1 className="sr-only">{project?.name ?? 'Project'}</h1>
       <div className="mb-1 flex items-center gap-2 text-[13px]">
         <Link to="/" className="text-muted hover:text-ink">Projects</Link>
         <span className="text-faint">/</span>
@@ -108,7 +119,13 @@ export function ProjectBoard() {
         Inject secrets with the Janus CLI — <code className="rounded bg-brand-soft px-1.5 py-0.5 font-mono text-[11.5px] text-brand-text">janus run</code>
       </p>
 
-      {envs.data?.length === 0 ? (
+      {envs.isPending ? (
+        <div className="flex gap-5 overflow-x-auto pb-2" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-40 w-[260px] shrink-0 rounded-card bg-line-soft" />
+          ))}
+        </div>
+      ) : envs.data?.length === 0 ? (
         <EmptyState
           icon={<Layers size={22} strokeWidth={1.7} />}
           title="No environments yet"

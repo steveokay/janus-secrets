@@ -27,6 +27,8 @@ export function CommandPalette({
   }, [items, query])
 
   useEffect(() => { setActive(0) }, [query, open])
+  // A stale search must not carry across opens.
+  useEffect(() => { if (open) setQuery('') }, [open])
 
   function commit(item: PaletteItem | undefined) {
     if (item) onSelect(item)
@@ -35,7 +37,9 @@ export function CommandPalette({
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, filtered.length - 1)) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)) }
-    else if (e.key === 'Enter') { e.preventDefault(); commit(filtered[active]) }
+    // `isComposing` guards against committing mid-IME-composition (e.g. an
+    // Enter that confirms a candidate rather than selecting a result).
+    else if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); commit(filtered[active]) }
   }
 
   // Running flat index across groups; equals the item's index in `filtered`
@@ -57,6 +61,7 @@ export function CommandPalette({
             aria-label="Search projects, configs, secrets"
             aria-expanded="true"
             aria-controls="palette-list"
+            aria-activedescendant={filtered.length ? `palette-opt-${active}` : undefined}
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -72,7 +77,7 @@ export function CommandPalette({
               const rows = filtered.filter((it) => it.group === group)
               if (rows.length === 0) return null
               return (
-                <div key={group} className="mb-1">
+                <div key={group} role="group" aria-label={group} className="mb-1">
                   <div className="px-3 pb-0.5 pt-2 text-[10.5px] font-bold uppercase tracking-[.12em] text-faint">
                     {group}
                   </div>
@@ -83,6 +88,7 @@ export function CommandPalette({
                     return (
                       <button
                         key={it.id}
+                        id={`palette-opt-${idx}`}
                         type="button"
                         role="option"
                         aria-selected={isActive}

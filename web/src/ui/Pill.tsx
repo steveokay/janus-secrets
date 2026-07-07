@@ -8,7 +8,7 @@ const tones: Record<Tone, string> = {
   warning: 'bg-warning-soft text-warning',
   danger: 'bg-danger-soft text-danger',
   info: 'bg-info-soft text-info',
-  brand: 'bg-brand-soft text-brand-deep',
+  brand: 'bg-brand-soft text-brand-text',
   muted: 'bg-line-soft text-muted',
 }
 
