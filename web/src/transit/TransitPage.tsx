@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Shield, Lock, Unlock, Plus } from 'lucide-react'
 import { endpoints, TransitKey, TransitKeyType } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
+import { useToast } from '../ui/Toast'
 import { Pill } from '../ui/Pill'
 import { KeyActions } from './KeyActions'
 import { Playground } from './Playground'
@@ -28,6 +29,7 @@ function Dialog({ title, children }: { title: string; children: ReactNode }) {
 
 function CreateKeyForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const [name, setName] = useState('')
   const [type, setType] = useState<TransitKeyType>('aes256-gcm')
   const [error, setError] = useState('')
@@ -37,6 +39,8 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
     mutationFn: () => endpoints.createTransitKey(name, type),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transit', 'keys'] })
+      // Success confirmed by toast; failures stay inline (curated 409 conflict).
+      toast({ title: `Created ${name}` })
       onClose()
     },
     onError: (e) => setError(apiErrorTitle(e)),

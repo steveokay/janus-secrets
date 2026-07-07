@@ -146,6 +146,21 @@ test('revoke: confirm dialog then DELETE and success toast', async () => {
   expect(await screen.findByText('Token revoked')).toBeInTheDocument()
 })
 
+test('revoke failure fires a danger toast with the curated message', async () => {
+  mockTokens([T({ id: 't1', name: 'ci-config' })])
+  server.use(http.delete('/v1/tokens/t1', () =>
+    HttpResponse.json({ error: { code: 'conflict', message: 'token already revoked' } }, { status: 409 })))
+  mount()
+
+  await screen.findByText('ci-config')
+  await userEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+  const dialog = await screen.findByRole('alertdialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Revoke' }))
+
+  // apiErrorTitle passes the server's curated 409 message through to the toast.
+  expect(await screen.findByText('token already revoked')).toBeInTheDocument()
+})
+
 test('403 on list shows the "Token access required" empty state', async () => {
   server.use(http.get('/v1/tokens', () =>
     HttpResponse.json({ error: { code: 'forbidden', message: 'x' } }, { status: 403 })))

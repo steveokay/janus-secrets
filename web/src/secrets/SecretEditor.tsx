@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints } from '../lib/endpoints'
+import { errorMessage } from '../lib/api'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
 import { useToast } from '../ui/Toast'
@@ -46,13 +47,18 @@ export function SecretEditor() {
 
   const save = useMutation({
     mutationFn: () => endpoints.saveSecrets(cid, toChanges(buffer, original), ''),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setBuffer(emptyBuffer())
       setEditing({})
       setRevealed({}) // saved values changed server-side — drop stale plaintext
       setReviewOpen(false)
       void qc.invalidateQueries({ queryKey: ['config', cid] })
+      toast({ title: `Saved as v${res.version}` })
     },
+    // Danger toast surfaces the curated failure (e.g. 409 version conflict) —
+    // never a secret value. Replaces the previous inline "Save failed." banner
+    // so there is a single, transient failure surface.
+    onError: (e) => toast({ title: errorMessage(e, 'Save failed.'), tone: 'danger' }),
   })
 
   function discard() {
@@ -105,7 +111,6 @@ export function SecretEditor() {
 
   return (
     <div>
-      {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
       <EditorToolbar
         filter={filter}
         onFilter={setFilter}

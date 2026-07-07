@@ -2,6 +2,7 @@ import { FormEvent, useState, ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints, Project, Environment, Config } from '../lib/endpoints'
 import { errorMessage } from '../lib/api'
+import { useToast } from '../ui/Toast'
 import { Input } from '../ui/Input'
 import { Select } from '../ui/Select'
 import { Button } from '../ui/Button'
@@ -17,11 +18,15 @@ function Dialog({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function useSubmit<T>(fn: () => Promise<T>, onDone: (v: T) => void) {
+// Shared create-form controller. Confirms success with a toast; failures stay
+// INLINE (curated errorMessage) so validation/conflict text stays on screen next
+// to the field — no jarring duplicate danger toast for the same failure.
+function useSubmit<T>(fn: () => Promise<T>, onDone: (v: T) => void, successTitle: string) {
+  const toast = useToast()
   const [error, setError] = useState('')
   const m = useMutation({
     mutationFn: fn,
-    onSuccess: onDone,
+    onSuccess: (v) => { toast({ title: successTitle }); onDone(v) },
     onError: (e) => setError(errorMessage(e, 'Failed to create.')),
   })
   return { error, submit: (e: FormEvent) => { e.preventDefault(); setError(''); m.mutate() }, busy: m.isPending }
@@ -34,6 +39,7 @@ export function CreateProjectForm({ onCreated, onClose }: { onCreated: (p: Proje
   const { error, submit, busy } = useSubmit(
     () => endpoints.createProject(slug, name),
     (p) => { void qc.invalidateQueries({ queryKey: ['projects'] }); onCreated(p) },
+    'Project created',
   )
   return (
     <Dialog title="Create project">
@@ -74,6 +80,7 @@ export function CreateEnvironmentForm({ pid, onCreated, onClose }: { pid: string
   const { error, submit, busy } = useSubmit(
     () => endpoints.createEnvironment(pid, slug, name),
     (e) => { void qc.invalidateQueries({ queryKey: ['envs', pid] }); onCreated(e) },
+    'Environment created',
   )
   return (
     <Dialog title="New environment">
@@ -97,6 +104,7 @@ export function CreateConfigForm({ pid, eid, bases, onCreated, onClose }: { pid:
   const { error, submit, busy } = useSubmit(
     () => endpoints.createConfig(pid, eid, name, base || undefined),
     (c) => { void qc.invalidateQueries({ queryKey: ['configs', pid, eid] }); onCreated(c) },
+    'Config created',
   )
   return (
     <Dialog title="New config">
