@@ -71,6 +71,23 @@ test('a key added via AddKeyRow shows an added row with a discard action', async
   expect(screen.getByRole('button', { name: /discard new_key/i })).toBeInTheDocument()
 })
 
+test('the key filter narrows visible rows', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByRole('searchbox', { name: /filter keys/i }), 'sentry')
+  expect(screen.queryByText('DB_URL')).toBeNull()
+  expect(screen.getByText('SENTRY_DSN')).toBeInTheDocument()
+})
+
+test('toolbar exposes Import .env and History', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  expect(screen.getByRole('button', { name: /import \.env/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
+})
+
 test('History button opens the version sheet', async () => {
   seed()
   server.use(

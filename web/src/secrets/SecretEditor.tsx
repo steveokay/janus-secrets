@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { History } from 'lucide-react'
 import { endpoints } from '../lib/endpoints'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
@@ -9,6 +8,7 @@ import { useToast } from '../ui/Toast'
 import { EmptyState } from '../ui/EmptyState'
 import { Sheet } from '../ui/Sheet'
 import { SecretTable } from './SecretTable'
+import { EditorToolbar } from './EditorToolbar'
 import { VersionHistory } from './VersionHistory'
 
 export function SecretEditor() {
@@ -24,11 +24,10 @@ export function SecretEditor() {
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [filter, setFilter] = useState('')
   const [showHistory, setShowHistory] = useState(false)
-  // Reserved for later slices: filter → toolbar (Task 3), import (Task 5),
-  // review (Task 4). Setters are wired in those tasks.
   const [, setImportOpen] = useState(false)
+  // Reserved for Task 4 (review-diff modal).
   const [, setReviewOpen] = useState(false)
-  void setFilter; void setImportOpen; void setReviewOpen
+  void setReviewOpen
 
   const original = raw.data?.secrets ?? {}
   // The config version (from the raw reveal) — not the max per-secret value
@@ -95,24 +94,21 @@ export function SecretEditor() {
         <span className="text-sm text-muted">
           {dirty ? `Pending: +${summary.added} added · ${summary.changed} changed · ${summary.removed} removed` : `${Object.keys(maskedRows).length} keys`}
         </span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowHistory(true)}
-            className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-          >
-            <History size={14} strokeWidth={1.7} /> History
-          </button>
-          <button
-            onClick={() => save.mutate()}
-            disabled={!dirty || save.isPending}
-            className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
-          >
-            {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
-          </button>
-        </div>
+        <button
+          onClick={() => save.mutate()}
+          disabled={!dirty || save.isPending}
+          className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
+        >
+          {save.isPending ? 'Saving…' : `Save as v${version + 1}`}
+        </button>
       </div>
       {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
+      <EditorToolbar
+        filter={filter}
+        onFilter={setFilter}
+        onImport={() => setImportOpen(true)}
+        onHistory={() => setShowHistory(true)}
+      />
       {rows.length === 0 ? (
         <EmptyState
           className="mt-10"
