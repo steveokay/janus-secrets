@@ -193,3 +193,50 @@ func fedBindingView(b *store.OIDCFederationBinding) *FederationBindingView {
 		ScopeID: b.ScopeID, Access: b.Access, TTLSeconds: b.TTLSeconds, Enabled: b.Enabled,
 	}
 }
+
+// matchFederationBinding returns the single enabled binding whose every
+// match_claims entry equals the token's claim. Zero matches → ErrFederationNoMatch;
+// more than one → ErrFederationAmbiguous (no "most specific wins" guessing).
+func matchFederationBinding(claims map[string]string, bindings []store.OIDCFederationBinding) (*store.OIDCFederationBinding, error) {
+	var matched *store.OIDCFederationBinding
+	for i := range bindings {
+		b := &bindings[i]
+		if !b.Enabled || !claimsSatisfy(claims, b.MatchClaims) {
+			continue
+		}
+		if matched != nil {
+			return nil, ErrFederationAmbiguous
+		}
+		matched = b
+	}
+	if matched == nil {
+		return nil, ErrFederationNoMatch
+	}
+	return matched, nil
+}
+
+// claimsSatisfy is true when every wanted claim equals the token's claim. An
+// empty want never matches (defense in depth against a claim-less binding).
+func claimsSatisfy(tokenClaims, want map[string]string) bool {
+	if len(want) == 0 {
+		return false
+	}
+	for k, v := range want {
+		if tokenClaims[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// stringClaims projects a raw claim set to its string-valued entries (the only
+// kind bindings match on). Non-string claims (iat/exp numbers) are dropped.
+func stringClaims(raw map[string]any) map[string]string {
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
+}
