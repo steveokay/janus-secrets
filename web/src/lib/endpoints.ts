@@ -87,6 +87,18 @@ export function memberScopePath(s: MemberScope): string {
   }
 }
 
+// transit (B5) — instance-scoped KMS. Key-mgmt is audited; crypto ops are not.
+export type TransitKeyType = 'aes256-gcm' | 'ed25519'
+export interface TransitKey {
+  name: string
+  type: TransitKeyType
+  latest_version: number
+  min_decryption_version: number
+  deletion_allowed: boolean
+  versions: number[]
+}
+export interface TransitKeyConfig { min_decryption_version?: number; deletion_allowed?: boolean }
+
 function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
@@ -162,4 +174,27 @@ export const endpoints = {
   putMember: (s: MemberScope, uid: string, role: MemberRole) =>
     api.put<void>(`${memberScopePath(s)}/${uid}`, { role }),
   deleteMember: (s: MemberScope, uid: string) => api.del<void>(`${memberScopePath(s)}/${uid}`),
+
+  // transit (B5). Crypto op responses are used in ephemeral component state only
+  // (never cached); no decrypt/datakey here, so no plaintext ever returns.
+  listTransitKeys: () => api.get<{ keys: TransitKey[] }>('/v1/transit/keys').then((r) => r.keys),
+  getTransitKey: (name: string) => api.get<TransitKey>(`/v1/transit/keys/${encodeURIComponent(name)}`),
+  createTransitKey: (name: string, type: TransitKeyType) =>
+    api.post<TransitKey>('/v1/transit/keys', { name, type }),
+  rotateTransitKey: (name: string) =>
+    api.post<TransitKey>(`/v1/transit/keys/${encodeURIComponent(name)}/rotate`, {}),
+  configTransitKey: (name: string, cfg: TransitKeyConfig) =>
+    api.post<TransitKey>(`/v1/transit/keys/${encodeURIComponent(name)}/config`, cfg),
+  trimTransitKey: (name: string, min_available_version: number) =>
+    api.post<TransitKey>(`/v1/transit/keys/${encodeURIComponent(name)}/trim`, { min_available_version }),
+  deleteTransitKey: (name: string) =>
+    api.del<void>(`/v1/transit/keys/${encodeURIComponent(name)}`),
+  transitEncrypt: (name: string, plaintext: string, associated_data?: string) =>
+    api.post<{ ciphertext: string }>(`/v1/transit/encrypt/${encodeURIComponent(name)}`, { plaintext, associated_data }),
+  transitRewrap: (name: string, ciphertext: string, associated_data?: string) =>
+    api.post<{ ciphertext: string }>(`/v1/transit/rewrap/${encodeURIComponent(name)}`, { ciphertext, associated_data }),
+  transitSign: (name: string, input: string) =>
+    api.post<{ signature: string }>(`/v1/transit/sign/${encodeURIComponent(name)}`, { input }),
+  transitVerify: (name: string, input: string, signature: string) =>
+    api.post<{ valid: boolean }>(`/v1/transit/verify/${encodeURIComponent(name)}`, { input, signature }),
 }
