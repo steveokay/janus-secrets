@@ -81,13 +81,15 @@ Append-only `audit_events` table. Every authenticated request that touches a sec
 
 The SPA's visual design is **approved and canonical**:
 
-- **Mockup (source of truth for look & feel):** `docs/design/ui-mockup.html` — open in a browser; it shows the app shell, secret editor, auth/unseal, component kit, and dark mode.
-- **Spec (tokens + rules):** `docs/superpowers/specs/2026-07-06-ui-visual-design.md`.
+- **Mockup (source of truth for look & feel):** `docs/design/ui-redesign-mockup.html` — open in a browser; dark-first + light toggle. It shows the app shell, secret editor, auth/unseal, component kit, and both themes.
+- **Spec (tokens + rules):** `docs/superpowers/specs/2026-07-07-dark-redesign-design.md`.
 - **Punch-list / rollout tracker:** `fe-improvements.md`.
 
 Rules for ANY change under `web/`:
 
 - Colors/type/radius/shadows come from the Tailwind theme tokens defined by the spec — **never raw palette classes** (`gray-400`, `blue-600`, hex literals) in components.
+- The theme is dual (light + dark) via CSS variables in `web/src/theme.css`; components use token classes only — never `dark:` palette variants, never raw hex (hex lives solely in `theme.css`, enforced by `web/src/test/no-raw-palette.test.ts`).
+- Every UI change must render correctly in BOTH light and dark themes (`npm run smoke` checks both).
 - One accent (violet `brand`); semantic green/amber/red express state only. Env coding: dev=blue, staging=amber, prod=red.
 - Monospace is reserved for secret keys/values; sans for all chrome.
 - New screens/components must match the mockup, or compose from its tokens/kit if not shown there. When a visual question isn't answered by mockup or spec, ask — don't improvise a new style.

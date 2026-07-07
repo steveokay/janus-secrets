@@ -27,3 +27,12 @@ test('change password opens the dialog', async () => {
   await userEvent.click(screen.getByRole('menuitem', { name: /change password/i }))
   expect(await screen.findByRole('heading', { name: /change password/i })).toBeInTheDocument()
 })
+
+test('theme radio group switches to dark', async () => {
+  mockMe()
+  document.documentElement.classList.remove('dark')
+  renderApp(<UserMenu />)
+  await userEvent.click(await screen.findByRole('button', { name: /user menu/i }))
+  await userEvent.click(screen.getByRole('menuitemradio', { name: 'Dark' }))
+  expect(document.documentElement.classList.contains('dark')).toBe(true)
+})

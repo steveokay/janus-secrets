@@ -1,3 +1,8 @@
+> **SUPERSEDED (2026-07-07)** by `2026-07-07-dark-redesign-design.md` (dark-first
+> + light toggle via CSS-variable tokens). Token roles, mono-for-secrets, env
+> coding, and security invariants below still hold; the light-only theme model
+> and `ui-mockup.html` no longer do. Kept for historical record.
+
 # Janus Web UI — Visual Design System (approved)
 
 - **Status:** APPROVED 2026-07-06 (mockup reviewed and accepted by Steve).

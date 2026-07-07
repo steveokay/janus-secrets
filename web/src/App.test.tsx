@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import { render } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import App from './App'
+import { ThemeProvider } from './theme/ThemeProvider'
 import { server } from './test/msw'
 import { queryClient } from './lib/queryClient'
 
@@ -20,19 +21,19 @@ function boot(seal: object, me: number) {
 
 test('sealed server routes to the unseal screen', async () => {
   boot({ initialized: true, sealed: true, type: 'shamir', threshold: 2, shares: 3, progress: { submitted: 0, required: 2 } }, 401)
-  render(<App />)
+  render(<ThemeProvider><App /></ThemeProvider>)
   expect(await screen.findByText(/unseal janus/i)).toBeInTheDocument()
 })
 
 test('unsealed + unauthenticated routes to login', async () => {
   boot({ initialized: true, sealed: false, type: 'shamir' }, 401)
-  render(<App />)
+  render(<ThemeProvider><App /></ThemeProvider>)
   expect(await screen.findByRole('button', { name: /sign in/i })).toBeInTheDocument()
 })
 
 test('unsealed + authenticated shows the app shell', async () => {
   boot({ initialized: true, sealed: false, type: 'shamir' }, 200)
-  render(<App />)
+  render(<ThemeProvider><App /></ThemeProvider>)
   // Email moved into the user-menu dropdown; the shell shows the avatar + seal pill.
   expect(await screen.findByRole('button', { name: /user menu/i })).toBeInTheDocument()
   expect(screen.getByText(/unsealed/i)).toBeInTheDocument()
