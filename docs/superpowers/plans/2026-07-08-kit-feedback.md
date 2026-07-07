@@ -278,9 +278,18 @@ test('hides internals for 5xx', () => {
 
 ---
 
-## Task 9: styled in-app unsaved-changes confirm
+## Task 9: styled in-app unsaved-changes confirm — DEFERRED
 
-**Files:** Modify `web/src/secrets/SecretEditor.tsx` (+ test).
+**Deferred (2026-07-08):** the clean implementation uses react-router's `useBlocker`,
+which only functions under a **data router** (`createBrowserRouter`/`RouterProvider`).
+The app currently uses classic `<BrowserRouter>` + `<Routes>` (see `web/src/App.tsx`),
+and the test harness (`web/src/test/render.tsx`) uses `MemoryRouter` — enabling
+`useBlocker` requires migrating both to data routers, a broad change affecting every
+routed test. That router migration is its own decision, out of scope for this slice.
+The existing `beforeunload` guard still covers browser-level navigation (reload/close).
+Follow-up: migrate to a data router, then add the `ConfirmDialog`-based in-app guard.
+
+**Files (when resumed):** Modify `web/src/secrets/SecretEditor.tsx` (+ test).
 
 - [ ] **Step 1: Failing test** — when the editor is dirty and the user triggers in-app navigation away (e.g. clicks a nav link / the breadcrumb), a styled confirm ("Discard unsaved changes?") appears; confirming proceeds, cancelling stays. Use the existing `ConfirmDialog`.
 - [ ] **Step 2: Implement** using react-router's navigation blocking (`useBlocker` if available in the installed v6, else intercept nav via a guard around link clicks) + `ConfirmDialog`. Keep the existing `beforeunload` handler for full-page unloads.
