@@ -12,7 +12,7 @@ import { VersionHistory } from './VersionHistory'
 const badge: Record<MaskedSecret['origin'], string> = {
   own: 'bg-success-soft text-success',
   inherited: 'bg-line-soft text-muted',
-  overridden: 'bg-brand-soft text-brand-deep',
+  overridden: 'bg-brand-soft text-brand-text',
 }
 
 export function SecretEditor() {
@@ -117,10 +117,10 @@ export function SecretEditor() {
                     <>
                       {key in revealed ? revealed[key] : '•••••••'}
                       {meta.origin !== 'inherited' && (
-                        <button aria-label={`edit ${key}`} onClick={() => setEditing((s) => ({ ...s, [key]: true }))} className="ml-2 text-faint hover:text-brand-deep">✎</button>
+                        <button aria-label={`edit ${key}`} onClick={() => setEditing((s) => ({ ...s, [key]: true }))} className="ml-2 text-faint hover:text-brand-text">✎</button>
                       )}
                       {!(key in revealed) && (
-                        <button aria-label={`reveal ${key}`} onClick={() => void reveal(key)} className="ml-1 text-faint hover:text-brand-deep">👁</button>
+                        <button aria-label={`reveal ${key}`} onClick={() => void reveal(key)} className="ml-1 text-faint hover:text-brand-text">👁</button>
                       )}
                       {meta.origin !== 'inherited' && !removedRow && (
                         <button aria-label={`remove ${key}`} onClick={() => setBuffer((b) => removeKey(b, key))} className="ml-1 text-danger/70 hover:text-danger">✕</button>

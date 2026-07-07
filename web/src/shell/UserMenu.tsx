@@ -5,9 +5,9 @@ import { ChangePasswordForm } from '../auth/ChangePassword'
 import { useTheme, type Theme } from '../theme/ThemeProvider'
 
 const item =
-  'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-deep'
+  'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-text'
 const radio =
-  'relative flex w-full cursor-default select-none items-center rounded py-1.5 pl-7 pr-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-deep'
+  'relative flex w-full cursor-default select-none items-center rounded py-1.5 pl-7 pr-2.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-text'
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -27,7 +27,7 @@ export function UserMenu() {
       <Menu.Root>
         <Menu.Trigger
           aria-label="user menu"
-          className="flex h-7 w-7 items-center justify-center rounded-full border border-brand-line bg-brand-soft text-[11px] font-bold text-brand-deep"
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-brand-line bg-brand-soft text-[11px] font-bold text-brand-text"
         >
           {initials}
         </Menu.Trigger>
@@ -45,7 +45,7 @@ export function UserMenu() {
             <Menu.RadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
               {THEMES.map((t) => (
                 <Menu.RadioItem key={t.value} value={t.value} className={radio}>
-                  <Menu.ItemIndicator className="absolute left-2.5 text-brand-deep">•</Menu.ItemIndicator>
+                  <Menu.ItemIndicator className="absolute left-2.5 text-brand-text">•</Menu.ItemIndicator>
                   {t.label}
                 </Menu.RadioItem>
               ))}
