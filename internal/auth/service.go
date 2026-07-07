@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"runtime"
+	"sync"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -36,6 +37,9 @@ type Service struct {
 	oidcProviders  *store.OIDCProviderRepo
 	oidcIdentities *store.OIDCIdentityRepo
 	oidcAuthReqs   *store.OIDCAuthRequestRepo
+
+	oidcMu    sync.Mutex
+	oidcCache *oidcVerifier
 }
 
 // NewService builds the repositories from st. kr is the (possibly still

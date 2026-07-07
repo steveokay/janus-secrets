@@ -3,10 +3,31 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
+
+const oidcAuthRequestTTL = 10 * time.Minute
+
+type oidcVerifier struct {
+	issuer   string
+	clientID string
+	verifier *oidc.IDTokenVerifier
+	oauth2   *oauth2.Config
+}
+
+// OIDCClaims are the verified ID-token claims we consume.
+type OIDCClaims struct {
+	Issuer        string
+	Subject       string
+	Email         string
+	EmailVerified bool
+}
 
 // OIDCProviderInput is the admin-supplied provider configuration.
 type OIDCProviderInput struct {
@@ -95,6 +116,121 @@ func (s *Service) unwrapClientSecret(p *store.OIDCProvider) ([]byte, error) {
 	return s.keyring.UnwrapOIDCClientSecret(ct)
 }
 
-// invalidateOIDCVerifier drops any cached verifier. TEMPORARY no-op; Task 10
-// replaces the body with real cache invalidation.
-func (s *Service) invalidateOIDCVerifier() {}
+// invalidateOIDCVerifier drops the cached verifier (config changed).
+func (s *Service) invalidateOIDCVerifier() {
+	s.oidcMu.Lock()
+	s.oidcCache = nil
+	s.oidcMu.Unlock()
+}
+
+// oidcVerifierFor builds (or returns cached) the verifier for the enabled
+// provider. ErrNotFound if none/disabled.
+func (s *Service) oidcVerifierFor(ctx context.Context) (*oidcVerifier, error) {
+	p, err := s.oidcProviders.Get(ctx)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if !p.Enabled {
+		return nil, ErrNotFound
+	}
+	s.oidcMu.Lock()
+	defer s.oidcMu.Unlock()
+	if s.oidcCache != nil && s.oidcCache.issuer == p.Issuer && s.oidcCache.clientID == p.ClientID {
+		return s.oidcCache, nil
+	}
+	secret, err := s.unwrapClientSecret(p)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := oidc.NewProvider(ctx, p.Issuer)
+	if err != nil {
+		zeroize(secret)
+		return nil, err
+	}
+	v := &oidcVerifier{
+		issuer:   p.Issuer,
+		clientID: p.ClientID,
+		verifier: provider.Verifier(&oidc.Config{ClientID: p.ClientID}),
+		oauth2: &oauth2.Config{
+			ClientID:     p.ClientID,
+			ClientSecret: string(secret),
+			Endpoint:     provider.Endpoint(),
+			RedirectURL:  p.RedirectURL,
+			Scopes:       p.Scopes,
+		},
+	}
+	zeroize(secret)
+	s.oidcCache = v
+	return v, nil
+}
+
+// StartOIDCLogin persists a login-state row and returns the provider authorize
+// URL (state + nonce + PKCE S256). ErrNotFound if OIDC not configured/enabled.
+func (s *Service) StartOIDCLogin(ctx context.Context) (string, error) {
+	v, err := s.oidcVerifierFor(ctx)
+	if err != nil {
+		return "", err
+	}
+	p, err := s.oidcProviders.Get(ctx)
+	if err != nil {
+		return "", err
+	}
+	state, err := randToken(32)
+	if err != nil {
+		return "", err
+	}
+	nonce, err := randToken(32)
+	if err != nil {
+		return "", err
+	}
+	verifier := oauth2.GenerateVerifier()
+	if err := s.oidcAuthReqs.Create(ctx, state, nonce, verifier, p.ID, time.Now().Add(oidcAuthRequestTTL)); err != nil {
+		return "", err
+	}
+	return v.oauth2.AuthCodeURL(state,
+		oidc.Nonce(nonce),
+		oauth2.S256ChallengeOption(verifier),
+	), nil
+}
+
+// verifyOIDCCallback consumes the state row, exchanges the code, verifies the
+// ID token (sig, iss, aud, exp, nonce), and returns claims. No user/session.
+func (s *Service) verifyOIDCCallback(ctx context.Context, state, code string) (*OIDCClaims, error) {
+	req, err := s.oidcAuthReqs.Consume(ctx, state)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, ErrInvalidOIDCState
+		}
+		return nil, err
+	}
+	v, err := s.oidcVerifierFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := v.oauth2.Exchange(ctx, code, oauth2.VerifierOption(req.PKCEVerifier))
+	if err != nil {
+		return nil, ErrOIDCExchange
+	}
+	rawID, ok := tok.Extra("id_token").(string)
+	if !ok || rawID == "" {
+		return nil, ErrOIDCExchange
+	}
+	idt, err := v.verifier.Verify(ctx, rawID)
+	if err != nil {
+		return nil, ErrOIDCExchange
+	}
+	if idt.Nonce != req.Nonce {
+		return nil, ErrOIDCExchange
+	}
+	var c struct {
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+	}
+	if err := idt.Claims(&c); err != nil {
+		return nil, ErrOIDCExchange
+	}
+	return &OIDCClaims{Issuer: idt.Issuer, Subject: idt.Subject, Email: c.Email, EmailVerified: c.EmailVerified}, nil
+}
