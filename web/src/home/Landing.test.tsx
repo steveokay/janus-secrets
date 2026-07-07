@@ -10,7 +10,7 @@ test('no projects: hero with CTA that opens the create dialog', async () => {
   renderApp(<Landing />, { withAuth: false })
   expect(await screen.findByText('Your secrets, sealed and audited')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /create your first project/i }))
-  expect(await screen.findByRole('heading', { name: /new project/i })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: /create project/i })).toBeInTheDocument()
 })
 
 test('with projects: link cards + new-project button', async () => {
