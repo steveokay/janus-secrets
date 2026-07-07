@@ -54,3 +54,60 @@ func federationReason(err error) string {
 		return "error"
 	}
 }
+
+type fedConfigRequest struct {
+	Issuer   string `json:"issuer"`
+	Audience string `json:"audience"`
+	Enabled  bool   `json:"enabled"`
+}
+
+// handleFederationConfigGet: authz enforced by requireInstance middleware. Read — not audited.
+func (s *Server) handleFederationConfigGet(w http.ResponseWriter, r *http.Request) {
+	v, err := s.auth.GetFederationConfig(r.Context())
+	if err != nil {
+		if errors.Is(err, auth.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "not found")
+			return
+		}
+		s.writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) handleFederationConfigPut(w http.ResponseWriter, r *http.Request) {
+	var req fedConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	if err := s.auth.SetFederationConfig(r.Context(), auth.FederationConfigInput{
+		Issuer: req.Issuer, Audience: req.Audience, Enabled: req.Enabled,
+	}); err != nil {
+		if errors.Is(err, auth.ErrValidation) {
+			writeError(w, http.StatusBadRequest, CodeValidation, "invalid federation config")
+			return
+		}
+		s.writeServiceError(w, err)
+		return
+	}
+	// Audit: issuer + audience only, never any secret material.
+	if err := s.record(r, "oidc.federation.config.write", "oidc/federation", "success", "",
+		"issuer="+req.Issuer+" audience="+req.Audience); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) handleFederationConfigDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.auth.DeleteFederationConfig(r.Context()); err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "oidc.federation.config.delete", "oidc/federation", "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
