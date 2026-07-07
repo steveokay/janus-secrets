@@ -41,20 +41,22 @@ function ConfigNodes({ pid, roots, all, depth }: { pid: string; roots: Config[];
   )
 }
 
-function EnvColumn({ pid, env, configs, loading, onAddConfig }: {
+function EnvColumn({ pid, env, configs, loading, error, onAddConfig }: {
   pid: string
   env: Environment
   configs: Config[]
   loading: boolean
+  error: boolean
   onAddConfig: (env: Environment, bases: Config[]) => void
 }) {
   const tone = envTone(env.name)
   const roots = configs.filter((c) => !c.inherits_from || !configs.some((x) => x.id === c.inherits_from))
+  const count = loading ? '…' : error ? '—' : `${configs.length} config${configs.length === 1 ? '' : 's'}`
   return (
     <section className="w-[260px] shrink-0">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-[13px] font-semibold text-ink">{env.name}</h3>
-        <Pill tone="muted">{loading ? '…' : `${configs.length} config${configs.length === 1 ? '' : 's'}`}</Pill>
+        <Pill tone="muted">{count}</Pill>
       </div>
       <div className={cn('mb-3 h-[3px] w-10 rounded-full', envDotClass[tone])} />
       <button
@@ -66,8 +68,9 @@ function EnvColumn({ pid, env, configs, loading, onAddConfig }: {
       </button>
       <div className="flex flex-col gap-1.5">
         {loading && <div aria-hidden className="h-9 rounded bg-line-soft" />}
-        {!loading && configs.length === 0 && <p className="px-1 text-[12px] text-faint">No configs yet</p>}
-        <ConfigNodes pid={pid} roots={roots} all={configs} depth={0} />
+        {error && <p role="alert" className="px-1 text-[12px] text-danger">Couldn't load configs.</p>}
+        {!loading && !error && configs.length === 0 && <p className="px-1 text-[12px] text-faint">No configs yet</p>}
+        {!error && <ConfigNodes pid={pid} roots={roots} all={configs} depth={0} />}
       </div>
     </section>
   )
@@ -124,7 +127,8 @@ export function ProjectBoard() {
               pid={pid}
               env={e}
               configs={configLists[i]?.data ?? []}
-              loading={!configLists[i]?.data}
+              loading={configLists[i]?.isPending ?? true}
+              error={configLists[i]?.isError ?? false}
               onAddConfig={(env, bases) => setAddConfig({ env, bases })}
             />
           ))}

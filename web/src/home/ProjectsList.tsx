@@ -21,10 +21,12 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
       queryFn: () => endpoints.listConfigs(project.id, e.id),
     })),
   })
+  const anyConfigError = envs.isError || configQueries.some((q) => q.isError)
   const totalConfigs =
     configQueries.length > 0 && configQueries.every((q) => q.data)
       ? configQueries.reduce((n, q) => n + (q.data?.length ?? 0), 0)
       : undefined
+  const countLabel = totalConfigs !== undefined ? `${totalConfigs} configs` : anyConfigError ? '— configs' : '… configs'
 
   return (
     <Link
@@ -48,7 +50,7 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
             ))}
           </span>
         )}
-        <Pill tone="muted">{totalConfigs === undefined ? '… configs' : `${totalConfigs} configs`}</Pill>
+        <Pill tone="muted">{countLabel}</Pill>
       </div>
     </Link>
   )

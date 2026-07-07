@@ -44,3 +44,16 @@ test('shows the CLI hint and breadcrumb', async () => {
   expect(await screen.findByText('api-gateway')).toBeInTheDocument()
   expect(screen.getByText(/janus run/i)).toBeInTheDocument()
 })
+
+test('a failed config fetch surfaces an error, not a permanent skeleton', async () => {
+  mock()
+  // e1's config list errors; the Development column must show an error, and the
+  // other column must still render normally.
+  server.use(
+    http.get('/v1/projects/p1/environments/e1/configs', () =>
+      HttpResponse.json({ error: { code: 'internal', message: 'boom' } }, { status: 500 })),
+  )
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByRole('link', { name: /prod/i })).toBeInTheDocument()
+  expect(await screen.findByText(/couldn't load configs/i)).toBeInTheDocument()
+})
