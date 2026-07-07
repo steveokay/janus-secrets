@@ -60,7 +60,10 @@ this tracker, roughly by size:
   + table horizontal-scroll containment. *(Palette a11y + dark contrast done in R4.)*
 - **Lower-priority P2s:** §0 motion/reduced-motion, §1 collapsible sidebar, §2
   onboarding checklist.
-- **§8:** the **usage-metrics dashboard** — blocked on backend sub-project **D**.
+- **§8:** the **usage-metrics dashboard — DONE** (sub-project **D**, PR #35): on-demand
+  "Reads 24h" total + top configs/tokens from `secret.reveal` audit events; instance
+  strip on the Projects list + project-scoped row on the board; dual-scope
+  `/v1/metrics/reads-24h` routes; names+counts only, hides on 403.
 
 ---
 
@@ -267,7 +270,10 @@ password on create and disable guardrails)*, **transit UI** *(SHIPPED — B5:
 with 403/409 guardrails, type/version/deletion cues — plus a plaintext-free crypto
 playground: encrypt/rewrap for aes256-gcm, sign/verify for ed25519; NO decrypt/datakey,
 crypto results ephemeral (local state only). Built in the dark system)*,
-**usage-metrics dashboard**. Give each a
+**usage-metrics dashboard** *(SHIPPED — D: on-demand "Reads 24h" total + top
+configs/tokens from `secret.reveal` audit events; instance strip on Projects list +
+project-scoped board row; dual-scope `/v1/metrics/reads-24h`; names+counts only,
+hides on 403)*. Give each a
 designed empty/loaded state using the component kit above rather than bespoke
 markup.
 
