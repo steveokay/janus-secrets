@@ -18,3 +18,13 @@ test('renders projects, then the selected project’s env → config tree', asyn
   // Active config link is marked for styling and a11y.
   expect(screen.getByRole('link', { name: /^prod$/i })).toHaveAttribute('aria-current', 'page')
 })
+
+test('primary nav links to the five dev-focused destinations', async () => {
+  server.use(http.get('/v1/projects', () => HttpResponse.json({ projects: [] })))
+  renderApp(<Sidebar />, { route: '/', withAuth: false })
+  expect(await screen.findByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/')
+  expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute('href', '/audit')
+  expect(screen.getByRole('link', { name: 'Members' })).toHaveAttribute('href', '/members')
+  expect(screen.getByRole('link', { name: 'Tokens' })).toHaveAttribute('href', '/tokens')
+  expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
+})

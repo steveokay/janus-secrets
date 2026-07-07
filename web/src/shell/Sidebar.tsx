@@ -1,15 +1,14 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, matchPath } from 'react-router-dom'
-import { Plus, ScrollText, KeyRound, Users, Shield, Settings } from 'lucide-react'
+import { LayoutGrid, ScrollText, KeyRound, Users, Settings, Plus } from 'lucide-react'
 import { useProjects, useEnvironments, useConfigs } from '../secrets/nav'
-import { CreateProjectForm, CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
+import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
 import { Config } from '../lib/endpoints'
 import { envTone, envDotClass } from '../ui/env'
 import { cn } from '../ui/cn'
 
-// Sidebar is rendered as a sibling of <Routes> (inside AppLayout), not nested
-// within a matched <Route>, so useParams() would always be empty here.
-// Derive the active ids from the URL directly via matchPath instead.
+// Sidebar is a sibling of <Routes>, so useParams() is empty here — derive the
+// active ids from the URL via matchPath.
 function useActiveIds() {
   const location = useLocation()
   return {
@@ -18,12 +17,12 @@ function useActiveIds() {
   }
 }
 
-type OpenForm = null | 'project' | 'env' | { config: { eid: string; bases: Config[] } }
+type OpenForm = null | 'env' | { config: { eid: string; bases: Config[] } }
 
 function SectionLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="mb-1 mt-4 flex items-center justify-between px-2 text-[10.5px] font-bold uppercase tracking-[.12em] text-faint">
-      <span>{children}</span>
+      <span className="truncate">{children}</span>
       {action}
     </div>
   )
@@ -35,7 +34,7 @@ function IconAdd({ label, onClick }: { label: string; onClick: () => void }) {
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-brand-soft hover:text-brand-deep"
+      className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-brand-soft hover:text-brand-text"
     >
       <Plus size={13} strokeWidth={1.7} />
     </button>
@@ -70,7 +69,7 @@ function EnvConfigs({ pid, eid, name, activeConfigId, onAddConfig }: {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'block rounded px-2 py-1 text-[12.5px] text-muted hover:bg-line-soft',
-                  active && 'bg-brand-soft font-semibold text-brand-deep hover:bg-brand-soft',
+                  active && 'bg-brand-soft font-semibold text-brand-text hover:bg-brand-soft',
                 )}
               >
                 {c.name}
@@ -84,33 +83,49 @@ function EnvConfigs({ pid, eid, name, activeConfigId, onAddConfig }: {
   )
 }
 
-const navItem =
-  'mx-1 flex items-center gap-2.5 rounded px-2 py-1.5 text-[12.5px] text-muted hover:bg-line-soft hover:text-ink'
+const PRIMARY = [
+  { to: '/', label: 'Projects', Icon: LayoutGrid, match: (p: string) => p === '/' || p.startsWith('/projects') },
+  { to: '/audit', label: 'Activity', Icon: ScrollText, match: (p: string) => p === '/audit' },
+  { to: '/members', label: 'Members', Icon: Users, match: (p: string) => p === '/members' },
+  { to: '/tokens', label: 'Tokens', Icon: KeyRound, match: (p: string) => p === '/tokens' },
+  { to: '/settings', label: 'Settings', Icon: Settings, match: (p: string) => p === '/settings' },
+]
+
+const primaryItem =
+  'mx-1 flex items-center gap-2.5 rounded px-2 py-1.5 text-[12.5px] font-medium text-muted hover:bg-line-soft hover:text-ink'
+const primaryActive = 'bg-brand-soft font-semibold text-brand-text hover:bg-brand-soft'
 
 export function Sidebar() {
   const { projectId, configId } = useActiveIds()
+  const location = useLocation()
   const navigate = useNavigate()
   const projects = useProjects()
   const envs = useEnvironments(projectId)
   const [open, setOpen] = useState<OpenForm>(null)
+  const projectName = projects.data?.find((p) => p.id === projectId)?.name
 
   return (
     <nav className="text-sm">
-      <SectionLabel action={<IconAdd label="add project" onClick={() => setOpen('project')} />}>Project</SectionLabel>
-      <select
-        value={projectId ?? ''}
-        onChange={(e) => navigate(`/projects/${e.target.value}`)}
-        aria-label="project"
-        className="mx-1 w-[calc(100%-8px)] rounded border border-line bg-card px-2.5 py-1.5 text-[13px] font-semibold text-ink"
-      >
-        <option value="" disabled>Select a project…</option>
-        {projects.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      <div className="mb-2 flex flex-col gap-0.5">
+        {PRIMARY.map(({ to, label, Icon, match }) => {
+          const active = match(location.pathname)
+          return (
+            <Link
+              key={to}
+              to={to}
+              aria-current={active ? 'page' : undefined}
+              className={cn(primaryItem, active && primaryActive)}
+            >
+              <Icon size={15} strokeWidth={1.7} /> {label}
+            </Link>
+          )
+        })}
+      </div>
 
       {projectId && (
         <>
           <SectionLabel action={<IconAdd label="add environment" onClick={() => setOpen('env')} />}>
-            Environments
+            {projectName ?? 'Project'}
           </SectionLabel>
           <ul>
             {envs.data?.map((e) => (
@@ -127,19 +142,6 @@ export function Sidebar() {
         </>
       )}
 
-      <SectionLabel>Instance</SectionLabel>
-      <Link to={`/projects/${projectId ?? ''}/audit`} className={navItem}><ScrollText size={15} strokeWidth={1.7} /> Audit</Link>
-      <Link to="/tokens" className={navItem}><KeyRound size={15} strokeWidth={1.7} /> Tokens</Link>
-      <Link to="/members" className={navItem}><Users size={15} strokeWidth={1.7} /> Members</Link>
-      <Link to="/transit" className={navItem}><Shield size={15} strokeWidth={1.7} /> Transit</Link>
-      <Link to="/settings" className={navItem}><Settings size={15} strokeWidth={1.7} /> Settings</Link>
-
-      {open === 'project' && (
-        <CreateProjectForm
-          onCreated={(p) => { setOpen(null); navigate('/projects/' + p.id) }}
-          onClose={() => setOpen(null)}
-        />
-      )}
       {open === 'env' && projectId && (
         <CreateEnvironmentForm pid={projectId} onCreated={() => setOpen(null)} onClose={() => setOpen(null)} />
       )}
