@@ -239,41 +239,48 @@ func (s *Service) verifyOIDCCallback(ctx context.Context, state, code string) (*
 // session cookie. Policy: link by (issuer, subject) if present; else match an
 // existing user by verified email (no auto-provision); deny disabled users and
 // unverified/unknown emails. All denials return ErrOIDCDenied (no enumeration).
-func (s *Service) resolveOIDCLogin(ctx context.Context, c *OIDCClaims) (string, error) {
+func (s *Service) resolveOIDCLogin(ctx context.Context, c *OIDCClaims) (string, Principal, error) {
 	link, err := s.oidcIdentities.GetBySubject(ctx, c.Issuer, c.Subject)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return "", err
+		return "", Principal{}, err
 	}
-	var userID string
+	var userID, uEmail string
 	if err == nil {
 		u, uErr := s.users.Get(ctx, link.UserID)
 		if uErr != nil || u.DisabledAt != nil {
-			return "", ErrOIDCDenied
+			return "", Principal{}, ErrOIDCDenied
 		}
 		userID = u.ID
+		uEmail = u.Email
 		_ = s.oidcIdentities.TouchLastLogin(ctx, link.ID)
 	} else {
 		if !c.EmailVerified {
-			return "", ErrOIDCDenied
+			return "", Principal{}, ErrOIDCDenied
 		}
 		u, uErr := s.users.GetByEmail(ctx, c.Email)
 		if uErr != nil || u.DisabledAt != nil {
-			return "", ErrOIDCDenied // unknown or disabled — indistinguishable
+			return "", Principal{}, ErrOIDCDenied // unknown or disabled — indistinguishable
 		}
 		if _, cErr := s.oidcIdentities.Create(ctx, u.ID, c.Issuer, c.Subject); cErr != nil {
-			return "", cErr
+			return "", Principal{}, cErr
 		}
 		userID = u.ID
+		uEmail = u.Email
 	}
-	return s.createSession(ctx, userID)
+	cookie, err := s.createSession(ctx, userID)
+	if err != nil {
+		return "", Principal{}, err
+	}
+	return cookie, Principal{Kind: KindUser, ID: userID, Name: uEmail}, nil
 }
 
 // CompleteOIDCLogin is the public entry the API calls: verify the callback then
-// resolve + issue a session. Returns the session cookie.
-func (s *Service) CompleteOIDCLogin(ctx context.Context, state, code string) (string, error) {
+// resolve + issue a session. Returns the session cookie and the resolved
+// principal (for audit).
+func (s *Service) CompleteOIDCLogin(ctx context.Context, state, code string) (string, Principal, error) {
 	claims, err := s.verifyOIDCCallback(ctx, state, code)
 	if err != nil {
-		return "", err
+		return "", Principal{}, err
 	}
 	return s.resolveOIDCLogin(ctx, claims)
 }
