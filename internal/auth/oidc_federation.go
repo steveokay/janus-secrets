@@ -70,3 +70,126 @@ type fedVerifier struct {
 	audience string
 	verifier *oidc.IDTokenVerifier
 }
+
+// SetFederationConfig upserts the single federation trust-provider config.
+// Audience is required; an empty issuer defaults to the GitHub Actions OIDC
+// issuer. Invalidates the cached verifier so the next exchange re-resolves it.
+func (s *Service) SetFederationConfig(ctx context.Context, in FederationConfigInput) error {
+	if strings.TrimSpace(in.Audience) == "" {
+		return ErrValidation
+	}
+	issuer := strings.TrimSpace(in.Issuer)
+	if issuer == "" {
+		issuer = defaultFederationIssuer
+	}
+	if err := s.oidcFedConfig.Put(ctx, store.OIDCFederationConfig{
+		Issuer: issuer, Audience: in.Audience, Enabled: in.Enabled,
+	}); err != nil {
+		return err
+	}
+	s.invalidateFederationVerifier()
+	return nil
+}
+
+// GetFederationConfig returns the configured federation trust provider, or
+// ErrNotFound if none has been set.
+func (s *Service) GetFederationConfig(ctx context.Context) (*FederationConfigView, error) {
+	c, err := s.oidcFedConfig.Get(ctx)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &FederationConfigView{Issuer: c.Issuer, Audience: c.Audience, Enabled: c.Enabled}, nil
+}
+
+// DeleteFederationConfig removes the federation trust-provider config, if any.
+func (s *Service) DeleteFederationConfig(ctx context.Context) error {
+	if err := s.oidcFedConfig.Delete(ctx); err != nil {
+		return err
+	}
+	s.invalidateFederationVerifier()
+	return nil
+}
+
+// CreateFederationBinding validates and creates a claim-match binding. A
+// "repository" match claim is mandatory (the minimum condition for a usable
+// CI-identity binding); scope must reference an existing config or
+// environment; TTL defaults to federationDefaultTTL and is capped at
+// federationMaxTTL.
+func (s *Service) CreateFederationBinding(ctx context.Context, in FederationBindingInput) (*FederationBindingView, error) {
+	if strings.TrimSpace(in.Name) == "" {
+		return nil, ErrValidation
+	}
+	if strings.TrimSpace(in.MatchClaims["repository"]) == "" {
+		return nil, ErrValidation // repository condition is mandatory
+	}
+	if in.Access != "read" && in.Access != "readwrite" {
+		return nil, ErrValidation
+	}
+	ttl := in.TTLSeconds
+	if ttl == 0 {
+		ttl = int(federationDefaultTTL.Seconds())
+	}
+	if ttl < 0 || ttl > int(federationMaxTTL.Seconds()) {
+		return nil, ErrValidation
+	}
+	switch in.ScopeKind {
+	case "config":
+		if _, err := s.configs.Get(ctx, in.ScopeID); err != nil {
+			return nil, scopeErr(err)
+		}
+	case "environment":
+		if _, err := s.envs.Get(ctx, in.ScopeID); err != nil {
+			return nil, scopeErr(err)
+		}
+	default:
+		return nil, ErrValidation
+	}
+	b, err := s.oidcFedBindings.Create(ctx, store.OIDCFederationBinding{
+		Name: in.Name, MatchClaims: in.MatchClaims, ScopeKind: in.ScopeKind,
+		ScopeID: in.ScopeID, Access: in.Access, TTLSeconds: ttl, Enabled: in.Enabled,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return fedBindingView(b), nil
+}
+
+// ListFederationBindings returns all federation bindings, oldest first.
+func (s *Service) ListFederationBindings(ctx context.Context) ([]FederationBindingView, error) {
+	bs, err := s.oidcFedBindings.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FederationBindingView, 0, len(bs))
+	for i := range bs {
+		out = append(out, *fedBindingView(&bs[i]))
+	}
+	return out, nil
+}
+
+// DeleteFederationBinding removes a binding by id. ErrNotFound if absent.
+func (s *Service) DeleteFederationBinding(ctx context.Context, id string) error {
+	if err := s.oidcFedBindings.Delete(ctx, id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) invalidateFederationVerifier() {
+	s.fedMu.Lock()
+	s.fedCache = nil
+	s.fedMu.Unlock()
+}
+
+func fedBindingView(b *store.OIDCFederationBinding) *FederationBindingView {
+	return &FederationBindingView{
+		ID: b.ID, Name: b.Name, MatchClaims: b.MatchClaims, ScopeKind: b.ScopeKind,
+		ScopeID: b.ScopeID, Access: b.Access, TTLSeconds: b.TTLSeconds, Enabled: b.Enabled,
+	}
+}
