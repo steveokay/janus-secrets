@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import { server } from '../test/msw'
-import { endpoints } from './endpoints'
+import { endpoints, memberScopePath } from './endpoints'
 
 test('sealStatus parses the shamir shape', async () => {
   server.use(
@@ -91,4 +91,43 @@ test('auditExportUrl carries filters and format', () => {
   expect(q.get('format')).toBe('csv')
   expect(q.get('actor')).toBe('steve')
   expect(q.get('result')).toBe('denied')
+})
+
+test('memberScopePath covers all three scopes', () => {
+  expect(memberScopePath({ kind: 'instance' })).toBe('/v1/instance/members')
+  expect(memberScopePath({ kind: 'project', pid: 'p1' })).toBe('/v1/projects/p1/members')
+  expect(memberScopePath({ kind: 'environment', pid: 'p1', eid: 'e1' })).toBe('/v1/projects/p1/environments/e1/members')
+})
+
+test('mintToken posts the exact request body', async () => {
+  let body: unknown
+  server.use(http.post('/v1/tokens', async ({ request }) => {
+    body = await request.json()
+    return HttpResponse.json({ token: 'janus_svc_abc', id: 't1', name: 'ci',
+      scope: { kind: 'config', id: 'c1' }, access: 'read', expires_at: null })
+  }))
+  const r = await endpoints.mintToken({ name: 'ci', scope: { kind: 'config', id: 'c1' }, access: 'read', ttl_seconds: 3600 })
+  expect(r.token).toBe('janus_svc_abc')
+  expect(body).toEqual({ name: 'ci', scope: { kind: 'config', id: 'c1' }, access: 'read', ttl_seconds: 3600 })
+})
+
+test('listTokens unwraps and tolerates omitted optionals', async () => {
+  server.use(http.get('/v1/tokens', () => HttpResponse.json({ tokens: [
+    { id: 't1', name: 'ci', scope_kind: 'config', scope_id: 'c1', access: 'read',
+      created_by: 'u1', created_at: '2026-07-06T10:00:00Z' },
+  ] })))
+  const list = await endpoints.listTokens()
+  expect(list[0].expires_at).toBeUndefined()
+  expect(list[0].revoked_at).toBeUndefined()
+})
+
+test('putMember sends role to the scoped path', async () => {
+  let body: unknown, hit = false
+  server.use(http.put('/v1/projects/p1/members/u2', async ({ request }) => {
+    hit = true; body = await request.json()
+    return new HttpResponse(null, { status: 204 })
+  }))
+  await endpoints.putMember({ kind: 'project', pid: 'p1' }, 'u2', 'developer')
+  expect(hit).toBe(true)
+  expect(body).toEqual({ role: 'developer' })
 })

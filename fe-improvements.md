@@ -214,8 +214,14 @@ First impression before the app even loads.
 These currently show "Coming soon" and their own specs are separate Phase-2 work;
 listed here so the *visual* treatment stays consistent when they land: **audit
 viewer** *(SHIPPED — B3: chain-verify badge, filterable paginated table over new
-`/v1/audit/events`, audited JSONL/CSV export downloads)*, **token management**,
-**member management**, **transit UI**, **usage-metrics dashboard**. Give each a
+`/v1/audit/events`, audited JSONL/CSV export downloads)*, **token management**
+*(SHIPPED — B4: scoped service-token mint with show-once raw value + cascading
+config/env/transit scope picker, list with scope pills, confirm-gated revoke)*,
+**member management** *(SHIPPED — B4: role management at instance/project/env
+scope with confirm-gated changes and server-guardrail surfacing — delegation
+ceiling / last-owner / self-disable; users section with show-once one-time
+password on create and disable guardrails)*, **transit UI**,
+**usage-metrics dashboard**. Give each a
 designed empty/loaded state using the component kit above rather than bespoke
 markup.
 

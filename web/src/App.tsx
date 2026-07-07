@@ -14,6 +14,8 @@ import { Placeholder } from './shell/Placeholder'
 import { Landing } from './home/Landing'
 import { ProjectOverview } from './home/ProjectOverview'
 import { AuditPage } from './audit/AuditPage'
+import { TokensPage } from './tokens/TokensPage'
+import { MembersPage } from './members/MembersPage'
 
 function Gate() {
   const { user, loading, refresh } = useAuth()
@@ -47,8 +49,8 @@ function Gate() {
         <Route path="/projects/:projectId" element={<ProjectOverview />} />
         <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
         <Route path="/projects/:projectId/audit" element={<AuditPage />} />
-        <Route path="/tokens" element={<Placeholder feature="Token management" />} />
-        <Route path="/members" element={<Placeholder feature="Member management" />} />
+        <Route path="/tokens" element={<TokensPage />} />
+        <Route path="/members" element={<MembersPage />} />
         <Route path="/transit" element={<Placeholder feature="Transit UI" />} />
         <Route path="/settings" element={<Placeholder feature="Settings" />} />
         <Route path="*" element={<Navigate to="/" replace />} />
