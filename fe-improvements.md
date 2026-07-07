@@ -57,8 +57,11 @@ at all — every component picks raw Tailwind grays.
 - [x] **P0** **Spacing & radius rhythm**: consistent padding scale, consistent
       corner radius, consistent gaps. Pick one and apply everywhere. *(Slice 1 —
       radius 8px controls / 10px cards / pills full.)*
-- [ ] **P1** **Dark mode**: `class`-based Tailwind dark variant + a top-bar toggle,
+- [x] **P1** **Dark mode**: `class`-based Tailwind dark variant + a top-bar toggle,
       persisted to `localStorage`. Design tokens above should make this mostly free.
+      *(R1 — dual-theme CSS-var tokens in `web/src/theme.css`, `ThemeProvider`
+      (light/dark/system, `localStorage janus.theme`), top-bar + user-menu toggle,
+      no-flash boot script; smoke asserts both themes.)*
 - [ ] **P2** **Motion**: subtle 150ms transitions on hover/focus/expand; respect
       `prefers-reduced-motion`.
 
@@ -93,9 +96,10 @@ The frame the user sees on every screen. Right now: a bare top bar with the word
       tint), hover states, and grouping. Replace the tiny `＋` glyphs with proper
       icon-buttons with tooltips. *(Slice 1 — tooltips deferred to the §4 kit;
       icon-buttons have aria-labels.)*
-- [ ] **P1** **Environment tabs** (Doppler signature): show dev/staging/prod as
+- [x] **P1** **Environment tabs** (Doppler signature): show dev/staging/prod as
       color-coded tabs/pills (prod = red-tinted as a "danger" cue) rather than a
-      plain nested list.
+      plain nested list. *(R3 — env-columns project board with `envTone` color
+      coding: dev=blue / staging=amber / prod=red accent bars + dots.)*
 - [ ] **P2** **Collapsible sidebar** for narrow screens; remember state.
 
 ---
