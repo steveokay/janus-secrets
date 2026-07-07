@@ -211,6 +211,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/events", s.handleAuditEvents)
 			})
 		}
+		r.Group(func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Get("/v1/metrics/reads-24h", s.handleMetricsReads)
+			r.Get("/v1/projects/{pid}/metrics/reads-24h", s.handleProjectMetricsReads)
+		})
 	}
 	s.router = r
 	return s
