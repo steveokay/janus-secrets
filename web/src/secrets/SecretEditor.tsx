@@ -11,6 +11,7 @@ import { SecretTable } from './SecretTable'
 import { EditorToolbar } from './EditorToolbar'
 import { DirtyBar } from './DirtyBar'
 import { ReviewDiffDialog } from './ReviewDiffDialog'
+import { ImportEnvDialog } from './ImportEnvDialog'
 import { VersionHistory } from './VersionHistory'
 
 export function SecretEditor() {
@@ -26,7 +27,7 @@ export function SecretEditor() {
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [filter, setFilter] = useState('')
   const [showHistory, setShowHistory] = useState(false)
-  const [, setImportOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
 
   const original = raw.data?.secrets ?? {}
@@ -57,6 +58,12 @@ export function SecretEditor() {
     setBuffer(emptyBuffer())
     setEditing({})
     setReviewOpen(false)
+  }
+  // Stage pasted .env pairs into the buffer (existing keys → edits, new → adds).
+  function applyImport(pairs: Record<string, string>) {
+    setBuffer((b) => Object.entries(pairs).reduce((acc, [k, v]) => setValue(acc, k, v), b))
+    const n = Object.keys(pairs).length
+    if (n > 0) toast({ title: `Imported ${n} key${n === 1 ? '' : 's'}` })
   }
 
   async function reveal(key: string) {
@@ -151,6 +158,7 @@ export function SecretEditor() {
         saving={save.isPending}
         onSave={() => save.mutate()}
       />
+      <ImportEnvDialog open={importOpen} onClose={() => setImportOpen(false)} onApply={applyImport} />
     </div>
   )
 }
