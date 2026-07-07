@@ -11,8 +11,8 @@ import { AppLayout } from './shell/AppLayout'
 import { Sidebar } from './shell/Sidebar'
 import { SecretEditor } from './secrets/SecretEditor'
 import { Placeholder } from './shell/Placeholder'
-import { Landing } from './home/Landing'
-import { ProjectOverview } from './home/ProjectOverview'
+import { ProjectsList } from './home/ProjectsList'
+import { ProjectBoard } from './home/ProjectBoard'
 import { AuditPage } from './audit/AuditPage'
 import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
@@ -47,8 +47,8 @@ function Gate() {
     <PaletteProvider>
       <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
         <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/projects/:projectId" element={<ProjectOverview />} />
+          <Route path="/" element={<ProjectsList />} />
+          <Route path="/projects/:projectId" element={<ProjectBoard />} />
           <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
           <Route path="/projects/:projectId/audit" element={<AuditPage />} />
           <Route path="/audit" element={<AuditPage />} />
