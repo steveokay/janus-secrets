@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { timeAgo } from '../lib/time'
 import { cn } from '../ui/cn'
+import { Skeleton } from '../ui/Skeleton'
 
 function DiffView({ cid, version }: { cid: string; version: number }) {
   // Key NAMES only — the server never returns values on this surface.
@@ -52,7 +53,12 @@ export function VersionHistory({ cid, dirty }: { cid: string; dirty: boolean }) 
     onError: () => toast({ title: 'Rollback failed.', tone: 'danger' }),
   })
 
-  if (versions.isLoading) return <p className="text-[12.5px] text-faint">Loading…</p>
+  if (versions.isLoading)
+    return (
+      <div aria-hidden className="flex flex-col gap-1.5">
+        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-card" />)}
+      </div>
+    )
   if (versions.isError) return <p role="alert" className="text-[12.5px] text-danger">Couldn't load versions.</p>
   const list = [...(versions.data ?? [])].sort((x, y) => y.version - x.version)
   const latest = list[0]?.version

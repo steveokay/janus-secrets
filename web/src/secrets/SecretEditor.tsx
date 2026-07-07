@@ -14,6 +14,7 @@ import { DirtyBar } from './DirtyBar'
 import { ReviewDiffDialog } from './ReviewDiffDialog'
 import { ImportEnvDialog } from './ImportEnvDialog'
 import { VersionHistory } from './VersionHistory'
+import { Skeleton } from '../ui/Skeleton'
 
 export function SecretEditor() {
   useTitle('Secrets')
@@ -102,7 +103,13 @@ export function SecretEditor() {
     setEditing((s) => { const { [key]: _drop, ...rest } = s; return rest })
   }
 
-  if (masked.isLoading || raw.isLoading) return <p>Loading…</p>
+  if (masked.isLoading || raw.isLoading)
+    return (
+      <div aria-hidden className="flex flex-col gap-2">
+        <Skeleton className="h-9 w-full" />
+        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-11 w-full" />)}
+      </div>
+    )
   if (masked.isError) return <p role="alert">Could not load secrets.</p>
   const maskedRows = masked.data ?? {}
   // Ordered key list: existing masked keys, then keys added only in the buffer.
