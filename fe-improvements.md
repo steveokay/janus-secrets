@@ -24,6 +24,17 @@ them off as they ship. Priorities:
 
 ---
 
+## Dark redesign (2026-07-07 — in progress)
+
+Canonical: `docs/design/ui-redesign-mockup.html` + spec
+`docs/superpowers/specs/2026-07-07-dark-redesign-design.md`. Slices:
+- [x] **R1** dual-theme foundation (CSS-var tokens, ThemeProvider, toggle, dark palette) — delivers the long-deferred dark-mode P1 item.
+- [ ] **R2** shell & ⌘K command palette
+- [ ] **R3** projects list & env-columns project board & create-project modal
+- [ ] **R4** screen polish pass (editor, version history, audit, tokens, members, auth/unseal)
+
+---
+
 ## 0. Design foundations (P0 — everything else builds on this)
 
 A shared design system so screens stop looking ad-hoc. Today there are no tokens
