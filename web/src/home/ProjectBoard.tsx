@@ -10,6 +10,7 @@ import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
 import { useTitle } from '../lib/title'
 import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
+import { ProjectReadsStrip } from '../metrics/ReadsStrip'
 
 function ConfigCard({ pid, config, depth }: { pid: string; config: Config; depth: number }) {
   return (
@@ -118,6 +119,7 @@ export function ProjectBoard() {
       <p className="mb-5 text-[12.5px] text-faint">
         Inject secrets with the Janus CLI — <code className="rounded bg-brand-soft px-1.5 py-0.5 font-mono text-[11.5px] text-brand-text">janus run</code>
       </p>
+      <ProjectReadsStrip pid={pid} />
 
       {envs.isPending ? (
         <div className="flex gap-5 overflow-x-auto pb-2" aria-hidden>
