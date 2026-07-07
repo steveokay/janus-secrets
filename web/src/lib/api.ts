@@ -43,14 +43,16 @@ export function apiErrorTitle(e: unknown): string {
 const FRIENDLY: Record<string, string> = {
   validation: 'Please check your input.',
   not_found: 'Not found.',
-  conflict: 'That conflicts with an existing item.',
   rate_limited: 'Too many attempts — try again shortly.',
 }
 
 export function errorMessage(e: unknown, fallback = 'Request failed.'): string {
   if (e instanceof ApiError) {
-    if (FRIENDLY[e.code]) return FRIENDLY[e.code]
+    // 403/409 carry the server's CURATED guardrail messages (delegation ceiling,
+    // last-owner, self-guard, conflicts) — always surface those verbatim, before
+    // any generic friendly mapping, so those precise messages are never lost.
     if (e.status === 403 || e.status === 409) return e.message || fallback
+    if (FRIENDLY[e.code]) return FRIENDLY[e.code]
   }
   return fallback
 }
