@@ -7,7 +7,7 @@ var allActions = []Action{
 	SecretRead, SecretWrite, ConfigRead, ConfigCreate, ConfigDelete,
 	EnvCreate, EnvDelete, ProjectRead, ProjectCreate, ProjectDelete,
 	MemberRead, MemberManage, TokenRead, TokenMint, TokenRevoke,
-	UserManage, AuditRead, SysSeal,
+	UserManage, AuditRead, SysSeal, OIDCManage,
 }
 
 func TestMatrixExhaustive(t *testing.T) {
@@ -16,10 +16,10 @@ func TestMatrixExhaustive(t *testing.T) {
 		RoleDeveloper: {SecretRead, ConfigRead, ProjectRead, MemberRead, SecretWrite, ConfigCreate},
 		RoleAdmin: {SecretRead, ConfigRead, ProjectRead, MemberRead, SecretWrite, ConfigCreate,
 			ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
-			TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal},
+			TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, OIDCManage},
 		RoleOwner: {SecretRead, ConfigRead, ProjectRead, MemberRead, SecretWrite, ConfigCreate,
 			ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
-			TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, ProjectDelete},
+			TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, OIDCManage, ProjectDelete},
 	}
 	for role, acts := range allowed {
 		want := setOf(acts...)
