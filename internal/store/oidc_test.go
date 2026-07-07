@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestOIDCProviderRepo(t *testing.T) {
@@ -86,5 +87,43 @@ func TestOIDCIdentityRepo(t *testing.T) {
 	}
 	if _, err := r.Create(ctx, u.ID, "https://iss", "sub-123"); err != ErrAlreadyExists {
 		t.Fatalf("dup: want ErrAlreadyExists, got %v", err)
+	}
+}
+
+func TestOIDCAuthRequestRepo(t *testing.T) {
+	st := requireStore(t)
+	ctx := context.Background()
+
+	// Isolate from any other auth-request/provider rows left by other tests.
+	if _, err := st.pool.Exec(ctx, `TRUNCATE oidc_auth_requests, oidc_providers RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	pr := NewOIDCProviderRepo(st)
+	if err := pr.Put(ctx, OIDCProvider{Name: "default", Issuer: "i", ClientID: "c",
+		WrappedClientSecret: []byte{1}, Scopes: []string{"openid"}, RedirectURL: "r", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	prov, _ := pr.Get(ctx)
+	r := NewOIDCAuthRequestRepo(st)
+
+	future := time.Now().Add(10 * time.Minute)
+	if err := r.Create(ctx, "state-a", "nonce-a", "verifier-a", prov.ID, future); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := r.Consume(ctx, "state-a")
+	if err != nil || got.Nonce != "nonce-a" || got.PKCEVerifier != "verifier-a" {
+		t.Fatalf("consume: %+v err=%v", got, err)
+	}
+	if _, err := r.Consume(ctx, "state-a"); err != ErrNotFound {
+		t.Fatalf("re-consume: want ErrNotFound, got %v", err)
+	}
+	past := time.Now().Add(-1 * time.Minute)
+	_ = r.Create(ctx, "state-old", "n", "v", prov.ID, past)
+	if _, err := r.Consume(ctx, "state-old"); err != ErrNotFound {
+		t.Fatalf("expired consume: want ErrNotFound, got %v", err)
+	}
+	if err := r.DeleteExpired(ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
 	}
 }

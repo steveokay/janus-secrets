@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -86,4 +87,41 @@ func scanOIDCIdentity(row pgx.Row) (*OIDCIdentity, error) {
 		return nil, mapError(err)
 	}
 	return &i, nil
+}
+
+// OIDCAuthRequestRepo persists single-use login state.
+type OIDCAuthRequestRepo struct{ s *Store }
+
+func NewOIDCAuthRequestRepo(s *Store) *OIDCAuthRequestRepo { return &OIDCAuthRequestRepo{s: s} }
+
+// Create inserts a login-state row.
+func (r *OIDCAuthRequestRepo) Create(ctx context.Context, state, nonce, verifier, providerID string, expiresAt time.Time) error {
+	_, err := r.s.pool.Exec(ctx,
+		`INSERT INTO oidc_auth_requests (state, nonce, pkce_verifier, provider_id, expires_at)
+		 VALUES ($1,$2,$3,$4::uuid,$5)`,
+		state, nonce, verifier, providerID, expiresAt)
+	return mapError(err)
+}
+
+// Consume atomically returns and deletes the row for state, but only if it has
+// not expired. Missing or expired → ErrNotFound (single-use, replay-safe).
+func (r *OIDCAuthRequestRepo) Consume(ctx context.Context, state string) (*OIDCAuthRequest, error) {
+	var a OIDCAuthRequest
+	err := r.s.withTx(ctx, func(tx pgx.Tx) error {
+		row := tx.QueryRow(ctx,
+			`DELETE FROM oidc_auth_requests
+			 WHERE state=$1 AND expires_at > now()
+			 RETURNING state, nonce, pkce_verifier, provider_id::text, created_at, expires_at`, state)
+		return row.Scan(&a.State, &a.Nonce, &a.PKCEVerifier, &a.ProviderID, &a.CreatedAt, &a.ExpiresAt)
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	return &a, nil
+}
+
+// DeleteExpired removes stale rows (called at boot).
+func (r *OIDCAuthRequestRepo) DeleteExpired(ctx context.Context) error {
+	_, err := r.s.pool.Exec(ctx, `DELETE FROM oidc_auth_requests WHERE expires_at <= now()`)
+	return mapError(err)
 }
