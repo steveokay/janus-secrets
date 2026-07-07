@@ -41,8 +41,29 @@ test('inherited config renders nested under its base', async () => {
 test('shows the CLI hint and breadcrumb', async () => {
   mock()
   renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
-  expect(await screen.findByText('api-gateway')).toBeInTheDocument()
+  // project name appears in both the sr-only h1 and the visible breadcrumb
+  expect((await screen.findAllByText('api-gateway')).length).toBeGreaterThan(0)
   expect(screen.getByText(/janus run/i)).toBeInTheDocument()
+})
+
+test('board exposes an h1 for the project', async () => {
+  mock()
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByRole('heading', { level: 1, name: 'api-gateway' })).toBeInTheDocument()
+})
+
+test('a config whose base is absent still renders (orphan promoted to root)', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'gw', name: 'api-gateway' }] })),
+    http.get('/v1/projects/p1/environments', () =>
+      HttpResponse.json({ environments: [{ id: 'e1', slug: 'dev', name: 'Development' }] })),
+    http.get('/v1/projects/p1/environments/e1/configs', () =>
+      HttpResponse.json({ configs: [
+        { id: 'c9', environment_id: 'e1', name: 'stray', inherits_from: 'missing', created_at: '' },
+      ] })),
+  )
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByRole('link', { name: /stray/i })).toBeInTheDocument()
 })
 
 test('a failed config fetch surfaces an error, not a permanent skeleton', async () => {
