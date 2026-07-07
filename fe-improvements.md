@@ -235,7 +235,11 @@ config/env/transit scope picker, list with scope pills, confirm-gated revoke)*,
 **member management** *(SHIPPED — B4: role management at instance/project/env
 scope with confirm-gated changes and server-guardrail surfacing — delegation
 ceiling / last-owner / self-disable; users section with show-once one-time
-password on create and disable guardrails)*, **transit UI**,
+password on create and disable guardrails)*, **transit UI** *(SHIPPED — B5:
+`/transit` key console — create/rotate/configure `min_decryption_version`/trim/delete
+with 403/409 guardrails, type/version/deletion cues — plus a plaintext-free crypto
+playground: encrypt/rewrap for aes256-gcm, sign/verify for ed25519; NO decrypt/datakey,
+crypto results ephemeral (local state only). Built in the dark system)*,
 **usage-metrics dashboard**. Give each a
 designed empty/loaded state using the component kit above rather than bespoke
 markup.

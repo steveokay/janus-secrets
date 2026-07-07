@@ -132,7 +132,7 @@ function TrimDialog({ keyMeta, onClose, onError }: {
             aria-label="min available version"
             type="number"
             min={1}
-            max={keyMeta.latest_version}
+            max={keyMeta.min_decryption_version}
             value={minAvail}
             onChange={(e) => setMinAvail(e.target.value)}
             className="rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink"
