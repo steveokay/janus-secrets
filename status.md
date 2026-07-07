@@ -786,8 +786,11 @@ via **PR #21** (merge commit `716d7d9`).
       rework.
 - [x] Transit/KMS engine — **complete** (see the Sub-project A section above;
       `internal/transit`, `/v1/transit/*`, transit token scope, `docs/transit.md`).
-- [x] React SPA — **milestone 1 (core editor) complete** (see the Sub-project B
-      section above; `web/` + `internal/web`, `docs/web.md`).
+- [x] React SPA — **core editor + all feature slices B2–B5 complete**, plus the
+      full **dark redesign (R1–R4)**. Remaining SPA work: the B6 metrics dashboard
+      (needs D) and the `fe-improvements.md` polish punch-list. (See the
+      Sub-project B section + the "remaining SPA feature slices" list below;
+      `web/` + `internal/web`, `docs/web.md`.)
 - [ ] Usage metrics (per CLAUDE.md Phase 2 — sub-project D, not yet specced).
 
 ### Next up: remaining SPA feature slices (before C/D)
@@ -797,17 +800,27 @@ Decision (2026-07-06): build out the remaining **SPA feature slices** — the
 (usage-metrics backend). Each is its own brainstorm → spec → plan →
 subagent-driven slice consuming existing `/v1` APIs:
 
-- [ ] **B2** — config version history: list, diff, rollback (existing
-      versions/diff/rollback API; natural extension of the M1 editor)
-- [ ] **B3** — audit viewer: event list + filters, chain-verify badge, export
-      (existing `/v1/audit/verify` + `/export`)
-- [ ] **B4** — token + member management (existing `/v1/tokens`, `/v1/users`,
-      `.../members`; unblocks creating users from the UI)
-- [ ] **B5** — transit UI (existing `/v1/transit/*`)
+- [x] **B2** — config version history: list, diff, rollback (Sheet drawer,
+      key-name-only diffs, confirm-gated audited rollback) — **PR #24**
+- [x] **B3** — audit viewer: event list + filters, chain-verify badge, export;
+      added backend `GET /v1/audit/events` keyset pagination — **PR #25**
+- [x] **B4** — token + member management (scoped mint w/ show-once value, role
+      management with server guardrails, users w/ one-time password) — **PR #26**
+- [x] **B5** — transit UI: `/v1/transit/*` key console (create/rotate/configure/
+      trim/delete) + plaintext-free crypto playground (encrypt/rewrap/sign/verify;
+      no decrypt/datakey) — **PR #31**
 - [ ] **B6** — usage-metrics dashboard (consumes sub-project D; build after/with D)
 
-Separately, **FE visual polish** (a Doppler-inspired theme: design tokens,
-branding, component kit, richer empty states) is tracked in
-[`fe-improvements.md`](fe-improvements.md) and deliberately **deferred** until
-after these functional slices — the placeholder screens are built plainly now and
-restyled in the polish pass.
+**FE visual polish — DONE (2026-07-07).** The Doppler-inspired **dark redesign**
+(dark-first + light toggle, minus SaaS chrome) shipped as slices **R1–R4**
+(**PRs #27–#30**): dual-theme CSS-var tokens (`web/src/theme.css` + `ThemeProvider`),
+app shell + ⌘K command palette, projects list + env-columns board + create-project
+modal, and a screen polish pass (dark-AA, board fixes, palette a11y). New canonical
+authority: `docs/design/ui-redesign-mockup.html` +
+`docs/superpowers/specs/2026-07-07-dark-redesign-design.md`. Remaining front-end
+punch-list (secret-editor table redesign, kit primitives, feedback polish,
+auth/unseal branded treatment, a11y/responsive) is tracked in
+[`fe-improvements.md`](fe-improvements.md) — see its "Remaining after R1–R4 + B5"
+section.
+
+**Next: sub-project C (OIDC login) then D (usage-metrics backend + B6 dashboard).**

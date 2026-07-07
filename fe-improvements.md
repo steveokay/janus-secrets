@@ -33,6 +33,35 @@ Canonical: `docs/design/ui-redesign-mockup.html` + spec
 - [x] **R3** projects list & env-columns project board & create-project modal (searchable/sortable card grid with grid⇄list toggle + config counts; env-column board with inheritance nesting, add-config/add-env, breadcrumb + `janus run` hint; polished create-project modal)
 - [x] **R4** screen polish pass (editor, version history, audit, tokens, members, auth/unseal) — dark-AA `text-brand-deep`→`text-brand-text` migration + guard test; project-board env-loading skeleton, sr-only h1, cycle-safe config tree; ⌘K palette a11y (`aria-activedescendant`, group roles, IME guard, reopen-clear). Dark-render audit of all six screens: clean.
 
+### Remaining after R1–R4 + B5 (2026-07-07)
+
+The dark redesign (R1–R4) and all feature slices B2–B5 are shipped. What's left in
+this tracker, roughly by size:
+
+- **§3 Secret editor redesign (P0/P1) — the largest remaining chunk.** The editor
+  was themed (tokens) and dark-audited but NOT restructured: still owed are the
+  aligned **table layout**, **origin pills**, **per-row icon actions**
+  (reveal/copy/edit/delete), the **dirty-state bar** ("2 changed · 1 added"),
+  **diff-preview on save**, **search/filter + `.env` bulk paste**, inline
+  **add-secret UX**, reveal ergonomics, and editor **keyboard support**
+  (`⌘S`, row nav). *(Version-history drawer is done — B2.)*
+- **§4 kit primitives (P1):** formal **Button** variants, **Input/Select/Textarea**,
+  and **Tooltip/Card/Tabs/Skeleton** components. *(Dialog, Toast, Dropdown, Pill
+  already shipped.)*
+- **§5 feedback (P1):** systematize **skeletons**, **toasts on all mutations**, full
+  **error-envelope → friendly message** mapping (today `apiErrorTitle` surfaces
+  403/409 only), optimistic UI, styled unsaved-changes guard. *(Used piecemeal;
+  not yet system-wide.)*
+- **§6 auth/unseal (P1):** login card + unseal **progress ring** + first-login flow
+  polish. *(Cards exist from Slice 1 and pass the R4 dark audit; the branded/ring
+  treatment is the open piece — verify against the mockup.)*
+- **§7 a11y & responsive (P1/P2):** system-wide **focus-ring/contrast audit**,
+  end-to-end **keyboard operability** (editor/menus), **responsive/tablet** layout
+  + table horizontal-scroll containment. *(Palette a11y + dark contrast done in R4.)*
+- **Lower-priority P2s:** §0 motion/reduced-motion, §1 collapsible sidebar, §2
+  onboarding checklist.
+- **§8:** the **usage-metrics dashboard** — blocked on backend sub-project **D**.
+
 ---
 
 ## 0. Design foundations (P0 — everything else builds on this)
@@ -181,7 +210,9 @@ Stop re-styling primitives per screen; build once, use everywhere.
       (currently no feedback surface at all). *(B2 — app-level `ToastProvider` +
       `useToast`; rollback flows use it; editor save/copy toasts land in Slice 3.)*
 - [ ] **P1** **Badge**, **Tooltip**, **Card**, **Tabs**, **Skeleton** loaders.
-- [ ] **P2** **Dropdown menu** (Radix/headless) for the user menu and row actions.
+- [x] **P2** **Dropdown menu** (Radix/headless) for the user menu and row actions.
+      *(Slice 1 `UserMenu` on `@radix-ui/react-dropdown-menu`; reused for the
+      transit `KeyActions` row menu in B5.)*
 
 ---
 
