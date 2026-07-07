@@ -43,3 +43,22 @@ test('shows empty state when nothing matches', async () => {
   await userEvent.type(screen.getByRole('combobox', { name: /search/i }), 'zzzzz')
   expect(screen.getByText(/no matches/i)).toBeInTheDocument()
 })
+
+test('input aria-activedescendant tracks the active option', async () => {
+  setup()
+  const input = screen.getByRole('combobox', { name: /search/i })
+  const options = screen.getAllByRole('option')
+  expect(input).toHaveAttribute('aria-activedescendant', options[0].id)
+  await userEvent.type(input, '{ArrowDown}')
+  expect(input).toHaveAttribute('aria-activedescendant', options[1].id)
+})
+
+test('reopening the palette clears a stale query', async () => {
+  const onSelect = vi.fn()
+  const { rerender } = render(<CommandPalette open items={ITEMS} onClose={vi.fn()} onSelect={onSelect} />)
+  await userEvent.type(screen.getByRole('combobox', { name: /search/i }), 'prod')
+  expect(screen.getByRole('combobox', { name: /search/i })).toHaveValue('prod')
+  rerender(<CommandPalette open={false} items={ITEMS} onClose={vi.fn()} onSelect={onSelect} />)
+  rerender(<CommandPalette open items={ITEMS} onClose={vi.fn()} onSelect={onSelect} />)
+  expect(screen.getByRole('combobox', { name: /search/i })).toHaveValue('')
+})
