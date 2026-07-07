@@ -1,0 +1,52 @@
+/* The ONLY file that may contain raw color hex values (enforced by
+   web/src/test/no-raw-palette.test.ts). Token ROLES are consumed everywhere
+   else via Tailwind classes that resolve to these variables.
+   Light = the approved 2026-07-06 system (unchanged). Dark = 2026-07-07 redesign. */
+
+:root {
+  --page: #F6F6FA;
+  --sidebar: #FFFFFF;
+  --topbar: #FFFFFF;
+  --card: #FFFFFF;
+  --elevated: #FFFFFF;
+  --border: #E5E3F0;
+  --border-soft: #EEECF6;
+  --ink: #211D35;
+  --muted: #6E6A85;
+  --faint: #9B97B0;
+  --brand: #6A5CF5;
+  --brand-deep: #5546E0;
+  --brand-text: #5546E0;
+  --brand-soft: #EFECFE;
+  --brand-line: #D8D2FB;
+  --ok: #178A50;      --ok-soft: #E4F5EC;
+  --warn: #B45309;    --warn-soft: #FCF0DF;
+  --danger: #C92A2A;  --danger-soft: #FBE9E9;
+  --info: #2563EB;    --info-soft: #E7EFFD;
+  --shadow-card: 0 1px 2px rgba(33,29,53,.05), 0 4px 16px rgba(33,29,53,.05);
+  --shadow-pop: 0 4px 10px rgba(33,29,53,.08), 0 16px 40px rgba(33,29,53,.12);
+}
+
+html.dark {
+  --page: #0B0B10;
+  --sidebar: #08080C;
+  --topbar: #08080C;
+  --card: #15151C;
+  --elevated: #1B1B24;
+  --border: #26262F;
+  --border-soft: #1E1E27;
+  --ink: #ECECF2;
+  --muted: #9C9AAB;
+  --faint: #6C6A7C;
+  --brand: #6A5CF5;
+  --brand-deep: #5546E0;
+  --brand-text: #A79CFF;
+  --brand-soft: rgba(106,92,245,0.16);
+  --brand-line: rgba(106,92,245,0.30);
+  --ok: #3FBE7A;      --ok-soft: rgba(23,138,80,0.16);
+  --warn: #E0A253;    --warn-soft: rgba(180,83,9,0.18);
+  --danger: #F0685F;  --danger-soft: rgba(201,42,42,0.18);
+  --info: #5B8DEF;    --info-soft: rgba(37,99,235,0.18);
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.03);
+  --shadow-pop: 0 1px 0 rgba(255,255,255,0.04), 0 18px 50px rgba(0,0,0,0.55);
+}

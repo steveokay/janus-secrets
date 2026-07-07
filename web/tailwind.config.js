@@ -4,25 +4,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        page: '#F6F6FA',
-        card: '#FFFFFF',
-        line: { DEFAULT: '#E5E3F0', soft: '#EEECF6' },
-        ink: '#211D35',
-        muted: '#6E6A85',
-        faint: '#9B97B0',
-        brand: { DEFAULT: '#6A5CF5', deep: '#5546E0', soft: '#EFECFE', line: '#D8D2FB' },
-        success: { DEFAULT: '#178A50', soft: '#E4F5EC' },
-        warning: { DEFAULT: '#B45309', soft: '#FCF0DF' },
-        danger: { DEFAULT: '#C92A2A', soft: '#FBE9E9' },
-        info: { DEFAULT: '#2563EB', soft: '#E7EFFD' },
+        page: 'var(--page)',
+        sidebar: 'var(--sidebar)',
+        topbar: 'var(--topbar)',
+        card: 'var(--card)',
+        elevated: 'var(--elevated)',
+        line: { DEFAULT: 'var(--border)', soft: 'var(--border-soft)' },
+        ink: 'var(--ink)',
+        muted: 'var(--muted)',
+        faint: 'var(--faint)',
+        brand: {
+          DEFAULT: 'var(--brand)',
+          deep: 'var(--brand-deep)',
+          text: 'var(--brand-text)',
+          soft: 'var(--brand-soft)',
+          line: 'var(--brand-line)',
+        },
+        success: { DEFAULT: 'var(--ok)', soft: 'var(--ok-soft)' },
+        warning: { DEFAULT: 'var(--warn)', soft: 'var(--warn-soft)' },
+        danger: { DEFAULT: 'var(--danger)', soft: 'var(--danger-soft)' },
+        info: { DEFAULT: 'var(--info)', soft: 'var(--info-soft)' },
       },
       borderRadius: {
-        DEFAULT: '8px', // controls & inputs
-        card: '10px',   // cards & tables
+        DEFAULT: '8px',
+        card: '10px',
       },
       boxShadow: {
-        card: '0 1px 2px rgba(33,29,53,.05), 0 4px 16px rgba(33,29,53,.05)',
-        pop: '0 4px 10px rgba(33,29,53,.08), 0 16px 40px rgba(33,29,53,.12)',
+        card: 'var(--shadow-card)',
+        pop: 'var(--shadow-pop)',
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
