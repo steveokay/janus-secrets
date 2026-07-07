@@ -88,6 +88,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(loginLimiter.middleware).Get("/oidc/status", s.handleOIDCStatus)
 			r.With(loginLimiter.middleware).Get("/oidc/login", s.handleOIDCLogin)
 			r.With(loginLimiter.middleware).Get("/oidc/callback", s.handleOIDCCallback)
+			r.With(loginLimiter.middleware).Post("/oidc/federate", s.handleOIDCFederate)
 			r.Group(func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
 				r.Post("/logout", s.handleLogout)
