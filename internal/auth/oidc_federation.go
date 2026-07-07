@@ -187,6 +187,77 @@ func (s *Service) invalidateFederationVerifier() {
 	s.fedMu.Unlock()
 }
 
+// federationVerifierFor builds (or returns cached) the go-oidc verifier for the
+// configured, enabled federation provider. ErrFederationNotConfigured if none.
+func (s *Service) federationVerifierFor(ctx context.Context) (*fedVerifier, error) {
+	c, err := s.oidcFedConfig.Get(ctx)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, ErrFederationNotConfigured
+		}
+		return nil, err
+	}
+	if !c.Enabled {
+		return nil, ErrFederationNotConfigured
+	}
+	s.fedMu.Lock()
+	defer s.fedMu.Unlock()
+	if s.fedCache != nil && s.fedCache.issuer == c.Issuer && s.fedCache.audience == c.Audience {
+		return s.fedCache, nil
+	}
+	provider, err := oidc.NewProvider(ctx, c.Issuer)
+	if err != nil {
+		return nil, err
+	}
+	v := &fedVerifier{
+		issuer:   c.Issuer,
+		audience: c.Audience,
+		// oidc.Config.ClientID is the expected audience; verification fails on mismatch.
+		verifier: provider.Verifier(&oidc.Config{ClientID: c.Audience}),
+	}
+	s.fedCache = v
+	return v, nil
+}
+
+// FederateCILogin verifies a CI OIDC token, matches it to a binding, and mints a
+// short-lived scoped service token. All failures return a typed sentinel; the
+// API layer collapses them to one indistinguishable response and audits the reason.
+func (s *Service) FederateCILogin(ctx context.Context, rawJWT string) (*FederationResult, error) {
+	v, err := s.federationVerifierFor(ctx)
+	if err != nil {
+		return nil, err // ErrFederationNotConfigured or infra error
+	}
+	idt, err := v.verifier.Verify(ctx, rawJWT)
+	if err != nil {
+		return nil, ErrFederationVerify
+	}
+	var raw map[string]any
+	if err := idt.Claims(&raw); err != nil {
+		return nil, ErrFederationVerify
+	}
+	claims := stringClaims(raw)
+	bindings, err := s.oidcFedBindings.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	b, err := matchFederationBinding(claims, bindings)
+	if err != nil {
+		return nil, err // ErrFederationNoMatch / ErrFederationAmbiguous
+	}
+	ttl := time.Duration(b.TTLSeconds) * time.Second
+	if ttl <= 0 || ttl > federationMaxTTL {
+		ttl = federationDefaultTTL // defensive; config validation should prevent
+	}
+	token, meta, err := s.MintFederatedToken(ctx, b.Name, b.ScopeKind, b.ScopeID, b.Access, ttl, b.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &FederationResult{
+		Token: token, Meta: meta, Binding: b.Name,
+		Repository: claims["repository"], Subject: claims["sub"],
+	}, nil
+}
+
 func fedBindingView(b *store.OIDCFederationBinding) *FederationBindingView {
 	return &FederationBindingView{
 		ID: b.ID, Name: b.Name, MatchClaims: b.MatchClaims, ScopeKind: b.ScopeKind,
