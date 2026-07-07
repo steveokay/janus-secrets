@@ -18,7 +18,7 @@ func TestOIDCStartAndVerify(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	authURL, err := svc.StartOIDCLogin(ctx)
+	authURL, state, err := svc.StartOIDCLogin(ctx)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -26,7 +26,9 @@ func TestOIDCStartAndVerify(t *testing.T) {
 		!strings.Contains(authURL, "code_challenge=") || !strings.Contains(authURL, "state=") {
 		t.Fatalf("authURL missing params: %s", authURL)
 	}
-	state := extractQuery(t, authURL, "state")
+	if state == "" || extractQuery(t, authURL, "state") != state {
+		t.Fatalf("returned state %q must match authURL state", state)
+	}
 	nonce := extractQuery(t, authURL, "nonce")
 	idp.sub, idp.email, idp.emailVer, idp.nonce = "sub-1", "who@example.com", true, nonce
 

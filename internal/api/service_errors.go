@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/resolve"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -15,7 +16,7 @@ import (
 // values.
 func (s *Server) writeServiceError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, secrets.ErrSealed):
+	case errors.Is(err, secrets.ErrSealed), errors.Is(err, crypto.ErrSealed):
 		writeError(w, http.StatusServiceUnavailable, CodeSealed, "server is sealed; unseal via /v1/sys/unseal")
 	case errors.Is(err, secrets.ErrNotFound), errors.Is(err, store.ErrNotFound), errors.Is(err, store.ErrParentNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "not found")

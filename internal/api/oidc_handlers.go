@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -19,8 +20,44 @@ func (s *Server) handleOIDCStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "name": v.Name})
 }
 
+// oidcStateCookieName holds the state value in the initiating user-agent so the
+// callback can prove the same browser began the flow. SameSite=Lax (not Strict)
+// so it survives the top-level GET redirect back from the IdP.
+const oidcStateCookieName = "janus_oidc_state"
+
+// oidcStateCookie binds the login state to the browser. Path is scoped to the
+// OIDC routes so it is never sent elsewhere; Secure follows the request scheme.
+func oidcStateCookie(r *http.Request, value string, ttl time.Duration) *http.Cookie {
+	// #nosec G124 -- HttpOnly + SameSite=Lax always set; Secure is intentionally
+	// gated on r.TLS so the cookie works under a TLS-terminating proxy in dev.
+	return &http.Cookie{
+		Name:     oidcStateCookieName,
+		Value:    value,
+		Path:     "/v1/auth/oidc",
+		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	}
+}
+
+// clearOIDCStateCookie expires the binding cookie after the callback consumes it.
+func clearOIDCStateCookie(r *http.Request) *http.Cookie {
+	// #nosec G124 -- expiring cookie (empty value, MaxAge<0); HttpOnly+SameSite=Lax
+	// always set and Secure is intentionally gated on r.TLS like sessionCookie.
+	return &http.Cookie{
+		Name:     oidcStateCookieName,
+		Value:    "",
+		Path:     "/v1/auth/oidc",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	}
+}
+
 func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
-	url, err := s.auth.StartOIDCLogin(r.Context())
+	url, state, err := s.auth.StartOIDCLogin(r.Context())
 	if err != nil {
 		if errors.Is(err, auth.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "oidc_not_configured", "OIDC login is not configured")
@@ -29,6 +66,7 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err) // crypto.ErrSealed → 503
 		return
 	}
+	http.SetCookie(w, oidcStateCookie(r, state, auth.OIDCStateCookieTTL))
 	http.Redirect(w, r, url, http.StatusFound)
 }
 
@@ -37,6 +75,16 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if e := q.Get("error"); e != "" {
 		_ = s.record(r, "auth.login", "auth/oidc", "denied", "oidc_denied", "provider error")
 		writeError(w, http.StatusBadRequest, "oidc_denied", "authentication failed")
+		return
+	}
+	// Bind to the initiating browser: the state cookie must be present and equal
+	// the query state before we consume the server-side row. Missing/mismatched
+	// binding is a login-CSRF attempt (RFC 9700 §4.7) — deny indistinguishably.
+	http.SetCookie(w, clearOIDCStateCookie(r))
+	bind, err := r.Cookie(oidcStateCookieName)
+	if err != nil || bind.Value == "" || subtle.ConstantTimeCompare([]byte(bind.Value), []byte(q.Get("state"))) != 1 {
+		_ = s.record(r, "auth.login", "auth/oidc", "denied", "invalid_oidc_state", "")
+		writeError(w, http.StatusBadRequest, "invalid_oidc_state", "authentication failed")
 		return
 	}
 	cookie, p, err := s.auth.CompleteOIDCLogin(r.Context(), q.Get("state"), q.Get("code"))

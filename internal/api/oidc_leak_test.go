@@ -86,7 +86,8 @@ func TestOIDCClientSecretNeverLeaks(t *testing.T) {
 	capture(getResp.body)
 
 	// Drive the full login flow: login redirect -> mock IdP -> callback.
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// Jar carries the state-binding cookie from /login to /callback.
+	client := noRedirectClient(t)
 	res, err := client.Get(ts.URL + "/v1/auth/oidc/login")
 	if err != nil {
 		t.Fatal(err)

@@ -838,6 +838,18 @@ gate sweep `govulncheck` flagged **GO-2026-4945** (a JWE decryption panic in
 `go-jose/v4`) as reachable through the ID-token verify path; fixed by bumping
 `go-jose/v4` v4.0.5 → **v4.1.4**.
 
+Final adversarial review (whole-branch, 11-point threat model): ten items clean;
+**one blocking finding fixed before merge** — **login CSRF / session fixation**:
+the single-use server-side `state` was not bound to the initiating browser, so a
+captured callback URL could fixate a victim into the attacker's account (RFC 9700
+§4.7). Fixed by binding `state` to an `HttpOnly`, `SameSite=Lax` `janus_oidc_state`
+cookie set at `/login` and required (constant-time equal to the query `state`)
+before the callback consumes the row; a regression test drives the victim-without-
+cookie path and asserts 400 + no session. Also fixed a non-blocking status nit
+(`crypto.ErrSealed` from `PUT /v1/sys/oidc` while sealed now maps to 503, not 500)
+and added the state-binding cookie assertions. Re-verified: full suite green,
+gosec 0 (17 `#nosec`), govulncheck 0 affecting.
+
 **Follow-up:** sub-project **C2** — OIDC-federated CI machine identity (GitHub
 Actions JWT exchange → scoped short-lived credential) — is the next slice.
 

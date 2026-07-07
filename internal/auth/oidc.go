@@ -174,33 +174,41 @@ func (s *Service) SweepExpiredOIDCRequests(ctx context.Context) error {
 }
 
 // StartOIDCLogin persists a login-state row and returns the provider authorize
-// URL (state + nonce + PKCE S256). ErrNotFound if OIDC not configured/enabled.
-func (s *Service) StartOIDCLogin(ctx context.Context) (string, error) {
+// URL together with the opaque state value. The caller MUST bind the state to
+// the initiating user-agent (an HttpOnly cookie) and require it back at the
+// callback; the server-side state row alone does not tie the browser that began
+// the flow to the one that completes it (login-CSRF / session-fixation defense,
+// RFC 9700 §4.7). ErrNotFound if OIDC not configured/enabled.
+func (s *Service) StartOIDCLogin(ctx context.Context) (authURL, state string, err error) {
 	v, err := s.oidcVerifierFor(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	p, err := s.oidcProviders.Get(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	state, err := randToken(32)
+	state, err = randToken(32)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	nonce, err := randToken(32)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	verifier := oauth2.GenerateVerifier()
 	if err := s.oidcAuthReqs.Create(ctx, state, nonce, verifier, p.ID, time.Now().Add(oidcAuthRequestTTL)); err != nil {
-		return "", err
+		return "", "", err
 	}
 	return v.oauth2.AuthCodeURL(state,
 		oidc.Nonce(nonce),
 		oauth2.S256ChallengeOption(verifier),
-	), nil
+	), state, nil
 }
+
+// OIDCStateCookieTTL bounds the lifetime of the state-binding cookie; it matches
+// the server-side auth-request TTL so both expire together.
+const OIDCStateCookieTTL = oidcAuthRequestTTL
 
 // verifyOIDCCallback consumes the state row, exchanges the code, verifies the
 // ID token (sig, iss, aud, exp, nonce), and returns claims. No user/session.

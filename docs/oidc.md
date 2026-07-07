@@ -23,13 +23,17 @@ Login is the **Authorization Code** flow hardened with **PKCE** (S256),
 2. The button is a full-page navigation to `GET /v1/auth/oidc/login`. The server
    generates a single-use `state` (CSRF defense), a `nonce` (ID-token replay
    defense), and a PKCE verifier, persists them server-side (in
-   `oidc_auth_requests`, keyed by `state`, with a short expiry), and redirects
-   the browser (302) to the provider's authorize URL carrying the state, nonce,
-   and PKCE S256 challenge.
+   `oidc_auth_requests`, keyed by `state`, with a short expiry), sets the `state`
+   in a short-lived `HttpOnly`, `SameSite=Lax` cookie (`janus_oidc_state`,
+   scoped to `/v1/auth/oidc`) that **binds the flow to this browser**, and
+   redirects the browser (302) to the provider's authorize URL carrying the
+   state, nonce, and PKCE S256 challenge.
 3. The user authenticates at the provider, which redirects back to
    `GET /v1/auth/oidc/callback?code=…&state=…`.
-4. The callback consumes the `state` row (single-use; deleted on read, expired
-   rows rejected), exchanges the `code` for tokens using the stored PKCE
+4. The callback first requires the `janus_oidc_state` cookie to be present and
+   equal (constant-time) to the query `state` — proving the same browser began
+   the flow — then consumes the `state` row (single-use; deleted on read,
+   expired rows rejected), exchanges the `code` for tokens using the stored PKCE
    verifier, and verifies the ID token: issuer, audience (client_id), signature
    (against the provider's JWKS), and that the ID-token `nonce` matches the one
    stored for this state.
@@ -119,7 +123,11 @@ Migration `000007_oidc` adds three tables:
   canary secret and asserts it appears in no log line, no response body, and no
   `audit_events` row.
 - `state` rows are single-use and expiring, sweeping CSRF and replay windows;
-  expired rows are also cleared at boot.
+  expired rows are also cleared at boot. The `state` is additionally bound to the
+  initiating browser via the `HttpOnly` `janus_oidc_state` cookie and checked
+  constant-time at the callback, so a captured callback URL cannot be replayed in
+  a victim's browser to fixate them into the attacker's account (login-CSRF /
+  session-fixation defense, RFC 9700 §4.7).
 - ID-token verification (issuer, audience, JWKS signature, nonce) uses the
   audited `go-oidc` / `x-oauth2` / `go-jose` libraries rather than hand-rolled
   JOSE (see the crypto-lib exception in `CLAUDE.md`).
