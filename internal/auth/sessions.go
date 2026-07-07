@@ -52,6 +52,13 @@ func (s *Service) Login(ctx context.Context, email string, password []byte) (str
 		}
 	}
 
+	return s.createSession(ctx, u.ID)
+}
+
+// createSession mints a session cookie for an already-authenticated user
+// (password verified, or OIDC identity resolved). The caller owns the auth
+// decision; this only issues the credential.
+func (s *Service) createSession(ctx context.Context, userID string) (string, error) {
 	cookie, err := randToken(32)
 	if err != nil {
 		return "", err
@@ -61,7 +68,7 @@ func (s *Service) Login(ctx context.Context, email string, password []byte) (str
 		return "", err
 	}
 	defer zeroize(key)
-	if _, err := s.sessions.Create(ctx, u.ID, mac(key, cookie), time.Now().Add(sessionTTL)); err != nil {
+	if _, err := s.sessions.Create(ctx, userID, mac(key, cookie), time.Now().Add(sessionTTL)); err != nil {
 		return "", err
 	}
 	return cookie, nil

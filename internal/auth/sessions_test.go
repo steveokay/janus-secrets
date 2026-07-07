@@ -85,6 +85,29 @@ func TestChangePassword(t *testing.T) {
 	}
 }
 
+func TestCreateSessionForUser(t *testing.T) {
+	svc, email, password := newTestService(t)
+	ctx := context.Background()
+
+	cookie, err := svc.Login(ctx, email, []byte(password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := svc.VerifySession(ctx, cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cookie2, err := svc.createSession(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("createSession: %v", err)
+	}
+	p2, err := svc.VerifySession(ctx, cookie2)
+	if err != nil || p2.Kind != KindUser || p2.ID != p.ID {
+		t.Fatalf("verify minted session: p=%+v err=%v", p2, err)
+	}
+}
+
 func TestEnsureHMACKeyIdempotentAndSealed(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
