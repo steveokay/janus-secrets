@@ -36,3 +36,29 @@ test('POST sends JSON body and credentials', async () => {
   expect(sawBody).toEqual({ slug: 'x', name: 'X' })
   expect(sawCreds).toBe('include')
 })
+
+import { errorMessage } from './api'
+
+test('maps known codes to friendly text', () => {
+  expect(errorMessage(new ApiError(404, 'not_found', 'x'))).toMatch(/not found/i)
+  expect(errorMessage(new ApiError(429, 'rate_limited', 'x'))).toMatch(/too many/i)
+  expect(errorMessage(new ApiError(400, 'validation', 'x'))).toMatch(/check your input/i)
+})
+
+test('passes through curated 403/409 guardrail messages verbatim', () => {
+  // 403/409 carry precise server guardrail text (permission, last-owner,
+  // delegation ceiling) — a generic friendly string must NOT override them.
+  expect(errorMessage(new ApiError(403, 'forbidden', 'You lack permission to do X'))).toMatch(
+    /permission/i,
+  )
+  expect(errorMessage(new ApiError(409, 'conflict', 'Name already taken'))).toBe('Name already taken')
+  expect(errorMessage(new ApiError(409, 'last_owner', 'Cannot remove the last owner'))).toMatch(
+    /last owner/i,
+  )
+})
+
+test('hides internals for 5xx and unknown', () => {
+  expect(errorMessage(new ApiError(500, 'internal', 'stacktrace'))).not.toMatch(/stacktrace/)
+  expect(errorMessage(new Error('boom'))).toBe('Request failed.')
+  expect(errorMessage(new Error('boom'), 'Save failed.')).toBe('Save failed.')
+})

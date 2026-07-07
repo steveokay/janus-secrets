@@ -6,6 +6,7 @@ import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForm
 import { Config } from '../lib/endpoints'
 import { envTone, envDotClass } from '../ui/env'
 import { cn } from '../ui/cn'
+import { Tooltip } from '../ui/Tooltip'
 
 // Sidebar is a sibling of <Routes>, so useParams() is empty here — derive the
 // active ids from the URL via matchPath.
@@ -30,14 +31,16 @@ function SectionLabel({ children, action }: { children: React.ReactNode; action?
 
 function IconAdd({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-brand-soft hover:text-brand-text"
-    >
-      <Plus size={13} strokeWidth={1.7} />
-    </button>
+    <Tooltip content={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-brand-soft hover:text-brand-text"
+      >
+        <Plus size={13} strokeWidth={1.7} />
+      </button>
+    </Tooltip>
   )
 }
 

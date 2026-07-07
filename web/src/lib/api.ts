@@ -36,6 +36,27 @@ export function apiErrorTitle(e: unknown): string {
   return e instanceof ApiError && (e.status === 403 || e.status === 409) ? e.message : 'Request failed.'
 }
 
+// Maps the API's {error:{code,message}} envelope to a friendly, safe message.
+// 403/409 pass the server's curated message through (delegation ceiling,
+// last-owner, self-guard, etc.); known codes get friendly text; everything
+// else (incl. 5xx / non-ApiError) collapses to `fallback` so internals never leak.
+const FRIENDLY: Record<string, string> = {
+  validation: 'Please check your input.',
+  not_found: 'Not found.',
+  rate_limited: 'Too many attempts — try again shortly.',
+}
+
+export function errorMessage(e: unknown, fallback = 'Request failed.'): string {
+  if (e instanceof ApiError) {
+    // 403/409 carry the server's CURATED guardrail messages (delegation ceiling,
+    // last-owner, self-guard, conflicts) — always surface those verbatim, before
+    // any generic friendly mapping, so those precise messages are never lost.
+    if (e.status === 403 || e.status === 409) return e.message || fallback
+    if (FRIENDLY[e.code]) return FRIENDLY[e.code]
+  }
+  return fallback
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),

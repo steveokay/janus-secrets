@@ -118,6 +118,9 @@ function CreateUserSheet({ onClose, onCreated }: {
     mutationFn: () => endpoints.createUser(email),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['users'] })
+      // Neutral confirmation only — the initial password is shown once via
+      // RevealOnce, NEVER in a toast title.
+      toast({ title: 'User created' })
       onCreated(r.password)
     },
     onError: (e) => toast({ title: apiErrorTitle(e), tone: 'danger' }),

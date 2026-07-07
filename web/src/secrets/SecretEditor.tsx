@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints } from '../lib/endpoints'
+import { errorMessage } from '../lib/api'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
 import { useToast } from '../ui/Toast'
@@ -13,6 +14,7 @@ import { DirtyBar } from './DirtyBar'
 import { ReviewDiffDialog } from './ReviewDiffDialog'
 import { ImportEnvDialog } from './ImportEnvDialog'
 import { VersionHistory } from './VersionHistory'
+import { Skeleton } from '../ui/Skeleton'
 
 export function SecretEditor() {
   useTitle('Secrets')
@@ -46,13 +48,18 @@ export function SecretEditor() {
 
   const save = useMutation({
     mutationFn: () => endpoints.saveSecrets(cid, toChanges(buffer, original), ''),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setBuffer(emptyBuffer())
       setEditing({})
       setRevealed({}) // saved values changed server-side — drop stale plaintext
       setReviewOpen(false)
       void qc.invalidateQueries({ queryKey: ['config', cid] })
+      toast({ title: `Saved as v${res.version}` })
     },
+    // Danger toast surfaces the curated failure (e.g. 409 version conflict) —
+    // never a secret value. Replaces the previous inline "Save failed." banner
+    // so there is a single, transient failure surface.
+    onError: (e) => toast({ title: errorMessage(e, 'Save failed.'), tone: 'danger' }),
   })
 
   function discard() {
@@ -96,7 +103,13 @@ export function SecretEditor() {
     setEditing((s) => { const { [key]: _drop, ...rest } = s; return rest })
   }
 
-  if (masked.isLoading || raw.isLoading) return <p>Loading…</p>
+  if (masked.isLoading || raw.isLoading)
+    return (
+      <div aria-hidden className="flex flex-col gap-2">
+        <Skeleton className="h-9 w-full" />
+        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-11 w-full" />)}
+      </div>
+    )
   if (masked.isError) return <p role="alert">Could not load secrets.</p>
   const maskedRows = masked.data ?? {}
   // Ordered key list: existing masked keys, then keys added only in the buffer.
@@ -105,7 +118,6 @@ export function SecretEditor() {
 
   return (
     <div>
-      {save.isError && <p role="alert" className="mb-2 text-sm text-danger">Save failed.</p>}
       <EditorToolbar
         filter={filter}
         onFilter={setFilter}

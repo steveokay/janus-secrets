@@ -84,6 +84,9 @@ function MintTokenSheet({ onClose, onMinted }: {
     }),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['tokens'] })
+      // Neutral confirmation only — the token value is shown once via RevealOnce,
+      // NEVER in a toast title.
+      toast({ title: 'Token created' })
       onMinted(r)
     },
     onError: (e) => toast({ title: apiErrorTitle(e), tone: 'danger' }),

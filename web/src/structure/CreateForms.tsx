@@ -1,7 +1,11 @@
 import { FormEvent, useState, ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints, Project, Environment, Config } from '../lib/endpoints'
-import { ApiError } from '../lib/api'
+import { errorMessage } from '../lib/api'
+import { useToast } from '../ui/Toast'
+import { Input } from '../ui/Input'
+import { Select } from '../ui/Select'
+import { Button } from '../ui/Button'
 
 function Dialog({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -14,12 +18,16 @@ function Dialog({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function useSubmit<T>(fn: () => Promise<T>, onDone: (v: T) => void) {
+// Shared create-form controller. Confirms success with a toast; failures stay
+// INLINE (curated errorMessage) so validation/conflict text stays on screen next
+// to the field — no jarring duplicate danger toast for the same failure.
+function useSubmit<T>(fn: () => Promise<T>, onDone: (v: T) => void, successTitle: string) {
+  const toast = useToast()
   const [error, setError] = useState('')
   const m = useMutation({
     mutationFn: fn,
-    onSuccess: onDone,
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'Failed to create.'),
+    onSuccess: (v) => { toast({ title: successTitle }); onDone(v) },
+    onError: (e) => setError(errorMessage(e, 'Failed to create.')),
   })
   return { error, submit: (e: FormEvent) => { e.preventDefault(); setError(''); m.mutate() }, busy: m.isPending }
 }
@@ -31,6 +39,7 @@ export function CreateProjectForm({ onCreated, onClose }: { onCreated: (p: Proje
   const { error, submit, busy } = useSubmit(
     () => endpoints.createProject(slug, name),
     (p) => { void qc.invalidateQueries({ queryKey: ['projects'] }); onCreated(p) },
+    'Project created',
   )
   return (
     <Dialog title="Create project">
@@ -39,36 +48,25 @@ export function CreateProjectForm({ onCreated, onClose }: { onCreated: (p: Proje
         multiple configs with versioned history and per-environment access.
       </p>
       <form onSubmit={submit} className="flex flex-col gap-2.5">
-        <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
-          Name
-          <input
-            aria-label="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. api-gateway"
-            required
-            className="rounded border border-line bg-card px-3 py-2 text-[13px] font-normal text-ink placeholder:text-faint"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
-          Slug
-          <input
-            aria-label="slug"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-            placeholder="api-gateway"
-            required
-            className="rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink placeholder:text-faint"
-          />
-        </label>
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. api-gateway"
+          required
+        />
+        <Input
+          label="Slug"
+          value={slug}
+          onChange={(e) => setSlug(e.target.value)}
+          placeholder="api-gateway"
+          required
+          className="font-mono"
+        />
         {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
         <div className="mt-1 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink">
-            Cancel
-          </button>
-          <button type="submit" disabled={busy} className="rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-50">
-            Create project
-          </button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy}>Create project</Button>
         </div>
       </form>
     </Dialog>
@@ -82,16 +80,17 @@ export function CreateEnvironmentForm({ pid, onCreated, onClose }: { pid: string
   const { error, submit, busy } = useSubmit(
     () => endpoints.createEnvironment(pid, slug, name),
     (e) => { void qc.invalidateQueries({ queryKey: ['envs', pid] }); onCreated(e) },
+    'Environment created',
   )
   return (
     <Dialog title="New environment">
       <form onSubmit={submit} className="flex flex-col gap-2">
-        <label className="text-[12px] font-semibold">Slug<input aria-label="slug" value={slug} onChange={(e) => setSlug(e.target.value)} required className="w-full rounded border border-line px-3 py-2 text-[13px] font-normal" /></label>
-        <label className="text-[12px] font-semibold">Name<input aria-label="name" value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded border border-line px-3 py-2 text-[13px] font-normal" /></label>
+        <Input label="Slug" value={slug} onChange={(e) => setSlug(e.target.value)} required />
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold">Cancel</button>
-          <button type="submit" disabled={busy} className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50">Create</button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy}>Create</Button>
         </div>
       </form>
     </Dialog>
@@ -105,21 +104,20 @@ export function CreateConfigForm({ pid, eid, bases, onCreated, onClose }: { pid:
   const { error, submit, busy } = useSubmit(
     () => endpoints.createConfig(pid, eid, name, base || undefined),
     (c) => { void qc.invalidateQueries({ queryKey: ['configs', pid, eid] }); onCreated(c) },
+    'Config created',
   )
   return (
     <Dialog title="New config">
       <form onSubmit={submit} className="flex flex-col gap-2">
-        <label className="text-[12px] font-semibold">Name<input aria-label="name" value={name} onChange={(e) => setName(e.target.value)} required className="w-full rounded border border-line px-3 py-2 text-[13px] font-normal" /></label>
-        <label className="text-[12px] font-semibold">Inherits from (same environment, optional)
-          <select aria-label="inherits from" value={base} onChange={(e) => setBase(e.target.value)} className="w-full rounded border border-line px-3 py-2 text-[13px] font-normal">
-            <option value="">— none —</option>
-            {bases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Select label="Inherits from (same environment, optional)" value={base} onChange={(e) => setBase(e.target.value)}>
+          <option value="">— none —</option>
+          {bases.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold">Cancel</button>
-          <button type="submit" disabled={busy} className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50">Create</button>
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy}>Create</Button>
         </div>
       </form>
     </Dialog>
