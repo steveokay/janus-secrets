@@ -45,13 +45,14 @@ this tracker, roughly by size:
   **keyboard support** (`⌘S`, row nav), and the hand-rolled Review/Import dialogs
   want `aria-modal`/Escape/focus-trap (or compose the Sheet primitive) + a
   "no matches" state when filtered to empty.
-- **§4 kit primitives (P1):** formal **Button** variants, **Input/Select/Textarea**,
-  and **Tooltip/Card/Tabs/Skeleton** components. *(Dialog, Toast, Dropdown, Pill
-  already shipped.)*
-- **§5 feedback (P1):** systematize **skeletons**, **toasts on all mutations**, full
-  **error-envelope → friendly message** mapping (today `apiErrorTitle` surfaces
-  403/409 only), optimistic UI, styled unsaved-changes guard. *(Used piecemeal;
-  not yet system-wide.)*
+- **§4 kit primitives — DONE (PR #37):** **Button** variants, **Input/Select/Textarea**,
+  **Tooltip** (Radix)/**Card**/**Skeleton**. `Tabs` dropped (YAGNI); `Badge` = `Pill`.
+  *(Dialog, Toast, Dropdown, Pill already shipped.)*
+- **§5 feedback — mostly DONE (PR #37):** **skeletons** (editor + version history),
+  **toasts on all mutations**, **error-envelope → friendly message** (`errorMessage`,
+  403/409 curated-first). Deferred: broad optimistic UI; styled in-app
+  unsaved-changes guard (needs a data-router migration for `useBlocker` —
+  `beforeunload` guard remains).
 - **§6 auth/unseal (P1):** login card + unseal **progress ring** + first-login flow
   polish. *(Cards exist from Slice 1 and pass the R4 dark audit; the branded/ring
   treatment is the open piece — verify against the mockup.)*
@@ -197,10 +198,11 @@ list with masked dots and a save button.
 
 Stop re-styling primitives per screen; build once, use everywhere.
 
-- [ ] **P1** **Button** variants (primary/secondary/ghost/danger) + sizes + loading
-      state, with proper focus rings.
-- [ ] **P1** **Input / Select / Textarea** with consistent styling, labels, error
-      text, and disabled states.
+- [x] **P1** **Button** variants (primary/secondary/ghost/danger) + sizes + loading
+      state, with proper focus rings. *(PR #37 — `ui/Button.tsx`.)*
+- [x] **P1** **Input / Select / Textarea** with consistent styling, labels, error
+      text, and disabled states. *(PR #37 — shared `Field` wrapper, `useId`,
+      `aria-invalid`/`aria-describedby`.)*
 - [x] **P1** **Modal/Dialog** (replaces the current bare create/change-password
       forms): focus-trapped, `Esc`-to-close, backdrop, header/body/footer.
       *(B2 — `ConfirmDialog` (Radix AlertDialog) + `Sheet` slide-over shipped;
@@ -208,7 +210,8 @@ Stop re-styling primitives per screen; build once, use everywhere.
 - [x] **P1** **Toast/notification** system for save success, errors, copied, etc.
       (currently no feedback surface at all). *(B2 — app-level `ToastProvider` +
       `useToast`; rollback flows use it; editor save/copy toasts land in Slice 3.)*
-- [ ] **P1** **Badge**, **Tooltip**, **Card**, **Tabs**, **Skeleton** loaders.
+- [x] **P1** **Tooltip** (Radix), **Card**, **Skeleton** loaders. *(PR #37. `Badge` =
+      existing `Pill`; `Tabs` dropped — YAGNI, no screen uses it.)*
 - [x] **P2** **Dropdown menu** (Radix/headless) for the user menu and row actions.
       *(Slice 1 `UserMenu` on `@radix-ui/react-dropdown-menu`; reused for the
       transit `KeyActions` row menu in B5.)*
@@ -217,14 +220,18 @@ Stop re-styling primitives per screen; build once, use everywhere.
 
 ## 5. Feedback, loading & error states (P1)
 
-- [ ] **P1** **Skeleton loaders** for lists/tables instead of `"Loading…"` text.
-- [ ] **P1** **Toasts** on mutations (save, delete, token create, errors).
-- [ ] **P1** **Inline error surfaces**: map the API `{error:{code,message}}`
-      envelope to friendly, actionable messages (not raw codes).
+- [x] **P1** **Skeleton loaders** for lists/tables instead of `"Loading…"` text.
+      *(PR #37 — editor + version history; other lists already had skeletons.)*
+- [x] **P1** **Toasts** on mutations (save, delete, token create, errors). *(PR #37
+      — success/error toasts wired across all mutations; secrets never in titles.)*
+- [x] **P1** **Inline error surfaces**: map the API `{error:{code,message}}`
+      envelope to friendly, actionable messages (not raw codes). *(PR #37 —
+      `errorMessage`, 403/409 curated-first so guardrail messages survive.)*
 - [ ] **P1** **Optimistic UI** where safe; clear "saving…"/"saved vN" state on the
-      save action.
+      save action. *(Deferred — risky; editor shows saving/saved state today.)*
 - [ ] **P2** **Unsaved-changes guard** polish (styled confirm dialog, not the
-      browser default) — keep the existing guard behavior.
+      browser default) — keep the existing guard behavior. *(Deferred — needs
+      data-router migration for react-router `useBlocker`; `beforeunload` remains.)*
 
 ---
 
