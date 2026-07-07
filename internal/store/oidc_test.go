@@ -50,3 +50,41 @@ func TestOIDCProviderRepo(t *testing.T) {
 		t.Fatalf("post-delete Get: want ErrNotFound, got %v", err)
 	}
 }
+
+func TestOIDCIdentityRepo(t *testing.T) {
+	st := requireStore(t)
+	ctx := context.Background()
+
+	// Isolate from any other identity/user rows left by other tests.
+	if _, err := st.pool.Exec(ctx, `TRUNCATE oidc_identities RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("truncate oidc_identities: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx, `DELETE FROM users WHERE email = 'oidc-user@example.com'`); err != nil {
+		t.Fatalf("cleanup users: %v", err)
+	}
+
+	users := NewUserRepo(st)
+	u, err := users.Create(ctx, "oidc-user@example.com", nil)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	r := NewOIDCIdentityRepo(st)
+
+	if _, err := r.GetBySubject(ctx, "https://iss", "sub-123"); err != ErrNotFound {
+		t.Fatalf("empty: want ErrNotFound, got %v", err)
+	}
+	id, err := r.Create(ctx, u.ID, "https://iss", "sub-123")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := r.GetBySubject(ctx, "https://iss", "sub-123")
+	if err != nil || got.UserID != u.ID {
+		t.Fatalf("get: %+v err=%v", got, err)
+	}
+	if err := r.TouchLastLogin(ctx, id.ID); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	if _, err := r.Create(ctx, u.ID, "https://iss", "sub-123"); err != ErrAlreadyExists {
+		t.Fatalf("dup: want ErrAlreadyExists, got %v", err)
+	}
+}

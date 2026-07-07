@@ -50,3 +50,40 @@ func scanOIDCProvider(row pgx.Row) (*OIDCProvider, error) {
 	}
 	return &p, nil
 }
+
+const oidcIdentityCols = `id::text, user_id::text, issuer, subject, created_at, last_login_at`
+
+// OIDCIdentityRepo links provider subjects to Janus users.
+type OIDCIdentityRepo struct{ s *Store }
+
+func NewOIDCIdentityRepo(s *Store) *OIDCIdentityRepo { return &OIDCIdentityRepo{s: s} }
+
+// GetBySubject returns the identity for (issuer, subject), or ErrNotFound.
+func (r *OIDCIdentityRepo) GetBySubject(ctx context.Context, issuer, subject string) (*OIDCIdentity, error) {
+	row := r.s.pool.QueryRow(ctx,
+		`SELECT `+oidcIdentityCols+` FROM oidc_identities WHERE issuer=$1 AND subject=$2`, issuer, subject)
+	return scanOIDCIdentity(row)
+}
+
+// Create links a subject to a user. Duplicate (issuer, subject) → ErrAlreadyExists.
+func (r *OIDCIdentityRepo) Create(ctx context.Context, userID, issuer, subject string) (*OIDCIdentity, error) {
+	row := r.s.pool.QueryRow(ctx,
+		`INSERT INTO oidc_identities (user_id, issuer, subject)
+		 VALUES ($1::uuid, $2, $3) RETURNING `+oidcIdentityCols,
+		userID, issuer, subject)
+	return scanOIDCIdentity(row)
+}
+
+// TouchLastLogin bumps last_login_at.
+func (r *OIDCIdentityRepo) TouchLastLogin(ctx context.Context, id string) error {
+	_, err := r.s.pool.Exec(ctx, `UPDATE oidc_identities SET last_login_at=now() WHERE id=$1::uuid`, id)
+	return mapError(err)
+}
+
+func scanOIDCIdentity(row pgx.Row) (*OIDCIdentity, error) {
+	var i OIDCIdentity
+	if err := row.Scan(&i.ID, &i.UserID, &i.Issuer, &i.Subject, &i.CreatedAt, &i.LastLoginAt); err != nil {
+		return nil, mapError(err)
+	}
+	return &i, nil
+}
