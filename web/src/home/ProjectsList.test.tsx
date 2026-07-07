@@ -52,3 +52,14 @@ test('empty state offers to create the first project', async () => {
   expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /create.*project/i })).toBeInTheDocument()
 })
+
+test('shows the instance Reads 24h strip above the projects', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'api', name: 'api' }] })),
+    http.get('/v1/projects/:pid/environments', () => HttpResponse.json({ environments: [] })),
+    http.get('/v1/metrics/reads-24h', () =>
+      HttpResponse.json({ reads_24h: 42, top_configs: [], top_tokens: [] })),
+  )
+  renderApp(<ProjectsList />, { route: '/', withAuth: false })
+  expect(await screen.findByText('42')).toBeInTheDocument()
+})

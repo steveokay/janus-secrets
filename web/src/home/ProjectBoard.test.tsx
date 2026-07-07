@@ -78,3 +78,14 @@ test('a failed config fetch surfaces an error, not a permanent skeleton', async 
   expect(await screen.findByRole('link', { name: /prod/i })).toBeInTheDocument()
   expect(await screen.findByText(/couldn't load configs/i)).toBeInTheDocument()
 })
+
+test('shows the project-scoped Reads 24h row', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'api', name: 'api' }] })),
+    http.get('/v1/projects/:pid/environments', () => HttpResponse.json({ environments: [] })),
+    http.get('/v1/projects/:pid/metrics/reads-24h', () =>
+      HttpResponse.json({ reads_24h: 7, top_configs: [], top_tokens: [] })),
+  )
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  expect(await screen.findByText('7')).toBeInTheDocument()
+})

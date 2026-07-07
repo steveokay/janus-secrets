@@ -46,6 +46,11 @@ export interface AuditEventFilters {
   from?: string; to?: string; actor?: string; action?: string; result?: string
 }
 
+// usage metrics (D) — on-demand read counts from audit_events (secret.reveal).
+export interface ConfigReads { config_id: string; config_name: string; project_name?: string; reads: number }
+export interface TokenReads { token_id: string; token_name: string; reads: number }
+export interface Reads24h { reads_24h: number; top_configs: ConfigReads[]; top_tokens: TokenReads[] }
+
 // tokens & users & members (B4)
 export interface TokenMeta {
   id: string; name: string
@@ -160,6 +165,11 @@ export const endpoints = {
     api.get<{ events: AuditEvent[]; next_cursor: number | null }>(`/v1/audit/events?${auditParams(f)}`),
   auditExportUrl: (f: AuditEventFilters, format: 'jsonl' | 'csv') =>
     `/v1/audit/export?${auditParams({ ...f, format })}`,
+
+  // usage metrics (D). Metadata reads (no secret values); NOT self-audited.
+  metricsReads24h: () => api.get<Reads24h>('/v1/metrics/reads-24h'),
+  projectMetricsReads24h: (pid: string) =>
+    api.get<Reads24h>(`/v1/projects/${pid}/metrics/reads-24h`),
 
   // tokens & users & members (B4). Raw token / one-time password appear ONLY in
   // mint/create responses — never cached, logged, or shown twice.
