@@ -234,3 +234,46 @@ func (s *Service) verifyOIDCCallback(ctx context.Context, state, code string) (*
 	}
 	return &OIDCClaims{Issuer: idt.Issuer, Subject: idt.Subject, Email: c.Email, EmailVerified: c.EmailVerified}, nil
 }
+
+// resolveOIDCLogin maps verified claims to a pre-provisioned user and issues a
+// session cookie. Policy: link by (issuer, subject) if present; else match an
+// existing user by verified email (no auto-provision); deny disabled users and
+// unverified/unknown emails. All denials return ErrOIDCDenied (no enumeration).
+func (s *Service) resolveOIDCLogin(ctx context.Context, c *OIDCClaims) (string, error) {
+	link, err := s.oidcIdentities.GetBySubject(ctx, c.Issuer, c.Subject)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	var userID string
+	if err == nil {
+		u, uErr := s.users.Get(ctx, link.UserID)
+		if uErr != nil || u.DisabledAt != nil {
+			return "", ErrOIDCDenied
+		}
+		userID = u.ID
+		_ = s.oidcIdentities.TouchLastLogin(ctx, link.ID)
+	} else {
+		if !c.EmailVerified {
+			return "", ErrOIDCDenied
+		}
+		u, uErr := s.users.GetByEmail(ctx, c.Email)
+		if uErr != nil || u.DisabledAt != nil {
+			return "", ErrOIDCDenied // unknown or disabled — indistinguishable
+		}
+		if _, cErr := s.oidcIdentities.Create(ctx, u.ID, c.Issuer, c.Subject); cErr != nil {
+			return "", cErr
+		}
+		userID = u.ID
+	}
+	return s.createSession(ctx, userID)
+}
+
+// CompleteOIDCLogin is the public entry the API calls: verify the callback then
+// resolve + issue a session. Returns the session cookie.
+func (s *Service) CompleteOIDCLogin(ctx context.Context, state, code string) (string, error) {
+	claims, err := s.verifyOIDCCallback(ctx, state, code)
+	if err != nil {
+		return "", err
+	}
+	return s.resolveOIDCLogin(ctx, claims)
+}
