@@ -53,12 +53,14 @@ this tracker, roughly by size:
   403/409 curated-first). Deferred: broad optimistic UI; styled in-app
   unsaved-changes guard (needs a data-router migration for `useBlocker` —
   `beforeunload` guard remains).
-- **§6 auth/unseal (P1):** login card + unseal **progress ring** + first-login flow
-  polish. *(Cards exist from Slice 1 and pass the R4 dark audit; the branded/ring
-  treatment is the open piece — verify against the mockup.)*
-- **§7 a11y & responsive (P1/P2):** system-wide **focus-ring/contrast audit**,
-  end-to-end **keyboard operability** (editor/menus), **responsive/tablet** layout
-  + table horizontal-scroll containment. *(Palette a11y + dark contrast done in R4.)*
+- **§6 auth/unseal — DONE (PR #40):** branded `AuthCard` shell; login + unseal
+  re-skinned onto the kit; share-progress **segments** (green-filled, per mockup —
+  not a "ring"); share-clear-before-await preserved. First-login auto-prompt
+  deferred (needs a backend first-login signal).
+- **§7 a11y & responsive — DONE (PR #41):** secret-table horizontal-scroll
+  containment (`overflow-x-auto` + `min-w`) + editor `Esc`-to-cancel. Focus-ring
+  (global `:focus-visible`), contrast (dark-AA guard), Radix menu/dialog
+  keyboarding, and the `min-w-0` shell overflow-guard were already in place.
 - **Lower-priority P2s:** §0 motion/reduced-motion, §1 collapsible sidebar, §2
   onboarding checklist.
 - **§8:** the **usage-metrics dashboard — DONE** (sub-project **D**, PR #35): on-demand
@@ -239,25 +241,26 @@ Stop re-styling primitives per screen; build once, use everywhere.
 
 First impression before the app even loads.
 
-- [ ] **P1** **Login page**: centered branded card (logo, heading, styled fields,
-      primary button, clear error), not a bare form. This is the literal first
-      screen a user sees.
-- [ ] **P1** **Unseal screen**: a focused, slightly "high-security" branded layout
-      — progress ring for "k of threshold shares", clear share input, reset — so
-      unsealing feels intentional. Keep shares in ephemeral state only.
+- [x] **P1** **Login page**: centered branded card (logo, heading, styled fields,
+      primary button, clear error). *(PR #40 — `AuthCard` + kit `Input`/`Button`.)*
+- [x] **P1** **Unseal screen**: focused branded layout — **share-progress segments**
+      (green-filled, per mockup §07, not a ring) for "k of threshold shares", share
+      input, reset. Shares stay ephemeral, cleared before the network await. *(PR #40.)*
 - [ ] **P2** **Change-password / first-login**: friendly flow prompting the
-      one-time-password change after the init ceremony.
+      one-time-password change after the init ceremony. *(Deferred — needs a backend
+      first-login/OTP signal; `ChangePassword` reachable via user menu today.)*
 
 ---
 
 ## 7. Accessibility & responsiveness (P1/P2)
 
-- [ ] **P1** Visible **focus rings**, adequate **color contrast** (esp. the current
-      `text-gray-400` links — too low), proper `aria` labels/roles on icon-buttons,
-      dialogs, and tabs.
-- [ ] **P1** Keyboard operability end-to-end (menus, dialogs, editor).
-- [ ] **P2** Responsive layout down to tablet widths; horizontal-scroll containment
-      for the secret table on small screens.
+- [x] **P1** Visible **focus rings** (global `:focus-visible` ring in `index.css`),
+      **color contrast** (dark-AA guard test), `aria` labels/roles on icon-buttons +
+      dialogs (Radix + tooltips). *(Ongoing since Slice 1 / R4; confirmed in §7.)*
+- [x] **P1** Keyboard operability (Radix menus/dialogs; editor `Esc`-to-cancel via
+      PR #41). *(Deep editor nav — `⌘S`/row arrows — remains in §3 P2 below.)*
+- [x] **P2** Responsive layout to tablet widths; horizontal-scroll containment for
+      the secret table (`overflow-x-auto` + `min-w`, PR #41); shell `min-w-0` guard.
 
 ---
 
