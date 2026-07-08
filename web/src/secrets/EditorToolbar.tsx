@@ -1,11 +1,13 @@
-import { Search, Upload, History } from 'lucide-react'
+import { Search, Upload, History, Eye, EyeOff } from 'lucide-react'
 
-// Editor toolbar (mockup §06): key filter + Import .env + History.
-export function EditorToolbar({ filter, onFilter, onImport, onHistory }: {
+// Editor toolbar (mockup §06): key filter + Import .env + History + reveal-all.
+export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyRevealed, onToggleRevealAll }: {
   filter: string
   onFilter: (v: string) => void
   onImport: () => void
   onHistory: () => void
+  anyRevealed: boolean
+  onToggleRevealAll: () => void
 }) {
   return (
     <div className="mb-3.5 flex flex-wrap items-center gap-2.5">
@@ -34,6 +36,14 @@ export function EditorToolbar({ filter, onFilter, onImport, onHistory }: {
         className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
       >
         <History size={14} strokeWidth={1.7} /> History
+      </button>
+      <button
+        type="button"
+        onClick={onToggleRevealAll}
+        className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
+      >
+        {anyRevealed ? <EyeOff size={14} strokeWidth={1.7} /> : <Eye size={14} strokeWidth={1.7} />}
+        {anyRevealed ? 'Hide all' : 'Reveal all'}
       </button>
     </div>
   )

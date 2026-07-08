@@ -79,6 +79,35 @@ export function SecretEditor() {
     setRevealed((m) => ({ ...m, [key]: r.value }))
     return r.value
   }
+  // Bulk reveal — called imperatively (NOT useQuery/useMutation) so the
+  // resolved plaintext lands ONLY in `revealed` component state, never the
+  // TanStack Query cache. One call = one audited secret.reveal event.
+  const anyRevealed = Object.keys(revealed).length > 0
+  async function revealAll() {
+    const r = await endpoints.revealAll(cid)
+    setRevealed(r.secrets)
+  }
+  function hideAll() {
+    setRevealed({})
+  }
+
+  // Security: auto re-mask revealed plaintext on window blur or after 60s of
+  // inactivity while anything is revealed.
+  useEffect(() => {
+    if (!anyRevealed) return
+    const remask = () => setRevealed({})
+    let idle = window.setTimeout(remask, 60_000)
+    const bump = () => { window.clearTimeout(idle); idle = window.setTimeout(remask, 60_000) }
+    window.addEventListener('blur', remask)
+    window.addEventListener('keydown', bump)
+    window.addEventListener('mousemove', bump)
+    return () => {
+      window.clearTimeout(idle)
+      window.removeEventListener('blur', remask)
+      window.removeEventListener('keydown', bump)
+      window.removeEventListener('mousemove', bump)
+    }
+  }, [anyRevealed])
   // Copying a secret is a read — reveal (audited) first if needed, then copy.
   async function copy(key: string) {
     const value = key in revealed ? revealed[key] : await reveal(key)
@@ -123,6 +152,8 @@ export function SecretEditor() {
         onFilter={setFilter}
         onImport={() => setImportOpen(true)}
         onHistory={() => setShowHistory(true)}
+        anyRevealed={anyRevealed}
+        onToggleRevealAll={() => (anyRevealed ? hideAll() : void revealAll())}
       />
       {rows.length === 0 ? (
         <EmptyState
