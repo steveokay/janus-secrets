@@ -115,6 +115,51 @@ test('toolbar exposes Import .env and History', async () => {
   expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
 })
 
+test('Reveal all reveals every row via one bulk request, and Hide all re-masks', async () => {
+  seed()
+  let bulk = 0
+  server.use(http.get('/v1/configs/c1/secrets', ({ request }) => {
+    const params = new URL(request.url).searchParams
+    // Mount already fires the raw (?reveal=true&raw=true) fetch for diffing —
+    // only the bulk reveal-all request (?reveal=true, no raw=true) must count.
+    if (params.get('reveal') === 'true' && params.get('raw') !== 'true') {
+      bulk++
+      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a', SENTRY_DSN: 'https://x' } })
+    }
+    if (params.get('raw') === 'true')
+      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a', SENTRY_DSN: 'https://x' } })
+    return HttpResponse.json({ secrets: {
+      DB_URL: { value_version: 3, created_at: '', origin: 'own' },
+      SENTRY_DSN: { value_version: 1, created_at: '', origin: 'inherited' },
+    } })
+  }))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /reveal all/i }))
+  expect(await screen.findByText('postgres://a')).toBeInTheDocument()
+  expect(bulk).toBe(1)
+  await userEvent.click(screen.getByRole('button', { name: /hide all/i }))
+  expect(screen.queryByText('postgres://a')).toBeNull()
+})
+
+test('window blur re-masks revealed values', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets', ({ request }) => {
+    const params = new URL(request.url).searchParams
+    if (params.get('reveal') === 'true' && params.get('raw') !== 'true')
+      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
+    if (params.get('raw') === 'true')
+      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
+    return HttpResponse.json({ secrets: { DB_URL: { value_version: 3, created_at: '', origin: 'own' } } })
+  }))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /reveal all/i }))
+  await screen.findByText('postgres://a')
+  window.dispatchEvent(new Event('blur'))
+  await waitFor(() => expect(screen.queryByText('postgres://a')).toBeNull())
+})
+
 test('History button opens the version sheet', async () => {
   seed()
   server.use(
