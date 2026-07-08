@@ -81,6 +81,23 @@ test('cancelling an in-progress edit exits without changes', async () => {
   expect(screen.queryByRole('textbox', { name: /value for db_url/i })).toBeNull()
 })
 
+test('pressing Escape in an edit field cancels the edit', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
+  const input = screen.getByRole('textbox', { name: /value for db_url/i })
+  await userEvent.type(input, '{Escape}')
+  expect(screen.queryByRole('textbox', { name: /value for db_url/i })).toBeNull()
+})
+
+test('the secret table is wrapped in a horizontal-scroll container', async () => {
+  seed()
+  const { container } = renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  expect(container.querySelector('.overflow-x-auto')).not.toBeNull()
+})
+
 test('the key filter narrows visible rows', async () => {
   seed()
   renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
