@@ -46,13 +46,14 @@ this tracker, roughly by size:
   saves when dirty; new `Modal` primitive (Radix Dialog — focus-trap/Esc/aria-modal)
   with Review/Import dialogs refactored onto it. Remaining §3 P2: row arrow/enter
   nav, "no matches" filtered-empty state.
-  ⚠️ **Security follow-up (SCHEDULED — on-demand rework):** PR #44's final review
-  found the editor auto-reveals **all** secret plaintext on mount (`raw` query →
+  🔒 **Security fix — on-demand reveal rework DONE (PR #46):** PR #44's final review
+  found the editor auto-revealed **all** secret plaintext on mount (`raw` query →
   `?reveal=true&raw=true`) into the TanStack Query cache + one audited `secret.reveal`
-  per open — pre-existing (PR #33), contradicts the ephemeral-only posture. User
-  chose to fix via an **on-demand reveal rework** (mount = masked metadata only;
-  per-key/bulk RAW reveal into ephemeral state; add `version` to the masked
-  response). Next slice; design captured in memory.
+  per open — pre-existing (PR #33). Fixed: mount now loads only masked metadata +
+  the config version (`listVersions`, value-free) — **no reveal on mount**. Values
+  load on demand into two ephemeral maps (`revealed` = viewing, auto-re-masks;
+  `original` = edit-originals, persists while dirty), both RAW; per-key/bulk reveals
+  are explicit + audited. Adversarial review APPROVE (5 invariants, file:line).
 - **§4 kit primitives — DONE (PR #37):** **Button** variants, **Input/Select/Textarea**,
   **Tooltip** (Radix)/**Card**/**Skeleton**. `Tabs` dropped (YAGNI); `Badge` = `Pill`.
   *(Dialog, Toast, Dropdown, Pill already shipped.)*
@@ -194,9 +195,9 @@ list with masked dots and a save button.
       pending rows; inherited rows edit-to-override. *(§3 redesign.)*
 - [x] **P2** **Reveal ergonomics**: reveal-all/hide-all toggle (one audited bulk
       reveal, ephemeral-only) + auto-re-mask on window blur + 60s idle; "copied"
-      toast + ephemeral-only plaintext. *(PR #44; §3 for copy/plaintext.)* ⚠️ NOTE:
-      on-mount `raw` fetch still reveals-all into the Query cache — on-demand rework
-      scheduled (see §3 summary above).
+      toast + ephemeral-only plaintext. *(PR #44; §3 for copy/plaintext.)* 🔒 **No
+      reveal on mount** — on-demand rework (PR #46) removed the mount-time reveal-all;
+      values load per-key/bulk into ephemeral state only (see §3 summary above).
 - [x] **P2** **Version history drawer**: list config versions with author/time and
       one-click rollback (there's an API for this; today it's a placeholder).
       *(B2 — Sheet drawer with key-name-only diffs (zero values on this
