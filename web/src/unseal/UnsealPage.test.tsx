@@ -19,10 +19,12 @@ test('shamir: submitting shares advances progress then calls onUnsealed', async 
   renderApp(<UnsealPage onUnsealed={onUnsealed} />, { withAuth: false })
 
   await screen.findByText(/0 of 2/i)
-  await userEvent.type(screen.getByLabelText(/unseal key share/i), 'share-1')
+  await userEvent.type(screen.getByLabelText(/key share/i), 'share-1')
   await userEvent.click(screen.getByRole('button', { name: /submit share/i }))
   await screen.findByText(/1 of 2/i)
-  await userEvent.type(screen.getByLabelText(/unseal key share/i), 'share-2')
+  // Security guarantee: the share field is cleared immediately after submit.
+  expect(screen.getByLabelText(/key share/i)).toHaveValue('')
+  await userEvent.type(screen.getByLabelText(/key share/i), 'share-2')
   await userEvent.click(screen.getByRole('button', { name: /submit share/i }))
   await waitFor(() => expect(onUnsealed).toHaveBeenCalled())
 })
@@ -33,5 +35,5 @@ test('kms: auto-unsealed status calls onUnsealed without a share input', async (
   const onUnsealed = vi.fn()
   renderApp(<UnsealPage onUnsealed={onUnsealed} />, { withAuth: false })
   await waitFor(() => expect(onUnsealed).toHaveBeenCalled())
-  expect(screen.queryByLabelText(/unseal key share/i)).toBeNull()
+  expect(screen.queryByLabelText(/key share/i)).toBeNull()
 })

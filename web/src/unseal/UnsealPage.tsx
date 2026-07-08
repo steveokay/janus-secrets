@@ -1,5 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { endpoints, SealStatus } from '../lib/endpoints'
+import { AuthCard } from '../auth/AuthCard'
+import { Input } from '../ui/Input'
+import { Button } from '../ui/Button'
 import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
 import { useTitle } from '../lib/title'
@@ -49,37 +52,27 @@ export function UnsealPage({ onUnsealed }: { onUnsealed: () => void }) {
     return <p className="mt-24 text-center text-muted">Waiting for KMS auto-unseal…</p>
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-page px-4">
-      <form onSubmit={submitShare} className="flex w-[330px] flex-col gap-3 rounded-card border border-line bg-card p-7 shadow-pop">
-        <Pill tone="danger" dot className="self-start">Sealed</Pill>
-        <div>
-          <h1 className="text-[17px] font-semibold tracking-tight">Unseal Janus</h1>
-          <p className="text-[12.5px] text-muted">
-            {status.progress?.submitted ?? 0} of {status.threshold} shares submitted
-          </p>
-        </div>
-        <div className="flex gap-1.5" aria-hidden>
-          {Array.from({ length: status.threshold ?? 0 }, (_, i) => (
-            <span key={i} className={cn('h-1.5 flex-1 rounded-full', i < (status.progress?.submitted ?? 0) ? 'bg-brand' : 'bg-line-soft')} />
-          ))}
-        </div>
-        <label className="flex flex-col gap-1 text-[12px] font-semibold">Unseal key share
-          <input type="password" autoComplete="off" value={share} onChange={(e) => setShare(e.target.value)} required
-            className="rounded border border-line bg-card px-3 py-2 font-mono text-[13px] font-normal" />
-        </label>
-        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+    <AuthCard>
+      <Pill tone="danger" dot>Sealed</Pill>
+      <h1 className="mt-3 text-[17px] font-semibold tracking-tight text-ink">Unseal Janus</h1>
+      <p className="text-[12.5px] text-muted">
+        {status.progress?.submitted ?? 0} of {status.threshold} shares submitted
+      </p>
+      <div className="my-4 flex gap-1.5" aria-label={`Share progress: ${status.progress?.submitted ?? 0} of ${status.threshold}`}>
+        {Array.from({ length: status.threshold ?? 0 }, (_, i) => (
+          <span key={i} className={cn('h-1.5 flex-1 rounded-full', i < (status.progress?.submitted ?? 0) ? 'bg-success' : 'bg-line')} />
+        ))}
+      </div>
+      <form onSubmit={submitShare} className="flex flex-col gap-3 text-left">
+        <Input label="Key share" type="password" autoComplete="off" value={share}
+          onChange={(e) => setShare(e.target.value)} required className="font-mono" />
+        {error && <p role="alert" className="text-center text-[12.5px] text-danger">{error}</p>}
         <div className="flex gap-2">
-          <button type="submit" disabled={busy}
-            className="flex-1 rounded bg-brand p-2 text-[13px] font-semibold text-white shadow-card disabled:opacity-50">
-            Submit share
-          </button>
-          <button type="button" onClick={reset}
-            className="rounded border border-line bg-card px-4 py-2 text-[13px] font-semibold">
-            Reset
-          </button>
+          <Button type="submit" loading={busy} className="flex-1">Submit share</Button>
+          <Button type="button" variant="secondary" onClick={reset}>Reset</Button>
         </div>
         <p className="text-[11.5px] text-faint">Shares are held in memory only and never logged.</p>
       </form>
-    </div>
+    </AuthCard>
   )
 }
