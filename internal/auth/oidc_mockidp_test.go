@@ -78,6 +78,23 @@ func (m *mockIdP) signIDToken(t *testing.T) string {
 	return raw
 }
 
+// signClaims signs an arbitrary claim set (for CI-federation tests) and returns
+// the compact JWT. Mirrors signIDToken but takes explicit claims.
+func (m *mockIdP) signClaims(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	sig, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.RS256, Key: m.key},
+		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", m.keyID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := jwt.Signed(sig).Claims(claims).Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func writeJSONT(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)

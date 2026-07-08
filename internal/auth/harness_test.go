@@ -83,7 +83,7 @@ func startPostgres(ctx context.Context) (testcontainers.Container, string, error
 func resetAuthTables(t *testing.T) {
 	t.Helper()
 	_, err := resetPool.Exec(context.Background(),
-		`TRUNCATE service_tokens, sessions, users RESTART IDENTITY CASCADE`)
+		`TRUNCATE oidc_federation_bindings, oidc_federation_config, service_tokens, sessions, users RESTART IDENTITY CASCADE`)
 	if err != nil {
 		t.Fatalf("resetAuthTables: %v", err)
 	}

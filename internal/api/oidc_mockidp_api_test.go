@@ -79,6 +79,21 @@ func (m *mockIdP) signIDToken(t *testing.T) string {
 	return raw
 }
 
+func (m *mockIdP) signClaims(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	sig, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.RS256, Key: m.key},
+		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", m.keyID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := jwt.Signed(sig).Claims(claims).Serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 // mockJSON writes v as JSON. Named distinctly from writeJSON (the production
 // response helper in this package) to avoid confusion in test files.
 func mockJSON(w http.ResponseWriter, v any) {

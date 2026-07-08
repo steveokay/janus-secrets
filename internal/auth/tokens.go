@@ -109,6 +109,30 @@ func (s *Service) MintServiceToken(ctx context.Context, by Principal, name,
 	return raw, metaOf(tok), nil
 }
 
+// MintFederatedToken issues a short-lived service token for a matched CI
+// federation binding. Unlike MintServiceToken there is no human minter; the
+// token is attributed to the binding. Scope validity is the caller's concern
+// (the binding was validated at config time).
+func (s *Service) MintFederatedToken(ctx context.Context, name, scopeKind, scopeID, access string,
+	ttl time.Duration, bindingID string) (string, TokenMeta, error) {
+	random, err := randToken(32)
+	if err != nil {
+		return "", TokenMeta{}, err
+	}
+	raw := svcTokenPrefix + random
+	key, err := s.hmacKey(ctx)
+	if err != nil {
+		return "", TokenMeta{}, err
+	}
+	defer zeroize(key)
+	expiresAt := time.Now().Add(ttl)
+	tok, err := s.tokens.CreateFederated(ctx, name, mac(key, raw), scopeKind, scopeID, access, &expiresAt, bindingID)
+	if err != nil {
+		return "", TokenMeta{}, err
+	}
+	return raw, metaOf(tok), nil
+}
+
 func scopeErr(err error) error {
 	if errors.Is(err, store.ErrNotFound) {
 		return ErrNotFound

@@ -22,4 +22,16 @@ var (
 	// ErrOIDCDenied is returned when the provider denies or the user
 	// declines the login.
 	ErrOIDCDenied = errors.New("auth: oidc login denied")
+	// ErrFederationNotConfigured is returned when a federated CI token
+	// exchange is attempted but no federation config has been set.
+	ErrFederationNotConfigured = errors.New("auth: federation not configured")
+	// ErrFederationVerify covers ID token verification failures for a
+	// federated CI identity (bad signature, issuer, or audience).
+	ErrFederationVerify = errors.New("auth: federation token verification failed")
+	// ErrFederationNoMatch is returned when no enabled binding's claim
+	// conditions match the federated identity token.
+	ErrFederationNoMatch = errors.New("auth: no federation binding matched")
+	// ErrFederationAmbiguous is returned when more than one enabled binding
+	// matches the federated identity token.
+	ErrFederationAmbiguous = errors.New("auth: multiple federation bindings matched")
 )

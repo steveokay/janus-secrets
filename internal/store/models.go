@@ -127,3 +127,32 @@ type OIDCAuthRequest struct {
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
 }
+
+// OIDCFederationConfig is the single trust-provider row for CI federation
+// (e.g. GitHub Actions OIDC): the issuer and audience that federated JWTs
+// must present before any binding is matched.
+type OIDCFederationConfig struct {
+	ID        string
+	Issuer    string
+	Audience  string
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// OIDCFederationBinding maps claim matches from a federated CI identity token
+// to a scoped, time-limited service token. MatchClaims is compared against
+// the verified JWT claims; ScopeKind/ScopeID/Access mirror ServiceToken's
+// scoping model.
+type OIDCFederationBinding struct {
+	ID          string
+	Name        string
+	MatchClaims map[string]string
+	ScopeKind   string
+	ScopeID     string
+	Access      string
+	TTLSeconds  int
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}

@@ -38,4 +38,7 @@ type ServiceToken struct {
 	CreatedAt time.Time
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
+	// FederationBinding is the OIDC federation binding that minted this token
+	// via CI federation, or "" for a human-minted token (CreatedBy set instead).
+	FederationBinding string
 }

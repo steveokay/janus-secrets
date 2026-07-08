@@ -40,6 +40,11 @@ type Service struct {
 
 	oidcMu    sync.Mutex
 	oidcCache *oidcVerifier
+
+	oidcFedConfig   *store.OIDCFederationConfigRepo
+	oidcFedBindings *store.OIDCFederationBindingRepo
+	fedMu           sync.Mutex
+	fedCache        *fedVerifier
 }
 
 // NewService builds the repositories from st. kr is the (possibly still
@@ -59,6 +64,9 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		oidcProviders:  store.NewOIDCProviderRepo(st),
 		oidcIdentities: store.NewOIDCIdentityRepo(st),
 		oidcAuthReqs:   store.NewOIDCAuthRequestRepo(st),
+
+		oidcFedConfig:   store.NewOIDCFederationConfigRepo(st),
+		oidcFedBindings: store.NewOIDCFederationBindingRepo(st),
 	}
 }
 
