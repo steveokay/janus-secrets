@@ -75,3 +75,27 @@ test('a pending add can be cancelled before save', async () => {
   await userEvent.click(screen.getByRole('button', { name: /discard OOPS/i }))
   expect(screen.queryByText('OOPS')).toBeNull()
 })
+
+test('Ctrl+S saves when dirty', async () => {
+  let put: any
+  server.use(
+    http.get('/v1/configs/c1/secrets', ({ request }) => {
+      if (new URL(request.url).searchParams.get('reveal') === 'true')
+        return HttpResponse.json({ version: 1, secrets: { LOG_LEVEL: 'info' } })
+      return HttpResponse.json({ secrets: { LOG_LEVEL: { value_version: 1, created_at: '', origin: 'own' } } })
+    }),
+    http.put('/v1/configs/c1/secrets', async ({ request }) => {
+      put = await request.json()
+      return HttpResponse.json({ version: 2, id: 'v2', created_at: '' })
+    }),
+  )
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('LOG_LEVEL')
+  await userEvent.click(screen.getByRole('button', { name: /edit log_level/i }))
+  const input = screen.getByRole('textbox', { name: /value for log_level/i })
+  await userEvent.clear(input)
+  await userEvent.type(input, 'debug')
+  expect(screen.getByText(/1 changed/i)).toBeInTheDocument()
+  await userEvent.keyboard('{Control>}s{/Control}')
+  await waitFor(() => expect(put).toEqual({ message: '', changes: [{ key: 'LOG_LEVEL', value: 'debug' }] }))
+})

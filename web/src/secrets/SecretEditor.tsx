@@ -62,6 +62,18 @@ export function SecretEditor() {
     onError: (e) => toast({ title: errorMessage(e, 'Save failed.'), tone: 'danger' }),
   })
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        if (!dirty) return
+        e.preventDefault()
+        if (!save.isPending) save.mutate()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [dirty, save])
+
   function discard() {
     setBuffer(emptyBuffer())
     setEditing({})
