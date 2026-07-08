@@ -910,22 +910,94 @@ affecting. Exchange tests cover happy path, wrong audience, expired token,
 no-match, ambiguous match, TTL-cap + `repository`-required config validation,
 RBAC on all admin routes, and the JWT leak test.
 
+## Phase 2 · Sub-project D — Usage metrics ("Reads 24h") ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-07-usage-metrics-design.md`
+Plan: `docs/superpowers/plans/2026-07-07-usage-metrics.md` (8 tasks)
+Branch: `usage-metrics` · Merged via **PR #35** (main `2584da2`).
+
+Lightweight usage metrics derived **on-demand** from `audit_events` — no external
+metrics stack, no rollup table, no background job. A new `store.MetricsRepo.Reads24h(
+ctx, projectID *string)` counts successful `secret.reveal` events in the trailing 24h
+(`projectID == nil` → instance-wide; non-nil → that project's configs), grouped into a
+total + top-5 configs (config id parsed from the audit `resource` path, joined for
+names) + top-5 service tokens (grouped by `actor_id` where `actor_kind='service_token'`).
+Two routes, identical JSON shape, differing only in authz scope:
+`GET /v1/metrics/reads-24h` (instance `AuditRead`) and
+`GET /v1/projects/{pid}/metrics/reads-24h` (project-scoped `AuditRead`); neither
+self-audits (a metadata read, like `/v1/audit/events`), denials still recorded.
+Migration `000008_metrics_index` adds a composite `audit_events(action, occurred_at)`
+index. Frontend (**B6 dashboard**): `web/src/metrics/ReadsStrip.tsx` — an instance-wide
+strip on the Projects list + a project-scoped row on the board, composed from the kit,
+**names + counts only** (never a secret value or raw token), and it **hides itself on
+error/403** so a viewer without audit permission never sees a broken page.
+
+- [x] 1. Frontend endpoints + `useReads24h`/`useProjectReads24h` hooks
+- [x] 2. `ReadsStrip` component (data / loading / empty / error-hides)
+- [x] 3. Mount instance strip on Projects list
+- [x] 4. Mount project-scoped row on the board
+- [x] 5. Migration `000008` — `(action, occurred_at)` index
+- [x] 6. `MetricsRepo.Reads24h` — on-demand aggregation (testcontainer tests)
+- [x] 7. Instance endpoint `/v1/metrics/reads-24h`
+- [x] 8. Project endpoint + isolation e2e
+
+Verification: `go build`, `go test ./internal/store/... ./internal/api/...`
+(testcontainers) pass; web `typecheck` + full `vitest` (194→197 through later
+slices) + `build` + dual-theme `smoke` green. Final security review: APPROVE, no
+Critical/Important — SQL parameterized, project scoping enforced twice (authz +
+`e.project_id=$1`), and the `errorMessage` ordering (below) keeps guardrail messages
+intact. UI-first order let the dashboard build against msw mocks mirroring the fixed
+Go wire shape before the backend landed.
+
+## Phase 2 · Sub-project B (cont.) — FE punch-list §3–§7 ✅ complete
+
+The `fe-improvements.md` polish punch-list, each its own brainstorm → spec → plan →
+subagent-driven slice on top of the R1–R4 dark redesign:
+
+- [x] **§3 — Secret editor redesign** (**PR #33**, `85bc8f3`): rebuilt to mockup §06 —
+      grid table with origin pills, per-row reveal/copy on hover + rails/change-chips,
+      per-row actions (inherited→edit=override), bottom dirty-bar (Review diff / Discard /
+      Save as vN), key filter, Import .env modal, value-free Review-diff. New `rowState.ts`
+      + split components; security review clean (no reveal on mount, plaintext ephemeral).
+- [x] **§4 component kit + §5 feedback** (**PR #37**, `7b566be`): `Button`/`Input`/
+      `Textarea`/`Select`/`Card`/`Skeleton`/`Tooltip` (Radix) primitives; `errorMessage`
+      envelope→friendly mapping (**403/409 curated-first** — load-bearing: the backend
+      returns last-owner guardrails as 409-coded-`validation`, so friendly-first would
+      clobber them); success/error toasts on all mutations (never a secret in a title);
+      skeleton loaders; shell icon-button tooltips; kit adopted in the forms. `Tabs`
+      dropped (YAGNI); optimistic UI + in-app unsaved-guard deferred.
+- [x] **§6 auth/unseal branded** (**PR #40**, `3de3486`): `AuthCard` shell; login +
+      unseal re-skinned onto the kit; share-progress **segments** (green-filled per
+      mockup — not a "ring"); unseal share cleared before the network await (preserved).
+      First-login OTP-prompt deferred (needs a backend first-login signal).
+- [x] **§7 a11y & responsive** (**PR #41**, `3ed6549`): secret-table horizontal-scroll
+      containment (`overflow-x-auto` + `min-w`) + editor `Esc`-to-cancel. Focus rings
+      (global `:focus-visible`), contrast (dark-AA guard), Radix menu/dialog keyboarding,
+      and the `min-w-0` shell overflow-guard were already in place.
+
+Verification (whole punch-list): web `typecheck` + full `vitest` (197 passing) +
+`build` + dual-theme `smoke` green throughout; each slice got a security-focused final
+review (all APPROVE, no Critical/Important). Remaining `fe-improvements.md` items are
+all **P2** polish (§3-P2 reveal-all/keyboard/dialog-a11y, §5 optimistic UI + in-app
+unsaved-guard [needs a data-router migration], §0 motion, §1 collapsible sidebar, §2
+onboarding).
+
 ## Phase-2 items already on the radar
 
-- [ ] **Federation**: OIDC login for humans (generic provider; GitHub + Google
-      tested) and OIDC-federated machine identity for CI (GitHub Actions JWT
-      exchange → scoped short-lived credential). Deliberately deferred from the
-      auth milestone; the Phase-1 identity model must leave room for
-      non-password principals and federated token types so this lands without
-      rework.
+- [x] **Federation** — **complete** (C1 human OIDC login, PR #34; C2 CI machine
+      federation, PR #39). Generic OIDC (GitHub/Google-ready) human sign-in +
+      GitHub-Actions-JWT → scoped short-lived `janus_svc_` token exchange. See the
+      Sub-project C1 + C2 sections above.
 - [x] Transit/KMS engine — **complete** (see the Sub-project A section above;
       `internal/transit`, `/v1/transit/*`, transit token scope, `docs/transit.md`).
-- [x] React SPA — **core editor + all feature slices B2–B5 complete**, plus the
-      full **dark redesign (R1–R4)**. Remaining SPA work: the B6 metrics dashboard
-      (needs D) and the `fe-improvements.md` polish punch-list. (See the
-      Sub-project B section + the "remaining SPA feature slices" list below;
-      `web/` + `internal/web`, `docs/web.md`.)
-- [ ] Usage metrics (per CLAUDE.md Phase 2 — sub-project D, not yet specced).
+- [x] React SPA — **complete**: core editor + feature slices B2–B5, the full dark
+      redesign (R1–R4), the **B6 metrics dashboard** (sub-project D), and the entire
+      `fe-improvements.md` P0/P1 punch-list (§3 editor redesign, §4 kit, §5 feedback,
+      §6 auth/unseal, §7 a11y/responsive). Only **P2** polish remains. (See the
+      Sub-project B / B(cont.) / D sections; `web/` + `internal/web`, `docs/web.md`.)
+- [x] Usage metrics — **complete** (sub-project D, PR #35; see the Sub-project D
+      section above). On-demand `secret.reveal` aggregation → `/v1/metrics/reads-24h`
+      + the B6 dashboard strips.
 
 ### Next up: remaining SPA feature slices (before C/D)
 
@@ -943,7 +1015,8 @@ subagent-driven slice consuming existing `/v1` APIs:
 - [x] **B5** — transit UI: `/v1/transit/*` key console (create/rotate/configure/
       trim/delete) + plaintext-free crypto playground (encrypt/rewrap/sign/verify;
       no decrypt/datakey) — **PR #31**
-- [ ] **B6** — usage-metrics dashboard (consumes sub-project D; build after/with D)
+- [x] **B6** — usage-metrics dashboard (sub-project D): instance "Reads 24h" strip +
+      project-scoped board row from `/v1/metrics/reads-24h` — **PR #35**
 
 **FE visual polish — DONE (2026-07-07).** The Doppler-inspired **dark redesign**
 (dark-first + light toggle, minus SaaS chrome) shipped as slices **R1–R4**
@@ -951,10 +1024,13 @@ subagent-driven slice consuming existing `/v1` APIs:
 app shell + ⌘K command palette, projects list + env-columns board + create-project
 modal, and a screen polish pass (dark-AA, board fixes, palette a11y). New canonical
 authority: `docs/design/ui-redesign-mockup.html` +
-`docs/superpowers/specs/2026-07-07-dark-redesign-design.md`. Remaining front-end
-punch-list (secret-editor table redesign, kit primitives, feedback polish,
-auth/unseal branded treatment, a11y/responsive) is tracked in
-[`fe-improvements.md`](fe-improvements.md) — see its "Remaining after R1–R4 + B5"
-section.
+`docs/superpowers/specs/2026-07-07-dark-redesign-design.md`. The front-end punch-list
+that followed (secret-editor redesign §3, kit primitives §4, feedback §5, auth/unseal
+branded §6, a11y/responsive §7) is now **complete** — see the "FE punch-list §3–§7"
+section above. Only **P2** polish items remain in
+[`fe-improvements.md`](fe-improvements.md).
 
-**Next: sub-project C (OIDC login) then D (usage-metrics backend + B6 dashboard).**
+**Phase 2 is essentially complete** — transit (A), the React SPA incl. all feature
+slices + dark redesign + FE punch-list (B), OIDC human + CI federation (C1/C2), and
+usage metrics (D) are all merged. Remaining work is discretionary **P2** UI polish
+(`fe-improvements.md`) and Phase 3 (rotation + dynamic secrets), neither started.
