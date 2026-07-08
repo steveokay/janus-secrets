@@ -40,11 +40,19 @@ this tracker, roughly by size:
 
 - **§3 Secret editor redesign — DONE** (mockup §06): grid table, origin pills,
   per-row reveal/copy/edit/discard/revert/restore, dirty-bar (Review diff /
-  Discard / Save as vN), key filter, Import .env, inherited→override. Remaining
-  P2 follow-ups only: reveal-all toggle + auto-re-mask on blur/idle, editor
-  **keyboard support** (`⌘S`, row nav), and the hand-rolled Review/Import dialogs
-  want `aria-modal`/Escape/focus-trap (or compose the Sheet primitive) + a
-  "no matches" state when filtered to empty.
+  Discard / Save as vN), key filter, Import .env, inherited→override.
+  **§3 P2 polish — DONE (PR #44):** reveal-all/hide-all (one audited **bulk**
+  reveal, ephemeral-only) + auto-re-mask on window blur + 60s idle; **⌘/Ctrl+S**
+  saves when dirty; new `Modal` primitive (Radix Dialog — focus-trap/Esc/aria-modal)
+  with Review/Import dialogs refactored onto it. Remaining §3 P2: row arrow/enter
+  nav, "no matches" filtered-empty state.
+  ⚠️ **Security follow-up (SCHEDULED — on-demand rework):** PR #44's final review
+  found the editor auto-reveals **all** secret plaintext on mount (`raw` query →
+  `?reveal=true&raw=true`) into the TanStack Query cache + one audited `secret.reveal`
+  per open — pre-existing (PR #33), contradicts the ephemeral-only posture. User
+  chose to fix via an **on-demand reveal rework** (mount = masked metadata only;
+  per-key/bulk RAW reveal into ephemeral state; add `version` to the masked
+  response). Next slice; design captured in memory.
 - **§4 kit primitives — DONE (PR #37):** **Button** variants, **Input/Select/Textarea**,
   **Tooltip** (Radix)/**Card**/**Skeleton**. `Tabs` dropped (YAGNI); `Badge` = `Pill`.
   *(Dialog, Toast, Dropdown, Pill already shipped.)*
@@ -184,15 +192,18 @@ list with masked dots and a save button.
       the dirty buffer. *(§3 redesign — toolbar filter + Import .env modal.)*
 - [x] **P1** **Add-secret UX**: added keys render as visible, editable, discardable
       pending rows; inherited rows edit-to-override. *(§3 redesign.)*
-- [ ] **P2** **Reveal ergonomics**: reveal-all toggle + auto-re-mask on blur/idle
-      still TODO; "copied" toast + ephemeral-only plaintext DONE in §3. *(P2 follow-up.)*
+- [x] **P2** **Reveal ergonomics**: reveal-all/hide-all toggle (one audited bulk
+      reveal, ephemeral-only) + auto-re-mask on window blur + 60s idle; "copied"
+      toast + ephemeral-only plaintext. *(PR #44; §3 for copy/plaintext.)* ⚠️ NOTE:
+      on-mount `raw` fetch still reveals-all into the Query cache — on-demand rework
+      scheduled (see §3 summary above).
 - [x] **P2** **Version history drawer**: list config versions with author/time and
       one-click rollback (there's an API for this; today it's a placeholder).
       *(B2 — Sheet drawer with key-name-only diffs (zero values on this
       surface), confirm-gated audited rollback, disabled + visibly hinted while
       the editor is dirty.)*
-- [ ] **P2** Keyboard support: `⌘/Ctrl+S` to save, arrow/enter navigation between
-      rows, `Esc` to cancel an edit.
+- [~] **P2** Keyboard support: `⌘/Ctrl+S` to save *(PR #44)* + `Esc` to cancel an
+      edit *(PR #41)* DONE; arrow/enter row navigation still TODO.
 
 ---
 
@@ -208,7 +219,8 @@ Stop re-styling primitives per screen; build once, use everywhere.
 - [x] **P1** **Modal/Dialog** (replaces the current bare create/change-password
       forms): focus-trapped, `Esc`-to-close, backdrop, header/body/footer.
       *(B2 — `ConfirmDialog` (Radix AlertDialog) + `Sheet` slide-over shipped;
-      migrating CreateForms/ChangePassword onto them is Slice 3.)*
+      PR #44 — `ui/Modal.tsx` (Radix Dialog, aria-modal/focus-trap/Esc, sr-only
+      Title) with `ReviewDiffDialog`/`ImportEnvDialog` refactored onto it.)*
 - [x] **P1** **Toast/notification** system for save success, errors, copied, etc.
       (currently no feedback surface at all). *(B2 — app-level `ToastProvider` +
       `useToast`; rollback flows use it; editor save/copy toasts land in Slice 3.)*
