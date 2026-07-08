@@ -62,7 +62,8 @@ export function SecretTable({
   const visible = q ? rows.filter((k) => k.toLowerCase().includes(q)) : rows
 
   return (
-    <div className="rounded-card border border-line bg-card overflow-hidden">
+    <div className="overflow-x-auto">
+      <div className="min-w-[720px] rounded-card border border-line bg-card overflow-hidden">
       <div className={cn(GRID, 'sticky top-0 z-10 bg-page py-2.5')}>
         {(['Key', 'Value', 'Origin', 'Ver', 'Actions'] as const).map((label) => (
           <span
@@ -99,6 +100,7 @@ export function SecretTable({
                   aria-label={`value for ${key}`}
                   value={key in buffer ? (buffer[key].value ?? '') : (original[key] ?? '')}
                   onChange={(e) => onChangeValue(key, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') onRevert(key) }}
                   className="w-full rounded border border-line bg-card px-2.5 py-1 font-mono text-[12.5px] text-ink focus:border-brand"
                 />
               ) : (
@@ -154,6 +156,7 @@ export function SecretTable({
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
