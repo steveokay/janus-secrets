@@ -140,10 +140,9 @@ export const endpoints = {
   // secrets
   maskedSecrets: (cid: string) =>
     api.get<{ secrets: Record<string, MaskedSecret> }>(`/v1/configs/${cid}/secrets`).then((r) => r.secrets),
-  revealKey: (cid: string, key: string) =>
-    api.get<{ key: string; value: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}`),
-  revealAll: (cid: string) =>
-    api.get<{ version: number; secrets: Record<string, string> }>(`/v1/configs/${cid}/secrets?reveal=true`),
+  // Raw (unresolved) single value for the editor — audited secret.reveal.
+  revealKeyRaw: (cid: string, key: string) =>
+    api.get<{ key: string; value: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?raw=true`),
   // The config's own stored values verbatim (unresolved), plus the config
   // version — the editable truth the secret editor diffs against.
   rawConfig: (cid: string) =>

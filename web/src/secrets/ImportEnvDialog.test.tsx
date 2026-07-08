@@ -12,6 +12,9 @@ function seed() {
         return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
       return HttpResponse.json({ secrets: { DB_URL: { value_version: 3, created_at: '', origin: 'own' } } })
     }),
+    http.get('/v1/configs/c1/versions', () => HttpResponse.json({ versions: [
+      { version: 3, message: '', created_by: '', created_at: '' },
+    ] })),
   )
 }
 
