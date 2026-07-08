@@ -19,6 +19,11 @@ function seed() {
         SENTRY_DSN: { value_version: 1, created_at: '', origin: 'inherited' },
       } })
     }),
+    // Mount now loads the config version from the value-free versions list, not
+    // a reveal — every test needs this handler present.
+    http.get('/v1/configs/c1/versions', () => HttpResponse.json({ versions: [
+      { version: 3, message: '', created_by: '', created_at: '' },
+    ] })),
   )
 }
 
@@ -34,6 +39,21 @@ test('renders masked rows with origin badges; no reveal on load', async () => {
   expect(revealed).toBe(false) // masked list must not call the audited reveal
 })
 
+test('mount reveals nothing — no reveal request, all values masked', async () => {
+  seed()
+  let revealHits = 0
+  server.use(http.get('/v1/configs/c1/secrets/:key', () => { revealHits++; return HttpResponse.json({ key: 'x', value: 'y' }) }))
+  server.use(http.get('/v1/configs/c1/secrets', ({ request }) => {
+    const u = new URL(request.url)
+    if (u.searchParams.get('reveal') === 'true') { revealHits++; return HttpResponse.json({ version: 3, secrets: {} }) }
+    return HttpResponse.json({ secrets: { DB_URL: { value_version: 3, created_at: '', origin: 'own' } } })
+  }))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  expect(screen.getByText('••••••••••••')).toBeInTheDocument()
+  expect(revealHits).toBe(0) // nothing revealed on mount
+})
+
 test('clicking reveal fetches the audited value and shows it', async () => {
   seed()
   let revealed = false
@@ -45,6 +65,30 @@ test('clicking reveal fetches the audited value and shows it', async () => {
   expect(await screen.findByText('postgres://a')).toBeInTheDocument()
 })
 
+test('clicking the eye fetches that one key raw and unmasks only it', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', ({ request }) => {
+    expect(new URL(request.url).searchParams.get('raw')).toBe('true')
+    return HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })
+  }))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /reveal db_url/i }))
+  expect(await screen.findByText('postgres://a')).toBeInTheDocument()
+})
+
+test('editing a masked key fetches its raw original; same value is not dirty', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
+  const input = await screen.findByRole('textbox', { name: /value for db_url/i })
+  expect(input).toHaveValue('postgres://a') // prefilled from the fetched raw original
+  // typing the same value back is a no-op (not dirty) — no dirty bar
+  expect(screen.queryByRole('button', { name: /save as v/i })).toBeNull()
+})
+
 test('empty config shows the empty state', async () => {
   server.use(
     http.get('/v1/configs/cEmpty/secrets', ({ request }) => {
@@ -52,6 +96,7 @@ test('empty config shows the empty state', async () => {
         return HttpResponse.json({ version: 0, secrets: {} })
       return HttpResponse.json({ secrets: {} })
     }),
+    http.get('/v1/configs/cEmpty/versions', () => HttpResponse.json({ versions: [] })),
   )
   renderApp(<SecretEditor />, { route: '/projects/p1/configs/cEmpty', withAuth: false })
   expect(await screen.findByText('No secrets yet')).toBeInTheDocument()
@@ -73,20 +118,22 @@ test('a key added via AddKeyRow shows an added row with a discard action', async
 
 test('cancelling an in-progress edit exits without changes', async () => {
   seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
   renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
   await screen.findByText('DB_URL')
   await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
-  expect(screen.getByRole('textbox', { name: /value for db_url/i })).toBeInTheDocument()
+  expect(await screen.findByRole('textbox', { name: /value for db_url/i })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /cancel edit db_url/i }))
   expect(screen.queryByRole('textbox', { name: /value for db_url/i })).toBeNull()
 })
 
 test('pressing Escape in an edit field cancels the edit', async () => {
   seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
   renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
   await screen.findByText('DB_URL')
   await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
-  const input = screen.getByRole('textbox', { name: /value for db_url/i })
+  const input = await screen.findByRole('textbox', { name: /value for db_url/i })
   await userEvent.type(input, '{Escape}')
   expect(screen.queryByRole('textbox', { name: /value for db_url/i })).toBeNull()
 })
@@ -120,14 +167,10 @@ test('Reveal all reveals every row via one bulk request, and Hide all re-masks',
   let bulk = 0
   server.use(http.get('/v1/configs/c1/secrets', ({ request }) => {
     const params = new URL(request.url).searchParams
-    // Mount already fires the raw (?reveal=true&raw=true) fetch for diffing —
-    // only the bulk reveal-all request (?reveal=true, no raw=true) must count.
-    if (params.get('reveal') === 'true' && params.get('raw') !== 'true') {
+    if (params.get('reveal') === 'true' && params.get('raw') === 'true') {
       bulk++
       return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a', SENTRY_DSN: 'https://x' } })
     }
-    if (params.get('raw') === 'true')
-      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a', SENTRY_DSN: 'https://x' } })
     return HttpResponse.json({ secrets: {
       DB_URL: { value_version: 3, created_at: '', origin: 'own' },
       SENTRY_DSN: { value_version: 1, created_at: '', origin: 'inherited' },
@@ -146,9 +189,7 @@ test('window blur re-masks revealed values', async () => {
   seed()
   server.use(http.get('/v1/configs/c1/secrets', ({ request }) => {
     const params = new URL(request.url).searchParams
-    if (params.get('reveal') === 'true' && params.get('raw') !== 'true')
-      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
-    if (params.get('raw') === 'true')
+    if (params.get('reveal') === 'true' && params.get('raw') === 'true')
       return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
     return HttpResponse.json({ secrets: { DB_URL: { value_version: 3, created_at: '', origin: 'own' } } })
   }))
@@ -158,6 +199,33 @@ test('window blur re-masks revealed values', async () => {
   await screen.findByText('postgres://a')
   window.dispatchEvent(new Event('blur'))
   await waitFor(() => expect(screen.queryByText('postgres://a')).toBeNull())
+})
+
+test('reveal-all fetches once (bulk raw); a pending edit survives the auto-re-mask on blur', async () => {
+  seed()
+  let bulk = 0
+  server.use(http.get('/v1/configs/c1/secrets', ({ request }) => {
+    const params = new URL(request.url).searchParams
+    if (params.get('reveal') === 'true' && params.get('raw') === 'true') {
+      bulk++
+      return HttpResponse.json({ version: 3, secrets: { DB_URL: 'postgres://a' } })
+    }
+    return HttpResponse.json({ secrets: { DB_URL: { value_version: 3, created_at: '', origin: 'own' } } })
+  }))
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  // make a pending edit first
+  await userEvent.click(screen.getByRole('button', { name: /edit db_url/i }))
+  const input = await screen.findByRole('textbox', { name: /value for db_url/i })
+  await userEvent.clear(input); await userEvent.type(input, 'postgres://B')
+  await screen.findByRole('button', { name: /save as v4/i }) // dirty; version 3 + 1
+  // reveal all (bulk, once)
+  await userEvent.click(screen.getByRole('button', { name: /reveal all/i }))
+  expect(bulk).toBe(1)
+  window.dispatchEvent(new Event('blur'))
+  // pending edit survives blur — still dirty (original was preserved)
+  await waitFor(() => expect(screen.getByRole('button', { name: /save as v4/i })).toBeInTheDocument())
 })
 
 test('History button opens the version sheet', async () => {

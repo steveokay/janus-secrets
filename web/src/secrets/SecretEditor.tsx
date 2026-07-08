@@ -23,19 +23,21 @@ export function SecretEditor() {
   const qc = useQueryClient()
   const toast = useToast()
   const masked = useQuery({ queryKey: ['config', cid, 'masked'], queryFn: () => endpoints.maskedSecrets(cid) })
-  const raw = useQuery({ queryKey: ['config', cid, 'raw'], queryFn: () => endpoints.rawConfig(cid) })
+  const versions = useQuery({ queryKey: ['config', cid, 'versions'], queryFn: () => endpoints.listVersions(cid) })
   const [buffer, setBuffer] = useState<Buffer>(emptyBuffer())
   const [editing, setEditing] = useState<Record<string, boolean>>({})
+  // Viewing reveal — re-maskable, RAW. Ephemeral component state only, never cached.
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  // Edit originals — persist while a key stays dirty (across auto-re-mask), RAW.
+  const [original, setOriginal] = useState<Record<string, string>>({})
   const [filter, setFilter] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
 
-  const original = raw.data?.secrets ?? {}
-  // The config version (from the raw reveal) — not the max per-secret value
-  // version, which diverges from it under two-level versioning.
-  const version = raw.data?.version ?? 0
+  // The config version from the value-free versions list — no mount reveal.
+  // Robust to ordering: take the max present, 0 for a config with no versions yet.
+  const version = Math.max(0, ...(versions.data ?? []).map((v) => v.version))
   const summary = useMemo(() => summarize(buffer, original), [buffer, original])
   const dirty = isDirty(buffer, original)
 
@@ -52,6 +54,7 @@ export function SecretEditor() {
       setBuffer(emptyBuffer())
       setEditing({})
       setRevealed({}) // saved values changed server-side — drop stale plaintext
+      setOriginal({})
       setReviewOpen(false)
       void qc.invalidateQueries({ queryKey: ['config', cid] })
       toast({ title: `Saved as v${res.version}` })
@@ -77,6 +80,7 @@ export function SecretEditor() {
   function discard() {
     setBuffer(emptyBuffer())
     setEditing({})
+    setOriginal({})
     setReviewOpen(false)
   }
   // Stage pasted .env pairs into the buffer (existing keys → edits, new → adds).
@@ -86,17 +90,18 @@ export function SecretEditor() {
     if (n > 0) toast({ title: `Imported ${n} key${n === 1 ? '' : 's'}` })
   }
 
-  async function reveal(key: string) {
-    const r = await endpoints.revealKey(cid, key)
+  // Viewing reveal — RAW, imperative (NOT useQuery/useMutation) so plaintext
+  // lands ONLY in `revealed` component state, never the TanStack Query cache.
+  async function reveal(key: string): Promise<string> {
+    if (key in revealed) return revealed[key]
+    const r = await endpoints.revealKeyRaw(cid, key)
     setRevealed((m) => ({ ...m, [key]: r.value }))
     return r.value
   }
-  // Bulk reveal — called imperatively (NOT useQuery/useMutation) so the
-  // resolved plaintext lands ONLY in `revealed` component state, never the
-  // TanStack Query cache. One call = one audited secret.reveal event.
   const anyRevealed = Object.keys(revealed).length > 0
+  // Bulk reveal — one audited RAW reveal, into ephemeral `revealed` only.
   async function revealAll() {
-    const r = await endpoints.revealAll(cid)
+    const r = await endpoints.rawConfig(cid)
     setRevealed(r.secrets)
   }
   function hideAll() {
@@ -130,21 +135,39 @@ export function SecretEditor() {
       /* clipboard unavailable / denied — no-op */
     }
   }
-  function edit(key: string) {
+  // Editing a masked existing key needs its raw original (for prefill + diff)
+  // — fetch on demand (audited), reusing an already-revealed value if present.
+  // Added (new) keys have no server value, so they skip the fetch.
+  async function edit(key: string) {
+    if (!(key in original)) {
+      const existing = key in (masked.data ?? {})
+      if (existing) {
+        const v = key in revealed ? revealed[key] : (await endpoints.revealKeyRaw(cid, key)).value
+        setOriginal((o) => ({ ...o, [key]: v }))
+      }
+    }
     setEditing((s) => ({ ...s, [key]: true }))
   }
   function changeValue(key: string, value: string) {
     setBuffer((b) => setValue(b, key, value))
   }
+  // Removing an existing key is a delete, not a reveal — no fetch needed. But
+  // dirty.ts's `effective()` only counts a buffered delete when the key is
+  // known in `original` (so a discarded pending-add never masquerades as a
+  // real delete). Record a value-free existence marker so the delete is
+  // diffed correctly without an unnecessary audited reveal. Don't clobber a
+  // real fetched original (e.g. remove-after-edit).
   function remove(key: string) {
+    setOriginal((o) => (key in o ? o : { ...o, [key]: '' }))
     setBuffer((b) => removeKey(b, key))
   }
   function undo(key: string) {
     setBuffer((b) => revert(b, key))
     setEditing((s) => { const { [key]: _drop, ...rest } = s; return rest })
+    setOriginal((o) => { const { [key]: _drop, ...rest } = o; return rest })
   }
 
-  if (masked.isLoading || raw.isLoading)
+  if (masked.isLoading || versions.isLoading)
     return (
       <div aria-hidden className="flex flex-col gap-2">
         <Skeleton className="h-9 w-full" />
@@ -184,7 +207,7 @@ export function SecretEditor() {
           filter={filter}
           onReveal={(key) => void reveal(key)}
           onCopy={(key) => void copy(key)}
-          onEdit={edit}
+          onEdit={(key) => void edit(key)}
           onChangeValue={changeValue}
           onRemove={remove}
           onRevert={undo}
