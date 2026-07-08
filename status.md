@@ -964,12 +964,20 @@ subagent-driven slice on top of the R1–R4 dark redesign:
       refactored onto it; **reveal-all/hide-all** = one audited **bulk** reveal into
       ephemeral state + **auto-re-mask** on window blur + 60s idle; **⌘/Ctrl+S** saves when
       dirty. 203 web tests; final security review APPROVE.
-      ⚠️ **Correction + scheduled follow-up:** the §3 (PR #33) "no reveal on mount" claim
-      was **inaccurate** — the editor's mount-time `raw` query (`?reveal=true&raw=true`)
-      reveals **all** stored plaintext into the TanStack Query cache and emits one audited
-      `secret.reveal` per open. PR #44's final review caught it. User chose to fix via an
-      **on-demand reveal rework** (mount = masked metadata only; per-key/bulk RAW reveal
-      into ephemeral state; add `version` to the masked response) — next FE slice.
+      ⚠️ **Correction:** the §3 (PR #33) "no reveal on mount" claim was **inaccurate** —
+      the editor's mount-time `raw` query (`?reveal=true&raw=true`) revealed **all** stored
+      plaintext into the TanStack Query cache and emitted one audited `secret.reveal` per
+      open. PR #44's final review caught it.
+- [x] **On-demand editor reveal — security fix** (**PR #46**, `a662790`): the editor no
+      longer reveals on mount. Mount loads only masked metadata + the config version
+      (`listVersions`, value-free); values load **on demand** into two ephemeral maps
+      (`revealed` = viewing, auto-re-masks on blur/60s-idle; `original` = edit-originals,
+      persists while dirty), both RAW; per-key (`revealKeyRaw`) / bulk (`rawConfig`)
+      reveals are explicit + audited. `remove()` seeds a value-free existence marker so
+      `dirty.ts` registers deletes. Removed orphaned `revealAll`/`revealKey`. 207 web
+      tests (mount-reveals-nothing / per-key / edit-fetches-original / reveal-all-once +
+      pending-edit-survives-blur); adversarial security review APPROVE (5 invariants,
+      file:line). Frontend-only. Spec/plan: `…/2026-07-08-editor-ondemand*`.
 - [x] **§4 component kit + §5 feedback** (**PR #37**, `7b566be`): `Button`/`Input`/
       `Textarea`/`Select`/`Card`/`Skeleton`/`Tooltip` (Radix) primitives; `errorMessage`
       envelope→friendly mapping (**403/409 curated-first** — load-bearing: the backend
@@ -989,10 +997,10 @@ subagent-driven slice on top of the R1–R4 dark redesign:
 Verification (whole punch-list): web `typecheck` + full `vitest` (197 passing) +
 `build` + dual-theme `smoke` green throughout; each slice got a security-focused final
 review (all APPROVE, no Critical/Important). §3-P2 (reveal-all/⌘S/dialog-a11y) shipped in
-PR #44. Remaining `fe-improvements.md` items: the **on-demand editor reveal rework**
-(scheduled security fix — see the §3-P2 note above) plus **P2** polish (editor row-nav,
-§5 optimistic UI + in-app unsaved-guard [needs a data-router migration], §0 motion, §1
-collapsible sidebar, §2 onboarding).
+PR #44; the **on-demand editor reveal** security fix shipped in PR #46. Remaining
+`fe-improvements.md` items are all **P2** polish: editor row-nav, §5 optimistic UI +
+in-app unsaved-guard [needs a data-router migration], §0 motion, §1 collapsible sidebar,
+§2 onboarding.
 
 ## Phase-2 items already on the radar
 
@@ -1038,14 +1046,12 @@ modal, and a screen polish pass (dark-AA, board fixes, palette a11y). New canoni
 authority: `docs/design/ui-redesign-mockup.html` +
 `docs/superpowers/specs/2026-07-07-dark-redesign-design.md`. The front-end punch-list
 that followed (secret-editor redesign §3, kit primitives §4, feedback §5, auth/unseal
-branded §6, a11y/responsive §7, + §3-P2 polish PR #44) is now **complete** — see the
-"FE punch-list §3–§7" section above. One **scheduled security fix** (on-demand editor
-reveal rework — the editor reveals all plaintext into the Query cache on mount) plus
-**P2** polish items remain in [`fe-improvements.md`](fe-improvements.md).
+branded §6, a11y/responsive §7, + §3-P2 polish PR #44, + the on-demand editor reveal
+security fix PR #46) is now **complete** — see the "FE punch-list §3–§7" section above.
+Only discretionary **P2** polish items remain in [`fe-improvements.md`](fe-improvements.md).
 
 **Phase 2 is essentially complete** — transit (A), the React SPA incl. all feature
-slices + dark redesign + FE punch-list incl. §3-P2 (B), OIDC human + CI federation
-(C1/C2), and usage metrics (D) are all merged. Remaining work: the **on-demand editor
-reveal rework** (a scheduled front-end security fix, design captured), discretionary
-**P2** UI polish (`fe-improvements.md`), and Phase 3 (rotation + dynamic secrets, not
-started).
+slices + dark redesign + FE punch-list incl. §3-P2 and the on-demand editor reveal
+security fix (B), OIDC human + CI federation (C1/C2), and usage metrics (D) are all
+merged. Remaining work: discretionary **P2** UI polish (`fe-improvements.md`) and
+Phase 3 (rotation + dynamic secrets, not started).
