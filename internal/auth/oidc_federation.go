@@ -125,6 +125,13 @@ func (s *Service) CreateFederationBinding(ctx context.Context, in FederationBind
 	if strings.TrimSpace(in.MatchClaims["repository"]) == "" {
 		return nil, ErrValidation // repository condition is mandatory
 	}
+	// Reject empty match-claim values: an empty want would match tokens that
+	// LACK that claim entirely, silently broadening the binding.
+	for _, v := range in.MatchClaims {
+		if strings.TrimSpace(v) == "" {
+			return nil, ErrValidation
+		}
+	}
 	if in.Access != "read" && in.Access != "readwrite" {
 		return nil, ErrValidation
 	}

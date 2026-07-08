@@ -36,6 +36,13 @@ func TestFederationConfigAndBindingValidation(t *testing.T) {
 	}); err != ErrValidation {
 		t.Fatalf("ttl over cap: want ErrValidation, got %v", err)
 	}
+	// An empty match-claim value is rejected (would match tokens lacking it).
+	if _, err := svc.CreateFederationBinding(ctx, FederationBindingInput{
+		Name: "emptyval", MatchClaims: map[string]string{"repository": "org/app", "environment": ""},
+		ScopeKind: "config", ScopeID: scopeID, Access: "read", TTLSeconds: 900, Enabled: true,
+	}); err != ErrValidation {
+		t.Fatalf("empty match-claim value: want ErrValidation, got %v", err)
+	}
 	// Unknown scope rejected (well-formed uuid that isn't a config).
 	badID, _ := testStore.NewID(ctx)
 	if _, err := svc.CreateFederationBinding(ctx, FederationBindingInput{
