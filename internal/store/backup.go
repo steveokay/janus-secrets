@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // backupTable names one table in the logical dump. The slice order is
@@ -101,4 +103,45 @@ func dumpTable(ctx context.Context, s *Store, name, query string, w io.Writer) e
 		}
 	}
 	return mapError(rows.Err())
+}
+
+// RestoreBackup inserts records supplied by next() inside one transaction.
+// next returns (table, rowJSON, nil) per record and io.EOF when done. Records
+// must arrive in backupTables order (the dump's order) — that guarantees FK
+// parents land before children. Any error rolls the whole restore back,
+// leaving the instance empty and restorable.
+func (s *Store) RestoreBackup(ctx context.Context, next func() (string, []byte, error)) error {
+	order := make(map[string]int, len(backupTables))
+	for i, t := range backupTables {
+		order[t.name] = i
+	}
+	lastIdx := -1
+	return s.withTx(ctx, func(tx pgx.Tx) error {
+		for {
+			table, row, err := next()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			idx, ok := order[table]
+			if !ok {
+				return fmt.Errorf("store: unknown backup table %q", table)
+			}
+			if idx < lastIdx {
+				return fmt.Errorf("store: backup records out of order at %q", table)
+			}
+			lastIdx = idx
+			// json_populate_record maps JSON fields onto the table's row type;
+			// SELECT * preserves column order for the bare INSERT.
+			// #nosec G201 -- identifier from the fixed compile-time backupTables list, not user input.
+			q := fmt.Sprintf(
+				`INSERT INTO %s SELECT * FROM json_populate_record(NULL::%s, $1::json)`,
+				table, table)
+			if _, err := tx.Exec(ctx, q, string(row)); err != nil {
+				return mapError(err)
+			}
+		}
+	})
 }
