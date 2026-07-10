@@ -4,6 +4,7 @@
 package rotation
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -178,4 +179,183 @@ func mapStoreErr(err error) error {
 	default:
 		return err
 	}
+}
+
+// PolicyInput is the create/update payload (plaintext config; encrypted here).
+type PolicyInput struct {
+	ConfigID        string
+	SecretKey       string
+	Type            string
+	IntervalSeconds int64
+	Config          PolicyConfig
+}
+
+// PolicyView is the masked, safe-to-return projection (no secrets/DSN/keys).
+type PolicyView struct {
+	ID                string
+	ProjectID         string
+	ConfigID          string
+	SecretKey         string
+	Type              string
+	IntervalSeconds   int64
+	Status            string
+	FailureCount      int
+	LastError         *string
+	NextRotationAt    time.Time
+	LastRotatedAt     *time.Time
+	LastConfigVersion *int
+	CreatedAt         time.Time
+}
+
+func view(p *store.RotationPolicy) PolicyView {
+	return PolicyView{
+		ID: p.ID, ProjectID: p.ProjectID, ConfigID: p.ConfigID, SecretKey: p.SecretKey,
+		Type: p.Type, IntervalSeconds: p.IntervalSeconds, Status: p.Status,
+		FailureCount: p.FailureCount, LastError: p.LastError, NextRotationAt: p.NextRotationAt,
+		LastRotatedAt: p.LastRotatedAt, LastConfigVersion: p.LastConfigVersion, CreatedAt: p.CreatedAt,
+	}
+}
+
+// projectForConfig resolves the owning project of a config (for KEK + scope).
+func (s *Service) projectForConfig(ctx context.Context, configID string) (*store.Project, error) {
+	cfg, err := store.NewConfigRepo(s.st).Get(ctx, configID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	env, err := store.NewEnvironmentRepo(s.st).Get(ctx, cfg.EnvironmentID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	proj, err := s.projects.Get(ctx, env.ProjectID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	return proj, nil
+}
+
+// Create validates, encrypts the config blob, and inserts a policy.
+func (s *Service) Create(ctx context.Context, in PolicyInput, createdBy string) (PolicyView, error) {
+	if in.Type != TypePostgres && in.Type != TypeWebhook {
+		return PolicyView{}, ErrInvalidType
+	}
+	if in.SecretKey == "" || in.IntervalSeconds <= 0 {
+		return PolicyView{}, ErrInvalidConfig
+	}
+	if in.Type == TypePostgres && (in.Config.AdminDSN == "" || !roleRe.MatchString(in.Config.Role)) {
+		return PolicyView{}, ErrInvalidConfig
+	}
+	if in.Type == TypeWebhook && in.Config.URL == "" {
+		return PolicyView{}, ErrInvalidConfig
+	}
+	proj, err := s.projectForConfig(ctx, in.ConfigID)
+	if err != nil {
+		return PolicyView{}, err
+	}
+	id, err := s.st.NewID(ctx)
+	if err != nil {
+		return PolicyView{}, err
+	}
+	ct, nonce, wrapped, kekVer, err := s.sealConfig(proj, id, in.Config)
+	if err != nil {
+		return PolicyView{}, err
+	}
+	p := &store.RotationPolicy{
+		ID: id, ProjectID: proj.ID, ConfigID: in.ConfigID, SecretKey: in.SecretKey,
+		Type: in.Type, IntervalSeconds: in.IntervalSeconds,
+		NextRotationAt:      s.now().Add(time.Duration(in.IntervalSeconds) * time.Second),
+		ConfigCT:            ct,
+		ConfigNonce:         nonce,
+		ConfigWrappedDEK:    wrapped,
+		ConfigDEKKEKVersion: kekVer,
+		CreatedBy:           createdBy,
+	}
+	saved, err := s.repo.Create(ctx, p)
+	if err != nil {
+		return PolicyView{}, mapStoreErr(err)
+	}
+	return view(saved), nil
+}
+
+func (s *Service) Get(ctx context.Context, id string) (PolicyView, error) {
+	p, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return PolicyView{}, mapStoreErr(err)
+	}
+	return view(p), nil
+}
+
+func (s *Service) ListByProject(ctx context.Context, projectID string) ([]PolicyView, error) {
+	ps, err := s.repo.ListByProject(ctx, projectID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	out := make([]PolicyView, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, view(p))
+	}
+	return out, nil
+}
+
+// Update changes interval, status, and/or the config blob. nil Config leaves
+// the stored blob unchanged. Callers may set status only to active/paused.
+func (s *Service) Update(ctx context.Context, id string, intervalSeconds *int64, status *string, cfg *PolicyConfig) (PolicyView, error) {
+	if status != nil && *status != "active" && *status != "paused" {
+		return PolicyView{}, ErrInvalidConfig // callers cannot set 'failed' directly
+	}
+	p, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return PolicyView{}, mapStoreErr(err)
+	}
+	var ct, nonce, wrapped []byte
+	var kekVer *int
+	if cfg != nil {
+		proj, err := s.projects.Get(ctx, p.ProjectID)
+		if err != nil {
+			return PolicyView{}, mapStoreErr(err)
+		}
+		c, n, w, v, err := s.sealConfig(proj, id, *cfg)
+		if err != nil {
+			return PolicyView{}, err
+		}
+		ct, nonce, wrapped, kekVer = c, n, w, &v
+	}
+	if err := s.repo.Update(ctx, id, intervalSeconds, status, ct, nonce, wrapped, kekVer); err != nil {
+		return PolicyView{}, mapStoreErr(err)
+	}
+	return s.Get(ctx, id)
+}
+
+func (s *Service) Delete(ctx context.Context, id string) error {
+	return mapStoreErr(s.repo.Delete(ctx, id))
+}
+
+// RotateNow runs an immediate rotation, clearing 'failed' status first so a
+// manual trigger always attempts. Returns the produced config version.
+func (s *Service) RotateNow(ctx context.Context, id string) (int, error) {
+	p, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return 0, mapStoreErr(err)
+	}
+	if s.kr.Sealed() {
+		return 0, ErrSealed
+	}
+	if p.Status == "failed" {
+		active := "active"
+		if err := s.repo.Update(ctx, id, nil, &active, nil, nil, nil, nil); err != nil {
+			return 0, mapStoreErr(err)
+		}
+		p.Status = "active"
+		p.FailureCount = 0
+	}
+	if err := s.attempt(ctx, p); err != nil {
+		return 0, err
+	}
+	np, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return 0, mapStoreErr(err)
+	}
+	if np.LastConfigVersion == nil {
+		return 0, nil
+	}
+	return *np.LastConfigVersion, nil
 }
