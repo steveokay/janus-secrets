@@ -39,6 +39,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_SEAL_TYPE` | before first init | `shamir` or `awskms`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** (misconfiguration is never guessed around) |
 | `JANUS_AWS_KMS_KEY_ARN` | for `awskms` | KMS key id/ARN/alias (plus the standard AWS SDK env for credentials/region) |
 | `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
+| `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
@@ -124,6 +125,12 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus restore [file]` | Restore a backup into an **empty** instance (fresh database, before init); reads stdin when no file is given. Unauthenticated by design — it is a pre-init bootstrap operation like `janus init`. Afterwards the instance is sealed: unseal with the ORIGINAL shares/KMS key. See the backup & restore runbook |
 | `janus migrate` | Apply migrations explicitly (`JANUS_DATABASE_URL`) |
 | `janus version` | Print the version |
+| `janus rotation create --config <id> --key <k> --type postgres\|webhook --interval-seconds <n> [...]` | Create a rotation policy on a config's secret key. `postgres` type: `--admin-dsn`, `--role`, `--password-len` (default 32). `webhook` type: `--url`, `--hmac-key`. Either type: optional `--notify-url`/`--notify-hmac-key`. Requires `rotation:manage`. See the rotation runbook (`docs/ops/rotation.md`) |
+| `janus rotation list --project <id>` | List rotation policies for a project. Requires `rotation:manage` |
+| `janus rotation get <id>` | Show one rotation policy (masked config). Requires `rotation:manage` |
+| `janus rotation update <id> [--interval-seconds <n>] [--status active\|paused]` | Update a policy's interval or status. Requires `rotation:manage` |
+| `janus rotation rotate <id>` | Rotate a policy immediately; also clears a `failed` status and retries. Requires `rotation:manage` |
+| `janus rotation delete <id>` | Delete a rotation policy. Requires `rotation:manage` |
 
 Errors render as `message (code, HTTP status)`, e.g.
 `seal is already initialized (already_initialized, HTTP 409)`.
@@ -321,6 +328,19 @@ curl -XPUT $ADDR/v1/configs/$WEB/secrets -H "$AUTH" \
 curl "$ADDR/v1/configs/$WEB/secrets?reveal=true" -H "$AUTH"   # DB_URL resolved
 curl "$ADDR/v1/configs/$WEB/secrets?reveal=true&raw=true" -H "$AUTH"   # DB_URL verbatim ${...}
 ```
+
+## Static rotation
+
+Rotation policies rotate one config's secret key on an interval — a
+`postgres` rotator resets a Postgres role's password via an admin DSN, a
+`webhook` rotator POSTs a new HMAC-signed value to an operator endpoint —
+managed via `janus rotation …` above (`rotation:manage`, project admin/owner)
+or `/v1/rotation/policies`. Rotation pauses while the server is sealed (not
+counted as a failure) and retries failures with exponential backoff before
+marking a policy `failed` after 5 consecutive failures. Full reference —
+crash-safety, the webhook receiver contract, least-privilege Postgres setup,
+and backoff/failure semantics — is in the rotation runbook
+(`docs/ops/rotation.md`).
 
 ## Secrets CLI (developer & CI flows)
 
