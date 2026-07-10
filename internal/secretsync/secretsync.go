@@ -41,6 +41,8 @@ type Service struct {
 	st       *store.Store
 	hc       *http.Client
 	now      func() time.Time // injectable clock (tests)
+
+	githubBaseURL string // GitHub API base; overridden in tests to point at a fake
 }
 
 // New wires the engine.
@@ -51,8 +53,9 @@ func New(kr *crypto.Keyring, st *store.Store, sec *secrets.Service, aud *audit.R
 	return &Service{
 		kr: kr, repo: store.NewSyncTargetRepo(st), projects: store.NewProjectRepo(st),
 		secrets: sec, audit: aud, logger: logger, st: st,
-		hc:  &http.Client{Timeout: 20 * time.Second},
-		now: time.Now,
+		hc:            &http.Client{Timeout: 20 * time.Second},
+		now:           time.Now,
+		githubBaseURL: "https://api.github.com",
 	}
 }
 
