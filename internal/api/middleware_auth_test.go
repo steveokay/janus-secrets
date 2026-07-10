@@ -80,6 +80,38 @@ func TestRequireAuth(t *testing.T) {
 	}
 }
 
+// idleExpiredVerifier simulates a session that failed verification because it
+// exceeded the configured idle window (distinct from plain unauthenticated).
+type idleExpiredVerifier struct{}
+
+func (idleExpiredVerifier) VerifySession(context.Context, string) (auth.Principal, error) {
+	return auth.Principal{}, auth.ErrSessionExpired
+}
+
+func (idleExpiredVerifier) VerifyServiceToken(context.Context, string) (auth.Principal, *auth.TokenScope, error) {
+	return auth.Principal{}, nil, auth.ErrUnauthenticated
+}
+
+func TestRequireAuthIdleExpired401(t *testing.T) {
+	h := RequireAuth(idleExpiredVerifier{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler must not run")
+	}))
+	req := httptest.NewRequest("GET", "/v1/projects", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "stale"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	var env errEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Error.Code != CodeSessionExpired {
+		t.Fatalf("code = %q, want session_expired", env.Error.Code)
+	}
+}
+
 func TestRateLimit(t *testing.T) {
 	// 2 sustained/min with burst 2 for a fast test.
 	rl := newIPRateLimiter(2.0/60.0, 2)

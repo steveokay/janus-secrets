@@ -65,6 +65,9 @@ func RequireAuth(v authVerifier) func(http.Handler) http.Handler {
 			case errors.Is(err, crypto.ErrSealed):
 				writeError(w, http.StatusServiceUnavailable, CodeSealed,
 					"server is sealed; unseal via /v1/sys/unseal")
+			case errors.Is(err, auth.ErrSessionExpired):
+				writeError(w, http.StatusUnauthorized, CodeSessionExpired,
+					"session expired due to inactivity")
 			case errors.Is(err, auth.ErrUnauthenticated), errors.Is(err, auth.ErrNotFound):
 				writeError(w, http.StatusUnauthorized, CodeUnauthenticated, "authentication required")
 			default:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestLoginVerifyLogout(t *testing.T) {
@@ -124,5 +125,70 @@ func TestEnsureHMACKeyIdempotentAndSealed(t *testing.T) {
 	sealedSvc := NewService(testStore, cryptoNewSealedKeyring())
 	if _, err := sealedSvc.VerifySession(ctx, "whatever"); err == nil {
 		t.Fatal("sealed verify should fail")
+	}
+}
+
+func TestVerifySessionIdleTimeout(t *testing.T) {
+	svc, email, password := newTestService(t)
+	svc.SetSessionIdleTimeout(30 * time.Minute)
+	ctx := context.Background()
+	cookie, err := svc.Login(ctx, email, []byte(password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fresh session verifies.
+	if _, err := svc.VerifySession(ctx, cookie); err != nil {
+		t.Fatalf("fresh session: %v", err)
+	}
+	// Backdate last_seen_at beyond the idle window.
+	if _, err := resetPool.Exec(ctx,
+		`UPDATE sessions SET last_seen_at = now() - interval '31 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifySession(ctx, cookie); !errors.Is(err, ErrSessionExpired) {
+		t.Fatalf("want ErrSessionExpired, got %v", err)
+	}
+	// The idle-expired session row was deleted.
+	var n int
+	if err := resetPool.QueryRow(ctx, `SELECT count(*) FROM sessions`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("idle-expired session not deleted (%d rows)", n)
+	}
+}
+
+func TestVerifySessionIdleDisabled(t *testing.T) {
+	svc, email, password := newTestService(t)
+	// Zero (the default) disables idle enforcement entirely.
+	ctx := context.Background()
+	cookie, err := svc.Login(ctx, email, []byte(password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resetPool.Exec(ctx,
+		`UPDATE sessions SET last_seen_at = now() - interval '23 hours'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifySession(ctx, cookie); err != nil {
+		t.Fatalf("idle-disabled session should verify: %v", err)
+	}
+}
+
+func TestVerifySessionAbsoluteTTLStillEnforced(t *testing.T) {
+	svc, email, password := newTestService(t)
+	svc.SetSessionIdleTimeout(30 * time.Minute)
+	ctx := context.Background()
+	cookie, err := svc.Login(ctx, email, []byte(password))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Recently active but past the 24h absolute expiry → plain unauthenticated.
+	if _, err := resetPool.Exec(ctx,
+		`UPDATE sessions SET expires_at = now() - interval '1 minute', last_seen_at = now()`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifySession(ctx, cookie); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("want ErrUnauthenticated, got %v", err)
 	}
 }
