@@ -248,6 +248,17 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/v1/rotation/policies/{id}/rotate", s.handleRotationRotateNow)
 			})
 		}
+		if s.sync != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/sync/targets", s.handleSyncCreate)
+				r.Get("/v1/sync/targets", s.handleSyncList)
+				r.Get("/v1/sync/targets/{id}", s.handleSyncGet)
+				r.Patch("/v1/sync/targets/{id}", s.handleSyncUpdate)
+				r.Delete("/v1/sync/targets/{id}", s.handleSyncDelete)
+				r.Post("/v1/sync/targets/{id}/sync", s.handleSyncNow)
+			})
+		}
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
