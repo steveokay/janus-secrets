@@ -197,18 +197,26 @@ func newSealStatusCmd() *cobra.Command {
 }
 
 func newSealCmd() *cobra.Command {
-	var address string
+	var address, token string
 	cmd := &cobra.Command{
 		Use:   "seal",
 		Short: "Seal the server (wipes the in-memory master key)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := sysCall(address, "POST", "/v1/sys/seal", nil, nil); err != nil {
+			// Sealing requires sys:seal (admin) — unlike init/unseal/seal-status,
+			// which must work pre-auth. Uses the same credential resolution as
+			// the secrets commands: --token > JANUS_TOKEN > stored session.
+			c, err := newAPIClient(address, token)
+			if err != nil {
+				return err
+			}
+			if err := c.call("POST", "/v1/sys/seal", nil, nil); err != nil {
 				return err
 			}
 			cmd.Println("sealed")
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&address, "address", defaultAddress(), "server address")
+	cmd.Flags().StringVar(&address, "address", "", "server address (default: stored login address)")
+	cmd.Flags().StringVar(&token, "token", "", "service token (overrides stored session)")
 	return cmd
 }
