@@ -84,6 +84,12 @@ func RotationPendingAAD(policyID string) []byte {
 	return appendField([]byte("janus:rotation:pending"), policyID)
 }
 
+// SyncCredsAAD binds a sync target's encrypted credentials blob (GitHub PAT or
+// k8s token/CA) to its target, in a domain distinct from rotation AADs.
+func SyncCredsAAD(targetID string) []byte {
+	return appendField([]byte("janus:sync:creds"), targetID)
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

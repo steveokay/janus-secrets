@@ -262,3 +262,32 @@ func TestKeyringDoubleSeal(t *testing.T) {
 		t.Fatal("keyring should be sealed")
 	}
 }
+
+func TestSyncFingerprint(t *testing.T) {
+	k := NewKeyring()
+	master := make([]byte, KeySize)
+	for i := range master {
+		master[i] = byte(i)
+	}
+	if err := k.Unseal(master); err != nil {
+		t.Fatal(err)
+	}
+
+	a := k.SyncFingerprint([]byte("hello"))
+	b := k.SyncFingerprint([]byte("hello"))
+	c := k.SyncFingerprint([]byte("world"))
+	if !bytes.Equal(a, b) {
+		t.Fatal("fingerprint must be deterministic")
+	}
+	if bytes.Equal(a, c) {
+		t.Fatal("fingerprint must vary with input")
+	}
+	if len(a) != 32 {
+		t.Fatalf("want 32-byte HMAC-SHA256, got %d", len(a))
+	}
+
+	k.Seal()
+	if k.SyncFingerprint([]byte("hello")) != nil {
+		t.Fatal("sealed keyring must return nil fingerprint")
+	}
+}

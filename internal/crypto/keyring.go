@@ -1,6 +1,10 @@
 package crypto
 
-import "sync"
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"sync"
+)
 
 // Keyring holds the master key in memory after unseal. It is the only
 // stateful component in this package. All operations on a sealed keyring
@@ -127,4 +131,21 @@ func (k *Keyring) NewDEK(projectKEK, aad []byte) ([]byte, Ciphertext, error) {
 		return nil, Ciphertext{}, err
 	}
 	return dek, wrapped, nil
+}
+
+// SyncFingerprint returns HMAC-SHA256 over data, keyed by a subkey derived from
+// the master key with a fixed domain label, so the value stored for sync change
+// detection is not a reversible hash of secret material. Returns nil while
+// sealed (no master in memory).
+func (k *Keyring) SyncFingerprint(data []byte) []byte {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return nil
+	}
+	sub := hmac.New(sha256.New, k.master)
+	sub.Write([]byte("janus:sync:fingerprint-key"))
+	mac := hmac.New(sha256.New, sub.Sum(nil))
+	mac.Write(data)
+	return mac.Sum(nil)
 }
