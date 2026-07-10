@@ -20,7 +20,7 @@ func newTestServerSealed(t *testing.T) *Server {
 	seals := &memSealStore{}
 	kr := crypto.NewKeyring()
 	u := crypto.NewShamirUnsealer(seals, 0, 0)
-	return New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals, nil, nil, nil,
+	return New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals, nil, nil, nil, nil,
 		nil, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 

@@ -52,6 +52,15 @@ func runServer(ctx context.Context) error {
 		rotationTick = d
 	}
 
+	syncTick := 60 * time.Second // production default; 0 disables
+	if v := os.Getenv("JANUS_SYNC_TICK"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_SYNC_TICK %q: use a Go duration like 60s, or 0 to disable", v)
+		}
+		syncTick = d
+	}
+
 	bc := api.BootConfig{
 		DatabaseURL:        dsn,
 		ListenAddr:         os.Getenv("JANUS_LISTEN_ADDR"), // "" → :8200 default
@@ -59,6 +68,7 @@ func runServer(ctx context.Context) error {
 		Logger:             logger,
 		SessionIdleTimeout: idle,
 		RotationTick:       rotationTick,
+		SyncTick:           syncTick,
 		Version:            version,
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")

@@ -40,6 +40,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_AWS_KMS_KEY_ARN` | for `awskms` | KMS key id/ARN/alias (plus the standard AWS SDK env for credentials/region) |
 | `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
 | `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
+| `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
@@ -131,6 +132,12 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus rotation update <id> [--interval-seconds <n>] [--status active\|paused]` | Update a policy's interval or status. Requires `rotation:manage` |
 | `janus rotation rotate <id>` | Rotate a policy immediately; also clears a `failed` status and retries. Requires `rotation:manage` |
 | `janus rotation delete <id>` | Delete a rotation policy. Requires `rotation:manage` |
+| `janus sync create --config <id> --provider github\|k8s --interval-seconds <n> [...]` | Create a sync target on a config. `github` type: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s` type: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. Either type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
+| `janus sync list --project <id>` | List sync targets for a project. Requires `sync:manage` |
+| `janus sync get <id>` | Show one sync target (masked config). Requires `sync:manage` |
+| `janus sync update <id> [--interval-seconds <n>] [--prune] [--status active\|paused] [...]` | Update a target's interval, prune toggle, status, destination address, or credentials. Requires `sync:manage` |
+| `janus sync sync <id>` | Sync a target immediately, bypassing change detection; also clears a `failed` status and retries. Requires `sync:manage` |
+| `janus sync delete <id>` | Delete a sync target. Requires `sync:manage` |
 
 Errors render as `message (code, HTTP status)`, e.g.
 `seal is already initialized (already_initialized, HTTP 409)`.
@@ -341,6 +348,24 @@ marking a policy `failed` after 5 consecutive failures. Full reference —
 crash-safety, the webhook receiver contract, least-privilege Postgres setup,
 and backoff/failure semantics — is in the rotation runbook
 (`docs/ops/rotation.md`).
+
+## Sync integrations
+
+Sync targets replicate one config's **resolved** secrets (references
+expanded) one-way to an external store — `github` (GitHub Actions secrets,
+repo- or environment-scoped) or `k8s` (a Kubernetes `Secret`, via
+server-side apply) — on an interval or on demand, managed via
+`janus sync …` above (`sync:manage`, project admin/owner) or
+`/v1/sync/targets`. A per-target `prune` toggle keeps the destination a
+full mirror by deleting keys Janus previously wrote but no longer sees in
+the config. Sync pauses while the server is sealed (not counted as a
+failure) and retries failures with exponential backoff before marking a
+target `failed` after 5 consecutive failures. A config is resolved with a
+project-scoped authorizer, so a reference to another project's secrets
+fails the sync rather than exfiltrating it. Full reference — credential
+least-privilege setup for each provider, prune semantics, the GitHub
+key-name constraint, change detection, and backoff/failure semantics — is
+in the sync runbook (`docs/ops/sync.md`).
 
 ## Secrets CLI (developer & CI flows)
 

@@ -38,6 +38,7 @@ var backupTables = []backupTable{
 	{"secret_values", "created_at, id"},
 	{"config_version_entries", "config_version_id, key"},
 	{"rotation_policies", "created_at, id"},
+	{"sync_targets", "created_at, id"},
 	{"service_tokens", "created_at, id"},
 	{"transit_keys", "created_at, id"},
 	{"transit_key_versions", "transit_key_id, version"},

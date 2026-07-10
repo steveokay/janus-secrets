@@ -143,3 +143,16 @@ func TestRotationAADs(t *testing.T) {
 		t.Fatal("AAD must be injective over policy id")
 	}
 }
+
+func TestSyncCredsAAD(t *testing.T) {
+	if bytes.Equal(SyncCredsAAD("t1"), SyncCredsAAD("t2")) {
+		t.Fatal("SyncCredsAAD must bind to target id")
+	}
+	if bytes.Equal(SyncCredsAAD("ab"), SyncCredsAAD("a\x00b")) {
+		t.Fatal("SyncCredsAAD must be injective over target id")
+	}
+	// distinct domain from rotation config AAD
+	if bytes.Equal(SyncCredsAAD("x"), RotationConfigAAD("x")) {
+		t.Fatal("sync creds AAD must differ from rotation config AAD")
+	}
+}

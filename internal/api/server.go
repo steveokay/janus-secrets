@@ -14,6 +14,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
+	"github.com/steveokay/janus-secrets/internal/secretsync"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/transit"
 )
@@ -38,12 +39,13 @@ type Server struct {
 	unsealer crypto.Unsealer
 	seals    crypto.SealConfigStore
 	service  *secrets.Service
-	transit  *transit.Service  // nil in unit-test servers that exercise no transit path
-	rotation *rotation.Service // nil in unit-test servers that exercise no rotation path
-	auth     *auth.Service     // nil only in unit tests that exercise no auth path
-	authz    *authz.Engine     // nil only in unit-test servers that exercise no authz path
-	st       *store.Store      // for scope-chain resolution + membership/user handlers
-	audit    *audit.Recorder   // nil in unit-test servers; Boot always wires a real one
+	transit  *transit.Service    // nil in unit-test servers that exercise no transit path
+	rotation *rotation.Service   // nil in unit-test servers that exercise no rotation path
+	sync     *secretsync.Service // nil in unit-test servers that exercise no sync path
+	auth     *auth.Service       // nil only in unit tests that exercise no auth path
+	authz    *authz.Engine       // nil only in unit-test servers that exercise no authz path
+	st       *store.Store        // for scope-chain resolution + membership/user handlers
+	audit    *audit.Recorder     // nil in unit-test servers; Boot always wires a real one
 	logger   *slog.Logger
 	router   chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
@@ -54,7 +56,7 @@ type Server struct {
 
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
-	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, rot *rotation.Service, authSvc *auth.Service,
+	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, rot *rotation.Service, syncSvc *secretsync.Service, authSvc *auth.Service,
 	authorizer *authz.Engine, st *store.Store, auditRec *audit.Recorder, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
@@ -63,7 +65,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		logger = slog.Default()
 	}
 	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr, rotation: rot,
-		auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
+		sync: syncSvc, auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
@@ -244,6 +246,17 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Patch("/v1/rotation/policies/{id}", s.handleRotationUpdate)
 				r.Delete("/v1/rotation/policies/{id}", s.handleRotationDelete)
 				r.Post("/v1/rotation/policies/{id}/rotate", s.handleRotationRotateNow)
+			})
+		}
+		if s.sync != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/sync/targets", s.handleSyncCreate)
+				r.Get("/v1/sync/targets", s.handleSyncList)
+				r.Get("/v1/sync/targets/{id}", s.handleSyncGet)
+				r.Patch("/v1/sync/targets/{id}", s.handleSyncUpdate)
+				r.Delete("/v1/sync/targets/{id}", s.handleSyncDelete)
+				r.Post("/v1/sync/targets/{id}/sync", s.handleSyncNow)
 			})
 		}
 		if s.audit != nil {
