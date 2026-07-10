@@ -20,6 +20,14 @@ import (
 func mkPolicy(t *testing.T, svc *Service, proj *store.Project, storeCfg *store.Config,
 	typ, key string, cfg PolicyConfig) *store.RotationPolicy {
 	t.Helper()
+	return mkPolicyAt(t, svc, proj, storeCfg, typ, key, cfg, time.Now().Add(-time.Hour))
+}
+
+// mkPolicyAt is mkPolicy with an explicit next_rotation_at, for scheduler
+// tests that need to distinguish due vs. not-yet-due policies.
+func mkPolicyAt(t *testing.T, svc *Service, proj *store.Project, storeCfg *store.Config,
+	typ, key string, cfg PolicyConfig, nextRotationAt time.Time) *store.RotationPolicy {
+	t.Helper()
 	ctx := context.Background()
 	policyID, err := testStore.NewID(ctx)
 	if err != nil {
@@ -37,7 +45,7 @@ func mkPolicy(t *testing.T, svc *Service, proj *store.Project, storeCfg *store.C
 		SecretKey:           key,
 		Type:                typ,
 		IntervalSeconds:     3600,
-		NextRotationAt:      time.Now().Add(-time.Hour).UTC().Truncate(time.Second),
+		NextRotationAt:      nextRotationAt.UTC().Truncate(time.Second),
 		ConfigCT:            ct,
 		ConfigNonce:         nonce,
 		ConfigWrappedDEK:    wrapped,
