@@ -31,7 +31,11 @@ with `fieldManager=janus`, so Kubernetes itself reconciles field ownership
 and removes fields Janus no longer submits. With `--prune=false` on a k8s
 target, Janus falls back to a merge-patch instead of an apply — a
 merge-patch can only add/update keys, so a key removed from the config
-**lingers** in the destination `Secret` until you prune manually.
+**lingers** in the destination `Secret` until you prune manually. A
+merge-patch also cannot *create* a Secret: a fresh `--prune=false` k8s
+target whose destination `Secret` does not yet exist will fail (and back
+off) until the `Secret` is created out-of-band. Leave prune on (the
+default) for Janus to create-or-update the `Secret` itself.
 
 Turn prune off (`--prune=false`) if the destination has a mix of
 Janus-managed and independently-managed keys and you want a strict "add
