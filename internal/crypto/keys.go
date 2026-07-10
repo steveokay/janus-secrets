@@ -69,6 +69,21 @@ func OIDCClientSecretAAD() []byte {
 	return []byte("janus:auth:oidc-client-secret")
 }
 
+// RotationConfigAAD binds a rotation policy's encrypted rotator-config blob
+// (admin DSN, webhook HMAC key) to its policy. A blob copied onto another
+// policy's row fails to decrypt. Mirrors DEKAAD's length-prefixed encoding.
+func RotationConfigAAD(policyID string) []byte {
+	return appendField([]byte("janus:rotation:config"), policyID)
+}
+
+// RotationPendingAAD binds a rotation policy's encrypted pending value (the
+// generated-but-not-yet-committed new secret value) to its policy, in a domain
+// distinct from RotationConfigAAD so the two ciphertext slots can never be
+// swapped.
+func RotationPendingAAD(policyID string) []byte {
+	return appendField([]byte("janus:rotation:pending"), policyID)
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

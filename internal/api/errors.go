@@ -28,6 +28,7 @@ const (
 	CodeNotEmpty           = "not_empty"
 	CodeDBUnavailable      = "db_unavailable"
 	CodeSchemaInconsistent = "schema_inconsistent"
+	CodeRotationNotFound   = "rotation_not_found"
 )
 
 type errorBody struct {

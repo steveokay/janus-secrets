@@ -128,3 +128,18 @@ func TestZero(t *testing.T) {
 	}
 	zero(nil) // must not panic
 }
+
+func TestRotationAADs(t *testing.T) {
+	// Config vs pending for the same policy must differ (distinct domains).
+	if bytes.Equal(RotationConfigAAD("p1"), RotationPendingAAD("p1")) {
+		t.Fatal("config and pending AAD must differ for the same policy")
+	}
+	// Different policies must differ (binding).
+	if bytes.Equal(RotationConfigAAD("p1"), RotationConfigAAD("p2")) {
+		t.Fatal("config AAD must bind to policy id")
+	}
+	// Injective over the id (length-prefix guard, mirrors DEKAAD design).
+	if bytes.Equal(RotationConfigAAD("ab"), RotationConfigAAD("a\x00b")) {
+		t.Fatal("AAD must be injective over policy id")
+	}
+}
