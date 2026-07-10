@@ -153,6 +153,11 @@ func TestReconcileSyncsResolvedSecrets(t *testing.T) {
 	if got.SyncedFingerprint == nil {
 		t.Fatal("SyncedFingerprint is nil after successful sync")
 	}
+	// synced_config_version must reflect the config's current version (the seeded
+	// secrets created v1+), not a frozen 0.
+	if got.SyncedConfigVersion == nil || *got.SyncedConfigVersion < 1 {
+		t.Fatalf("SyncedConfigVersion = %v, want the config's current version (>=1)", got.SyncedConfigVersion)
+	}
 	if got.Status != "active" {
 		t.Fatalf("Status = %q, want active", got.Status)
 	}

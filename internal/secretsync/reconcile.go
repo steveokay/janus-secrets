@@ -129,9 +129,11 @@ func (s *Service) reconcile(ctx context.Context, t *store.SyncTarget, force bool
 		return err
 	}
 	next := s.now().Add(time.Duration(t.IntervalSeconds) * time.Second)
-	cv := 0
-	if t.SyncedConfigVersion != nil {
-		cv = *t.SyncedConfigVersion
+	// Record the config's current version at the moment of a successful push, so
+	// synced_config_version reflects what was actually mirrored (not a frozen 0).
+	cv, err := s.secrets.LatestVersion(ctx, t.ConfigID)
+	if err != nil {
+		return err
 	}
 	if err := s.repo.MarkSynced(ctx, t.ID, res.Applied, fp, cv, next); err != nil {
 		return mapStoreErr(err)
