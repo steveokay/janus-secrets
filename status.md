@@ -1150,5 +1150,83 @@ Only discretionary **P2** polish items remain in [`fe-improvements.md`](fe-impro
 **Phase 2 is essentially complete** — transit (A), the React SPA incl. all feature
 slices + dark redesign + FE punch-list incl. §3-P2 and the on-demand editor reveal
 security fix (B), OIDC human + CI federation (C1/C2), and usage metrics (D) are all
-merged. Remaining work: discretionary **P2** UI polish (`fe-improvements.md`) and
-Phase 3 (rotation + dynamic secrets, not started).
+merged. Remaining Phase-2 work: discretionary **P2** UI polish (`fe-improvements.md`).
+
+**Phase 3 is underway** — static rotation (3.1, PR #52) and sync integrations
+(3.2, PR #53) are merged (see the Phase 3 sections below); the remaining slice is
+**3.3 dynamic Postgres credentials + lease manager**.
+
+## Phase 3 · Sub-project 3.1 — Static rotation ✅ complete (PR #52)
+
+Spec: `docs/superpowers/specs/2026-07-10-static-rotation-design.md`
+Plan: `docs/superpowers/plans/2026-07-10-static-rotation.md` (14 tasks)
+Docs: `docs/ops/rotation.md`, CLI/env rows in `docs/operations.md` · Migration `000010`
+
+Scheduled rotation of an existing secret's value via a **Postgres single-role
+reset** (`ALTER ROLE`, two-layer injection defense: anchored role regex +
+`pgx.Identifier.Sanitize()`) or a **generic HMAC-SHA256-signed webhook**, with an
+optional value-free notify webhook. **Crash-safe**: persist-pending (encrypted) →
+idempotent apply → commit a new config version (`secrets.SetSecrets`, actor
+`rotation:<id>`) → clear pending → notify. Rotator config (admin DSN / HMAC keys)
+is envelope-encrypted (per-blob DEK under the project KEK, distinct
+`RotationConfigAAD`/`RotationPendingAAD`).
+
+- [x] In-process **scheduler** tied to the boot ctx (`JANUS_ROTATION_TICK`, default
+      60s, `0` disables); sealed = clean no-op (not a failure); exponential backoff
+      1m→1h, `failed` after 5 consecutive failures.
+- [x] `ClaimDue` = `status='active' AND next_rotation_at <= now` (**no** pending
+      clause — a crashed policy keeps its past due-time so backoff is respected);
+      manual `RotateNow` marks the policy due + reactivates a `failed` one first
+      (`PrepareRotateNow`) so a crash mid-apply is recovered.
+- [x] REST `/v1/rotation/policies` (project-scoped `rotation:manage`, masked
+      `PolicyView`, audited `rotation.rotate`); CLI `janus rotation
+      create|list|get|update|delete|rotate`; `rotation_policies` in backup/restore.
+
+Subagent-driven (fresh implementer + spec+quality review per task; opus on the
+crypto/injection/execution/API tasks + a final holistic branch review). Reviews
+caught a torn backoff-vs-pending selection, sealed-counted-as-failure, and a
+manual-`RotateNow` crash-recovery gap — all fixed with regression tests. All gates
+green (build/vet/`go test ./...`/gosec/govulncheck).
+
+## Phase 3 · Sub-project 3.2 — Sync integrations ✅ complete (PR #53)
+
+Spec: `docs/superpowers/specs/2026-07-10-sync-integrations-design.md`
+Plan: `docs/superpowers/plans/2026-07-10-sync-integrations.md` (14 tasks)
+Docs: `docs/ops/sync.md`, CLI/env rows in `docs/operations.md` · Migration `000011`
+
+One-way replication of a config's **resolved** secrets (references expanded) to
+external stores — **GitHub Actions secrets** and **Kubernetes Secrets**. Scheduled
+(`JANUS_SYNC_TICK`, default 60s, `0` disables) + on-demand, with a per-target
+`--prune` toggle (default on) for full-mirror semantics. Structured as a twin of the
+3.1 rotation engine in `internal/secretsync`.
+
+- [x] **Providers** (raw `net/http`, no client-go): **github** = libsodium sealed
+      boxes via `golang.org/x/crypto/nacl/box.SealAnonymous` (no new dep) + REST
+      PUT/list/DELETE; invalid GitHub secret-names skipped (not fatal); prune scoped
+      to Janus-managed keys; repo- or environment-scoped. **k8s** = server-side apply
+      (`fieldManager=janus`) for per-key ownership + auto-prune (merge-patch when
+      prune off); TLS **always verified** against a **required** CA (no
+      `InsecureSkipVerify`).
+- [x] **Reconcile**: resolve → keyed-HMAC fingerprint change-detection (skip
+      unchanged; sync-now forces) → provider apply → commit (records the config's
+      current version). Backoff 1m→1h, `failed` after 5; sealed = clean no-op.
+- [x] **Cross-project exfiltration guard** (headline security property): reconcile
+      resolves with a **project-scoped authorizer** (server-derived), so a
+      `sync:manage` admin of project A cannot replicate project B's secrets via
+      cross-project references — refused inside `resolve.Resolve` as a value-free
+      failure, nothing pushed.
+- [x] **Crypto**: `SyncCredsAAD` (domain-distinct from rotation) + keyed
+      `Keyring.SyncFingerprint` (HMAC-SHA256, nil while sealed — not a reversible
+      value hash); stdlib + x/crypto only. Creds envelope-encrypted at rest, masked
+      in every API/CLI response.
+- [x] **Store** migration `000011` `sync_targets` (envelope creds blob, jsonb addr,
+      managed-keys manifest, keyed fingerprint); in backup/restore.
+- [x] REST `/v1/sync/targets` (project-scoped `sync:manage`, masked `syncView`,
+      audited `sync.reconcile`); CLI `janus sync create|list|get|update|delete|sync`.
+
+Subagent-driven (opus on crypto/providers/reconcile/API-authz + the final holistic
+branch review; sonnet on mechanical tasks). The final holistic review returned SHIP;
+its one Important finding — `synced_config_version` was frozen at 0 — was fixed on
+the branch (record the config's current version at commit time) with a regression
+assertion. All gates green (build/vet/`go test ./...`/gosec clean/govulncheck no
+called-vulnerabilities); CI + GitGuardian green on the PR.
