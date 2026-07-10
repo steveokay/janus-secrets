@@ -20,7 +20,8 @@ func TestReadyUninitialized503(t *testing.T) {
 
 func TestReadySealed503(t *testing.T) {
 	srv, ts, _ := newShamirTestServer(t)
-	// Initialize but do not unseal: init via the endpoint, then reseal.
+	// Initialize but do not unseal: init leaves the keyring sealed; Seal() is
+	// defensive in case init behavior ever changes.
 	var ir struct{ Shares []string }
 	if code := doJSON(t, "POST", ts.URL+"/v1/sys/init", `{"shares":1,"threshold":1}`, &ir); code != 200 {
 		t.Fatalf("init: %d", code)

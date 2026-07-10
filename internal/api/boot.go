@@ -30,7 +30,8 @@ type BootConfig struct {
 	// implementation; tests supply fakes.
 	NewKMSClient func(context.Context) (crypto.KMSClient, error)
 	Logger       *slog.Logger
-	// SessionIdleTimeout is the UI-session inactivity window. Zero disables
+	// SessionIdleTimeout is the session-cookie inactivity window (web UI and
+	// CLI login sessions). Zero disables
 	// idle enforcement (the 30m production default is applied by cmd/janus,
 	// so tests that build BootConfig directly get no idle timeout).
 	SessionIdleTimeout time.Duration

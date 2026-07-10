@@ -38,6 +38,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_LISTEN_ADDR` | no | HTTP listen address, default `:8200` |
 | `JANUS_SEAL_TYPE` | before first init | `shamir` or `awskms`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** (misconfiguration is never guessed around) |
 | `JANUS_AWS_KMS_KEY_ARN` | for `awskms` | KMS key id/ARN/alias (plus the standard AWS SDK env for credentials/region) |
+| `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
