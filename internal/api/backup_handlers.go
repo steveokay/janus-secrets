@@ -30,6 +30,8 @@ type backupRecord struct {
 func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	ver, err := s.st.SchemaVersion(r.Context())
 	if err != nil {
+		// The dirty-migrations case is operator-actionable; surface it in the log.
+		s.logger.Warn("schema version check failed", "err", err)
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
@@ -59,8 +61,13 @@ func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.st.DumpBackup(r.Context(), w); err != nil {
 		// Headers are committed; a truncated stream fails restore's
-		// transaction safely on the other end. Log and stop.
-		s.logger.Warn("backup stream failed", "err", err)
+		// transaction safely on the other end. Log and stop. A client
+		// disconnect is routine, not a server fault — keep it at Info.
+		if r.Context().Err() != nil {
+			s.logger.Info("backup stream aborted by client", "err", err)
+		} else {
+			s.logger.Warn("backup stream failed", "err", err)
+		}
 	}
 }
 
@@ -98,6 +105,8 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	ver, err := s.st.SchemaVersion(r.Context())
 	if err != nil {
+		// The dirty-migrations case is operator-actionable; surface it in the log.
+		s.logger.Warn("schema version check failed", "err", err)
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
@@ -108,11 +117,18 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var records int
 	err = s.st.RestoreBackup(r.Context(), func() (string, []byte, error) {
 		var rec backupRecord
 		if err := dec.Decode(&rec); err != nil {
 			return "", nil, err // io.EOF terminates cleanly
 		}
+		// Bound a single allocation on this pre-auth endpoint (total backup
+		// size is unbounded by design; one row must stay sane).
+		if len(rec.Row) > 64<<20 {
+			return "", nil, fmt.Errorf("backup record exceeds 64MB")
+		}
+		records++
 		return rec.Table, rec.Row, nil
 	})
 	if err != nil {
@@ -123,13 +139,26 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 			"restore failed; the instance is unchanged (see server log)")
 		return
 	}
+	if records == 0 {
+		// A header-only body would commit an empty tx and — if we appended
+		// sys.restore below — poison the still-empty instance: the audit event
+		// at seq 1 makes every later real restore collide on audit_events and
+		// fail forever. Every real dump has at least the seal_config row, so a
+		// zero-record "restore" is always a malformed request. No audit event.
+		writeError(w, http.StatusUnprocessableEntity, CodeValidation,
+			"backup contains no records")
+		return
+	}
 
 	// Append sys.restore to the restored hash chain: the audit store's Append
 	// reads the chain head from the table, so this event continues the
 	// RESTORED chain and GET /v1/audit/verify passes across the restore
-	// boundary.
+	// boundary. The record count is forensic detail (a count, never values).
 	if err := s.recordActor(r, audit.Actor{Kind: "anonymous"},
-		"sys.restore", "", "success", "", ""); err != nil {
+		"sys.restore", "", "success", "", fmt.Sprintf("records=%d", records)); err != nil {
+		// The restore transaction itself committed; only the audit append
+		// failed. Say so, or the operator can't tell the data persisted.
+		s.logger.Warn("restore committed but audit write failed", "err", err)
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}

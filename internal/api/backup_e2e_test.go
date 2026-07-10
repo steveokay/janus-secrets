@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 )
 
@@ -94,6 +97,33 @@ func TestBackupForbiddenForNonAdminToken(t *testing.T) {
 	}
 	if code := doAuthed(t, "GET", ts.URL+"/v1/sys/backup", "", mint.Token, "", nil); code != 403 {
 		t.Fatalf("backup with scoped token = %d, want 403", code)
+	}
+}
+
+func TestRestoreRefusedWithZeroRecords(t *testing.T) {
+	// Fresh EMPTY stack: boot without init, so the emptiness gate passes and
+	// the zero-record guard is what rejects the request. A header-only body
+	// must NOT commit (and must not append sys.restore, which would poison
+	// the still-empty instance at audit seq 1).
+	dsn := bootPostgres(t)
+	ctx := context.Background()
+	srv, st, err := Boot(ctx, BootConfig{DatabaseURL: dsn, SealType: crypto.SealTypeShamir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	// Header must pass the format + schema-version checks to reach the guard.
+	ver, err := st.SchemaVersion(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env errEnvelope
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/restore",
+		fmt.Sprintf(`{"janus_backup":1,"migration_version":%d}`, ver), &env); code != 422 || env.Error.Code != CodeValidation {
+		t.Fatalf("zero-record restore = %d %+v (want 422 validation)", code, env)
 	}
 }
 
