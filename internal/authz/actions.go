@@ -28,6 +28,7 @@ const (
 	TransitManage  Action = "transit:manage"  // instance-scoped
 	OIDCManage     Action = "oidc:manage"     // instance-scoped
 	RotationManage Action = "rotation:manage" // project-scoped
+	SyncManage     Action = "sync:manage"     // project-scoped
 )
 
 // Role is a named bundle of actions.
@@ -64,7 +65,7 @@ var (
 	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse))
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
-		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage))
+		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage))
 	ownerActions = union(adminActions, setOf(ProjectDelete))
 
 	roleActions = map[Role]map[Action]bool{
