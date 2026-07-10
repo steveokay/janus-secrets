@@ -17,6 +17,7 @@ import (
 )
 
 var testStore *store.Store // nil if Docker is unavailable
+var testDSN string         // superuser DSN for the shared container; "" if unavailable
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -25,6 +26,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("rotation tests will be skipped: could not start postgres:", err)
 		os.Exit(m.Run())
 	}
+	testDSN = dsn
 	st, err := store.Open(ctx, dsn)
 	if err == nil {
 		if mErr := st.Migrate(ctx); mErr == nil {
