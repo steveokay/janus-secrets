@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/audit"
@@ -76,6 +77,7 @@ func zero(b []byte) {
 	for i := range b {
 		b[i] = 0
 	}
+	runtime.KeepAlive(b)
 }
 
 // sealConfig encrypts a PolicyConfig blob under proj's KEK, bound to policyID.
@@ -128,6 +130,9 @@ func (s *Service) sealBlob(proj *store.Project, aad, plaintext []byte) (ct, nonc
 	if err != nil {
 		return nil, nil, nil, 0, err
 	}
+	// Wipe the freshly-allocated plaintext blob (JSON config or generated
+	// value) now that it's encrypted; the ciphertext carries it from here.
+	zero(plaintext)
 	return c.Data, c.Nonce, wrappedDEK.Marshal(), proj.KEKVersion, nil
 }
 
