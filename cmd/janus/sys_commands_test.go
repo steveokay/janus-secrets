@@ -232,6 +232,7 @@ func TestSealSendsBearerToken(t *testing.T) {
 func TestSealSendsStoredSession(t *testing.T) {
 	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
 	t.Setenv("JANUS_TOKEN", "")
+	t.Setenv("JANUS_ADDR", "")
 	var gotCookie string
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/sys/seal", func(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +251,7 @@ func TestSealSendsStoredSession(t *testing.T) {
 	cmd := newSealCmd()
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--address", ts.URL})
+	cmd.SetArgs([]string{}) // no --address: must fall back to the stored login address
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
