@@ -329,23 +329,22 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return mapStoreErr(s.repo.Delete(ctx, id))
 }
 
-// RotateNow runs an immediate rotation, clearing 'failed' status first so a
-// manual trigger always attempts. Returns the produced config version.
+// RotateNow runs an immediate rotation. It first marks the policy due (so a
+// crash mid-apply is recovered by the scheduler) and clears a 'failed' status
+// so a manual trigger always attempts. Returns the produced config version.
 func (s *Service) RotateNow(ctx context.Context, id string) (int, error) {
-	p, err := s.repo.Get(ctx, id)
-	if err != nil {
+	if _, err := s.repo.Get(ctx, id); err != nil {
 		return 0, mapStoreErr(err)
 	}
 	if s.kr.Sealed() {
 		return 0, ErrSealed
 	}
-	if p.Status == "failed" {
-		active := "active"
-		if err := s.repo.Update(ctx, id, nil, &active, nil, nil, nil, nil); err != nil {
-			return 0, mapStoreErr(err)
-		}
-		p.Status = "active"
-		p.FailureCount = 0
+	if err := s.repo.PrepareRotateNow(ctx, id, s.now()); err != nil {
+		return 0, mapStoreErr(err)
+	}
+	p, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return 0, mapStoreErr(err)
 	}
 	if err := s.attempt(ctx, p); err != nil {
 		return 0, err

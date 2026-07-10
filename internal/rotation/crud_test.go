@@ -447,6 +447,129 @@ func TestRotateNowClearsFailedStatus(t *testing.T) {
 	}
 }
 
+// TestRotateNowMarksDueForCrashRecovery locks in the Critical fix: RotateNow
+// must mark a policy immediately due (next_rotation_at <= now) BEFORE
+// attempting, so that if the process crashes mid-apply (external side effect
+// already applied, commit not yet persisted), the scheduler's ClaimDue query
+// (status='active' AND next_rotation_at <= now) picks the policy back up on
+// its very next tick instead of stranding it until a full interval elapses.
+func TestRotateNowMarksDueForCrashRecovery(t *testing.T) {
+	svc, _, sec := newTestService(t)
+	proj, storeCfg := mkChain(t, sec, "crud-rotatenow-crash-recovery")
+	ctx := context.Background()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	key := "ROTATE_NOW_CRASH_KEY"
+	seedSecret(t, sec, storeCfg, key, "initial")
+
+	// Policy is NOT yet due (next_rotation_at is 1h in the future), mirroring a
+	// freshly created or freshly rotated policy.
+	future := time.Now().Add(time.Hour)
+	pol := mkPolicyAt(t, svc, proj, storeCfg, TypeWebhook, key,
+		PolicyConfig{URL: srv.URL}, future)
+
+	// Simulate a crash mid manual-rotate: the external apply already
+	// persisted a pending value, but the commit (MarkRotated) never ran.
+	// next_rotation_at is left untouched — still in the future, matching the
+	// bug: SetPending does not move next_rotation_at.
+	pendingVal := "crashed-during-rotatenow"
+	ct, nonce, wrapped, err := svc.sealPending(proj, pol.ID, pendingVal)
+	if err != nil {
+		t.Fatalf("sealPending: %v", err)
+	}
+	if err := svc.repo.SetPending(ctx, pol.ID, ct, nonce, wrapped); err != nil {
+		t.Fatalf("SetPending: %v", err)
+	}
+
+	// PRECONDITION (proves the bug is real): with next_rotation_at still in
+	// the future, ClaimDue does NOT select the crashed policy. Before the fix,
+	// nothing in RotateNow would ever change next_rotation_at, so a crashed
+	// manual rotation would be stranded like this until the full interval
+	// elapsed.
+	due, err := svc.repo.ClaimDue(ctx, time.Now(), 50)
+	if err != nil {
+		t.Fatalf("ClaimDue (precondition): %v", err)
+	}
+	for _, d := range due {
+		if d.ID == pol.ID {
+			t.Fatal("precondition violated: ClaimDue already selected the not-yet-due policy")
+		}
+	}
+
+	// Now drive a successful manual rotation. RotateNow must mark the policy
+	// due before attempting (so a crash here would have been recoverable),
+	// then complete normally on the happy path.
+	newVer, err := svc.RotateNow(ctx, pol.ID)
+	if err != nil {
+		t.Fatalf("RotateNow: %v", err)
+	}
+	if newVer <= 0 {
+		t.Errorf("RotateNow returned version %d, want > 0", newVer)
+	}
+
+	reloaded, err := svc.repo.Get(ctx, pol.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.PendingState != nil {
+		t.Errorf("PendingState = %v, want nil after successful commit", *reloaded.PendingState)
+	}
+	if !reloaded.NextRotationAt.After(time.Now()) {
+		t.Errorf("NextRotationAt = %v, want advanced into the future by MarkRotated", reloaded.NextRotationAt)
+	}
+}
+
+// TestPrepareRotateNowMakesPolicyDue is the focused core-of-the-fix assertion:
+// PrepareRotateNow alone (independent of the rest of RotateNow) must flip a
+// future-dated policy's next_rotation_at into the past/now, so ClaimDue picks
+// it up — this is what makes a crashed manual-rotate policy recoverable.
+func TestPrepareRotateNowMakesPolicyDue(t *testing.T) {
+	svc, _, sec := newTestService(t)
+	proj, storeCfg := mkChain(t, sec, "crud-preparerotatenow-due")
+	ctx := context.Background()
+
+	key := "PREPARE_ROTATE_NOW_KEY"
+	seedSecret(t, sec, storeCfg, key, "initial")
+
+	future := time.Now().Add(time.Hour)
+	pol := mkPolicyAt(t, svc, proj, storeCfg, TypeWebhook, key,
+		PolicyConfig{URL: "https://example.invalid/never-called"}, future)
+
+	// Precondition: not due yet.
+	before, err := svc.repo.ClaimDue(ctx, time.Now(), 50)
+	if err != nil {
+		t.Fatalf("ClaimDue (before): %v", err)
+	}
+	for _, d := range before {
+		if d.ID == pol.ID {
+			t.Fatal("precondition violated: policy already due before PrepareRotateNow")
+		}
+	}
+
+	now := time.Now()
+	if err := svc.repo.PrepareRotateNow(ctx, pol.ID, now); err != nil {
+		t.Fatalf("PrepareRotateNow: %v", err)
+	}
+
+	after, err := svc.repo.ClaimDue(ctx, now, 50)
+	if err != nil {
+		t.Fatalf("ClaimDue (after): %v", err)
+	}
+	found := false
+	for _, d := range after {
+		if d.ID == pol.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("ClaimDue did not select the policy after PrepareRotateNow made it due")
+	}
+}
+
 // TestPolicyViewOmitsSecrets is a lightweight structural guard: PolicyView
 // must not carry any field that could leak the config blob, admin DSN, HMAC
 // keys, or secret value. If a future edit adds such a field to PolicyView

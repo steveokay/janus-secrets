@@ -55,7 +55,7 @@ Request bodies are JSON:
 
 - Rotator POST (to the policy's `url`): `{"policy_id","secret_key","new_value"}`
 - Notify POST (to the policy's optional `notify_url`, value-free):
-  `{"policy_id","project_id","config_id","secret_key","new_version"}`
+  `{"policy_id","project_id","config_id","secret_key","new_version","rotated_at"}`
 
 ## Postgres admin least privilege
 

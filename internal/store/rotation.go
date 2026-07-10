@@ -199,3 +199,19 @@ func (r *RotationRepo) MarkFailure(ctx context.Context, id, sanitizedErr string,
 		   updated_at = now()
 		 WHERE id=$1::uuid`, id, sanitizedErr, next, threshold)
 }
+
+// PrepareRotateNow readies a policy for a manual rotate: it makes the policy
+// immediately due (so a crash mid-apply is recovered by the scheduler on the
+// next tick, since ClaimDue selects next_rotation_at <= now), and — only if the
+// policy was 'failed' — reactivates it and clears the failure counters so the
+// manual attempt starts fresh. A 'paused' policy keeps its status.
+func (r *RotationRepo) PrepareRotateNow(ctx context.Context, id string, now time.Time) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE rotation_policies SET
+		   next_rotation_at = $2,
+		   status        = CASE WHEN status = 'failed' THEN 'active' ELSE status END,
+		   failure_count = CASE WHEN status = 'failed' THEN 0 ELSE failure_count END,
+		   last_error    = CASE WHEN status = 'failed' THEN NULL ELSE last_error END,
+		   updated_at    = now()
+		 WHERE id = $1::uuid`, id, now)
+}
