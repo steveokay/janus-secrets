@@ -125,8 +125,23 @@ func (r *RotationRepo) Delete(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx, `DELETE FROM rotation_policies WHERE id = $1::uuid`, id)
 }
 
-// ClaimDue returns active policies that are due or have an in-flight pending
-// value (crash recovery), oldest-due first, up to limit.
+// ClaimDue returns active policies whose next_rotation_at is due, oldest-due
+// first, up to limit.
+//
+// The single next_rotation_at <= now predicate serves both crash-recovery and
+// backoff correctly, so there is deliberately NO separate "pending_state IS NOT
+// NULL" clause:
+//   - Crash recovery: a policy that crashed mid-apply still has an in-flight
+//     pending value AND a next_rotation_at in the past (it was set when the
+//     policy first became due, and SetPending does not move it), so
+//     next_rotation_at <= now re-selects it on the next tick and rotate reuses
+//     the pending value idempotently.
+//   - Backoff: a *failing* pending policy has had next_rotation_at pushed to
+//     now + backoff by MarkFailure, so it correctly waits out the backoff
+//     instead of being re-selected every tick (which would be a retry storm).
+//   - Threshold: a policy flipped to status='failed' at the failure threshold
+//     stops being retried (status != 'active'); its stale pending row lingers
+//     until a manual rotate-now.
 //
 // Single-node deployments run exactly one scheduler goroutine, so a plain
 // SELECT is race-free; we deliberately do NOT hold FOR UPDATE row locks here
@@ -136,7 +151,7 @@ func (r *RotationRepo) Delete(ctx context.Context, id string) error {
 func (r *RotationRepo) ClaimDue(ctx context.Context, now time.Time, limit int) ([]*RotationPolicy, error) {
 	rows, err := r.s.pool.Query(ctx,
 		`SELECT `+rotationCols+` FROM rotation_policies
-		 WHERE status = 'active' AND (next_rotation_at <= $1 OR pending_state IS NOT NULL)
+		 WHERE status = 'active' AND next_rotation_at <= $1
 		 ORDER BY next_rotation_at ASC LIMIT $2`, now, limit)
 	if err != nil {
 		return nil, mapError(err)

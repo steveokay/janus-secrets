@@ -294,7 +294,7 @@ func TestRotateSealedNoop(t *testing.T) {
 		t.Fatalf("attempt: err = %v, want ErrSealed", err)
 	}
 
-	// Nothing written: pending still nil, value unchanged, no new version.
+	// Sealed is a clean no-op: nothing written and NOT counted as a failure.
 	reloaded, err := svc.repo.Get(ctx, pol.ID)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
@@ -305,12 +305,20 @@ func TestRotateSealedNoop(t *testing.T) {
 	if reloaded.LastConfigVersion != nil {
 		t.Errorf("LastConfigVersion = %v, want nil (sealed no-op)", *reloaded.LastConfigVersion)
 	}
-
-	// Unseal (via a fresh keyring on the same store's project) is not needed: we
-	// only assert the stored value is unchanged. Re-unseal the keyring to read.
-	// The MarkFailure path DID run (failure bookkeeping is allowed even sealed),
-	// so verify failure_count bumped but no rotation occurred.
-	if reloaded.FailureCount != 1 {
-		t.Errorf("FailureCount = %d, want 1 (sealed attempt is a recorded failure)", reloaded.FailureCount)
+	// A sealed server is expected operational state, not a rotation fault: it
+	// must NOT increment failure_count, must NOT advance backoff, and must NOT
+	// flip status away from active (else the policy would drop out of ClaimDue
+	// even after unseal).
+	if reloaded.FailureCount != 0 {
+		t.Errorf("FailureCount = %d, want 0 (sealed is not a failure)", reloaded.FailureCount)
+	}
+	if reloaded.Status != "active" {
+		t.Errorf("Status = %q, want active (sealed is not a failure)", reloaded.Status)
+	}
+	if reloaded.LastError != nil {
+		t.Errorf("LastError = %v, want nil (sealed is not a failure)", *reloaded.LastError)
+	}
+	if !reloaded.NextRotationAt.Equal(pol.NextRotationAt) {
+		t.Errorf("NextRotationAt = %v, want unchanged %v (no backoff on sealed)", reloaded.NextRotationAt, pol.NextRotationAt)
 	}
 }

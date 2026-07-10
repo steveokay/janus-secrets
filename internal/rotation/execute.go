@@ -112,6 +112,16 @@ func (s *Service) rotate(ctx context.Context, p *store.RotationPolicy) error {
 func (s *Service) attempt(ctx context.Context, p *store.RotationPolicy) error {
 	err := s.rotate(ctx, p)
 	if err != nil {
+		// A sealed server is expected operational state, not a rotation fault:
+		// do NOT count it as a failure (no MarkFailure → no failure_count bump,
+		// no backoff, and crucially no threshold flip to status='failed', which
+		// would keep the policy out of ClaimDue even after unseal), and do NOT
+		// emit a counting 'failure' audit event. Return the sentinel unchanged
+		// so callers can match it with ==/errors.Is.
+		if errors.Is(err, ErrSealed) {
+			s.logger.Debug("rotation skipped: server sealed", "policy", p.ID)
+			return err
+		}
 		next := s.now().Add(backoff(p.FailureCount + 1))
 		if merr := s.repo.MarkFailure(ctx, p.ID, sanitize(err), next, failureThreshold); merr != nil {
 			s.logger.Warn("rotation mark-failure failed", "policy", p.ID, "err", merr)
