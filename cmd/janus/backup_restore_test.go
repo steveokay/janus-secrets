@@ -99,3 +99,28 @@ func TestRestoreSendsBodyAndPrintsUnsealHint(t *testing.T) {
 		t.Fatalf("output missing unseal hint: %q", out.String())
 	}
 }
+
+// TestRestoreNotEmptyErrorIsActionable pins the operator-facing rendering of
+// the most likely restore failure: the passthrough `message (code, HTTP n)`
+// format must survive future rewriteAPIError changes.
+func TestRestoreNotEmptyErrorIsActionable(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sys/restore", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		fmt.Fprint(w, `{"error":{"code":"not_empty","message":"restore requires an empty instance (fresh database, before init)"}}`)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	cmd := newRestoreCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetIn(strings.NewReader("{\"janus_backup\":1}\n"))
+	cmd.SetArgs([]string{"--address", ts.URL})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "empty instance") || !strings.Contains(err.Error(), "not_empty") {
+		t.Fatalf("want actionable not_empty error, got %v", err)
+	}
+}

@@ -69,9 +69,17 @@ func (c *apiClient) call(method, path string, in, out any) error {
 	return nil
 }
 
+// streamClient returns an HTTP client with NO total timeout (http.Client.
+// Timeout covers the whole body read, which a large backup/restore stream can
+// legitimately exceed) but a bounded wait for response headers, so a server
+// that accepts TCP and never answers cannot hang a cron'd backup forever.
+func streamClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = 30 * time.Second
+	return &http.Client{Transport: tr}
+}
+
 // stream issues an authenticated request and returns the raw body on 2xx.
-// It uses a client WITHOUT a total timeout: http.Client.Timeout covers the
-// whole body read, which a large backup can legitimately exceed.
 func (c *apiClient) stream(method, path string) (io.ReadCloser, error) {
 	req, err := http.NewRequest(method, c.address+path, nil)
 	if err != nil {
@@ -84,7 +92,7 @@ func (c *apiClient) stream(method, path string) (io.ReadCloser, error) {
 		// #nosec G124 -- outgoing client request cookie; Secure/HttpOnly/SameSite apply only to server Set-Cookie responses and are ignored here.
 		req.AddCookie(&http.Cookie{Name: "janus_session", Value: c.cred.Cookie})
 	}
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := streamClient().Do(req)
 	if err != nil {
 		return nil, err
 	}

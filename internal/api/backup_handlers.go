@@ -60,14 +60,19 @@ func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 		return // client went away; nothing to do
 	}
 	if err := s.st.DumpBackup(r.Context(), w); err != nil {
-		// Headers are committed; a truncated stream fails restore's
-		// transaction safely on the other end. Log and stop. A client
-		// disconnect is routine, not a server fault — keep it at Info.
+		// Headers are committed, so we cannot switch to an error envelope. A
+		// client disconnect is routine — log at Info and stop. A server-fault
+		// failure must NOT finalize the chunked response as if complete: the
+		// CLI would see clean EOF and report "backup complete" for a
+		// truncated dump. Abort the response instead so the client observes
+		// a broken transfer (same precedent as abortExport in
+		// audit_handlers.go; restore fails safe on truncated input either way).
 		if r.Context().Err() != nil {
 			s.logger.Info("backup stream aborted by client", "err", err)
-		} else {
-			s.logger.Warn("backup stream failed", "err", err)
+			return
 		}
+		s.logger.Warn("backup stream failed; response aborted (truncated)", "err", err)
+		panic(http.ErrAbortHandler)
 	}
 }
 

@@ -27,18 +27,14 @@ func newBackupCmd() *cobra.Command {
 				return err
 			}
 			defer body.Close()
-			var w io.Writer = cmd.OutOrStdout()
-			if out != "" {
-				f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- operator-chosen output path
+			var n int64
+			if out == "" {
+				n, err = io.Copy(cmd.OutOrStdout(), body)
 				if err != nil {
-					return err
+					return fmt.Errorf("backup stream interrupted after %d bytes: %w", n, err)
 				}
-				defer f.Close()
-				w = f
-			}
-			n, err := io.Copy(w, body)
-			if err != nil {
-				return fmt.Errorf("backup stream interrupted after %d bytes: %w", n, err)
+			} else if n, err = writeStreamFile(out, body); err != nil {
+				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "backup complete (%d bytes)\n", n)
 			return nil
@@ -46,8 +42,36 @@ func newBackupCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&address, "address", "", "server address (default: stored login address)")
 	cmd.Flags().StringVar(&token, "token", "", "service token (overrides stored session)")
-	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout (created 0600)")
+	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout (created 0600, written atomically)")
 	return cmd
+}
+
+// writeStreamFile streams r to path atomically at mode 0600: temp file opened
+// O_EXCL (never follows a planted symlink, never inherits a pre-existing
+// file's looser mode), Close error checked (a corrupt DR artifact must not
+// report success), then renamed over the target — a truncated file never
+// lands at the final path. Streaming sibling of writeSecretFile.
+func writeStreamFile(path string, r io.Reader) (int64, error) {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_EXCL, 0o600) // #nosec G304 -- operator-chosen output path, O_EXCL blocks symlink/preexisting follow
+	if err != nil {
+		return 0, err
+	}
+	n, err := io.Copy(f, r)
+	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return n, fmt.Errorf("backup stream interrupted after %d bytes: %w", n, err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return n, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return n, err
+	}
+	return n, nil
 }
 
 func newRestoreCmd() *cobra.Command {
@@ -55,7 +79,7 @@ func newRestoreCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore [file]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Restore a backup into an EMPTY instance (reads stdin without a file arg)",
+		Short: "Restore a backup into an EMPTY instance (reads stdin when no file is given)",
 		Long: "POSTs the dump to /v1/sys/restore. Only valid against a freshly\n" +
 			"migrated, uninitialized instance. Afterwards the instance is sealed:\n" +
 			"unseal with the ORIGINAL shares or KMS key of the backed-up instance.",
@@ -74,8 +98,7 @@ func newRestoreCmd() *cobra.Command {
 				return err
 			}
 			req.Header.Set("Content-Type", "application/x-ndjson")
-			// No total timeout: large restores stream for a while.
-			resp, err := (&http.Client{}).Do(req)
+			resp, err := streamClient().Do(req)
 			if err != nil {
 				return err
 			}
@@ -87,6 +110,6 @@ func newRestoreCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&address, "address", "", "server address")
+	cmd.Flags().StringVar(&address, "address", "", "server address (default: stored login address)")
 	return cmd
 }
