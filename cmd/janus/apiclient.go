@@ -69,6 +69,32 @@ func (c *apiClient) call(method, path string, in, out any) error {
 	return nil
 }
 
+// stream issues an authenticated request and returns the raw body on 2xx.
+// It uses a client WITHOUT a total timeout: http.Client.Timeout covers the
+// whole body read, which a large backup can legitimately exceed.
+func (c *apiClient) stream(method, path string) (io.ReadCloser, error) {
+	req, err := http.NewRequest(method, c.address+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case c.cred.Bearer != "":
+		req.Header.Set("Authorization", "Bearer "+c.cred.Bearer)
+	case c.cred.Cookie != "":
+		// #nosec G124 -- outgoing client request cookie; Secure/HttpOnly/SameSite apply only to server Set-Cookie responses and are ignored here.
+		req.AddCookie(&http.Cookie{Name: "janus_session", Value: c.cred.Cookie})
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		return nil, rewriteAPIError(decodeAPIError(resp))
+	}
+	return resp.Body, nil
+}
+
 // decodeAPIError reads the error envelope into an *apiError (type from client.go).
 func decodeAPIError(resp *http.Response) *apiError {
 	var env struct {
