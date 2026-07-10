@@ -46,7 +46,7 @@ func newShamirTestServer(t *testing.T) (*Server, *httptest.Server, *memSealStore
 	kr := crypto.NewKeyring()
 	u := crypto.NewShamirUnsealer(seals, 0, 0)
 	srv := New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals, nil, nil, nil,
-		nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		nil, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return srv, ts, seals

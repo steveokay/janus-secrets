@@ -11,6 +11,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/transit"
@@ -38,6 +39,10 @@ type BootConfig struct {
 	// Version is the janus build version (cmd/janus's stamped version var),
 	// recorded in backup headers.
 	Version string
+	// RotationTick is the rotation scheduler's tick interval. Zero disables the
+	// scheduler (tests build BootConfig directly and get no scheduler); cmd/janus
+	// applies the production default.
+	RotationTick time.Duration
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -113,6 +118,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)
 	authorizer := authz.New(store.NewRoleBindingRepo(st))
 	auditRec := audit.New(store.NewAuditRepo(st))
+	rotationSvc := rotation.New(kr, st, svc, auditRec, logger)
 	// Sweep sessions orphaned by expiry while the server was down.
 	if err := authSvc.SweepExpiredSessions(ctx); err != nil {
 		logger.Warn("expired-session sweep failed", "err", err)
@@ -125,8 +131,14 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType, Version: bc.Version}, kr, unsealer, seals, svc, transitSvc, authSvc, authorizer, st, auditRec, logger)
+	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType, Version: bc.Version}, kr, unsealer, seals, svc, transitSvc, rotationSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
+
+	// Start the rotation scheduler tied to the boot ctx (runServer's shutdown
+	// context), so it stops cleanly on SIGTERM. Zero tick (tests) disables it.
+	if bc.RotationTick > 0 {
+		go rotationSvc.RunScheduler(ctx, bc.RotationTick)
+	}
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and
 	// POST /v1/sys/unseal retries.

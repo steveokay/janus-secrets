@@ -21,7 +21,7 @@ func newTestServerSealed(t *testing.T) *Server {
 	kr := crypto.NewKeyring()
 	u := crypto.NewShamirUnsealer(seals, 0, 0)
 	return New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals, nil, nil, nil,
-		nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		nil, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 // newTestServerUnsealed builds the same minimal Server but unseals it

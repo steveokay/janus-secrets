@@ -12,6 +12,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/transit"
@@ -37,11 +38,12 @@ type Server struct {
 	unsealer crypto.Unsealer
 	seals    crypto.SealConfigStore
 	service  *secrets.Service
-	transit  *transit.Service // nil in unit-test servers that exercise no transit path
-	auth     *auth.Service    // nil only in unit tests that exercise no auth path
-	authz    *authz.Engine   // nil only in unit-test servers that exercise no authz path
-	st       *store.Store    // for scope-chain resolution + membership/user handlers
-	audit    *audit.Recorder // nil in unit-test servers; Boot always wires a real one
+	transit  *transit.Service  // nil in unit-test servers that exercise no transit path
+	rotation *rotation.Service // nil in unit-test servers that exercise no rotation path
+	auth     *auth.Service     // nil only in unit tests that exercise no auth path
+	authz    *authz.Engine     // nil only in unit-test servers that exercise no authz path
+	st       *store.Store      // for scope-chain resolution + membership/user handlers
+	audit    *audit.Recorder   // nil in unit-test servers; Boot always wires a real one
 	logger   *slog.Logger
 	router   chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
@@ -52,7 +54,7 @@ type Server struct {
 
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
-	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, authSvc *auth.Service,
+	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, rot *rotation.Service, authSvc *auth.Service,
 	authorizer *authz.Engine, st *store.Store, auditRec *audit.Recorder, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
@@ -60,7 +62,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr,
+	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr, rotation: rot,
 		auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
 
 	r := chi.NewRouter()
@@ -128,14 +130,22 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		r.Route("/v1/instance/members", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.instanceScope()) })
-			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.instanceScope(), chi.URLParam(r, "uid")) })
-			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.instanceScope(), chi.URLParam(r, "uid")) })
+			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) {
+				s.memberPut(w, r, s.instanceScope(), chi.URLParam(r, "uid"))
+			})
+			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) {
+				s.memberDelete(w, r, s.instanceScope(), chi.URLParam(r, "uid"))
+			})
 		})
 		r.Route("/v1/projects/{pid}/members", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.projectScope(r)) })
-			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberPut(w, r, s.projectScope(r), chi.URLParam(r, "uid")) })
-			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) { s.memberDelete(w, r, s.projectScope(r), chi.URLParam(r, "uid")) })
+			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) {
+				s.memberPut(w, r, s.projectScope(r), chi.URLParam(r, "uid"))
+			})
+			r.Delete("/{uid}", func(w http.ResponseWriter, r *http.Request) {
+				s.memberDelete(w, r, s.projectScope(r), chi.URLParam(r, "uid"))
+			})
 		})
 		r.Route("/v1/projects/{pid}/environments/{eid}/members", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
