@@ -58,6 +58,37 @@ func (s *Store) SchemaVersion(ctx context.Context) (int64, error) {
 	return v, nil
 }
 
+// MissingBackupTables returns the names of backup-set tables absent from the
+// database. A cleanly-migrated instance has all of them at any tracked version;
+// a non-empty result means the schema is inconsistent with schema_migrations
+// (e.g. a table dropped without resetting the tracker), which would otherwise
+// fail a dump mid-stream. Callers use this as a pre-flight so the API can
+// refuse with a clean error instead of aborting a partial stream.
+func (s *Store) MissingBackupTables(ctx context.Context) ([]string, error) {
+	names := make([]string, len(backupTables))
+	for i, t := range backupTables {
+		names[i] = t.name
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT n FROM unnest($1::text[]) AS n
+		 WHERE NOT EXISTS (
+		   SELECT 1 FROM information_schema.tables
+		   WHERE table_schema = 'public' AND table_name = n)`, names)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var missing []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, mapError(err)
+		}
+		missing = append(missing, n)
+	}
+	return missing, mapError(rows.Err())
+}
+
 // IsEmptyForRestore reports whether the instance is empty enough to restore
 // into: no seal config, no users, no projects (the state of a freshly
 // migrated database, before /v1/sys/init).

@@ -35,6 +35,26 @@ func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
+	// Pre-flight: confirm every backup-set table exists BEFORE auditing or
+	// streaming. On a schema inconsistent with the tracked migration version
+	// (a table dropped without resetting schema_migrations), the dump would
+	// otherwise fail mid-stream and abort the response with a reset connection.
+	// Refusing up front turns that into a clean, actionable error. The client
+	// message names only a count and the version — never table contents.
+	missing, err := s.st.MissingBackupTables(r.Context())
+	if err != nil {
+		s.logger.Warn("backup pre-flight table check failed", "err", err)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	if len(missing) > 0 {
+		s.logger.Warn("backup refused: schema inconsistent with tracked migration version",
+			"missing_count", len(missing), "missing", missing, "schema_version", ver)
+		writeError(w, http.StatusInternalServerError, CodeSchemaInconsistent,
+			fmt.Sprintf("database schema is inconsistent: %d expected table(s) missing at migration version %d; backup cannot proceed",
+				len(missing), ver))
+		return
+	}
 	// Audit BEFORE streaming: once the body starts we cannot switch to an
 	// error response (same rule as the audit export handler). Audit-write
 	// failure fails the request.
