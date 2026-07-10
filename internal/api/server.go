@@ -235,6 +235,17 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/v1/transit/datakey/wrapped/{name}", s.handleTransitDatakeyWrapped)
 			})
 		}
+		if s.rotation != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/rotation/policies", s.handleRotationCreate)
+				r.Get("/v1/rotation/policies", s.handleRotationList)
+				r.Get("/v1/rotation/policies/{id}", s.handleRotationGet)
+				r.Patch("/v1/rotation/policies/{id}", s.handleRotationUpdate)
+				r.Delete("/v1/rotation/policies/{id}", s.handleRotationDelete)
+				r.Post("/v1/rotation/policies/{id}/rotate", s.handleRotationRotateNow)
+			})
+		}
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
 				r.Use(RequireAuth(s.auth))
