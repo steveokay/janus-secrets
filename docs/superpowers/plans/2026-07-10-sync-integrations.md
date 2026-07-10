@@ -464,7 +464,7 @@ import (
 // not starting with a digit. (GitHub also reserves the GITHUB_ prefix.)
 var ghSecretNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func validGitHubالسSecretName(k string) bool {
+func validGitHubSecretName(k string) bool {
 	return ghSecretNameRe.MatchString(k) && len(k) <= 100 &&
 		!hasPrefixFold(k, "GITHUB_")
 }
@@ -627,8 +627,6 @@ func (g githubProvider) doJSON(ctx context.Context, method, pat, url string, bod
 	return nil
 }
 ```
-
-> **IMPORTANT (implementer):** the identifiers `validGitHubالسSecretName` above contain a typo/garbled character — name the function `validGitHubSecretName` consistently (it is referenced as `validGitHubSecretName` in `Apply`). Use the ASCII name everywhere.
 
 - [ ] **Step 2: test** — `internal/secretsync/github_provider_test.go`. Use `httptest.NewServer` to emulate GitHub. The provider's `baseURL` points at the test server. Cover:
   - `TestGitHubApplySealsAndPuts`: server returns a real NaCl public key (generate a keypair with `box.GenerateKey`; base64 its public key for `/public-key`); capture the `PUT` bodies; after `Apply`, decrypt each `encrypted_value` with `box.OpenAnonymous(nil, sealed, pub, priv)` and assert it equals the original value (proves sealed-box correctness end-to-end); assert `key_id` echoed.
@@ -1139,4 +1137,4 @@ gh pr create --title "feat: sync integrations (Phase 3.2)" --body "<summary + sp
 
 **Type consistency:** `Provider.Apply(ctx, Creds, Addr, desired map[string]string, managedKeys []string, prune bool) (ApplyResult, error)` is identical across `provider.go`, `github_provider.go`, `k8s_provider.go`, and `reconcile.go`'s `providerFor`. `secretsync.Creds`/`Addr`/`ApplyResult` are the single definitions (provider.go). Store methods `ClaimDue`/`MarkSynced`/`MarkFailure`/`PrepareSyncNow` used consistently in reconcile/scheduler/crud. `New(...)` param order (rotation then sync) matches server.go and boot.go. Engine field `sync *secretsync.Service` on Server.
 
-**Reconciliations flagged for implementers (grep-and-adjust, not placeholders):** keyring master field name + locking in `SyncFingerprint` (verify in keyring.go); the `validGitHubSecretName` identifier must use the ASCII spelling everywhere (the plan text contains one garbled copy — use `validGitHubSecretName`); `resolve.RawConfig.ProjectID` + `resolve.ErrForbiddenReference` exist (confirmed via resolve_adapter.go); the github test seam (`githubBaseURL` on Service) if reconcile tests need to point at an httptest fake; unit-test `api.New(...)` call sites need the extra `nil`.
+**Reconciliations flagged for implementers (grep-and-adjust, not placeholders):** keyring master field name + locking in `SyncFingerprint` (verify in keyring.go); `resolve.RawConfig.ProjectID` + `resolve.ErrForbiddenReference` exist (confirmed via resolve_adapter.go); the github test seam (`githubBaseURL` on Service) if reconcile tests need to point at an httptest fake; unit-test `api.New(...)` call sites need the extra `nil`.
