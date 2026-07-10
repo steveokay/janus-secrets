@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 )
@@ -336,5 +337,58 @@ func TestRestoreSchemaVersionMismatch422(t *testing.T) {
 	if code := doJSON(t, "POST", bTS.URL+"/v1/sys/restore",
 		`{"janus_backup":1,"migration_version":99999}`, &env); code != 422 || env.Error.Code != CodeValidation {
 		t.Fatalf("mismatch = %d %+v (want 422 validation)", code, env)
+	}
+}
+
+// TestBackupRefusedOnInconsistentSchema reproduces the inconsistent dev volume
+// that motivated the pre-flight guard: a backup-set table dropped without
+// resetting schema_migrations. The dump would fail mid-stream and reset the
+// connection; the pre-flight must instead refuse up front with a clean
+// schema_inconsistent envelope, and must NOT record a sys.backup success.
+func TestBackupRefusedOnInconsistentSchema(t *testing.T) {
+	dsn := bootPostgres(t)
+	ctx := context.Background()
+	srv, st, err := Boot(ctx, BootConfig{DatabaseURL: dsn, SealType: crypto.SealTypeShamir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	var ir struct {
+		Shares []string `json:"shares"`
+		Admin  *struct{ Email, Password string } `json:"admin"`
+	}
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/init",
+		`{"shares":1,"threshold":1,"admin_email":"schema@corp.io"}`, &ir); code != 200 {
+		t.Fatalf("init: %d", code)
+	}
+	if code := doJSON(t, "POST", ts.URL+"/v1/sys/unseal",
+		fmt.Sprintf(`{"share":%q}`, ir.Shares[0]), nil); code != 200 {
+		t.Fatal("unseal failed")
+	}
+	cookie := login(t, ts.URL, ir.Admin.Email, ir.Admin.Password)
+
+	// Drop a backup-set table with no inbound FKs — desyncs the live schema
+	// from schema_migrations (which still reports the migrated version).
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx, "DROP TABLE oidc_identities"); err != nil {
+		t.Fatalf("drop table: %v", err)
+	}
+
+	// Backup refuses cleanly (a decodable JSON envelope, not a reset).
+	var env errEnvelope
+	if code := doAuthed(t, "GET", ts.URL+"/v1/sys/backup", cookie, "", "", &env); code != 500 || env.Error.Code != CodeSchemaInconsistent {
+		t.Fatalf("backup on inconsistent schema = %d %+v (want 500 schema_inconsistent)", code, env)
+	}
+	// The pre-flight ran before the audit write, so no sys.backup was recorded.
+	_, exp := rawGet(t, ts.URL+"/v1/audit/export?format=jsonl&action=sys.backup", cookie)
+	if strings.Contains(exp, "sys.backup") {
+		t.Fatal("sys.backup audit event written despite pre-flight refusal")
 	}
 }

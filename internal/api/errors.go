@@ -27,6 +27,7 @@ const (
 	CodeRateLimited        = "rate_limited"
 	CodeNotEmpty           = "not_empty"
 	CodeDBUnavailable      = "db_unavailable"
+	CodeSchemaInconsistent = "schema_inconsistent"
 )
 
 type errorBody struct {
