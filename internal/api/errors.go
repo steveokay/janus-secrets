@@ -25,6 +25,7 @@ const (
 	CodeSessionExpired     = "session_expired"
 	CodeForbidden          = "forbidden"
 	CodeRateLimited        = "rate_limited"
+	CodeNotEmpty           = "not_empty"
 	CodeDBUnavailable      = "db_unavailable"
 )
 

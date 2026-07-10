@@ -120,6 +120,8 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus unseal --reset` | Discard all submitted shares (recovery from a bad share) |
 | `janus seal-status` | Show `initialized` / `sealed` / seal type / threshold / submission progress |
 | `janus seal` | Re-seal a running server — wipes the master key from memory (incident response). Requires an admin (`sys:seal`): authenticates like the secrets commands — `--token` > `JANUS_TOKEN` > the stored session from `janus login` — and its `--address` falls back to the stored login address |
+| `janus backup [--out FILE]` | Stream a key-preserving full-instance backup (JSONL) to stdout or `--out` (written atomically, mode 0600). The dump contains only wrapped keys and ciphertext — useless without the original unseal material. Requires an admin (`sys:backup`): authenticates like `janus seal` — `--token` > `JANUS_TOKEN` > stored session. See the backup & restore runbook (`docs/ops/backup-restore.md`) |
+| `janus restore [file]` | Restore a backup into an **empty** instance (fresh database, before init); reads stdin when no file is given. Unauthenticated by design — it is a pre-init bootstrap operation like `janus init`. Afterwards the instance is sealed: unseal with the ORIGINAL shares/KMS key. See the backup & restore runbook |
 | `janus migrate` | Apply migrations explicitly (`JANUS_DATABASE_URL`) |
 | `janus version` | Print the version |
 

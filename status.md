@@ -1047,6 +1047,58 @@ GO-2026-5856 (`crypto/tls` ECH), same pattern as the M2 pin. Known cosmetic
 oddity deferred: the CLI's generic 503 rewrite makes `janus seal` against an
 already-sealed server print "server is sealed — unseal it first".
 
+## Ops hardening (PR 2) — key-preserving instance backup & restore ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-09-ops-hardening-design.md` §4 (the
+fourth item of the ops-hardening batch, split out from PR 1's §1–§3)
+Plan: `docs/superpowers/plans/2026-07-09-ops-hardening.md`
+Branch: `ops-backup-restore` (stacked on PR 1 `ops-probes-seal-idle`) · Docs:
+`docs/ops/backup-restore.md` (DR runbook), CLI/sys rows in `docs/operations.md`
+
+Full-instance disaster-recovery backup/restore that preserves the crypto
+hierarchy verbatim — a backup is a **key-preserving logical dump** (wrapped
+KEKs, wrapped DEKs, ciphertexts, password hashes, token HMACs, every row as
+stored), so it contains **no plaintext secrets** and is useless without the
+origin instance's original unseal material.
+
+- [x] 1. **Store dump/restore** (`internal/store`): `DumpBackup` streams a
+      JSONL logical dump inside a **single `REPEATABLE READ` snapshot** so all
+      tables are FK-consistent; `RestoreBackup` applies ordered records in one
+      transaction (root-config-first ordering respects `inherits_from`), with
+      `SchemaVersion` + `IsEmptyForRestore` guards and an in-transaction
+      emptiness re-check.
+- [x] 2. **`GET /v1/sys/backup`** (admin, `sys:backup`, audited `sys.backup`):
+      streams the dump; aborts a truncated stream rather than emit a partial
+      file.
+- [x] 3. **`POST /v1/sys/restore`** (pre-init bootstrap, unauthenticated like
+      `init`): **empty-instance only** (`409 not_empty` otherwise), rejects a
+      **zero-record** dump and a **schema-version mismatch** (`422`), and
+      appends a **chain-continuous `sys.restore`** audit event so the restored
+      chain still verifies. A failed/truncated restore rolls back completely —
+      the instance stays empty and restorable.
+- [x] 4. **`janus backup` / `janus restore` CLI**: `backup` streams to stdout
+      or `--out` (atomic `0600` write), admin-authenticated like `janus seal`
+      (`--token` > `JANUS_TOKEN` > stored session); `restore` reads a file or
+      stdin, unauthenticated by design (pre-init).
+- [x] 5. **DR-drill e2e**: backup instance A → restore into empty instance B →
+      unseal B with **A's original share** → secrets, transit, and the audit
+      hash-chain all verify; plus truncated-stream-rollback and
+      schema-mismatch e2e cases.
+
+Verification: `go build`, `go vet`, `go test ./...` (store + api + cmd/janus
+DR-drill, Docker-backed testcontainers suites ran fresh) all pass; `gosec`
+(shamir excluded) 0 issues (the backup code carries recorded `#nosec G201` on
+the `Sprintf`-composed table-scoped dump SQL and `#nosec G304` on the
+CLI backup/restore file opens — no new findings); `govulncheck` 0 affecting
+(toolchain stays at the PR 1 `go1.26.5` pin).
+
+Deferred (documented, not coded): the **seal-type mismatch on restore** — the
+unsealer is built at boot from `JANUS_SEAL_TYPE`, so restoring a shamir dump
+onto a server booted for KMS (or vice-versa) needs a restart with the matching
+type. This is called out in the runbook (`docs/ops/backup-restore.md`) rather
+than enforced in code, since the restore path is pre-init and the seal type is
+a boot-time operator decision.
+
 ## Phase-2 items already on the radar
 
 - [x] **Federation** — **complete** (C1 human OIDC login, PR #34; C2 CI machine
