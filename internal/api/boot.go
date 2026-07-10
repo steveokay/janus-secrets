@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/auth"
@@ -29,6 +30,11 @@ type BootConfig struct {
 	// implementation; tests supply fakes.
 	NewKMSClient func(context.Context) (crypto.KMSClient, error)
 	Logger       *slog.Logger
+	// SessionIdleTimeout is the session-cookie inactivity window (web UI and
+	// CLI login sessions). Zero disables
+	// idle enforcement (the 30m production default is applied by cmd/janus,
+	// so tests that build BootConfig directly get no idle timeout).
+	SessionIdleTimeout time.Duration
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -101,6 +107,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	svc := secrets.NewService(st, kr)
 	transitSvc := transit.New(kr, st)
 	authSvc := auth.NewService(st, kr)
+	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)
 	authorizer := authz.New(store.NewRoleBindingRepo(st))
 	auditRec := audit.New(store.NewAuditRepo(st))
 	// Sweep sessions orphaned by expiry while the server was down.

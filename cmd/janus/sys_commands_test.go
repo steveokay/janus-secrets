@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,8 +187,10 @@ func TestSealStatusCommand(t *testing.T) {
 }
 
 func TestSealCommand(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir()) // isolate stored auth
+	t.Setenv("JANUS_TOKEN", "")
 	ts, st := stubSys(t, "shamir")
-	if _, err := runCLI(t, "", "seal", "--address", ts.URL); err != nil {
+	if _, err := runCLI(t, "", "seal", "--address", ts.URL, "--token", "janus_svc_test"); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -197,6 +201,84 @@ func TestSealCommand(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("seal endpoint not called: %v", st.paths)
+	}
+}
+
+func TestSealSendsBearerToken(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir()) // isolate stored auth
+	t.Setenv("JANUS_TOKEN", "")
+	var gotAuth string
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sys/seal", func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"sealed":true}`)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	cmd := newSealCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--address", ts.URL, "--token", "janus_svc_abc"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer janus_svc_abc" {
+		t.Fatalf("Authorization = %q, want Bearer janus_svc_abc", gotAuth)
+	}
+}
+
+func TestSealSendsStoredSession(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_TOKEN", "")
+	t.Setenv("JANUS_ADDR", "")
+	var gotCookie string
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sys/seal", func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie("janus_session"); err == nil {
+			gotCookie = c.Value
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"sealed":true}`)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	if err := saveAuth(&authState{Address: ts.URL, Session: "sess123"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newSealCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{}) // no --address: must fall back to the stored login address
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if gotCookie != "sess123" {
+		t.Fatalf("session cookie = %q, want sess123", gotCookie)
+	}
+}
+
+func TestSealAuthErrorIsActionable(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_TOKEN", "")
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/sys/seal", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"error":{"code":"unauthenticated","message":"authentication required"}}`)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	cmd := newSealCmd()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--address", ts.URL})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "janus login") {
+		t.Fatalf("want a 'janus login' hint, got %v", err)
 	}
 }
 

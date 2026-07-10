@@ -66,6 +66,8 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	r.Use(RequireUnsealed(kr))
 	r.Route("/v1/sys", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
+		r.Get("/live", s.handleLive)
+		r.Get("/ready", s.handleReady)
 		r.Get("/seal-status", s.handleSealStatus)
 		r.Post("/init", s.handleInit)
 		r.Post("/unseal", s.handleUnseal)

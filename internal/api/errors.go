@@ -22,8 +22,10 @@ const (
 	CodeValidation         = "validation"
 	CodeInternal           = "internal"
 	CodeUnauthenticated    = "unauthenticated"
+	CodeSessionExpired     = "session_expired"
 	CodeForbidden          = "forbidden"
 	CodeRateLimited        = "rate_limited"
+	CodeDBUnavailable      = "db_unavailable"
 )
 
 type errorBody struct {

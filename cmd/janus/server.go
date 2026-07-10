@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -32,11 +34,21 @@ func runServer(ctx context.Context) error {
 	}
 	logger := slog.Default()
 
+	idle := 30 * time.Minute // production default; 0 disables
+	if v := os.Getenv("JANUS_SESSION_IDLE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_SESSION_IDLE_TIMEOUT %q: use a Go duration like 30m, or 0 to disable", v)
+		}
+		idle = d
+	}
+
 	bc := api.BootConfig{
-		DatabaseURL: dsn,
-		ListenAddr:  os.Getenv("JANUS_LISTEN_ADDR"), // "" → :8200 default
-		SealType:    os.Getenv("JANUS_SEAL_TYPE"),
-		Logger:      logger,
+		DatabaseURL:        dsn,
+		ListenAddr:         os.Getenv("JANUS_LISTEN_ADDR"), // "" → :8200 default
+		SealType:           os.Getenv("JANUS_SEAL_TYPE"),
+		Logger:             logger,
+		SessionIdleTimeout: idle,
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
 			if arn == "" {

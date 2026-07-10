@@ -9,6 +9,7 @@ import (
 	"errors"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -33,6 +34,9 @@ type Service struct {
 	envs     *store.EnvironmentRepo
 	transit  transitKeys
 	keyring  *crypto.Keyring
+
+	// idleTimeout is the session inactivity window; 0 disables enforcement.
+	idleTimeout time.Duration
 
 	oidcProviders  *store.OIDCProviderRepo
 	oidcIdentities *store.OIDCIdentityRepo
@@ -69,6 +73,10 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		oidcFedBindings: store.NewOIDCFederationBindingRepo(st),
 	}
 }
+
+// SetSessionIdleTimeout configures the session inactivity window (0 disables).
+// Called once during boot, before the server serves requests.
+func (s *Service) SetSessionIdleTimeout(d time.Duration) { s.idleTimeout = d }
 
 // zeroize overwrites b with zeros (best-effort, GC may have copied).
 func zeroize(b []byte) {

@@ -38,6 +38,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_LISTEN_ADDR` | no | HTTP listen address, default `:8200` |
 | `JANUS_SEAL_TYPE` | before first init | `shamir` or `awskms`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** (misconfiguration is never guessed around) |
 | `JANUS_AWS_KMS_KEY_ARN` | for `awskms` | KMS key id/ARN/alias (plus the standard AWS SDK env for credentials/region) |
+| `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
@@ -118,7 +119,7 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus unseal [--share <hex>]` | Submit one unseal share. With no flag, reads from stdin — echo-off prompt on a TTY, plain read when piped. Under a KMS seal, takes no share and just retries the auto-unseal. Prefer stdin over `--share`: a flag value is visible in process lists and shell history |
 | `janus unseal --reset` | Discard all submitted shares (recovery from a bad share) |
 | `janus seal-status` | Show `initialized` / `sealed` / seal type / threshold / submission progress |
-| `janus seal` | Re-seal a running server — wipes the master key from memory (incident response). **Note:** `POST /v1/sys/seal` now requires the `sys:seal` permission, and this CLI command does not yet send a credential, so it returns `401` against a live server; seal over HTTP with an owner/admin session cookie or a suitably-scoped bearer token until the CLI grows an auth flag |
+| `janus seal` | Re-seal a running server — wipes the master key from memory (incident response). Requires an admin (`sys:seal`): authenticates like the secrets commands — `--token` > `JANUS_TOKEN` > the stored session from `janus login` — and its `--address` falls back to the stored login address |
 | `janus migrate` | Apply migrations explicitly (`JANUS_DATABASE_URL`) |
 | `janus version` | Print the version |
 
@@ -376,11 +377,12 @@ without it refuses and writes nothing); with `--plain --output` the file is
 created mode `0600`. Prefer streaming or ephemeral files — a plaintext `.env` on
 disk is the CLI's least-safe output.
 
-**Operator note (`janus seal`).** The `janus seal` command still sends no
-credential and so returns `401` against the now-gated `POST /v1/sys/seal`; seal
-over HTTP with an owner/admin session cookie or bearer token, or add a `--token`
-flag, until the sys CLI grows one. This is unrelated to the secrets CLI's own
-credential handling.
+**Operator note (`janus seal`).** Sealing is gated (`sys:seal`, owner/admin),
+and `janus seal` authenticates with the same credential resolution as the
+secrets commands: `--token` > `JANUS_TOKEN` > the stored session from
+`janus login`. Without a valid admin credential it fails with an actionable
+hint (`not authenticated — run \`janus login\``). Unlike `init`/`unseal`/
+`seal-status`, it is not a pre-auth command.
 
 ## Audit log
 
@@ -435,9 +437,8 @@ unaudited (the mutation stands; the chain remains consistent).
 - **`POST /v1/sys/seal` requires the `sys:seal` permission** (owner/admin) as
   of the RBAC milestone. `init` and `unseal` remain unauthenticated by
   bootstrap necessity, matching the Vault model: init races are guarded, and
-  unsealing requires valid shares. Caveat: the `janus seal` *CLI* does not yet
-  attach a credential, so it returns `401` — seal over HTTP with a session
-  cookie or bearer token until the CLI grows an auth flag.
+  unsealing requires valid shares. The `janus seal` CLI authenticates
+  accordingly (`--token` > `JANUS_TOKEN` > stored session from `janus login`).
 - **Rate limiting keys on `RemoteAddr`.** The login limiter buckets by direct
   peer address; behind a TLS-terminating proxy that collapses to one bucket.
   Add trusted-proxy `X-Forwarded-For` handling when a proxy is introduced (the

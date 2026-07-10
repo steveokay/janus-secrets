@@ -96,6 +96,16 @@ func (s *Service) VerifySession(ctx context.Context, cookie string) (Principal, 
 		_ = s.sessions.Delete(ctx, sess.ID) // opportunistic cleanup
 		return Principal{}, ErrUnauthenticated
 	}
+	if s.idleTimeout > 0 {
+		last := sess.LastSeenAt
+		if last.IsZero() { // defensive: column is NOT NULL, but stay safe
+			last = sess.CreatedAt
+		}
+		if time.Since(last) > s.idleTimeout {
+			_ = s.sessions.Delete(ctx, sess.ID) // opportunistic cleanup
+			return Principal{}, ErrSessionExpired
+		}
+	}
 	_ = s.sessions.TouchLastSeen(ctx, sess.ID) // best-effort
 	u, err := s.users.Get(ctx, sess.UserID)
 	if err != nil {

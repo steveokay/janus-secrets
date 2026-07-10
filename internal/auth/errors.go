@@ -34,4 +34,8 @@ var (
 	// ErrFederationAmbiguous is returned when more than one enabled binding
 	// matches the federated identity token.
 	ErrFederationAmbiguous = errors.New("auth: multiple federation bindings matched")
+	// ErrSessionExpired is returned when a session exceeded the configured
+	// inactivity window. Distinct from ErrUnauthenticated so the API can tell
+	// the (previously authenticated) caller why they were logged out.
+	ErrSessionExpired = errors.New("auth: session expired due to inactivity")
 )
