@@ -80,7 +80,7 @@ func (s *Server) writeRotationErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, rotation.ErrNotFound):
 		writeError(w, http.StatusNotFound, CodeRotationNotFound, "rotation policy not found")
 	case errors.Is(err, rotation.ErrExists):
-		writeError(w, http.StatusConflict, CodeValidation, "a rotation policy already exists for this config and key")
+		writeError(w, http.StatusConflict, "conflict", "a rotation policy already exists for this config and key")
 	case errors.Is(err, rotation.ErrInvalidType), errors.Is(err, rotation.ErrInvalidConfig):
 		writeError(w, http.StatusBadRequest, CodeValidation, "invalid rotation policy configuration")
 	case errors.Is(err, rotation.ErrSealed):
