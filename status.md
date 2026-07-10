@@ -1002,6 +1002,51 @@ PR #44; the **on-demand editor reveal** security fix shipped in PR #46. Remainin
 in-app unsaved-guard [needs a data-router migration], §0 motion, §1 collapsible sidebar,
 §2 onboarding.
 
+## Ops hardening (PR 1) — probes, seal CLI auth, session idle timeout ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-09-ops-hardening-design.md` (§1–§3 of a
+four-item batch; §4 **backup/restore lands separately as PR 2**)
+Plan: `docs/superpowers/plans/2026-07-09-ops-hardening.md`
+Branch: `ops-probes-seal-idle` · Docs: `docs/operations.md`
+
+Three small operational-trust fixes closed before Phase 3 makes the system more
+dynamic:
+
+- [x] 1. **Readiness/liveness probes** (`internal/api/sys_probes.go`):
+      `GET /v1/sys/live` → always `200 {"status":"live"}` (process liveness,
+      touches nothing); `GET /v1/sys/ready` → `200 {"status":"ready"}` iff
+      **DB reachable AND initialized AND unsealed**, else `503` with a distinct
+      envelope code checked in order — `db_unavailable` / `uninitialized` /
+      `sealed`. Unauthenticated, un-audited (probes fire every few seconds and
+      touch no secrets); `/v1/sys/health` unchanged for backward compat.
+      `docker-compose.yml` healthcheck moved to `/v1/sys/ready` — a sealed
+      instance now reports **unhealthy** until an operator unseals (intended:
+      `docker compose up --wait` blocks on unseal).
+- [x] 2. **Authenticated `janus seal`** (`cmd/janus/sys_commands.go`): the seal
+      command now goes through the authenticated API client — `--token` /
+      `JANUS_TOKEN` overrides the stored `janus login` session; no credential →
+      actionable error without calling the server. Closes the caveat carried
+      since M5/M6: bare `sysCall` sent no credential, so `janus seal` was a
+      guaranteed 401 against every production server (`sys:seal`-gated).
+      `init`/`unseal`/`seal-status` stay unauthenticated by design.
+- [x] 3. **Session idle timeout** (`internal/auth/sessions.go`): new
+      **`JANUS_SESSION_IDLE_TIMEOUT`** (Go duration, default **30m**, `0`
+      disables; invalid value fails boot) enforced server-side on every session
+      validation — `now − last_seen_at > idle` deletes the session row and
+      returns **401 `session_expired`**. The 24h absolute TTL stays the hard
+      cap; service tokens are untouched; null `last_seen_at` falls back to
+      `created_at`. No new frontend code — the SPA's global 401 handler already
+      drops an idle-expired session to the login screen.
+
+Verification: `go build`, `go vet`, `go test ./...` (api + auth + store +
+secrets + transit + resolve + audit + authz + crypto + web + CLI, Docker-backed
+testcontainers suites ran fresh) all pass; `gosec` (shamir excluded) 0 issues
+(17 recorded `#nosec`, none new); `govulncheck` 0 affecting — the toolchain pin
+moved `go1.26.4` → `go1.26.5` during the gate sweep to clear stdlib
+GO-2026-5856 (`crypto/tls` ECH), same pattern as the M2 pin. Known cosmetic
+oddity deferred: the CLI's generic 503 rewrite makes `janus seal` against an
+already-sealed server print "server is sealed — unseal it first".
+
 ## Phase-2 items already on the radar
 
 - [x] **Federation** — **complete** (C1 human OIDC login, PR #34; C2 CI machine
