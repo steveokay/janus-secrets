@@ -24,6 +24,7 @@ const (
 	CodeUnauthenticated    = "unauthenticated"
 	CodeForbidden          = "forbidden"
 	CodeRateLimited        = "rate_limited"
+	CodeDBUnavailable      = "db_unavailable"
 )
 
 type errorBody struct {
