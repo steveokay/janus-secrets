@@ -35,6 +35,9 @@ type BootConfig struct {
 	// idle enforcement (the 30m production default is applied by cmd/janus,
 	// so tests that build BootConfig directly get no idle timeout).
 	SessionIdleTimeout time.Duration
+	// Version is the janus build version (cmd/janus's stamped version var),
+	// recorded in backup headers.
+	Version string
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -122,7 +125,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType}, kr, unsealer, seals, svc, transitSvc, authSvc, authorizer, st, auditRec, logger)
+	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType, Version: bc.Version}, kr, unsealer, seals, svc, transitSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and

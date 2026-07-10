@@ -22,6 +22,7 @@ const (
 	UserManage    Action = "user:manage" // instance-scoped
 	AuditRead     Action = "audit:read"
 	SysSeal       Action = "sys:seal"       // instance-scoped
+	SysBackup     Action = "sys:backup"     // instance-scoped
 	TransitRead   Action = "transit:read"   // instance-scoped
 	TransitUse    Action = "transit:use"    // instance-scoped
 	TransitManage Action = "transit:manage" // instance-scoped
@@ -62,7 +63,7 @@ var (
 	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse))
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
-		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, TransitManage, OIDCManage))
+		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage))
 	ownerActions = union(adminActions, setOf(ProjectDelete))
 
 	roleActions = map[Role]map[Action]bool{

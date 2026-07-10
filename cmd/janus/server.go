@@ -49,6 +49,7 @@ func runServer(ctx context.Context) error {
 		SealType:           os.Getenv("JANUS_SEAL_TYPE"),
 		Logger:             logger,
 		SessionIdleTimeout: idle,
+		Version:            version,
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
 			if arn == "" {

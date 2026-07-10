@@ -24,6 +24,8 @@ type Config struct {
 	// SealType is the effective seal type ("shamir" or "awskms"): the stored
 	// type when initialized, otherwise the operator-configured one.
 	SealType string
+	// Version is the janus build version, stamped into backup headers.
+	Version string
 }
 
 // Server is Janus's HTTP server. The keyring is the single source of truth
@@ -72,10 +74,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		r.Post("/init", s.handleInit)
 		r.Post("/unseal", s.handleUnseal)
 		r.Post("/unseal/reset", s.handleUnsealReset)
+		// Pre-auth bootstrap like /init: only an EMPTY instance accepts it
+		// (the handler gates on emptiness under initMu).
+		r.Post("/restore", s.handleRestore)
 		// Production always wires a non-nil auth service (Boot does), so seal is
 		// authenticated. Unit-test servers pass nil and hit the route directly.
 		if s.auth != nil && s.authz != nil {
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
+			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysBackup, "sys.backup", "")).Get("/backup", s.handleBackup)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Get("/oidc", s.handleOIDCConfigGet)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Put("/oidc", s.handleOIDCConfigPut)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Delete("/oidc", s.handleOIDCConfigDelete)
@@ -87,6 +93,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/bindings/{id}", s.handleFederationBindingDelete)
 		} else {
 			r.Post("/seal", s.handleSeal)
+			r.Get("/backup", s.handleBackup)
 		}
 	})
 	if s.auth != nil {
