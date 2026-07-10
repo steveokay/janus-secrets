@@ -229,6 +229,13 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("restore: %d", resp.StatusCode)
 	}
+	// After restore B is sealed: the restored secrets are ciphertext at rest,
+	// unreadable until the master key is reconstructed. A read must 503, not
+	// leak — proof the data isn't recoverable without A's original share.
+	if code := doAuthed(t, "GET", bTS.URL+"/v1/configs/"+cid+"/secrets?reveal=true",
+		"", "", "", nil); code != 503 {
+		t.Fatalf("reveal on sealed restored instance = %d, want 503", code)
+	}
 	if code := doJSON(t, "POST", bTS.URL+"/v1/sys/unseal",
 		fmt.Sprintf(`{"share":%q}`, share), nil); code != 200 {
 		t.Fatal("unseal of restored instance with ORIGINAL share failed")
@@ -277,7 +284,14 @@ func TestRestoreTruncatedStreamRollsBack(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("backup: %d", code)
 	}
-	truncated := dump[:len(dump)*2/3] // chop mid-stream
+	// Chop mid-stream — must land inside a record (not on a \n boundary) so the
+	// decoder fails on a partial line. The dump is hundreds of lines, so 2/3
+	// always lands mid-record; guard it so a future layout change can't make
+	// the cut a clean prefix that would restore fewer rows and pass with 200.
+	truncated := dump[:len(dump)*2/3]
+	if strings.HasSuffix(truncated, "\n") {
+		t.Fatalf("truncation landed on a record boundary; test would not exercise a partial line")
+	}
 
 	bDSN := bootPostgres(t)
 	bSrv, bSt, err := Boot(context.Background(), BootConfig{DatabaseURL: bDSN, SealType: crypto.SealTypeShamir})
