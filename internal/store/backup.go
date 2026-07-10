@@ -31,7 +31,9 @@ var backupTables = []backupTable{
 	{"projects", "created_at, id"},
 	{"environments", "created_at, id"},
 	{"role_bindings", "created_at, id"},
-	{"configs", "created_at, id"},
+	// Roots (inherits_from IS NULL) sort first so a config always restores
+	// before any config that inherits from it, even on created_at ties.
+	{"configs", "(inherits_from IS NOT NULL), created_at, id"},
 	{"config_versions", "config_id, version"},
 	{"secret_values", "created_at, id"},
 	{"config_version_entries", "config_version_id, key"},
@@ -77,32 +79,50 @@ func (s *Store) IsEmptyForRestore(ctx context.Context) (bool, error) {
 // the output contains no plaintext secrets by construction). pgx streams
 // result rows, so large tables (audit_events) never buffer in memory.
 func (s *Store) DumpBackup(ctx context.Context, w io.Writer) error {
+	// single REPEATABLE READ snapshot so the JSONL is FK-consistent as a set —
+	// a torn multi-tx dump can capture children whose parents are missing and
+	// fail restore. (withTx is not reused: it hardcodes default isolation and
+	// commits; a read-only dump wants this isolation and a plain rollback.)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return mapError(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	for _, t := range backupTables {
 		// #nosec G201 -- identifiers come from the fixed compile-time backupTables list, not user input.
 		q := fmt.Sprintf(`SELECT row_to_json(t)::text FROM %s t ORDER BY %s`, t.name, t.orderBy)
-		if err := dumpTable(ctx, s, t.name, q, w); err != nil {
+		if err := dumpTable(ctx, tx, t.name, q, w); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func dumpTable(ctx context.Context, s *Store, name, query string, w io.Writer) error {
-	rows, err := s.pool.Query(ctx, query)
+// queryer is the read surface dumpTable needs; satisfied by pgx.Tx (and the
+// pool), so the dump can run every table on one snapshot transaction.
+type queryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func dumpTable(ctx context.Context, q queryer, name, query string, w io.Writer) error {
+	rows, err := q.Query(ctx, query)
 	if err != nil {
-		return mapError(err)
+		return fmt.Errorf("store: dump %s: %w", name, mapError(err))
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var rowJSON string
 		if err := rows.Scan(&rowJSON); err != nil {
-			return mapError(err)
+			return fmt.Errorf("store: dump %s: %w", name, mapError(err))
 		}
 		if _, err := fmt.Fprintf(w, "{\"table\":%q,\"row\":%s}\n", name, rowJSON); err != nil {
 			return err
 		}
 	}
-	return mapError(rows.Err())
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("store: dump %s: %w", name, mapError(err))
+	}
+	return nil
 }
 
 // RestoreBackup inserts records supplied by next() inside one transaction.
@@ -117,6 +137,18 @@ func (s *Store) RestoreBackup(ctx context.Context, next func() (string, []byte, 
 	}
 	lastIdx := -1
 	return s.withTx(ctx, func(tx pgx.Tx) error {
+		// re-checked inside the tx: the handler's pre-check is advisory; a
+		// concurrent init between check and restore must not interleave.
+		var seals, users, projects int
+		if err := tx.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM seal_config),
+			(SELECT count(*) FROM users),
+			(SELECT count(*) FROM projects)`).Scan(&seals, &users, &projects); err != nil {
+			return mapError(err)
+		}
+		if seals != 0 || users != 0 || projects != 0 {
+			return errors.New("store: instance is not empty")
+		}
 		for {
 			table, row, err := next()
 			if errors.Is(err, io.EOF) {
@@ -140,7 +172,9 @@ func (s *Store) RestoreBackup(ctx context.Context, next func() (string, []byte, 
 				`INSERT INTO %s SELECT * FROM json_populate_record(NULL::%s, $1::json)`,
 				table, table)
 			if _, err := tx.Exec(ctx, q, string(row)); err != nil {
-				return mapError(err)
+				// wrapped so unmapped Postgres errors surface the table, not
+				// row field values (emails, names) echoed by the driver.
+				return fmt.Errorf("store: restore into %s: %w", table, mapError(err))
 			}
 		}
 	})
