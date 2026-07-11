@@ -1,6 +1,7 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { ApiError } from '../lib/api'
 import { endpoints, type Project } from '../lib/endpoints'
+import { opsEndpoints, type RotationView, type SyncView, type DynamicRoleView } from './endpoints'
 
 export type ProjectFilter = string | 'all'
 
@@ -98,4 +99,63 @@ export function useFanOut<T>(
 
   const isLoading = qs.some((q) => q?.isLoading)
   return { perScope, isLoading, isError, someForbidden }
+}
+
+export interface EngineRow<T> {
+  data: T
+  projectId: string
+  projectName: string
+  cfg?: ConfigInfo
+}
+
+export interface Aggregated<T> {
+  rows: EngineRow<T>[]
+  isLoading: boolean
+  isError: boolean
+  someForbidden: boolean
+}
+
+// Named use* because it composes hooks (rules-of-hooks): call it only at
+// the top level of another hook, never conditionally.
+function useProjectScoped<T extends { config_id: string }>(
+  filter: ProjectFilter,
+  keyPrefix: readonly unknown[],
+  listFn: (pid: string) => Promise<T[]>,
+): Aggregated<T> {
+  const { map, projects, isLoading: mapLoading } = useProjectConfigMap(filter)
+  const { perScope, isLoading, isError, someForbidden } = useFanOut(projects, keyPrefix, listFn)
+  const byId = new Map(projects.map((p) => [p.id, p]))
+  const rows: EngineRow<T>[] = perScope.flatMap(({ id, data }) => {
+    const p = byId.get(id)
+    return data.map((d) => ({ data: d, projectId: id, projectName: p?.name ?? id, cfg: map.get(d.config_id) }))
+  })
+  return { rows, isLoading: mapLoading || isLoading, isError, someForbidden }
+}
+
+export function useRotation(filter: ProjectFilter): Aggregated<RotationView> {
+  return useProjectScoped(filter, ['ops', 'rotation'], opsEndpoints.rotation.list)
+}
+
+export function useSync(filter: ProjectFilter): Aggregated<SyncView> {
+  return useProjectScoped(filter, ['ops', 'sync'], opsEndpoints.sync.list)
+}
+
+/**
+ * Dynamic roles are scoped by CONFIG, so the fan-out iterates the config
+ * map's configs (not projects). Same 403 tolerance.
+ */
+export function useDynamicRoles(filter: ProjectFilter): Aggregated<DynamicRoleView> {
+  const { map, isLoading: mapLoading } = useProjectConfigMap(filter)
+  const configs = [...map.values()]
+  const { perScope, isLoading, isError, someForbidden } = useFanOut(
+    configs.map((c) => ({ id: c.configId })),
+    ['ops', 'dynamic', 'roles'],
+    opsEndpoints.dynamic.listRoles,
+  )
+  const byCfg = new Map(configs.map((c) => [c.configId, c]))
+  const rows: EngineRow<DynamicRoleView>[] = perScope.flatMap(({ id, data }) => {
+    const cfg = byCfg.get(id)
+    return data.map((d) => ({ data: d, projectId: cfg?.projectId ?? '', projectName: cfg?.projectName ?? '', cfg }))
+  })
+  return { rows, isLoading: mapLoading || isLoading, isError, someForbidden }
 }
