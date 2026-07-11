@@ -49,6 +49,9 @@ type BootConfig struct {
 	// (tests build BootConfig directly and get no scheduler); cmd/janus applies
 	// the production default.
 	SyncTick time.Duration
+	// DynamicTick is the dynamic lease-manager tick interval. Zero disables the
+	// scheduler (tests).
+	DynamicTick time.Duration
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -150,6 +153,11 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// Start the sync scheduler on the same boot ctx. Zero tick (tests) disables it.
 	if bc.SyncTick > 0 {
 		go syncSvc.RunScheduler(ctx, bc.SyncTick)
+	}
+	// Start the dynamic lease-manager scheduler on the same boot ctx. Zero tick
+	// (tests) disables it.
+	if bc.DynamicTick > 0 {
+		go dynamicSvc.RunScheduler(ctx, bc.DynamicTick)
 	}
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and

@@ -229,6 +229,7 @@ func (s *Server) bootstrapAdmin(ctx context.Context, email string) (*adminCreden
 
 // unsealNow runs the unsealer and feeds the keyring, zeroizing the master.
 func (s *Server) unsealNow(ctx context.Context) error {
+	wasSealed := s.keyring.Sealed()
 	master, err := s.unsealer.Unseal(ctx)
 	if err != nil {
 		return err
@@ -243,6 +244,13 @@ func (s *Server) unsealNow(ctx context.Context) error {
 		if err := s.auth.EnsureHMACKey(ctx); err != nil {
 			s.logger.Warn("auth hmac-key bootstrap failed; auth endpoints unavailable until retried", "err", err)
 		}
+	}
+	// On the sealed->unsealed edge, reclaim leases orphaned by a crash (and any
+	// that expired while the server was down). Runs in the background on a
+	// detached context so it never blocks the unseal response; RunDue can't run
+	// while sealed, so this is the point the sweep becomes possible.
+	if wasSealed && !s.keyring.Sealed() && s.dynamic != nil {
+		go s.dynamic.SweepOrphanedLeases(context.Background())
 	}
 	return nil
 }
