@@ -56,7 +56,7 @@ func TestCreateRoleValidation(t *testing.T) {
 		t.Fatalf("ListRolesByConfig: len=%d err=%v", len(list), err)
 	}
 
-	// Update TTLs + re-seal config (verify openConfig sees the new blob by round-trip via a fresh admin DSN).
+	// Update default TTL + re-seal config with a new admin DSN.
 	nd := int64(90)
 	if _, err := svc.UpdateRole(ctx, v.ID, &nd, nil, &RoleConfig{
 		AdminDSN: "postgres://y", CreationStatements: `CREATE ROLE "{{name}}" PASSWORD '{{password}}';`,
@@ -66,6 +66,19 @@ func TestCreateRoleValidation(t *testing.T) {
 	upd, _ := svc.GetRole(ctx, v.ID)
 	if upd.DefaultTTLSeconds != 90 {
 		t.Fatalf("update did not apply: %+v", upd)
+	}
+
+	// UpdateRole rejects an invalid config blob (missing {{password}}).
+	if _, err := svc.UpdateRole(ctx, v.ID, nil, nil, &RoleConfig{
+		AdminDSN: "postgres://z", CreationStatements: `CREATE ROLE "{{name}}";`,
+	}); err != ErrInvalidConfig {
+		t.Fatalf("want ErrInvalidConfig for bad update config, got %v", err)
+	}
+
+	// UpdateRole rejects lowering max below the (unchanged) default of 90.
+	lowMax := int64(30)
+	if _, err := svc.UpdateRole(ctx, v.ID, nil, &lowMax, nil); err != ErrInvalidConfig {
+		t.Fatalf("want ErrInvalidConfig for max<default, got %v", err)
 	}
 
 	// DeleteRole (minimal: sealed guard + delete).

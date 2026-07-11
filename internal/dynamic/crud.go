@@ -17,7 +17,10 @@ type RoleInput struct {
 	Config            RoleConfig
 }
 
-// validateConfig enforces required placeholders and non-empty admin DSN.
+// validateConfig is a config-sanity/usability guard (non-empty admin DSN,
+// required placeholders present), NOT a security control: the injection
+// boundary lives in interpolate, which only ever substitutes Janus-generated,
+// quote-free values into the admin-authored SQL.
 func validateConfig(cfg RoleConfig) error {
 	if cfg.AdminDSN == "" {
 		return ErrInvalidConfig
