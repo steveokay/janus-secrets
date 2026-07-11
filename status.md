@@ -1300,7 +1300,57 @@ task, all exercised against real Postgres via testcontainers. All gates green
 
 ---
 
+## Phase 3 follow-up · Operations console (web) ✅ complete (PR #55)
+
+**Merged to `main` `551d560` (2026-07-12).** Final holistic branch review returned
+**SHIP WITH FOLLOW-UPS** (no critical findings; security posture verified end-to-end).
+
+Spec: `docs/superpowers/specs/2026-07-11-operations-console-design.md`
+Plan: `docs/superpowers/plans/2026-07-11-operations-console.md` (11 tasks)
+Docs: `docs/web.md` (`## Operations console`). Frontend-only; no backend/migration changes.
+
+A top-level **`/operations`** web console surfacing the three Phase-3 engines
+(rotation, sync, dynamic creds) that were previously API/CLI-only. **Cross-project
+aggregate** (fans out over every visible project, silently skipping per-project/
+per-config 403s), Project filter + three tabs. **Manage + act, no create** —
+creating policies/targets/roles (privileged admin DSNs / PATs / k8s tokens / SQL
+templates) stays in the CLI by design.
+
+- [x] Pure-frontend slice over existing `/v1/{rotation,sync,dynamic}`; added only
+      `api.patch`. Shared fan-out hook (`useAggregated`: `useProjectConfigMap` +
+      `useFanOut`, 403-tolerant) + shared presentational primitives (`OpsTable`/
+      `StatusPill`/`RelTime`/`LastError`); each engine keeps its own panel.
+- [x] **Rotation/Sync panels**: rotate-now/sync-now, pause/resume, edit interval
+      (shared `IntervalModal`), delete. **Dynamic panel**: roles table (listing
+      needs `dynamic:manage` → admin/owner-oriented), issue creds, view/renew/revoke
+      leases (drill-in `Sheet`), delete role.
+- [x] **Security**: no secret ever rendered/cached/logged except a freshly-**issued**
+      dynamic password — shown once in an ephemeral modal, held only in local React
+      state, `issue.reset()` drops it from mutation memory, cleared on close (a test
+      asserts it's gone from the DOM). Masked view types carry no DSN/PAT/token/CA/
+      HMAC/SQL/password.
+- [x] Route + sidebar (`RefreshCw`) + ⌘K palette entry; URL-driven tabs (`?tab=`);
+      theme-tokens only (`no-raw-palette` green). 231/231 web tests, tsc clean,
+      dual-theme smoke + build green. Subagent-driven, two-stage review per task.
+
+**Non-goals respected**: no resource creation UI, no credential/SQL editing, no new
+backend. Reviews caught + fixed: stale `IntervalModal` input on reopen, residual
+plaintext in the issue mutation object (`issue.reset()`), a shared-modal heading, an
+unused-import tsc break.
+
+---
+
 ## Backlog — deferred / cross-cutting items on the radar
+
+- [ ] **Ops-console follow-ups** (from the PR #55 holistic review; all non-blocking):
+      (a) `useProjectConfigMap` silently degrades on **non-403** env/config
+      enumeration errors (affects only the decorative config-name column) — consider
+      surfacing non-403 as an error; (b) doc note that the Dynamic tab is
+      admin/owner-oriented (a `dynamic:issue`-only developer can't see the roles
+      table, since listing needs `dynamic:manage`) — matches spec, but a UX sharp
+      edge; (c) add a panel-level test that a **500** on a list query renders the
+      error state (the 403 path is tested; the non-403 branch is only covered
+      indirectly in the `useFanOut` probe).
 
 - [ ] **Audit fail-closed policy for engine-authored action endpoints** (surfaced by
       the Phase 3.3 holistic review). Today three action endpoints — rotation
