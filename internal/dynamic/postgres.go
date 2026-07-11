@@ -13,6 +13,12 @@ import (
 // password are generated from a quote-free alphabet (generate.go) and expiration
 // is RFC3339, so raw substitution inside the admin-authored quotes is
 // injection-safe; the username is re-validated against identRe defensively.
+//
+// Note: unlike the rotation engine, we deliberately do NOT wrap the password with
+// quoteLiteral. In this Vault-style template model the admin owns the quoting
+// (their template writes PASSWORD '{{password}}'), so adding our own quotes would
+// double-quote and corrupt the literal. Safety instead rests on the generator's
+// quote/backslash-free alphabet — the contract enforced in generate.go.
 func interpolate(tmpl, username, password string, expiration time.Time) (string, error) {
 	if !identRe.MatchString(username) {
 		return "", ErrInvalidConfig
