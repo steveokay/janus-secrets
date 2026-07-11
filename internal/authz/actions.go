@@ -29,6 +29,8 @@ const (
 	OIDCManage     Action = "oidc:manage"     // instance-scoped
 	RotationManage Action = "rotation:manage" // project-scoped
 	SyncManage     Action = "sync:manage"     // project-scoped
+	DynamicManage  Action = "dynamic:manage"  // project-scoped (create/update/delete roles)
+	DynamicIssue   Action = "dynamic:issue"   // project-scoped (issue/renew/revoke leases)
 )
 
 // Role is a named bundle of actions.
@@ -62,10 +64,10 @@ func union(sets ...map[Action]bool) map[Action]bool {
 // The matrix is built cumulatively: developer ⊇ viewer, admin ⊇ developer, etc.
 var (
 	viewerActions    = setOf(SecretRead, ConfigRead, ProjectRead, MemberRead, TransitRead)
-	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse))
+	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse, DynamicIssue))
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
-		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage))
+		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage))
 	ownerActions = union(adminActions, setOf(ProjectDelete))
 
 	roleActions = map[Role]map[Action]bool{

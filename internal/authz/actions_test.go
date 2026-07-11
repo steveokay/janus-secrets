@@ -37,6 +37,32 @@ func TestMatrixExhaustive(t *testing.T) {
 	}
 }
 
+func TestDynamicActionMatrix(t *testing.T) {
+	// Manage is admin+ (create/update/delete roles); Issue is developer+
+	// (issue/renew/revoke leases). Viewer gets neither.
+	if roleAllows(RoleDeveloper, DynamicManage) {
+		t.Fatal("developer must NOT have DynamicManage")
+	}
+	if !roleAllows(RoleAdmin, DynamicManage) {
+		t.Fatal("admin must have DynamicManage")
+	}
+	if !roleAllows(RoleOwner, DynamicManage) {
+		t.Fatal("owner must have DynamicManage")
+	}
+	if !roleAllows(RoleDeveloper, DynamicIssue) {
+		t.Fatal("developer must have DynamicIssue")
+	}
+	if !roleAllows(RoleAdmin, DynamicIssue) {
+		t.Fatal("admin must have DynamicIssue")
+	}
+	if roleAllows(RoleViewer, DynamicIssue) {
+		t.Fatal("viewer must NOT have DynamicIssue")
+	}
+	if roleAllows(RoleViewer, DynamicManage) {
+		t.Fatal("viewer must NOT have DynamicManage")
+	}
+}
+
 func TestRoleRankAndValidity(t *testing.T) {
 	if !RoleAtLeast(RoleOwner, RoleAdmin) || RoleAtLeast(RoleViewer, RoleAdmin) {
 		t.Fatal("rank ordering wrong")
