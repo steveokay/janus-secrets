@@ -91,7 +91,25 @@ func newDynamicCmd() *cobra.Command {
 			return c.call("DELETE", "/v1/dynamic/roles/"+args[0], nil, nil)
 		},
 	}
-	roles.AddCommand(rolesCreate, rolesList, rolesDelete)
+
+	// roles get
+	rolesGet := &cobra.Command{
+		Use: "get <id>", Short: "Show a dynamic role", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := newAPIClient(address, token)
+			if err != nil {
+				return err
+			}
+			var out map[string]any
+			if err := c.call("GET", "/v1/dynamic/roles/"+args[0], nil, &out); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%+v\n", out)
+			return nil
+		},
+	}
+
+	roles.AddCommand(rolesCreate, rolesList, rolesGet, rolesDelete)
 
 	// creds
 	creds := &cobra.Command{

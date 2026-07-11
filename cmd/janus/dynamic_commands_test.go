@@ -37,7 +37,7 @@ func TestDynamicCmdStructure(t *testing.T) {
 			rolesCreate = c
 		}
 	}
-	for _, want := range []string{"create", "list", "delete"} {
+	for _, want := range []string{"create", "list", "get", "delete"} {
 		if !sub[want] {
 			t.Errorf("roles missing subcommand %q", want)
 		}
