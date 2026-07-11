@@ -15,9 +15,16 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
 var prefixStrip = regexp.MustCompile(`[^a-z0-9_]`)
 
+// randChars returns n cryptographically-random characters drawn from alpha. The
+// modulo mapping introduces a negligible bias (256 is not a multiple of 62/36);
+// at these lengths the entropy loss is immaterial (~0.003 bits/char) and this
+// matches the rotation engine's construction.
 func randChars(n int, alpha string) (string, error) {
 	if n <= 0 {
 		return "", errors.New("dynamic: length must be positive")
+	}
+	if len(alpha) == 0 {
+		return "", errors.New("dynamic: empty alphabet")
 	}
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
