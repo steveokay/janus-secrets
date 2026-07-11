@@ -149,14 +149,23 @@ func (s *Service) UpdateRole(ctx context.Context, id string, defaultTTL, maxTTL 
 	return s.GetRole(ctx, id)
 }
 
-// DeleteRole removes a role. NOTE (Task 7): this will be extended to revoke every
-// still-active lease for the role BEFORE deleting, so leases are never orphaned.
-// For now it only guards sealed and deletes the role row (the FK from
-// dynamic_leases has ON DELETE CASCADE, so lease rows are removed, but the DB
-// roles they reference are not yet dropped — Task 7 adds that).
+// DeleteRole revokes every still-active lease for the role, then deletes it. If
+// any revocation fails the role is left in place so leases (and their live DB
+// roles) are never orphaned.
 func (s *Service) DeleteRole(ctx context.Context, id string) error {
 	if s.kr.Sealed() {
 		return ErrSealed
+	}
+	leases, err := s.leases.ListByRole(ctx, id)
+	if err != nil {
+		return mapStoreErr(err)
+	}
+	for _, l := range leases {
+		if l.Status == "active" || l.Status == "creating" || l.Status == "revoke_failed" {
+			if err := s.revoke(ctx, l, "revoked"); err != nil {
+				return err
+			}
+		}
 	}
 	return mapStoreErr(s.roles.Delete(ctx, id))
 }
