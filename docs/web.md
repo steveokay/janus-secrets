@@ -109,3 +109,24 @@ rename/delete/destroy and OIDC login are also out of this milestone.
 - **Go:** `internal/web` tests assert the SPA fallback (deep links → shell,
   `/v1` untouched, real assets served, CSP present); `internal/api` asserts the
   UI mounts as a fallback and the seal gate serves static assets while sealed.
+
+## Operations console (`/operations`)
+
+A cross-project console for the three Phase-3 engines — **rotation**,
+**sync**, and **dynamic credentials** — that are otherwise API/CLI-only.
+The page fans out over every project you can see (silently skipping ones
+where you lack the engine's role) and shows unified tables with a Project
+filter and three tabs:
+
+- **Rotation** — policies with status/next-run; actions: rotate-now,
+  pause/resume, edit interval, delete.
+- **Sync** — targets with provider/destination/status; actions: sync-now,
+  pause/resume, edit interval, delete.
+- **Dynamic** — roles (admin/owner: listing needs `dynamic:manage`);
+  actions: issue credentials, view/renew/revoke leases, delete role.
+
+The console **cannot create** resources — creating a policy/target/role
+requires entering privileged admin DSNs, PATs, k8s tokens, or SQL
+templates, which stays in the CLI (`janus rotation|sync|dynamic … create`).
+No secret is ever rendered except a freshly **issued** dynamic password,
+which is shown once in an ephemeral dialog and never cached.
