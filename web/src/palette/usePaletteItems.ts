@@ -18,6 +18,7 @@ const NAV_ACTIONS: { label: string; to: string; keywords: string }[] = [
   { label: 'Go to Activity', to: '/audit', keywords: 'activity audit log events' },
   { label: 'Go to Members', to: '/members', keywords: 'members users roles team' },
   { label: 'Go to Tokens', to: '/tokens', keywords: 'tokens service api' },
+  { label: 'Go to Operations', to: '/operations', keywords: 'operations ops rotation sync dynamic leases credentials' },
   { label: 'Go to Settings', to: '/settings', keywords: 'settings config' },
 ]
 
