@@ -41,6 +41,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
 | `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
+| `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
@@ -138,6 +139,14 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus sync update <id> [--interval-seconds <n>] [--prune] [--status active\|paused] [...]` | Update a target's interval, prune toggle, status, destination address, or credentials. Requires `sync:manage` |
 | `janus sync sync <id>` | Sync a target immediately, bypassing change detection; also clears a `failed` status and retries. Requires `sync:manage` |
 | `janus sync delete <id>` | Delete a sync target. Requires `sync:manage` |
+| `janus dynamic roles create --config <id> --name <n> --admin-dsn <dsn> --creation <sql> [--revocation <sql>] [--renew <sql>] [--default-ttl-seconds <n>] [--max-ttl-seconds <n>]` | Register a dynamic Postgres role on a config. `--creation` SQL must reference `{{name}}`/`{{password}}`; `--revocation`/`--renew` default to `DROP ROLE`/`ALTER ROLE … VALID UNTIL`. Requires `dynamic:manage`. See the dynamic-credentials runbook (`docs/ops/dynamic.md`) |
+| `janus dynamic roles list --config <id>` | List dynamic roles for a config. Requires `dynamic:manage` |
+| `janus dynamic roles get <id>` | Show one dynamic role (masked config). Requires `dynamic:manage` |
+| `janus dynamic roles delete <id>` | Delete a dynamic role, revoking its still-live leases first. Requires `dynamic:manage` |
+| `janus dynamic creds <role-id>` | Issue short-lived credentials from a role; prints the password **once** (never stored). Requires `dynamic:issue` |
+| `janus dynamic renew <lease-id>` | Extend a lease by the role's default TTL, capped at its max. Requires `dynamic:issue` |
+| `janus dynamic revoke <lease-id>` | Revoke a lease now (drops the DB role). Idempotent. Requires `dynamic:issue` |
+| `janus dynamic leases --role <id>` | List a role's leases (status, username, expiry). Requires `dynamic:issue` |
 
 Errors render as `message (code, HTTP status)`, e.g.
 `seal is already initialized (already_initialized, HTTP 409)`.
@@ -366,6 +375,28 @@ fails the sync rather than exfiltrating it. Full reference — credential
 least-privilege setup for each provider, prune semantics, the GitHub
 key-name constraint, change detection, and backoff/failure semantics — is
 in the sync runbook (`docs/ops/sync.md`).
+
+## Dynamic Postgres credentials
+
+Dynamic roles mint **short-lived Postgres credentials on demand** instead
+of storing a long-lived password. An admin registers a role on a config —
+a privileged **admin DSN** plus `creation`/`revocation`/`renew` SQL
+templates (`{{name}}`/`{{password}}`/`{{expiration}}` placeholders) —
+managed via `janus dynamic roles …` above (`dynamic:manage`, project
+admin/owner) or `/v1/dynamic/roles`. A developer then issues credentials
+(`janus dynamic creds`, `dynamic:issue`, project developer+): Janus
+generates a unique username/password, runs the creation template to make a
+real Postgres role, and records a **lease**. The password is returned
+**exactly once** and is never persisted, logged, or audited — lose it and
+you re-issue. An in-process lease manager revokes each lease when its TTL
+expires (running the revocation template), retries failed revocations,
+and reclaims crash-orphaned in-flight leases; it also runs a
+revoke-on-startup sweep on the sealed→unsealed edge so leases orphaned by
+a crash are cleaned up promptly. Dynamic operations are unavailable while
+the server is sealed (the admin DSN cannot be decrypted). Full reference —
+template authoring and quoting rules, least-privilege admin-DSN setup, the
+lease lifecycle and crash-safety, TTL/renewal semantics, and RBAC/audit —
+is in the dynamic-credentials runbook (`docs/ops/dynamic.md`).
 
 ## Secrets CLI (developer & CI flows)
 
