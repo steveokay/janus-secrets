@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '../ui/Button'
 import { Pill } from '../ui/Pill'
@@ -107,6 +107,12 @@ export function IntervalModal({
   onError: (e: unknown) => void
 }) {
   const [val, setVal] = useState(String(current))
+  useEffect(() => {
+    if (open) setVal(String(current))
+    // reseed only on open; deps intentionally exclude `current` so a
+    // background refetch can't clobber an in-progress edit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
   const save = useMutation({ mutationFn: () => onSave(Number(val)), onSuccess: afterSave, onError })
   return (
     <Modal open={open} onClose={onClose} label="Edit interval">
