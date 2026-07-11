@@ -32,7 +32,7 @@ func newDynamicRole(t *testing.T, s *Store, projectID, configID, name string) *D
 }
 
 // newDynamicLease builds a minimal valid DynamicLease for the given role/project,
-// with a fresh id. issuedIn positions expiry relative to now (negative = already
+// with a fresh id. expiresIn positions expiry relative to now (negative = already
 // expired).
 func newDynamicLease(t *testing.T, s *Store, roleID, projectID, username string, expiresIn time.Duration) *DynamicLease {
 	t.Helper()

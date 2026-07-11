@@ -208,7 +208,11 @@ func (repo *DynamicLeaseRepo) ClaimDue(ctx context.Context, now, creatingBefore 
 }
 
 // MarkRevoked records a successful revocation with the given terminal status
-// ('revoked' or 'expired').
+// ('revoked' or 'expired'). Intentionally unguarded on the current status:
+// revocation is idempotent, so a redundant call (terminal -> terminal) is a
+// benign no-change and a double-revoke must not surface ErrNotFound. Do not add
+// a status guard — ClaimDue never re-selects a terminal lease, so no lost-update
+// loop can arise.
 func (repo *DynamicLeaseRepo) MarkRevoked(ctx context.Context, id, status string, now time.Time) error {
 	return repo.s.execAffectingOne(ctx,
 		`UPDATE dynamic_leases SET status=$2, revoked_at=$3, last_error=NULL, updated_at=now()
