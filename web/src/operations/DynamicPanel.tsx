@@ -54,6 +54,7 @@ function DynamicRow({
     mutationFn: () => opsEndpoints.dynamic.issue(r.id),
     onSuccess: (creds) => {
       onIssued(creds)
+      issue.reset() // drop the plaintext from the mutation object; parent state now owns it (cleared on modal close)
       qc.invalidateQueries({ queryKey: ['ops', 'dynamic', 'leases', r.id] })
     },
     onError: onErr,
