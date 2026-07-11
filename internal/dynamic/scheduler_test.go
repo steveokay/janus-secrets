@@ -98,6 +98,48 @@ func TestSweepReclaimsOrphanedCreatingLease(t *testing.T) {
 	}
 }
 
+// TestRunDueSkipsYoungCreatingLease proves the grace window protects an
+// in-flight IssueCreds: a 'creating' lease younger than creatingGrace must NOT
+// be swept (revoking it mid-issue would drop the caller's just-created role).
+func TestRunDueSkipsYoungCreatingLease(t *testing.T) {
+	if testDSN == "" {
+		t.Skip("postgres/docker not available")
+	}
+	ctx := context.Background()
+	svc, sec := newTestService(t)
+	configID := seedConfig(t, ctx, sec, "dyn-sched-young")
+
+	role, err := svc.CreateRole(ctx, RoleInput{
+		ConfigID: configID, Name: "young", DefaultTTLSeconds: 3600, MaxTTLSeconds: 7200,
+		Config: RoleConfig{AdminDSN: testDSN, CreationStatements: `CREATE ROLE "{{name}}" LOGIN PASSWORD '{{password}}';`},
+	}, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := testStore.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uname, _ := generateUsername(role.Name)
+	lease := &store.DynamicLease{
+		ID: id, RoleID: role.ID, ProjectID: role.ProjectID, DBUsername: uname,
+		ExpiresAt: time.Now().Add(time.Hour), MaxExpiresAt: time.Now().Add(2 * time.Hour), CreatedBy: "tester",
+	}
+	if err := svc.leases.Create(ctx, lease); err != nil { // status 'creating', created_at ~= now
+		t.Fatal(err)
+	}
+	// Do NOT advance the clock: the row is well within the grace window.
+	svc.RunDue(ctx)
+
+	got, err := svc.leases.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "creating" {
+		t.Fatalf("young creating lease must survive the grace window, got %s", got.Status)
+	}
+}
+
 func TestRunDueNoopWhileSealed(t *testing.T) {
 	svc := newSealedTestService(t)
 	// Must return without panicking and without touching the store.

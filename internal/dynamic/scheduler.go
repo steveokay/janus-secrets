@@ -23,6 +23,10 @@ func (s *Service) RunDue(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// All swept leases terminate as 'expired' (system-completed), including a
+		// 'revoke_failed' lease that a manual RevokeLease started: the security
+		// outcome is identical and provenance (manual vs automatic) is preserved
+		// in the audit log, so the status column need not distinguish them.
 		if err := s.revoke(ctx, l, "expired"); err != nil {
 			s.logger.Warn("dynamic lease revoke failed", "lease", l.ID, "err", sanitize(err))
 			continue
