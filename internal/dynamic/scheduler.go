@@ -16,7 +16,11 @@ func (s *Service) RunDue(ctx context.Context) {
 	now := s.now()
 	leases, err := s.leases.ClaimDue(ctx, now, now.Add(-creatingGrace), defaultBatch)
 	if err != nil {
-		s.logger.Warn("dynamic claim-due failed", "err", err)
+		// A cancelled context is orderly shutdown (or a detached post-unseal
+		// sweep racing process exit), not a fault — don't cry wolf in the log.
+		if ctx.Err() == nil {
+			s.logger.Warn("dynamic claim-due failed", "err", err)
+		}
 		return
 	}
 	for _, l := range leases {
