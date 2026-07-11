@@ -88,13 +88,17 @@ func TestIssueFailureCleansUp(t *testing.T) {
 	}
 	// No lease should be left 'active' or 'creating' for this role. Query the
 	// store repo directly (the engine ListLeasesByRole method arrives in Task 10).
+	// The reserved row must be terminalized to 'revoked' by the cleanup path
+	// (DROP ROLE IF EXISTS of the never-created role succeeds), not left in a
+	// non-terminal or revoke_failed state.
 	leases, err := svc.leases.ListByRole(ctx, role.ID)
 	if err != nil {
 		t.Fatalf("list leases: %v", err)
 	}
-	for _, l := range leases {
-		if l.Status == "active" || l.Status == "creating" {
-			t.Fatalf("issue failure left a non-terminal lease: %s", l.Status)
-		}
+	if len(leases) != 1 {
+		t.Fatalf("want exactly one reserved lease row, got %d", len(leases))
+	}
+	if leases[0].Status != "revoked" {
+		t.Fatalf("issue failure left lease in %q, want 'revoked'", leases[0].Status)
 	}
 }

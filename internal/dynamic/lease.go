@@ -31,7 +31,7 @@ func (s *Service) revoke(ctx context.Context, l *store.DynamicLease, terminal st
 	}
 	sql, err := interpolate(stmts, l.DBUsername, "", l.ExpiresAt)
 	if err != nil {
-		_ = s.leases.MarkRevokeFailed(ctx, l.ID, "invalid config")
+		_ = s.leases.MarkRevokeFailed(ctx, l.ID, sanitize(err))
 		return err
 	}
 	if err := runStatements(ctx, cfg.AdminDSN, sql); err != nil {
@@ -93,6 +93,12 @@ func (s *Service) RenewLease(ctx context.Context, id string) (LeaseView, error) 
 		return LeaseView{}, err
 	}
 	newExpiry := s.now().Add(time.Duration(role.DefaultTTLSeconds) * time.Second)
+	// Renewal only ever extends: never move expiry backward (e.g. if the role's
+	// DefaultTTL was lowered after this lease was last renewed), and never past
+	// the hard MaxExpiresAt ceiling set at issue time.
+	if newExpiry.Before(l.ExpiresAt) {
+		newExpiry = l.ExpiresAt
+	}
 	if newExpiry.After(l.MaxExpiresAt) {
 		newExpiry = l.MaxExpiresAt
 	}
