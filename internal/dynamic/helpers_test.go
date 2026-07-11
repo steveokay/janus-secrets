@@ -33,6 +33,16 @@ func newTestService(t *testing.T) (*Service, *secrets.Service) {
 	return svc, sec
 }
 
+// newSealedTestService builds a Service backed by a keyring that is left SEALED.
+// Used to assert scheduler/engine methods are no-ops while sealed. It does NOT
+// skip when testStore is nil: sealed RunDue returns before any store access.
+func newSealedTestService(t *testing.T) *Service {
+	t.Helper()
+	kr := crypto.NewKeyring() // freshly created keyrings are sealed until Unseal
+	aud := audit.New(store.NewAuditRepo(testStore))
+	return New(kr, testStore, aud, nil)
+}
+
 // seedConfig creates a fresh project->env->config chain (with a real wrapped KEK)
 // and returns the config id. dynamic_roles.config_id has a FK onto configs.
 func seedConfig(t *testing.T, ctx context.Context, sec *secrets.Service, slug string) string {
