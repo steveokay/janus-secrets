@@ -90,6 +90,13 @@ func SyncCredsAAD(targetID string) []byte {
 	return appendField([]byte("janus:sync:creds"), targetID)
 }
 
+// DynamicConfigAAD binds a dynamic role's encrypted RoleConfig blob (admin DSN,
+// creation/revocation/renew SQL) to its role id, in a domain distinct from the
+// rotation and sync AADs.
+func DynamicConfigAAD(roleID string) []byte {
+	return appendField([]byte("janus:dynamic:config"), roleID)
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

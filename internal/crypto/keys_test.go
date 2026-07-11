@@ -156,3 +156,18 @@ func TestSyncCredsAAD(t *testing.T) {
 		t.Fatal("sync creds AAD must differ from rotation config AAD")
 	}
 }
+
+func TestDynamicConfigAADDomainSeparation(t *testing.T) {
+	if bytes.Equal(DynamicConfigAAD("x"), SyncCredsAAD("x")) {
+		t.Fatal("dynamic and sync AADs must differ")
+	}
+	if bytes.Equal(DynamicConfigAAD("x"), RotationConfigAAD("x")) {
+		t.Fatal("dynamic and rotation AADs must differ")
+	}
+	if bytes.Equal(DynamicConfigAAD("r1"), DynamicConfigAAD("r2")) {
+		t.Fatal("different role ids must yield different AADs")
+	}
+	if bytes.Equal(DynamicConfigAAD("ab"), DynamicConfigAAD("a\x00b")) {
+		t.Fatal("length-prefixed encoding must resist boundary collisions")
+	}
+}
