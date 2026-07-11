@@ -299,6 +299,7 @@ project-scoped board row; dual-scope `/v1/metrics/reads-24h`; names+counts only,
 hides on 403)*. Give each a
 designed empty/loaded state using the component kit above rather than bespoke
 markup.
+- [x] Operations console (`/operations`) — rotation/sync/dynamic monitoring + actions (manage, no create).
 
 ---
 
