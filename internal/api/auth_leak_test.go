@@ -39,7 +39,7 @@ func TestNoCredentialMaterialInLogsOrErrors(t *testing.T) {
 	kr := crypto.NewKeyring()
 	u := crypto.NewShamirUnsealer(seals, 0, 0)
 	srv := New(Config{SealType: crypto.SealTypeShamir}, kr, u, seals,
-		secrets.NewService(st, kr), nil, nil, nil, auth.NewService(st, kr),
+		secrets.NewService(st, kr), nil, nil, nil, nil, auth.NewService(st, kr),
 		authz.New(store.NewRoleBindingRepo(st)), st, nil, logger)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)

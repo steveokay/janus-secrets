@@ -11,6 +11,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/secretsync"
@@ -125,6 +126,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	auditRec := audit.New(store.NewAuditRepo(st))
 	rotationSvc := rotation.New(kr, st, svc, auditRec, logger)
 	syncSvc := secretsync.New(kr, st, svc, auditRec, logger)
+	dynamicSvc := dynamic.New(kr, st, auditRec, logger)
 	// Sweep sessions orphaned by expiry while the server was down.
 	if err := authSvc.SweepExpiredSessions(ctx); err != nil {
 		logger.Warn("expired-session sweep failed", "err", err)
@@ -137,7 +139,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType, Version: bc.Version}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, authSvc, authorizer, st, auditRec, logger)
+	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType, Version: bc.Version}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 
 	// Start the rotation scheduler tied to the boot ctx (runServer's shutdown
