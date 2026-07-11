@@ -117,7 +117,7 @@ export function IntervalModal({
   return (
     <Modal open={open} onClose={onClose} label="Edit interval">
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-ink">Rotation interval</h2>
+        <h2 className="text-sm font-semibold text-ink">Edit interval</h2>
         <Input label="Seconds" type="number" min={1} value={val} onChange={(e) => setVal(e.target.value)} />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
