@@ -250,9 +250,17 @@ func (s *Server) unsealNow(ctx context.Context) error {
 	// detached context so it never blocks the unseal response; RunDue can't run
 	// while sealed, so this is the point the sweep becomes possible.
 	if wasSealed && !s.keyring.Sealed() && s.dynamic != nil {
-		go s.dynamic.SweepOrphanedLeases(context.Background())
+		s.startOrphanLeaseSweep()
 	}
 	return nil
+}
+
+// startOrphanLeaseSweep launches the dynamic lease-manager's crash-recovery sweep
+// in the background. It deliberately runs on a fresh context.Background() (not any
+// request-scoped context): the sweep must outlive the unseal request that triggers
+// it, so it must never be canceled when that response returns.
+func (s *Server) startOrphanLeaseSweep() {
+	go s.dynamic.SweepOrphanedLeases(context.Background())
 }
 
 type unsealRequest struct {

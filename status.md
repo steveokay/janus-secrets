@@ -1230,3 +1230,63 @@ its one Important finding — `synced_config_version` was frozen at 0 — was fi
 the branch (record the config's current version at commit time) with a regression
 assertion. All gates green (build/vet/`go test ./...`/gosec clean/govulncheck no
 called-vulnerabilities); CI + GitGuardian green on the PR.
+
+## Phase 3 · Sub-project 3.3 — Dynamic Postgres credentials ✅ complete
+
+Spec: `docs/superpowers/specs/2026-07-11-dynamic-postgres-credentials-design.md`
+Plan: `docs/superpowers/plans/2026-07-11-dynamic-postgres-credentials.md` (13 tasks)
+Migration `000012` · Engine in `internal/dynamic`
+
+Vault-style, config-scoped **dynamic Postgres roles**: an admin authors a role
+whose creation/revocation/renew SQL templates mint a short-lived Postgres login on
+demand; the generated password is **returned exactly once** from the issue endpoint
+and never persisted. Completes Phase 3 (the final slice) and Phase 3 as a whole.
+
+- [x] **Engine / templates**: admin-authored `creation`/`revocation`/`renew`
+      statements with `{{name}}`/`{{password}}`/`{{expiration}}` interpolation.
+      Janus generates the username + password and expiry — never the caller — and
+      sanitizes them: the injection boundary is `interpolate` (values are
+      quote-free / control-free), with defense-in-depth in `identRe`
+      (`^[A-Za-z_][A-Za-z0-9_]{0,62}$`, anchored, ≤63-byte SQL identifier). Password
+      length `defaultPasswdLen=32`.
+- [x] **Lease lifecycle**: crash-safe **persist(`creating`) → apply (CREATE ROLE)
+      → commit(`active`)** — the lease row is reserved BEFORE any DB change, so a
+      crash after CREATE leaves a row the lease manager reclaims (the caller
+      received no password). Renew = monotonic extend (never backward), capped at
+      `max_ttl`, re-`ALTER`s `VALID UNTIL` so Postgres honours the new expiry.
+      Revoke = idempotent `DROP ROLE IF EXISTS`; a failed revoke is marked
+      `revoke_failed` and retried.
+- [x] **Lease manager**: `RunDue` scheduler tied to the boot ctx
+      (`JANUS_DYNAMIC_TICK`, default 60s, `0` disables) revokes expired leases;
+      `SweepOrphanedLeases` fires one immediate pass on the **sealed→unsealed edge**
+      (revoke-on-startup for leases orphaned by a crash). A grace window protects
+      in-flight `creating` leases from premature reclaim; multi-statement atomicity
+      (proved by test) prevents half-created roles. Sealed = clean no-op.
+- [x] **Crypto**: admin DSN + SQL templates are **envelope-encrypted at rest**
+      (per-blob DEK under the project KEK) under a domain-separated
+      `DynamicConfigAAD`; masked in every API/CLI response (the DSN, its embedded
+      credential, and the templates never surface). Stdlib + `x/crypto` only.
+- [x] **Store** migration `000012` (`dynamic_roles` + `dynamic_leases`, with partial
+      indexes for the due-scan). Included in backup/restore alongside the other
+      Phase-3 tables.
+- [x] **RBAC**: `dynamic:manage` (admin+, role CRUD) + `dynamic:issue`
+      (developer+, lease issue/list/renew/revoke); deny-by-default; e2e-verified 403
+      matrix.
+- [x] REST `/v1/dynamic/{roles,leases}` (masked views, audited
+      `dynamic.role.*` + engine-authored `dynamic.creds.issue` /
+      `dynamic.lease.{renew,revoke}` system-actor events); CLI
+      `janus dynamic roles|creds|renew|revoke|leases`.
+- [x] **Password-leak proof** (capstone, Task 13): `internal/api/dynamic_leak_test.go`
+      boots a dynamic-capable server against a real container Postgres with a
+      captured slog buffer, issues creds (capturing the once-returned password), and
+      also drives the failed-CREATE cleanup/revoke logging path. It asserts the
+      issued password appears in **neither** log output **nor** the audit trail
+      (raw `audit_events` rows + `/v1/audit/export`), while the positive-control
+      `dynamic.creds.issue` event IS present with `db_user=<user>` (never the
+      password) — closing the loop on "the one secret this feature mints never
+      reaches logs or audit".
+
+**Non-goals respected**: no web UI, no `janus run` auto-leasing, Postgres-only (no
+other dynamic backends). Subagent-driven with two-stage (spec + quality) review per
+task, all exercised against real Postgres via testcontainers. All gates green
+(build/vet/`go test ./...`/gosec/govulncheck).
