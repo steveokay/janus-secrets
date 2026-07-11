@@ -1231,7 +1231,11 @@ the branch (record the config's current version at commit time) with a regressio
 assertion. All gates green (build/vet/`go test ./...`/gosec clean/govulncheck no
 called-vulnerabilities); CI + GitGuardian green on the PR.
 
-## Phase 3 · Sub-project 3.3 — Dynamic Postgres credentials ✅ complete
+## Phase 3 · Sub-project 3.3 — Dynamic Postgres credentials ✅ complete (PR #54)
+
+**Merged to `main` `5a8df82` (2026-07-11).** Final holistic branch review returned
+**SHIP** (password-leak property + crash-safety closed loop independently verified).
+**Completes Phase 3 — all three CLAUDE.md build phases are now done.**
 
 Spec: `docs/superpowers/specs/2026-07-11-dynamic-postgres-credentials-design.md`
 Plan: `docs/superpowers/plans/2026-07-11-dynamic-postgres-credentials.md` (13 tasks)
@@ -1290,3 +1294,25 @@ and never persisted. Completes Phase 3 (the final slice) and Phase 3 as a whole.
 other dynamic backends). Subagent-driven with two-stage (spec + quality) review per
 task, all exercised against real Postgres via testcontainers. All gates green
 (build/vet/`go test ./...`/gosec/govulncheck).
+
+---
+
+## Backlog — deferred / cross-cutting items on the radar
+
+- [ ] **Audit fail-closed policy for engine-authored action endpoints** (surfaced by
+      the Phase 3.3 holistic review). Today three action endpoints — rotation
+      `POST /rotation/policies/{id}/rotate`, sync `POST /sync/targets/{id}/sync`, and
+      dynamic issue/renew/revoke — authorize fail-closed (the *denial* path always
+      records) but then rely on the engine's **best-effort** system-actor audit event
+      (`recordRotate` / `reconcile` / `recordIssue`+`recordLease`): an audit-write
+      failure logs a warn and the mutation still succeeds. This is intentionally
+      consistent across all three siblings, but is stricter-than-the-letter of
+      CLAUDE.md's "audit-write failure fails the request (no unaudited mutations)."
+      **Decision needed (project-wide, not per-feature):** either (a) accept the
+      documented best-effort behavior for engine-driven external side effects (the
+      DB/GitHub/k8s mutation already happened and can't be un-done by a late audit
+      fail), or (b) add an API-layer fail-closed `s.record(...)` after each such
+      endpoint (accepting a second audit event alongside the engine's). Changing only
+      one engine would make it inconsistent with the others, so this should be decided
+      and applied uniformly. Not a defect in any shipped slice — a consistency/policy
+      call.
