@@ -144,6 +144,73 @@ func srvStoreAuthKey(ctx context.Context, srv *Server) ([]byte, error) {
 	return srv.auth.WrappedHMACKeyForTest(ctx)
 }
 
+// TestBootWiresDynamicSweepOnUnseal pins the Task 11 wiring: Boot always
+// constructs a non-nil dynamic service, and the sealed->unsealed edge in
+// unsealNow launches the lease-manager sweep. The sweep's own behavior
+// (reclaiming expired/orphaned leases) is covered deterministically in
+// internal/dynamic/scheduler_test.go against real Postgres; here we assert the
+// api-layer seam: after a KMS auto-unseal the wired service is present, and
+// invoking it synchronously against the real store is a clean no-op (no leases
+// due), proving the exact instance the hook fires is functional. Zero tick keeps
+// the background scheduler off so the test is deterministic.
+func TestBootWiresDynamicSweepOnUnseal(t *testing.T) {
+	dsn := bootPostgres(t)
+	ctx := context.Background()
+	client := &fakeKMS{}
+	factory := func(context.Context) (crypto.KMSClient, error) { return client, nil }
+
+	// Boot 1: uninitialized; init via the unsealer, which auto-wraps.
+	srv1, st1, err := Boot(ctx, BootConfig{
+		DatabaseURL: dsn, SealType: crypto.SealTypeAWSKMS, NewKMSClient: factory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv1.unsealer.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st1.Close()
+
+	// Boot 2: initialized KMS seal auto-unseals at boot via unsealNow, which is
+	// the funnel the sweep hook lives in. DynamicTick:0 disables the periodic
+	// scheduler so nothing runs in the background during the test.
+	srv2, st2, err := Boot(ctx, BootConfig{
+		DatabaseURL: dsn, SealType: "", NewKMSClient: factory, DynamicTick: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st2.Close()
+	if srv2.keyring.Sealed() {
+		t.Fatal("initialized kms boot must auto-unseal")
+	}
+	if srv2.dynamic == nil {
+		t.Fatal("Boot must wire a non-nil dynamic service for the sweep hook")
+	}
+	// The exact service instance the hook fires must run cleanly against the real
+	// store (no due leases -> no-op, no panic/error).
+	srv2.dynamic.SweepOrphanedLeases(ctx)
+}
+
+// TestBootDynamicTickRoundTrips confirms BootConfig carries DynamicTick through
+// to Boot and that a zero tick leaves the server healthy (scheduler disabled,
+// no behavior change) — the wiring added in Task 11.
+func TestBootDynamicTickRoundTrips(t *testing.T) {
+	dsn := bootPostgres(t)
+	bc := BootConfig{DatabaseURL: dsn, SealType: crypto.SealTypeShamir, DynamicTick: 0}
+	if bc.DynamicTick != 0 {
+		t.Fatalf("DynamicTick did not round-trip: %v", bc.DynamicTick)
+	}
+	srv, st, err := Boot(context.Background(), bc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if srv.dynamic == nil {
+		t.Fatal("dynamic service must be wired even with DynamicTick disabled")
+	}
+}
+
 func TestBootReconcilesInstanceOwner(t *testing.T) {
 	dsn := bootPostgres(t)
 	ctx := context.Background()

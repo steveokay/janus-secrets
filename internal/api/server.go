@@ -12,6 +12,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/secretsync"
@@ -42,6 +43,7 @@ type Server struct {
 	transit  *transit.Service    // nil in unit-test servers that exercise no transit path
 	rotation *rotation.Service   // nil in unit-test servers that exercise no rotation path
 	sync     *secretsync.Service // nil in unit-test servers that exercise no sync path
+	dynamic  *dynamic.Service    // nil in unit-test servers that exercise no dynamic path
 	auth     *auth.Service       // nil only in unit tests that exercise no auth path
 	authz    *authz.Engine       // nil only in unit-test servers that exercise no authz path
 	st       *store.Store        // for scope-chain resolution + membership/user handlers
@@ -56,7 +58,7 @@ type Server struct {
 
 // New wires the router. logger nil defaults to slog.Default().
 func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
-	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, rot *rotation.Service, syncSvc *secretsync.Service, authSvc *auth.Service,
+	seals crypto.SealConfigStore, svc *secrets.Service, tr *transit.Service, rot *rotation.Service, syncSvc *secretsync.Service, dyn *dynamic.Service, authSvc *auth.Service,
 	authorizer *authz.Engine, st *store.Store, auditRec *audit.Recorder, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
@@ -65,7 +67,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		logger = slog.Default()
 	}
 	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr, rotation: rot,
-		sync: syncSvc, auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
+		sync: syncSvc, dynamic: dyn, auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
@@ -257,6 +259,20 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Patch("/v1/sync/targets/{id}", s.handleSyncUpdate)
 				r.Delete("/v1/sync/targets/{id}", s.handleSyncDelete)
 				r.Post("/v1/sync/targets/{id}/sync", s.handleSyncNow)
+			})
+		}
+		if s.dynamic != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/dynamic/roles", s.handleDynamicRoleCreate)
+				r.Get("/v1/dynamic/roles", s.handleDynamicRoleList)
+				r.Get("/v1/dynamic/roles/{id}", s.handleDynamicRoleGet)
+				r.Patch("/v1/dynamic/roles/{id}", s.handleDynamicRoleUpdate)
+				r.Delete("/v1/dynamic/roles/{id}", s.handleDynamicRoleDelete)
+				r.Post("/v1/dynamic/roles/{id}/creds", s.handleDynamicIssue)
+				r.Get("/v1/dynamic/leases", s.handleDynamicLeaseList)
+				r.Post("/v1/dynamic/leases/{id}/renew", s.handleDynamicLeaseRenew)
+				r.Post("/v1/dynamic/leases/{id}/revoke", s.handleDynamicLeaseRevoke)
 			})
 		}
 		if s.audit != nil {

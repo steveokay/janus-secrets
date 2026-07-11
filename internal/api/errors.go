@@ -30,6 +30,7 @@ const (
 	CodeSchemaInconsistent = "schema_inconsistent"
 	CodeRotationNotFound   = "rotation_not_found"
 	CodeSyncNotFound       = "sync_not_found"
+	CodeDynamicNotFound    = "dynamic_not_found"
 )
 
 type errorBody struct {
