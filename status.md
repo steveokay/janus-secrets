@@ -1239,6 +1239,9 @@ called-vulnerabilities); CI + GitGuardian green on the PR.
 
 Spec: `docs/superpowers/specs/2026-07-11-dynamic-postgres-credentials-design.md`
 Plan: `docs/superpowers/plans/2026-07-11-dynamic-postgres-credentials.md` (13 tasks)
+Docs: `docs/ops/dynamic.md` (runbook) + `docs/operations.md` (`JANUS_DYNAMIC_TICK`,
+`janus dynamic` CLI-reference rows, `## Dynamic Postgres credentials` narrative) —
+added post-merge on `main` `18b4086`, mirroring the rotation/sync doc pattern.
 Migration `000012` · Engine in `internal/dynamic`
 
 Vault-style, config-scoped **dynamic Postgres roles**: an admin authors a role
