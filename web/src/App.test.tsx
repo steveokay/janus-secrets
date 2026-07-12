@@ -8,8 +8,13 @@ import { server } from './test/msw'
 import { queryClient } from './lib/queryClient'
 
 // App uses the real queryClient singleton; clear it between tests to avoid
-// one test's cached projects/seal-status bleeding into the next.
-afterEach(() => queryClient.clear())
+// one test's cached projects/seal-status bleeding into the next. App also
+// renders a real BrowserRouter, so reset the URL too (tests that need a
+// non-default route call window.history.pushState before rendering).
+afterEach(() => {
+  queryClient.clear()
+  window.history.pushState({}, '', '/')
+})
 
 function boot(seal: object, me: number) {
   server.use(
@@ -37,4 +42,25 @@ test('unsealed + authenticated shows the app shell', async () => {
   // Email moved into the user-menu dropdown; the shell shows the avatar + seal pill.
   expect(await screen.findByRole('button', { name: /user menu/i })).toBeInTheDocument()
   expect(screen.getByText(/unsealed/i)).toBeInTheDocument()
+})
+
+test('authenticated render at / marks Home current in the sidebar', async () => {
+  boot({ initialized: true, sealed: false, type: 'shamir' }, 200)
+  window.history.pushState({}, '', '/')
+  render(<ThemeProvider><App /></ThemeProvider>)
+  const home = await screen.findByRole('link', { name: /home/i })
+  expect(home).toHaveAttribute('aria-current', 'page')
+  const projects = screen.getByRole('link', { name: /projects/i })
+  expect(projects).not.toHaveAttribute('aria-current')
+})
+
+test('authenticated render at /projects marks Projects current and shows ProjectsList content', async () => {
+  boot({ initialized: true, sealed: false, type: 'shamir' }, 200)
+  window.history.pushState({}, '', '/projects')
+  render(<ThemeProvider><App /></ThemeProvider>)
+  const projects = await screen.findByRole('link', { name: /projects/i })
+  expect(projects).toHaveAttribute('aria-current', 'page')
+  const home = screen.getByRole('link', { name: /home/i })
+  expect(home).not.toHaveAttribute('aria-current')
+  expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
 })
