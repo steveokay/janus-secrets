@@ -34,7 +34,7 @@ function mount() {
   return renderApp(<ActivityFeed />, { withAuth: false })
 }
 
-test('renders event rows with mono action, actor/resource line and result dots', async () => {
+test('renders event rows with mono action, actor/resource line and result pills', async () => {
   mockEvents({
     events: [
       EV(2, { action: 'secret.write', resource: 'configs/c1', actor_name: 'steve@acme.dev', result: 'success' }),
@@ -48,10 +48,12 @@ test('renders event rows with mono action, actor/resource line and result dots',
   expect(screen.getByText(/configs\/c1 · steve@acme.dev/)).toBeInTheDocument()
   expect(screen.getByText(/configs\/c1 · bot@ci/)).toBeInTheDocument()
 
-  const deniedRow = screen.getByText('secret.reveal').closest('li')
-  expect(deniedRow).not.toBeNull()
-  const dot = deniedRow!.querySelector('span.bg-warning')
-  expect(dot).toBeInTheDocument()
+  // Result pills carry visible text; denied maps to the danger tone via the
+  // shared resultTone map (must agree with AuditPage).
+  expect(screen.getByText('success')).toBeInTheDocument()
+  const denied = screen.getByText('denied')
+  expect(denied).toBeInTheDocument()
+  expect(denied).toHaveClass('text-danger')
 })
 
 test('hides entirely when the events query errors (e.g. 403)', async () => {

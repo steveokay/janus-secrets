@@ -6,6 +6,7 @@ import { Pill } from '../ui/Pill'
 import { EmptyState } from '../ui/EmptyState'
 import { useTitle } from '../lib/title'
 import { timeAgo } from '../lib/time'
+import { resultTone } from './resultTone'
 
 // Draft (inputs) vs applied (committed on Apply) — the events query only
 // refetches when applied changes, not on every keystroke.
@@ -20,12 +21,6 @@ function toApplied(d: Draft): AuditEventFilters {
   if (d.from) f.from = new Date(d.from).toISOString()
   if (d.to) f.to = new Date(d.to).toISOString()
   return f
-}
-
-const resultTone: Record<AuditEvent['result'], 'success' | 'danger' | 'warning'> = {
-  success: 'success',
-  denied: 'danger',
-  error: 'warning',
 }
 
 export function AuditPage() {

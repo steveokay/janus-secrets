@@ -2,9 +2,10 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { endpoints } from '../lib/endpoints'
 import { relativeTime } from '../lib/relativeTime'
+import { resultTone } from '../audit/resultTone'
 import { Card } from '../ui/Card'
+import { Pill } from '../ui/Pill'
 import { Skeleton } from '../ui/Skeleton'
-import { cn } from '../ui/cn'
 
 export function ActivityFeed() {
   const q = useQuery({
@@ -13,7 +14,7 @@ export function ActivityFeed() {
     retry: false,
   })
 
-  if (q.isLoading) return <Skeleton className="mb-6 h-[220px] rounded-card" />
+  if (q.isLoading) return <Skeleton className="mb-6 h-[290px] rounded-card" />
   // Section hides on error (e.g. 403) rather than erroring.
   if (q.isError) return null
 
@@ -33,17 +34,12 @@ export function ActivityFeed() {
             key={e.seq}
             className="flex items-center gap-2.5 border-b border-line-soft px-4 py-2 last:border-b-0"
           >
-            <span
-              className={cn(
-                'h-1.5 w-1.5 shrink-0 rounded-full',
-                e.result === 'success' ? 'bg-success' : e.result === 'denied' ? 'bg-warning' : 'bg-danger',
-              )}
-            />
+            <Pill tone={resultTone[e.result]} dot className="shrink-0">{e.result}</Pill>
             <span className="font-mono text-[11px] text-ink">{e.action}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint">
+            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint" title={e.resource}>
               {e.resource} · {e.actor_name}
             </span>
-            <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">
+            <span className="shrink-0 text-[11px] tabular-nums text-ink-faint" title={e.occurred_at}>
               {relativeTime(e.occurred_at)}
             </span>
           </li>
