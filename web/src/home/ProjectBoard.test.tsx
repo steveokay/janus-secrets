@@ -43,6 +43,7 @@ test('shows the CLI hint and breadcrumb', async () => {
   renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
   // project name appears in both the sr-only h1 and the visible breadcrumb
   expect((await screen.findAllByText('api-gateway')).length).toBeGreaterThan(0)
+  expect(screen.getByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/projects')
   expect(screen.getByText(/janus run/i)).toBeInTheDocument()
 })
 
