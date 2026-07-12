@@ -46,3 +46,19 @@ test('all-403 renders access-required', async () => {
   renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
   expect(await screen.findByText(/access required/i)).toBeInTheDocument()
 })
+
+test('a 500 on the list query renders the error state', async () => {
+  topo()
+  server.use(http.get('/v1/rotation/policies', () => HttpResponse.json({ error: { code: 'internal', message: 'boom' } }, { status: 500 })))
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  expect(await screen.findByRole('alert')).toHaveTextContent(/couldn't load/i)
+})
+
+test('a 500 while enumerating configs surfaces the error state', async () => {
+  // engine list succeeds, but the decorative config-name enumeration 500s →
+  // the panel must not silently render as though all is well
+  topo(); mockList()
+  server.use(http.get('/v1/projects/:pid/environments/:eid/configs', () => HttpResponse.json({ error: { code: 'internal', message: 'boom' } }, { status: 500 })))
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  expect(await screen.findByRole('alert')).toHaveTextContent(/couldn't load/i)
+})

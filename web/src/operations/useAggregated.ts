@@ -15,16 +15,24 @@ export interface ConfigInfo {
 
 const REFETCH_MS = 15_000
 
+/** True for any error that is not an expected 403 (missing role). */
+function isUnexpected(err: unknown): boolean {
+  return !!err && !(err instanceof ApiError && err.status === 403)
+}
+
 /**
  * Enumerates projects → environments → configs to build a
  * config_id → {names} map used to render the Project/Config columns.
  * A 403 on any sub-list just leaves those entries out of the map (rows
- * fall back to a truncated id); it is never surfaced as an error.
+ * fall back to a truncated id) and is never surfaced. A *non-403* error
+ * (e.g. 500) sets `isError` so callers don't silently render an empty or
+ * incomplete view as though nothing were wrong.
  */
 export function useProjectConfigMap(filter: ProjectFilter): {
   map: Map<string, ConfigInfo>
   projects: Project[]
   isLoading: boolean
+  isError: boolean
 } {
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: endpoints.listProjects })
   const all = projectsQ.data ?? []
@@ -58,7 +66,11 @@ export function useProjectConfigMap(filter: ProjectFilter): {
 
   const isLoading =
     projectsQ.isLoading || envQs.some((q) => q.isLoading) || cfgQs.some((q) => q.isLoading)
-  return { map, projects, isLoading }
+  const isError =
+    isUnexpected(projectsQ.error) ||
+    envQs.some((q) => isUnexpected(q.error)) ||
+    cfgQs.some((q) => isUnexpected(q.error))
+  return { map, projects, isLoading, isError }
 }
 
 export interface ScopeResult<T> {
@@ -122,14 +134,14 @@ function useProjectScoped<T extends { config_id: string }>(
   keyPrefix: readonly unknown[],
   listFn: (pid: string) => Promise<T[]>,
 ): Aggregated<T> {
-  const { map, projects, isLoading: mapLoading } = useProjectConfigMap(filter)
+  const { map, projects, isLoading: mapLoading, isError: mapError } = useProjectConfigMap(filter)
   const { perScope, isLoading, isError, someForbidden } = useFanOut(projects, keyPrefix, listFn)
   const byId = new Map(projects.map((p) => [p.id, p]))
   const rows: EngineRow<T>[] = perScope.flatMap(({ id, data }) => {
     const p = byId.get(id)
     return data.map((d) => ({ data: d, projectId: id, projectName: p?.name ?? id, cfg: map.get(d.config_id) }))
   })
-  return { rows, isLoading: mapLoading || isLoading, isError, someForbidden }
+  return { rows, isLoading: mapLoading || isLoading, isError: isError || mapError, someForbidden }
 }
 
 export function useRotation(filter: ProjectFilter): Aggregated<RotationView> {
@@ -145,7 +157,7 @@ export function useSync(filter: ProjectFilter): Aggregated<SyncView> {
  * map's configs (not projects). Same 403 tolerance.
  */
 export function useDynamicRoles(filter: ProjectFilter): Aggregated<DynamicRoleView> {
-  const { map, isLoading: mapLoading } = useProjectConfigMap(filter)
+  const { map, isLoading: mapLoading, isError: mapError } = useProjectConfigMap(filter)
   const configs = [...map.values()]
   const { perScope, isLoading, isError, someForbidden } = useFanOut(
     configs.map((c) => ({ id: c.configId })),
@@ -157,5 +169,5 @@ export function useDynamicRoles(filter: ProjectFilter): Aggregated<DynamicRoleVi
     const cfg = byCfg.get(id)
     return data.map((d) => ({ data: d, projectId: cfg?.projectId ?? '', projectName: cfg?.projectName ?? '', cfg }))
   })
-  return { rows, isLoading: mapLoading || isLoading, isError, someForbidden }
+  return { rows, isLoading: mapLoading || isLoading, isError: isError || mapError, someForbidden }
 }

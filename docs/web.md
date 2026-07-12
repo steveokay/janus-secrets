@@ -122,8 +122,13 @@ filter and three tabs:
   pause/resume, edit interval, delete.
 - **Sync** — targets with provider/destination/status; actions: sync-now,
   pause/resume, edit interval, delete.
-- **Dynamic** — roles (admin/owner: listing needs `dynamic:manage`);
-  actions: issue credentials, view/renew/revoke leases, delete role.
+- **Dynamic** — roles; actions: issue credentials, view/renew/revoke
+  leases, delete role. **Admin/owner-oriented:** listing roles requires
+  `dynamic:manage`, so a developer holding only `dynamic:issue` sees an
+  empty "Access required" table here even though they *can* issue
+  credentials via `janus dynamic issue` on the CLI. This matches the
+  engine's RBAC (issue and manage are distinct grants); the console does
+  not down-scope to an issue-only view.
 
 The console **cannot create** resources — creating a policy/target/role
 requires entering privileged admin DSNs, PATs, k8s tokens, or SQL
