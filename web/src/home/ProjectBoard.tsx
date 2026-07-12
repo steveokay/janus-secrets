@@ -25,16 +25,20 @@ interface OpsHealth {
 function OpsChips({ configId, ops }: { configId: string; ops: OpsHealth }) {
   const rot = ops.rotation.get(configId)
   const syncs = ops.sync.get(configId)
+  const rotFailed = rot?.some((p) => p.status === 'failed') ?? false
+  const syncFailed = syncs?.some((t) => t.status === 'failed') ?? false
   return (
     <>
       {rot && rot.length > 0 && (
-        <Pill tone={rot.some((p) => p.status === 'failed') ? 'warning' : 'success'} className="text-[10px]">
-          rotation{rot.some((p) => p.status === 'failed') ? ' ⚠' : ' ✓'}
+        <Pill tone={rotFailed ? 'warning' : 'success'} className="text-[10px]">
+          rotation{rotFailed ? ' ⚠' : ' ✓'}
+          <span className="sr-only">{rotFailed ? ' has failing policies' : ' healthy'}</span>
         </Pill>
       )}
       {syncs && syncs.length > 0 && (
-        <Pill tone={syncs.some((t) => t.status === 'failed') ? 'warning' : 'success'} className="text-[10px]">
-          sync{syncs.some((t) => t.status === 'failed') ? ' ⚠' : ' ✓'}
+        <Pill tone={syncFailed ? 'warning' : 'success'} className="text-[10px]">
+          sync{syncFailed ? ' ⚠' : ' ✓'}
+          <span className="sr-only">{syncFailed ? ' has failing targets' : ' healthy'}</span>
         </Pill>
       )}
     </>
@@ -103,7 +107,7 @@ function EnvColumn({ pid, env, configs, loading, error, ops, onAddConfig }: {
     <section
       className={cn(
         'w-[260px] shrink-0 rounded-card border p-2',
-        tone === 'danger' ? 'border-danger-soft' : 'border-transparent',
+        tone === 'danger' ? 'border-danger-line' : 'border-transparent',
       )}
     >
       <div className="mb-2 flex items-center justify-between">

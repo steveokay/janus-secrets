@@ -30,7 +30,7 @@ export default {
         'on-brand': 'var(--on-brand)',
         success: { DEFAULT: 'var(--ok)', soft: 'var(--ok-soft)' },
         warning: { DEFAULT: 'var(--warn)', soft: 'var(--warn-soft)' },
-        danger: { DEFAULT: 'var(--danger)', soft: 'var(--danger-soft)' },
+        danger: { DEFAULT: 'var(--danger)', soft: 'var(--danger-soft)', line: 'var(--danger-line)' },
         info: { DEFAULT: 'var(--info)', soft: 'var(--info-soft)' },
       },
       backgroundImage: {

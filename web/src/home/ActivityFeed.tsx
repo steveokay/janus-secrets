@@ -14,7 +14,7 @@ export function ActivityFeed() {
     retry: false,
   })
 
-  if (q.isLoading) return <Skeleton className="mb-6 h-[290px] rounded-card" />
+  if (q.isLoading) return <Skeleton className="mb-6 h-[360px] rounded-card" />
   // Section hides on error (e.g. 403) rather than erroring.
   if (q.isError) return null
 
@@ -36,7 +36,7 @@ export function ActivityFeed() {
           >
             <Pill tone={resultTone[e.result]} dot className="shrink-0">{e.result}</Pill>
             <span className="font-mono text-[11px] text-ink">{e.action}</span>
-            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint" title={e.resource}>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-ink-faint" title={`${e.resource} · ${e.actor_name}`}>
               {e.resource} · {e.actor_name}
             </span>
             <span className="shrink-0 text-[11px] tabular-nums text-ink-faint" title={e.occurred_at}>
