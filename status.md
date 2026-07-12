@@ -1342,15 +1342,17 @@ unused-import tsc break.
 
 ## Backlog — deferred / cross-cutting items on the radar
 
-- [ ] **Ops-console follow-ups** (from the PR #55 holistic review; all non-blocking):
-      (a) `useProjectConfigMap` silently degrades on **non-403** env/config
-      enumeration errors (affects only the decorative config-name column) — consider
-      surfacing non-403 as an error; (b) doc note that the Dynamic tab is
-      admin/owner-oriented (a `dynamic:issue`-only developer can't see the roles
-      table, since listing needs `dynamic:manage`) — matches spec, but a UX sharp
-      edge; (c) add a panel-level test that a **500** on a list query renders the
-      error state (the 403 path is tested; the non-403 branch is only covered
-      indirectly in the `useFanOut` probe).
+- [x] **Ops-console follow-ups** (from the PR #55 holistic review; all non-blocking)
+      — done (PR #56):
+      (a) `useProjectConfigMap` now returns `isError` and surfaces **non-403**
+      env/config enumeration errors (503/500), OR'd into the rotation/sync/dynamic
+      aggregators; 403s stay silently tolerated (row falls back to a truncated
+      config id); (b) `docs/web.md` Dynamic-tab note sharpened to spell out that a
+      `dynamic:issue`-only developer sees an "Access required" table (listing needs
+      `dynamic:manage`), by design — the console does not down-scope to an issue-only
+      view; (c) added 4 tests — panel-level 500-on-list-query → error state,
+      500-while-enumerating-configs → error state, plus hook-level 403-tolerated /
+      non-403-surfaced coverage. 235/235 web tests, tsc clean.
 
 - [ ] **Audit fail-closed policy for engine-authored action endpoints** (surfaced by
       the Phase 3.3 holistic review). Today three action endpoints — rotation

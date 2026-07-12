@@ -17,8 +17,9 @@ function mockTopology() {
 }
 
 function MapProbe() {
-  const { map, isLoading } = useProjectConfigMap('all')
+  const { map, isLoading, isError } = useProjectConfigMap('all')
   if (isLoading) return <div>loading</div>
+  if (isError) return <div>error</div>
   const info = map.get('p1-cfg')
   return <div>{info ? `${info.projectName}/${info.envName}/${info.configName}` : 'none'}</div>
 }
@@ -27,6 +28,23 @@ test('useProjectConfigMap resolves config_id → project/env/config names', asyn
   mockTopology()
   renderApp(<MapProbe />, { route: '/operations', withAuth: false })
   expect(await screen.findByText('Acme/prod/prod')).toBeInTheDocument()
+})
+
+test('useProjectConfigMap tolerates a 403 sub-list without erroring', async () => {
+  mockTopology()
+  // configs forbidden for one project → entry just absent, not an error
+  server.use(http.get('/v1/projects/:pid/environments/:eid/configs', () =>
+    HttpResponse.json({ error: { code: 'forbidden', message: 'no' } }, { status: 403 })))
+  renderApp(<MapProbe />, { route: '/operations', withAuth: false })
+  expect(await screen.findByText('none')).toBeInTheDocument()
+})
+
+test('useProjectConfigMap surfaces a non-403 enumeration error as isError', async () => {
+  mockTopology()
+  server.use(http.get('/v1/projects/:pid/environments', () =>
+    HttpResponse.json({ error: { code: 'internal', message: 'boom' } }, { status: 500 })))
+  renderApp(<MapProbe />, { route: '/operations', withAuth: false })
+  expect(await screen.findByText('error')).toBeInTheDocument()
 })
 
 function FanProbe() {
