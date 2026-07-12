@@ -71,7 +71,7 @@ function EnvConfigs({ pid, eid, name, activeConfigId, onAddConfig }: {
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'block rounded px-2 py-1 text-[12.5px] text-ink-mute hover:bg-surface-3',
-                  active && 'bg-nav-active font-semibold text-ink shadow-[inset_2px_0_0_var(--nav-rail)] hover:bg-nav-active',
+                  active && primaryActive,
                 )}
               >
                 {c.name}
