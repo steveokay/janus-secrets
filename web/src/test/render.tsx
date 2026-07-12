@@ -13,6 +13,7 @@ import { PaletteProvider } from '../palette/PaletteProvider'
 // catch-all when no pattern matches (e.g. static routes like `/tokens`).
 const ROUTE_PATTERNS = [
   '/',
+  '/projects',
   '/projects/:projectId',
   '/projects/:projectId/configs/:configId',
   '/projects/:projectId/audit',

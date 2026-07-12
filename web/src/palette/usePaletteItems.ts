@@ -14,7 +14,8 @@ export interface PaletteItem {
 }
 
 const NAV_ACTIONS: { label: string; to: string; keywords: string }[] = [
-  { label: 'Go to Projects', to: '/', keywords: 'projects home' },
+  { label: 'Go to Home', to: '/', keywords: 'home dashboard overview' },
+  { label: 'Go to Projects', to: '/projects', keywords: 'projects list' },
   { label: 'Go to Activity', to: '/audit', keywords: 'activity audit log events' },
   { label: 'Go to Members', to: '/members', keywords: 'members users roles team' },
   { label: 'Go to Tokens', to: '/tokens', keywords: 'tokens service api' },

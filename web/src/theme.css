@@ -42,7 +42,7 @@
   /* ---- Semantic (AA on light) ---- */
   --ok: #178A50;      --ok-soft: #E4F5EC;
   --warn: #B45309;    --warn-soft: #FCF0DF;
-  --danger: #C92A2A;  --danger-soft: #FBE9E9;
+  --danger: #C92A2A;  --danger-soft: #FBE9E9;  --danger-line: #E8A8A8;
   --info: #2563EB;    --info-soft: #E7EFFD;
   /* ---- Elevation & glow (glows 40% on light per §3.8) ---- */
   --elev-1: 0 1px 2px rgba(33,29,53,.05), 0 4px 16px rgba(33,29,53,.06);
@@ -51,6 +51,11 @@
   --glow-brand-soft: 0 4px 14px rgba(124,58,237,.16);
   --shadow-card: var(--elev-1);        /* legacy aliases */
   --shadow-pop: var(--elev-2);
+  /* ---- Project glyph gradients (N2) ---- */
+  --glyph-a: linear-gradient(135deg, #8B5CF6, #6D28D9);
+  --glyph-b: linear-gradient(135deg, #0EA5E9, #0369A1);
+  --glyph-c: linear-gradient(135deg, #F59E0B, #B45309);
+  --glyph-d: linear-gradient(135deg, #F43F5E, #BE123C);
 }
 
 html.dark {
@@ -92,7 +97,7 @@ html.dark {
   /* ---- Semantic (dark §3.3) ---- */
   --ok: #4ADE80;      --ok-soft: rgba(74,222,128,.14);
   --warn: #FCD34D;    --warn-soft: rgba(245,158,11,.16);
-  --danger: #FB7185;  --danger-soft: rgba(244,63,94,.16);
+  --danger: #FB7185;  --danger-soft: rgba(244,63,94,.16);  --danger-line: rgba(244,63,94,.35);
   --info: #7DB2FF;    --info-soft: rgba(56,132,255,.16);
   /* ---- Elevation & glow (§3.2) ---- */
   --elev-1: 0 8px 24px rgba(0,0,0,.40);
@@ -101,4 +106,9 @@ html.dark {
   --glow-brand-soft: 0 4px 14px rgba(139,92,246,.40);
   --shadow-card: var(--elev-1);
   --shadow-pop: var(--elev-2);
+  /* ---- Project glyph gradients (N2) ---- */
+  --glyph-a: linear-gradient(135deg, #8B5CF6, #6D28D9);
+  --glyph-b: linear-gradient(135deg, #0EA5E9, #0369A1);
+  --glyph-c: linear-gradient(135deg, #F59E0B, #B45309);
+  --glyph-d: linear-gradient(135deg, #F43F5E, #BE123C);
 }
