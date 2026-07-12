@@ -22,7 +22,7 @@ type OpenForm = null | 'env' | { config: { eid: string; bases: Config[] } }
 
 function SectionLabel({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="mb-1 mt-4 flex items-center justify-between px-2 text-[10.5px] font-bold uppercase tracking-[.12em] text-faint">
+    <div className="mb-1 mt-4 flex items-center justify-between px-2 text-[10.5px] font-bold uppercase tracking-[.12em] text-ink-faint">
       <span className="truncate">{children}</span>
       {action}
     </div>
@@ -66,13 +66,12 @@ function EnvConfigs({ pid, eid, name, activeConfigId, onAddConfig }: {
           const active = c.id === activeConfigId
           return (
             <li key={c.id} className="relative ml-3.5">
-              {active && <span className="absolute -left-3.5 bottom-[5px] top-[5px] w-[3px] rounded-full bg-brand" />}
               <Link
                 to={`/projects/${pid}/configs/${c.id}`}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'block rounded px-2 py-1 text-[12.5px] text-muted hover:bg-line-soft',
-                  active && 'bg-brand-soft font-semibold text-brand-text hover:bg-brand-soft',
+                  'block rounded px-2 py-1 text-[12.5px] text-ink-mute hover:bg-surface-3',
+                  active && primaryActive,
                 )}
               >
                 {c.name}
@@ -97,8 +96,9 @@ const PRIMARY = [
 ]
 
 const primaryItem =
-  'mx-1 flex items-center gap-2.5 rounded px-2 py-1.5 text-[12.5px] font-medium text-muted hover:bg-line-soft hover:text-ink'
-const primaryActive = 'bg-brand-soft font-semibold text-brand-text hover:bg-brand-soft'
+  'mx-1 flex items-center gap-2.5 rounded px-2 py-1.5 text-[12.5px] font-medium text-ink-mute transition-nocturne hover:bg-surface-3 hover:text-ink'
+const primaryActive =
+  'bg-nav-active font-semibold text-ink shadow-[inset_2px_0_0_var(--nav-rail)] hover:bg-nav-active'
 
 export function Sidebar() {
   const { projectId, configId } = useActiveIds()

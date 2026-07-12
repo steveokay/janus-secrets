@@ -82,8 +82,9 @@ Append-only `audit_events` table. Every authenticated request that touches a sec
 
 The SPA's visual design is **approved and canonical**:
 
-- **Mockup (source of truth for look & feel):** `docs/design/ui-redesign-mockup.html` — open in a browser; dark-first + light toggle. It shows the app shell, secret editor, auth/unseal, component kit, and both themes.
-- **Spec (tokens + rules):** `docs/superpowers/specs/2026-07-07-dark-redesign-design.md`.
+- **Mockup (source of truth for look & feel):** `docs/design/ui-nocturne-mockup.html` — open in a browser; dark-first + light toggle. It shows the app shell, secret editor, home command center, and both themes.
+- **Spec (tokens + rules):** `docs/superpowers/specs/2026-07-12-nocturne-design.md`.
+- **Superseded (kept in-tree for history):** the previous mockup/spec (`docs/design/ui-redesign-mockup.html` / `docs/superpowers/specs/2026-07-07-dark-redesign-design.md`) are superseded by Nocturne; the redo program is `ui-redo.md`.
 - **Punch-list / rollout tracker:** `fe-improvements.md`.
 
 Rules for ANY change under `web/`:

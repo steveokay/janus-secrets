@@ -2,9 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  background-color: var(--canvas-base);   /* solid — smoke reads this */
+  background-image: var(--canvas);         /* Nocturne gradient */
+  background-attachment: fixed;            /* content scrolls over it */
+}
+
+/* Real motion, opt-out respected. */
+@media (prefers-reduced-motion: no-preference) {
+  a, button, [role='button'], input, select, textarea,
+  .transition-nocturne {
+    transition: background-color .15s ease-out, background-image .15s ease-out,
+                border-color .15s ease-out, box-shadow .15s ease-out,
+                color .15s ease-out, transform .15s ease-out;
+  }
+}
+
 @layer base {
   html {
-    @apply bg-page text-ink antialiased;
+    @apply text-ink antialiased;
   }
   body {
     @apply font-sans text-[13.5px] leading-normal;

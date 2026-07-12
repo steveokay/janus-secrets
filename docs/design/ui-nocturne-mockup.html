@@ -1,0 +1,520 @@
+<!--
+  Janus — Nocturne canonical UI mockup
+  Self-contained static design artifact (no external assets).
+  Source of truth for the "Nocturne N1" visual language.
+  Transcribed from:
+    .superpowers/brainstorm/1307-1783872022/content/visual-direction.html (A — Nocturne card)
+    .superpowers/brainstorm/1307-1783872022/content/nocturne-home.html (command center)
+  Token values agree with web/src/theme.css.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Janus — Nocturne mockup</title>
+<style>
+  /* ============================================================
+     THEME TOKENS — dark is default, .light on the wrapper flips
+     Every value below is transcribed from the task spec / theme.css.
+     ============================================================ */
+  :root {
+    /* dark (default) */
+    --canvas: linear-gradient(160deg,#0B0A14 0%,#12101F 60%,#150F26 100%);
+    --surface-1: rgba(255,255,255,.02);
+    --surface-2: rgba(255,255,255,.03);
+    --surface-3: rgba(255,255,255,.05);
+    --line-1: rgba(255,255,255,.06);
+    --line-2: rgba(255,255,255,.08);
+    --ink-hi: #FFFFFF;
+    --ink: #E9E5FF;
+    --ink-body: #C8C4DE;
+    --ink-mute: #8D87AB;
+    --ink-faint: #6F6A8E;
+    --brand: linear-gradient(135deg,#8B5CF6,#7C3AED);
+    --on-brand: #FFFFFF;
+    --nav-active: linear-gradient(90deg,rgba(139,92,246,.22),rgba(139,92,246,.05));
+    --nav-rail: #8B5CF6;
+    --dirty-wash: linear-gradient(90deg,rgba(245,158,11,.08),transparent);
+    --dirty-rail: #F59E0B;
+    --elev-1: 0 8px 24px rgba(0,0,0,.4);
+    --elev-2: 0 10px 30px rgba(0,0,0,.5);
+    --glow: 0 0 14px rgba(139,92,246,.5);
+    --ok: #4ADE80;
+    --warn: #FCD34D;
+    --danger: #FB7185;
+    /* env chips */
+    --dev-fg: #7DB2FF;   --dev-bg: rgba(56,132,255,.14);   --dev-bd: rgba(56,132,255,.30);
+    --stg-fg: #FCD34D;   --stg-bg: rgba(245,158,11,.16);   --stg-bd: rgba(245,158,11,.30);
+    --prd-fg: #FB7185;   --prd-bg: rgba(244,63,94,.16);    --prd-bd: rgba(244,63,94,.32);
+    --prd-glow: 0 0 10px rgba(244,63,94,.20);
+    --hover: rgba(139,92,246,.05);
+    --savebar-bg: rgba(20,17,35,.85);
+    --savebar-bd: rgba(139,92,246,.35);
+    --savebar-glow: 0 10px 30px rgba(0,0,0,.5), 0 0 20px rgba(139,92,246,.12);
+    --amber-pill-bd: rgba(245,158,11,.40);
+    --avatar-ring: rgba(139,92,246,.4);
+  }
+  .light {
+    /* §3.8 light theme */
+    --canvas: linear-gradient(160deg,#FAFAFC,#F4F2FA);
+    --surface-1: rgba(20,17,35,.02);
+    --surface-2: rgba(20,17,35,.03);
+    --surface-3: rgba(20,17,35,.05);
+    --line-1: rgba(20,17,35,.07);
+    --line-2: rgba(20,17,35,.10);
+    --ink-hi: #17151F;
+    --ink: #211E2E;
+    --ink-body: #35313F;
+    --ink-mute: #6B667F;
+    --ink-faint: #8A86A3;
+    --brand: linear-gradient(135deg,#7C3AED,#6D28D9);
+    --on-brand: #FFFFFF;
+    --nav-active: linear-gradient(90deg,rgba(124,58,237,.14),rgba(124,58,237,.03));
+    --nav-rail: #7C3AED;
+    --dirty-wash: linear-gradient(90deg,rgba(180,83,9,.10),transparent);
+    --dirty-rail: #D97706;
+    --elev-1: 0 8px 24px rgba(20,17,35,.10);
+    --elev-2: 0 10px 30px rgba(20,17,35,.14);
+    --glow: 0 0 14px rgba(139,92,246,.20);
+    --ok: #15803D;
+    --warn: #B45309;
+    --danger: #BE123C;
+    --dev-fg: #1D6FD8;   --dev-bg: rgba(56,132,255,.12);   --dev-bd: rgba(56,132,255,.30);
+    --stg-fg: #B45309;   --stg-bg: rgba(245,158,11,.14);   --stg-bd: rgba(245,158,11,.34);
+    --prd-fg: #BE123C;   --prd-bg: rgba(244,63,94,.12);    --prd-bd: rgba(244,63,94,.30);
+    --prd-glow: 0 0 10px rgba(244,63,94,.12);
+    --hover: rgba(124,58,237,.05);
+    --savebar-bg: rgba(255,255,255,.92);
+    --savebar-bd: rgba(124,58,237,.30);
+    --savebar-glow: 0 10px 30px rgba(20,17,35,.14), 0 0 20px rgba(124,58,237,.10);
+    --amber-pill-bd: rgba(180,83,9,.40);
+    --avatar-ring: rgba(124,58,237,.4);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0B0A14;
+    color: #C8C4DE;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: 'Cascadia Code','JetBrains Mono',Consolas,ui-monospace,monospace; }
+
+  /* ---- page frame + theme toggle ---- */
+  .page-toolbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 12px 20px;
+    background: rgba(11,10,20,.75); backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    color: #E9E5FF; font-size: 13px;
+  }
+  .page-toolbar .title { font-weight: 700; }
+  .page-toolbar .sub { color: #8D87AB; font-weight: 400; margin-left: 8px; }
+  .toggle {
+    cursor: pointer; border: 1px solid rgba(139,92,246,.4);
+    background: linear-gradient(135deg,#8B5CF6,#7C3AED); color: #fff;
+    border-radius: 7px; padding: 7px 14px; font-size: 12px; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(139,92,246,.4);
+  }
+  .toggle:hover { filter: brightness(1.08); }
+
+  /* ============================================================
+     ROOT — themed canvas + shell. This is the reusable app frame.
+     ============================================================ */
+  .root {
+    background: var(--canvas);
+    color: var(--ink-body);
+    min-height: calc(100vh - 49px);
+    font-size: 13px;
+  }
+  .shell { display: flex; min-height: calc(100vh - 49px); }
+
+  /* ---- sidebar ---- */
+  .side {
+    width: 208px; flex-shrink: 0;
+    padding: 16px 12px;
+    background: var(--surface-1);
+    border-right: 1px solid var(--line-1);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 9px;
+    font-weight: 700; color: var(--ink-hi); font-size: 14px;
+    margin-bottom: 16px; padding: 0 8px;
+  }
+  .logo .mark {
+    width: 22px; height: 22px; border-radius: 7px;
+    background: var(--brand); box-shadow: var(--glow);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 11px;
+  }
+  .nav {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 9px; border-radius: 7px;
+    color: var(--ink-mute); font-size: 12.5px; cursor: pointer;
+  }
+  .nav:hover { color: var(--ink); background: var(--hover); }
+  .nav.on {
+    background: var(--nav-active); color: var(--ink);
+    box-shadow: inset 2px 0 0 var(--nav-rail);
+  }
+  .nav .gl { width: 16px; text-align: center; opacity: .9; }
+  .side .spacer { flex: 1; }
+
+  /* ---- top bar ---- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 12px 20px;
+    border-bottom: 1px solid var(--line-1);
+  }
+  .crumb { color: var(--ink-faint); font-size: 12px; }
+  .crumb b { color: var(--ink); font-weight: 600; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .kpill {
+    font-size: 11px; padding: 4px 10px; border-radius: 99px;
+    background: var(--surface-3); color: #C4B5FD;
+    border: 1px solid var(--savebar-bd);
+  }
+  .light .kpill { color: #6D28D9; }
+  .iconbtn {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface-2); border: 1px solid var(--line-2);
+    color: var(--ink-mute); cursor: pointer; font-size: 13px;
+  }
+  .iconbtn:hover { color: var(--ink); }
+  .avatar {
+    width: 30px; height: 30px; border-radius: 99px;
+    background: var(--brand); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    box-shadow: 0 0 0 2px var(--avatar-ring);
+  }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .content { padding: 22px 26px; }
+
+  /* ---- shared primitives ---- */
+  .card {
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 12px;
+    box-shadow: var(--elev-1);
+  }
+  .pill {
+    font-size: 10px; padding: 2px 8px; border-radius: 99px;
+    background: var(--surface-3); color: var(--ink-mute);
+    border: 1px solid var(--line-2); white-space: nowrap;
+  }
+  .env {
+    font-size: 10px; padding: 2px 9px; border-radius: 99px;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .env.dev { color: var(--dev-fg); background: var(--dev-bg); border-color: var(--dev-bd); }
+  .env.stg { color: var(--stg-fg); background: var(--stg-bg); border-color: var(--stg-bd); }
+  .env.prd { color: var(--prd-fg); background: var(--prd-bg); border-color: var(--prd-bd); box-shadow: var(--prd-glow); }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .danger { color: var(--danger); }
+  .dot { font-size: 10px; line-height: 1; }
+
+  h1.title-lg { color: var(--ink-hi); font-weight: 700; font-size: 20px; margin: 0; }
+  .metaline { color: var(--ink-faint); font-size: 11px; }
+  .section-label {
+    text-transform: uppercase; letter-spacing: 1px;
+    font-size: 9.5px; color: var(--ink-faint);
+  }
+
+  /* ============================================================
+     SURFACE 2 — SECRET EDITOR
+     ============================================================ */
+  .editor-head {
+    display: flex; align-items: center; gap: 10px; margin: 4px 0 14px;
+  }
+  .editor-head .env { box-shadow: var(--prd-glow); }
+  .table-card { overflow: hidden; }
+  .srow {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line-1);
+  }
+  .srow:last-child { border-bottom: none; }
+  .srow:hover { background: var(--hover); }
+  .srow .skey { width: 190px; flex-shrink: 0; color: var(--ink); font-size: 12px; }
+  .srow .sval { flex: 1; min-width: 0; color: var(--ink-faint); letter-spacing: 2px; font-size: 11px; }
+  .srow.dirty {
+    background: var(--dirty-wash);
+    box-shadow: inset 2px 0 0 var(--dirty-rail);
+  }
+  .srow.dirty .sval { color: var(--warn); letter-spacing: 0; }
+  .pill.amber { border-color: var(--amber-pill-bd); color: var(--warn); }
+  .pill.inherited { color: var(--dev-fg); }
+  .savebar {
+    margin-top: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--savebar-bg);
+    border: 1px solid var(--savebar-bd);
+    border-radius: 10px; padding: 10px 14px;
+    box-shadow: var(--savebar-glow);
+  }
+  .savebar .lead { font-size: 12px; color: #C4B5FD; }
+  .light .savebar .lead { color: #6D28D9; }
+  .savebar .lead b { color: var(--ink-hi); }
+  .savebar-actions { display: flex; align-items: center; gap: 12px; }
+  .btn-ghost { color: var(--ink-mute); font-size: 12px; cursor: pointer; }
+  .btn-ghost:hover { color: var(--ink); }
+  .btn-primary {
+    background: var(--brand); color: var(--on-brand);
+    border-radius: 7px; padding: 7px 15px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(139,92,246,.4);
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+
+  /* ============================================================
+     SURFACE 3 — HOME COMMAND CENTER
+     ============================================================ */
+  .home-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 16px;
+  }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
+  .stat { padding: 12px 14px; }
+  .stat .l { text-transform: uppercase; letter-spacing: 1px; font-size: 9.5px; color: var(--ink-faint); }
+  .stat .v { color: var(--ink-hi); font-weight: 700; font-size: 22px; margin-top: 4px; }
+  .stat .m { color: var(--ink-faint); font-size: 10.5px; margin-top: 6px; }
+  .projects { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .proj { padding: 13px 15px; }
+  .proj .t { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .glyph {
+    width: 26px; height: 26px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #fff; font-weight: 700; flex-shrink: 0;
+  }
+  .proj .name { color: var(--ink-hi); font-weight: 600; font-size: 13px; }
+  .proj .envchips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .activity { margin-top: 14px; }
+  .arow {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; border-bottom: 1px solid var(--line-1);
+    font-size: 11px;
+  }
+  .arow:last-child { border-bottom: none; }
+  .arow .code { color: var(--ink); font-size: 11px; }
+  .arow .res { color: var(--ink-faint); font-size: 11px; }
+
+  /* three-panel stack of surfaces */
+  .surface-block { border-top: 1px dashed var(--line-2); }
+  .surface-tag {
+    padding: 14px 26px 0;
+    color: var(--ink-mute); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 1.5px;
+  }
+
+  @media (max-width: 860px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .projects { grid-template-columns: 1fr; }
+    .side { display: none; }
+  }
+</style>
+
+<div id="wrap">
+  <!-- theme toolbar -->
+  <div class="page-toolbar">
+    <div><span class="title">Janus — Nocturne mockup</span><span class="sub">canonical visual reference · shell · editor · home</span></div>
+    <button class="toggle" id="themeToggle" onclick="toggleTheme()">Switch to light theme</button>
+  </div>
+
+  <div class="root" id="root">
+    <div class="shell">
+
+      <!-- =========================== SIDEBAR (app shell) =========================== -->
+      <aside class="side">
+        <div class="logo"><span class="mark">◆</span> Janus</div>
+        <div class="nav on"><span class="gl">▦</span> Projects</div>
+        <div class="nav"><span class="gl">⇄</span> Operations</div>
+        <div class="nav"><span class="gl">✦</span> Transit</div>
+        <div class="nav"><span class="gl">☰</span> Audit</div>
+        <div class="nav"><span class="gl">⚙</span> Settings</div>
+        <div class="spacer"></div>
+        <div class="metaline mono" style="padding:0 9px;">chain <span class="ok">✓</span> · sealed:no</div>
+      </aside>
+
+      <!-- =========================== MAIN =========================== -->
+      <div class="main">
+
+        <!-- top bar -->
+        <div class="topbar">
+          <div class="crumb">Projects / payments-api / <b>prod</b></div>
+          <div class="topbar-right">
+            <span class="kpill">⌘K search</span>
+            <div class="iconbtn" title="Toggle theme" onclick="toggleTheme()">◐</div>
+            <div class="avatar" title="steve">S</div>
+          </div>
+        </div>
+
+        <!-- ============ SURFACE 2: SECRET EDITOR ============ -->
+        <div class="content">
+          <div class="editor-head">
+            <h1 class="title-lg">Secrets</h1>
+            <span class="env prd">PROD</span>
+            <span class="metaline">PROD · v14 · 12 keys · updated 2h ago by steve</span>
+          </div>
+
+          <div class="card table-card">
+            <div class="srow">
+              <span class="skey mono">DATABASE_URL</span>
+              <span class="sval mono">••••••••••••••••</span>
+              <span class="pill">v6</span>
+              <span class="pill">root</span>
+            </div>
+            <div class="srow dirty">
+              <span class="skey mono">STRIPE_SECRET_KEY</span>
+              <span class="sval mono">sk_live_9f•••</span>
+              <span class="pill amber">edited</span>
+            </div>
+            <div class="srow">
+              <span class="skey mono">REDIS_URL</span>
+              <span class="sval mono">••••••••••</span>
+              <span class="pill">v2</span>
+              <span class="pill inherited">inherited</span>
+            </div>
+            <div class="srow">
+              <span class="skey mono">JWT_SIGNING_KEY</span>
+              <span class="sval mono">••••••••••••</span>
+              <span class="pill">v9</span>
+            </div>
+          </div>
+
+          <div class="savebar">
+            <span class="lead">1 change · will create <b>v15</b></span>
+            <div class="savebar-actions">
+              <span class="btn-ghost">Review diff</span>
+              <span class="btn-primary">Save as v15</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ SURFACE 3: HOME COMMAND CENTER ============ -->
+        <div class="surface-block">
+          <div class="surface-tag">Home — command center</div>
+          <div class="content">
+            <div class="home-head">
+              <div>
+                <h1 class="title-lg">Good evening, Steve</h1>
+                <div class="metaline" style="margin-top:4px;">3 projects · 214 secrets · audit chain <span class="ok">✓ verified</span></div>
+              </div>
+              <span class="kpill">⌘K search</span>
+            </div>
+
+            <!-- stat cards -->
+            <div class="stats">
+              <div class="card stat">
+                <div class="l">Reads 24h</div>
+                <div class="v">1,847</div>
+                <div class="m">across 3 projects</div>
+              </div>
+              <div class="card stat">
+                <div class="l">Rotations</div>
+                <div class="v"><span class="ok">8</span></div>
+                <div class="m">healthy · next pg-primary 3d</div>
+              </div>
+              <div class="card stat">
+                <div class="l">Syncs</div>
+                <div class="v"><span class="warn">1</span></div>
+                <div class="m warn">gh-actions:api · failing</div>
+              </div>
+              <div class="card stat">
+                <div class="l">Leases</div>
+                <div class="v">4</div>
+                <div class="m">active · oldest expires 52m</div>
+              </div>
+            </div>
+
+            <!-- project cards -->
+            <div class="projects">
+              <div class="card proj">
+                <div class="t">
+                  <div class="glyph" style="background:linear-gradient(135deg,#8B5CF6,#6D28D9);">P</div>
+                  <div>
+                    <div class="name">payments-api</div>
+                    <div class="metaline">12 keys · updated 2h ago</div>
+                  </div>
+                </div>
+                <div class="envchips">
+                  <span class="env dev">dev v9</span>
+                  <span class="env stg">staging v11</span>
+                  <span class="env prd">prod v14</span>
+                </div>
+              </div>
+              <div class="card proj">
+                <div class="t">
+                  <div class="glyph" style="background:linear-gradient(135deg,#0EA5E9,#0369A1);">W</div>
+                  <div>
+                    <div class="name">web-frontend</div>
+                    <div class="metaline">8 keys · updated 1d ago</div>
+                  </div>
+                </div>
+                <div class="envchips">
+                  <span class="env dev">dev v4</span>
+                  <span class="env prd">prod v7</span>
+                </div>
+              </div>
+              <div class="card proj">
+                <div class="t">
+                  <div class="glyph" style="background:linear-gradient(135deg,#F59E0B,#B45309);">D</div>
+                  <div>
+                    <div class="name">data-pipeline</div>
+                    <div class="metaline">31 keys · updated 4d ago</div>
+                  </div>
+                </div>
+                <div class="envchips">
+                  <span class="env dev">dev v22</span>
+                  <span class="env prd">prod v19</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- recent activity -->
+            <div class="card activity">
+              <div class="arow"><span class="section-label">Recent activity</span></div>
+              <div class="arow">
+                <span class="dot ok">●</span>
+                <span class="code mono">secret.reveal</span>
+                <span class="res">STRIPE_SECRET_KEY · payments-api/prod · steve · 2m ago</span>
+              </div>
+              <div class="arow">
+                <span class="dot warn">●</span>
+                <span class="code mono">sync.fail</span>
+                <span class="res">gh-actions:api · 401 unauthorized · 18m ago</span>
+              </div>
+              <div class="arow">
+                <span class="dot ok">●</span>
+                <span class="code mono">config.save</span>
+                <span class="res">payments-api/prod → v14 · steve · 2h ago</span>
+              </div>
+              <div class="arow">
+                <span class="dot danger">●</span>
+                <span class="code mono">token.deny</span>
+                <span class="res">svc-ci · data-pipeline/prod · read denied · 5h ago</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Theme toggle: flips the .light class on the root wrapper.
+  // Dark is the default (no class). Both themes render from identical markup.
+  function toggleTheme() {
+    var root = document.getElementById('root');
+    var btn = document.getElementById('themeToggle');
+    var isLight = root.classList.toggle('light');
+    btn.textContent = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+    document.body.style.background = isLight ? '#F4F2FA' : '#0B0A14';
+  }
+</script>

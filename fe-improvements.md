@@ -4,6 +4,8 @@
 > That program restyles the app and designs the missing screens ([`gaps.md`](gaps.md) §1–2)
 > in one new visual language; the items below are folded into or retired by it. Kept for
 > history. The design authority handover lands in Nocturne phase N1.
+> Motion (§0), auth polish, and remaining P2 items are absorbed by the Nocturne
+> program (N1–N7); anything not covered migrates to `gaps.md` tracking.
 >
 > **Status:** ideas / backlog tracker. Nothing here is built yet unless checked.
 > **Visual design: APPROVED 2026-07-06.** Canonical mockup:

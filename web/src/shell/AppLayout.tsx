@@ -3,7 +3,7 @@ import { TopBar } from './TopBar'
 
 export function AppLayout({ sealed, sidebar, children }: { sealed: boolean; sidebar: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex h-screen flex-col bg-page">
+    <div className="flex h-screen flex-col bg-transparent">
       <TopBar sealed={sealed} />
       <div className="flex min-h-0 flex-1">
         <aside className="w-60 shrink-0 overflow-y-auto border-r border-line bg-card px-2.5 py-3.5">{sidebar}</aside>
