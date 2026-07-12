@@ -1,6 +1,7 @@
 import { useTitle } from '../lib/title'
 import { useProjects } from '../secrets/nav'
 import { HomeHeader } from './HomeHeader'
+import { StatCards } from './StatCards'
 import { HomeProjects } from './HomeProjects'
 
 export function HomePage() {
@@ -11,8 +12,9 @@ export function HomePage() {
     <div className="mx-auto max-w-[1100px]">
       <h1 className="sr-only">Home</h1>
       <HomeHeader projectCount={projects.data?.length ?? 0} />
+      <StatCards projects={projects.data ?? []} />
       <HomeProjects projects={projects} />
-      {/* StatCards / ActivityFeed compose here in later tasks */}
+      {/* ActivityFeed composes here in a later task */}
     </div>
   )
 }
