@@ -106,7 +106,7 @@ Sidebar per mockups: glyph logo with glow, gradient-wash active items, Home/Proj
 Gates for every phase: `npm test` green, `npm run smoke` (both themes), no-raw-palette + dark-AA guards, tsc clean, security re-check of §1 invariants on touched screens.
 
 - **N1 — Tokens, shell, motion.** New `theme.css` (dark+light Nocturne tokens), canvas gradient, elevation/glow utilities, motion system, sidebar/topbar/palette restyle, kit primitives (Button/Input/Card/Pill/Modal/Sheet/Toast) re-skinned. Author `docs/design/ui-nocturne-mockup.html` as the new canonical mockup (app shell, editor, home, both themes) and the spec update. **This is the authority-swap PR: update CLAUDE.md's design pointers in it.**
-- **N2 — Home command center + `/projects` + board enrichment** (§4.1, §4.2). New route map (`/` = home, `/projects` = list).
+- **N2 — Home command center + `/projects` + board enrichment** (§4.1, §4.2). New route map (`/` = home, `/projects` = list). **N2 — DONE (2026-07-13):** home command center, /projects move, board ops chips. 4th stat card = audit chain (backend requires role_id for lease listing; instance-wide leases deferred).
 - **N3 — Secret editor restyle** (§4.3) + version-history/diff surfaces.
 - **N4 — Audit/Tokens/Members/Transit/Operations restyle** (§4.4) + sticky headers + error-expand.
 - **N5 — Settings hub** (§4.5) + OIDC login button (§4.8 auth restyle rides along).
