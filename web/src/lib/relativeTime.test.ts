@@ -12,6 +12,10 @@ describe('relativeTime', () => {
     ['2026-05-13T12:00:00Z', 'May 13'],
     ['2026-07-13T12:02:00Z', 'in 2m'],
     ['2026-07-16T13:00:00Z', 'in 3d'],
+    // bucket boundaries: floor, never round up into the next unit
+    ['2026-07-13T11:00:01Z', '59m ago'],
+    ['2026-07-12T12:00:01Z', '23h ago'],
+    ['2026-07-13T12:59:59Z', 'in 59m'],
   ])('%s → %s', (iso, want) => {
     expect(relativeTime(iso, NOW)).toBe(want)
   })
