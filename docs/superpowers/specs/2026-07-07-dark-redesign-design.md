@@ -1,3 +1,5 @@
+> ⚠️ SUPERSEDED 2026-07-12 by the Nocturne redesign — see `docs/superpowers/specs/2026-07-12-nocturne-design.md` + `docs/design/ui-nocturne-mockup.html` (`ui-redo.md`). Kept for history.
+
 # Janus Web UI — Dark Redesign (design)
 
 - **Status:** APPROVED 2026-07-07 (mockup reviewed and accepted by Steve).
