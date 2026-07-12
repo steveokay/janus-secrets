@@ -6,10 +6,16 @@ import { existsSync } from 'node:fs'
 import puppeteer from 'puppeteer-core'
 
 const BASE = process.env.SMOKE_URL ?? 'http://127.0.0.1:8210'
-const exe = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Google/Chrome/Application/chrome.exe',
-].find((p) => existsSync(p))
+// An explicit override wins (CI passes a Linux Chrome path); otherwise probe the
+// usual Windows dev locations. PUPPETEER_EXECUTABLE_PATH is puppeteer's own
+// convention, honored here too.
+const override = process.env.SMOKE_BROWSER ?? process.env.PUPPETEER_EXECUTABLE_PATH
+const exe = override && existsSync(override)
+  ? override
+  : [
+      'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+      'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    ].find((p) => existsSync(p))
 if (!exe) { console.error('smoke: no browser binary found'); process.exit(2) }
 
 // Shapes mirror internal/api handlers — update alongside the Go code.
@@ -20,7 +26,10 @@ const fixtures = {
   '/v1/projects/p1/environments': { environments: [] },
 }
 
-const browser = await puppeteer.launch({ executablePath: exe, headless: 'new' })
+// Sandboxed Chrome fails to start in the typical CI container; disable it there
+// only (local dev keeps the sandbox).
+const launchArgs = process.env.CI ? ['--no-sandbox', '--disable-setuid-sandbox'] : []
+const browser = await puppeteer.launch({ executablePath: exe, headless: 'new', args: launchArgs })
 const page = await browser.newPage()
 const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
