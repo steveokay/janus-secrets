@@ -49,11 +49,11 @@ export function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-ink/40" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-ink/40 backdrop-blur-[8px]" />
         <Dialog.Content
           aria-label="Command palette"
           onOpenAutoFocus={(e) => e.preventDefault()}
-          className="fixed left-1/2 top-[15vh] z-50 w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-card border border-line bg-elevated shadow-pop"
+          className="fixed left-1/2 top-[15vh] z-50 w-[min(560px,92vw)] -translate-x-1/2 overflow-hidden rounded-card bg-elevated shadow-pop"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <input
@@ -67,18 +67,18 @@ export function CommandPalette({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Search projects, configs, secrets…"
-            className="w-full border-b border-line bg-transparent px-4 py-3 text-[14px] text-ink outline-none placeholder:text-faint"
+            className="w-full bg-surface-3 px-4 py-3 text-[14px] text-ink outline-none placeholder:text-ink-faint"
           />
           <div id="palette-list" ref={listRef} role="listbox" className="max-h-[50vh] overflow-y-auto p-1.5">
             {filtered.length === 0 && (
-              <p className="px-3 py-6 text-center text-[12.5px] text-faint">No matches</p>
+              <p className="px-3 py-6 text-center text-[12.5px] text-ink-faint">No matches</p>
             )}
             {GROUP_ORDER.map((group) => {
               const rows = filtered.filter((it) => it.group === group)
               if (rows.length === 0) return null
               return (
                 <div key={group} role="group" aria-label={group} className="mb-1">
-                  <div className="px-3 pb-0.5 pt-2 text-[10.5px] font-bold uppercase tracking-[.12em] text-faint">
+                  <div className="px-3 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-[.12em] text-ink-faint">
                     {group}
                   </div>
                   {rows.map((it) => {
@@ -96,13 +96,13 @@ export function CommandPalette({
                         onClick={() => commit(it)}
                         className={
                           'flex w-full items-center justify-between rounded px-3 py-2 text-left text-[13px] ' +
-                          (isActive ? 'bg-brand-soft text-brand-text' : 'text-ink')
+                          (isActive ? 'bg-nav-active text-ink' : 'text-ink-body hover:bg-surface-3')
                         }
                       >
                         <span className={it.group === 'Secrets' || it.group === 'Configs' ? 'font-mono text-[12.5px]' : ''}>
                           {it.label}
                         </span>
-                        {it.sublabel && <span className="ml-3 shrink-0 text-[11.5px] text-faint">{it.sublabel}</span>}
+                        {it.sublabel && <span className="ml-3 shrink-0 text-[11.5px] text-ink-faint">{it.sublabel}</span>}
                       </button>
                     )
                   })}
@@ -110,7 +110,7 @@ export function CommandPalette({
               )
             })}
           </div>
-          <div className="flex gap-3 border-t border-line px-3 py-1.5 text-[10.5px] text-faint">
+          <div className="flex gap-3 border-t border-line px-3 py-1.5 text-[10.5px] text-ink-faint">
             <span>↑↓ navigate</span><span>↵ open</span><span>esc close</span>
           </div>
         </Dialog.Content>
