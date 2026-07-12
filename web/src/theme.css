@@ -51,6 +51,11 @@
   --glow-brand-soft: 0 4px 14px rgba(124,58,237,.16);
   --shadow-card: var(--elev-1);        /* legacy aliases */
   --shadow-pop: var(--elev-2);
+  /* ---- Project glyph gradients (N2) ---- */
+  --glyph-a: linear-gradient(135deg, #8B5CF6, #6D28D9);
+  --glyph-b: linear-gradient(135deg, #0EA5E9, #0369A1);
+  --glyph-c: linear-gradient(135deg, #F59E0B, #B45309);
+  --glyph-d: linear-gradient(135deg, #F43F5E, #BE123C);
 }
 
 html.dark {
@@ -101,4 +106,9 @@ html.dark {
   --glow-brand-soft: 0 4px 14px rgba(139,92,246,.40);
   --shadow-card: var(--elev-1);
   --shadow-pop: var(--elev-2);
+  /* ---- Project glyph gradients (N2) ---- */
+  --glyph-a: linear-gradient(135deg, #8B5CF6, #6D28D9);
+  --glyph-b: linear-gradient(135deg, #0EA5E9, #0369A1);
+  --glyph-c: linear-gradient(135deg, #F59E0B, #B45309);
+  --glyph-d: linear-gradient(135deg, #F43F5E, #BE123C);
 }
