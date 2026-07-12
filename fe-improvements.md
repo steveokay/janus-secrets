@@ -1,5 +1,10 @@
 # Front-End Improvements — Janus Web UI
 
+> **⚠️ Superseded (2026-07-12) by the "Nocturne" UI redo — see [`ui-redo.md`](ui-redo.md).**
+> That program restyles the app and designs the missing screens ([`gaps.md`](gaps.md) §1–2)
+> in one new visual language; the items below are folded into or retired by it. Kept for
+> history. The design authority handover lands in Nocturne phase N1.
+>
 > **Status:** ideas / backlog tracker. Nothing here is built yet unless checked.
 > **Visual design: APPROVED 2026-07-06.** Canonical mockup:
 > [`docs/design/ui-mockup.html`](docs/design/ui-mockup.html) · spec (tokens + hard

@@ -5,27 +5,39 @@ PostgreSQL. It combines ideas from Doppler (project/environment/config model,
 `run` injection), Vault (transit encryption, dynamic secrets, hash-chained
 audit), and AWS KMS (encrypt-as-a-service with key versioning).
 
-> **Status: Phase 1 complete.** The cryptographic
-> core (envelope encryption + unseal), the storage layer (Postgres persistence,
-> migrations, two-level versioning), the encryption-orchestration service, the
-> **runnable server** (init/unseal over HTTP, `janus` CLI, docker-compose
-> stack), **authentication** (email/password sessions + scoped service tokens),
-> **RBAC** (roles/scopes, deny-by-default enforcement), the
-> **hash-chained audit log** (tamper-evident, fail-closed recording,
-> `verify`/`export`), the **secret-facing REST API** (project/env/config
-> CRUD + lifecycle, secret masked-list/reveal/write/delete, config version
-> list/diff/rollback — all RBAC-enforced and audited), and the **secrets CLI**
-> (`janus login`/`setup`/`secrets`/`run` — directory binding, credential
-> precedence, and env injection) are complete and tested against real Postgres.
-> Janus is now usable end-to-end: `docker compose up`, create a project, set
-> secrets, and `janus run` injects them into your process. See
-> [Roadmap](#roadmap) for what Phase 2/3 add.
+> **Status: Phases 1–3 complete.** All three build phases have shipped and are
+> tested against real Postgres:
+>
+> - **Phase 1 — Core:** the cryptographic core (envelope encryption + unseal),
+>   the storage layer (Postgres persistence, migrations, two-level versioning),
+>   the encryption-orchestration service, the runnable server (init/unseal over
+>   HTTP, docker-compose stack), authentication (email/password sessions + scoped
+>   service tokens), deny-by-default RBAC, the hash-chained audit log
+>   (tamper-evident, fail-closed, `verify`/`export`), the secret-facing REST API
+>   (project/env/config CRUD + lifecycle, secret masked-list/reveal/write/delete,
+>   config version list/diff/rollback), config inheritance + secret references,
+>   and the secrets CLI (`janus login`/`setup`/`secrets`/`run`).
+> - **Phase 2 — Transit + UI:** the Vault-style transit (encryption-as-a-service)
+>   engine; the **React SPA** (embedded via `go:embed`, served same-origin) —
+>   unseal/login, project/env/config nav, the flagship secret editor, version
+>   diff, audit viewer, token/member management, transit console, and the
+>   operations console; **OIDC** human login **and** OIDC-federated CI machine
+>   identity; and the usage-metrics ("Reads 24h") dashboard.
+> - **Phase 3 — Rotation + dynamic:** scheduled static rotation (Postgres +
+>   webhook), sync integrations (GitHub Actions + Kubernetes), and dynamic
+>   Postgres credentials with a lease manager.
+>
+> Janus is usable end-to-end: `docker compose up`, create a project in the UI or
+> CLI, set secrets, and `janus run` injects them into your process. What remains
+> is polish and release hygiene, tracked in [gaps.md](gaps.md).
 >
 > **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
 > [data model & versioning](docs/data-model.md),
-> [operations](docs/operations.md), the [CLI reference](docs/cli.md), and the
-> [transit engine](docs/transit.md).
+> [references & inheritance](docs/references.md), [operations](docs/operations.md),
+> the [CLI reference](docs/cli.md), the [transit engine](docs/transit.md),
+> [OIDC login](docs/oidc.md), [CI federation](docs/ci-federation.md), and the
+> [web UI](docs/web.md).
 
 ## Why
 
@@ -126,6 +138,54 @@ service-token scope** so an app can call transit without reaching secrets;
 management ops are audited (recording the key name, never material) while
 high-frequency data-plane ops are not. See [docs/transit.md](docs/transit.md).
 
+### OIDC & CI federation
+
+Beyond passwords and service tokens, Janus supports **OIDC** for humans
+(Authorization Code + PKCE + state + nonce against a generic provider, tested
+against GitHub and Google; the client secret is master-key-wrapped and login is
+CSRF-hardened with a browser-bound state cookie) and **OIDC-federated machine
+identity** for CI: a GitHub Actions workflow exchanges its OIDC JWT for a
+short-lived, scoped `janus_svc_` token via `POST /v1/auth/oidc/federate`, gated
+by admin-authored structured-claim trust bindings (repository required,
+exactly-one match, TTL ≤ 1h) — no long-lived secret in the CI system. Both are
+admin-configured under `/v1/sys/oidc*`. See [docs/oidc.md](docs/oidc.md) and
+[docs/ci-federation.md](docs/ci-federation.md).
+
+### Web UI
+
+A **React + TypeScript + Vite + Tailwind** SPA is built to static assets and
+**embedded in the `janus` binary** via `go:embed`, served same-origin by the Go
+server (no Node in production). It covers in-browser Shamir unseal and login, the
+project → environment → config tree, the flagship **secret editor** (masked list
+with origin badges, audited per-key/bulk reveal, a client-side dirty buffer, and
+batched "Save as vN"), config version diff, the audit viewer with chain-verify
+badge and export, token/member management, the transit key console, a usage
+dashboard ("Reads 24h"), and an **operations console** over the three Phase-3
+engines (rotation, sync, dynamic leases — manage and act, not create). The visual
+system is dual-theme (dark-first + light) via CSS-variable tokens. Revealed
+plaintext and unseal shares never enter the Query cache or storage. See
+[docs/web.md](docs/web.md).
+
+### Rotation, sync & dynamic secrets (Phase 3)
+
+Three engines extend Janus past static storage:
+
+- **Static rotation** (`internal/rotation`) — scheduled, webhook-notified secret
+  rotation with a crash-safe persist → apply → commit sequence; Postgres
+  (`ALTER ROLE`) and generic-webhook (HMAC) rotators ship first.
+- **Sync integrations** (`internal/secretsync`) — outbound one-way replication of
+  a config's resolved secrets to **GitHub Actions secrets** (NaCl sealed-box) and
+  **Kubernetes Secrets** (server-side apply, verified TLS), with keyed-HMAC change
+  detection and a project-scoped resolver that blocks cross-project exfiltration.
+- **Dynamic Postgres credentials** (`internal/dynamic`) — Vault-style
+  config-scoped dynamic roles from admin-authored creation/revocation SQL
+  templates, with a lease manager (TTL, monotonic renewal capped at max-TTL,
+  revoke-on-expiry, and a revoke-on-startup sweep for leases orphaned by a crash).
+  The issued password is returned exactly once and never persisted or audited.
+
+Each engine has a `/v1/{rotation,sync,dynamic}` API, a `janus` CLI surface, and
+runs its scheduler in-process on a `JANUS_*_TICK` interval.
+
 ## Quickstart (dev)
 
 ```sh
@@ -186,37 +246,46 @@ credential/address/binding precedence rules, the `.janus.yaml` format, and the
   (used as a service, not a crypto library) and a vendored copy of HashiCorp
   Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
 - **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
-- **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, token,
-  user, membership, audit, and the secret routes — projects/environments/configs,
-  `configs/{cid}/secrets` masked-list/reveal/write/delete, and `versions`
-  list/diff/rollback — all live).
+- **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, OIDC,
+  token, user, membership, audit, metrics, transit, and the secret routes —
+  projects/environments/configs, `configs/{cid}/secrets`
+  masked-list/reveal/write/delete, and `versions` list/diff/rollback — plus the
+  Phase-3 `rotation`/`sync`/`dynamic` engines — all live).
 - **AuthN/Z:** Argon2id passwords, HMAC-SHA256 token hashing, opaque sessions,
-  and a pure deny-by-default RBAC engine.
+  OIDC (Auth Code + PKCE) human login and OIDC-federated CI identity, and a pure
+  deny-by-default RBAC engine.
 - **CLI:** `cobra` (server/ops: `janus server/init/unseal/seal-status/seal/
-  migrate`; secrets: `janus login/logout/setup/secrets/run`).
-- **Web UI:** React + TypeScript + Vite, embedded in the binary via `go:embed`
-  *(planned)*.
-- **Deployment:** multi-stage Dockerfile + docker-compose (app + Postgres).
+  migrate`; secrets: `janus login/logout/setup/secrets/run`; Phase-3:
+  `janus rotation/sync/dynamic`).
+- **Web UI:** React + TypeScript + Vite + Tailwind + TanStack Query, built to
+  static assets and embedded in the binary via `go:embed` (no Node in
+  production).
+- **Deployment:** multi-stage Dockerfile (build web → embed → build Go) +
+  docker-compose (app + Postgres).
 
 ## Repository layout
 
 ```
-cmd/janus/           single binary: server + operator CLI + secrets     ← implemented
-                     CLI (login/setup/secrets/run), all cobra
-internal/crypto/     envelope encryption, key hierarchy, unseal    ← implemented
+cmd/janus/           single binary: server + operator CLI + secrets CLI      ← implemented
+                     (login/setup/secrets/run) + rotation/sync/dynamic, all cobra
+internal/crypto/     envelope encryption, key hierarchy, unseal              ← implemented
 internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
-internal/store/      Postgres repositories, migrations, versioning ← implemented
-internal/secrets/    encryption orchestration + secrets CRUD       ← implemented
-internal/api/        HTTP server, sys/auth/token/user/member/audit  ← implemented
-                     + project/env/config/secret/version routes
-internal/auth/       passwords, sessions, service tokens           ← implemented
-                     (OIDC/federation planned for Phase 2)
-internal/authz/      RBAC engine (roles, scopes, enforcement)      ← implemented
-internal/audit/      hash-chained audit log                        ← implemented
-internal/transit/    transit engine (encrypt/decrypt/sign/verify,  ← implemented
-                     key versioning) — Phase 2 sub-project A
-migrations/          SQL migrations
-web/                 React SPA (planned)
+internal/store/      Postgres repositories, migrations, versioning           ← implemented
+internal/secrets/    encryption orchestration + secrets CRUD                 ← implemented
+internal/resolve/    config inheritance + secret-reference resolution        ← implemented
+internal/api/        HTTP server + all /v1 routes (sys/auth/oidc/token/user/  ← implemented
+                     member/audit/metrics/secret/version/transit/rotation/
+                     sync/dynamic)
+internal/auth/       passwords, sessions, service tokens, OIDC + federation   ← implemented
+internal/authz/      RBAC engine (roles, scopes, enforcement)                ← implemented
+internal/audit/      hash-chained audit log                                  ← implemented
+internal/transit/    transit engine (encrypt/decrypt/sign/verify, versioning) ← implemented
+internal/rotation/   scheduled static rotation (Postgres + webhook)          ← implemented
+internal/secretsync/ sync to GitHub Actions + Kubernetes Secrets             ← implemented
+internal/dynamic/    dynamic Postgres credentials + lease manager            ← implemented
+internal/web/        //go:embed dist + SPA handler (CSP, deep-link fallback) ← implemented
+migrations/          SQL migrations (000001–000012)
+web/                 React SPA (Vite + TS + Tailwind + TanStack Query)       ← implemented
 docs/                subsystem docs, design specs, implementation plans
 ```
 
@@ -246,7 +315,7 @@ enforced in CI; crypto includes tamper, nonce-reuse, and secret-leak tests,
 authz an exhaustive role→action matrix test, and audit hash-determinism,
 tamper, chain-break, and genesis tests. CI also runs `go vet`, `govulncheck`,
 and `gosec`. The Go
-toolchain is pinned to `go1.26.4` (via a `toolchain` directive) as a security
+toolchain is pinned to `go1.26.5` (via a `toolchain` directive) as a security
 floor.
 
 ## Security notes
@@ -283,16 +352,22 @@ audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run`
 config inheritance + secret references ✅. **Phase 1 complete.** Live tracker:
 [status.md](status.md).
 
-**Phase 2 — Transit + UI:** transit/KMS engine (named keys, encrypt/decrypt/
-sign/verify, key versioning) ✅ (sub-project A — see
-[docs/transit.md](docs/transit.md)); React SPA — core editor ✅ (sub-project B
-milestone 1: embedded SPA, unseal/login, project/env/config nav + create, secret
-editor with masked values / audited reveal / batched Save-as-vN — see
-[docs/web.md](docs/web.md); diff/audit/tokens/dashboard/transit UI to follow);
-OIDC login; usage metrics.
+**Phase 2 — Transit + UI:** transit/KMS engine ✅ (sub-project A — see
+[docs/transit.md](docs/transit.md)); React SPA ✅ (sub-project B — embedded
+same-origin SPA: unseal/login, project/env/config nav, the flagship secret editor
+with audited reveal + batched Save-as-vN, config version diff, audit viewer,
+token/member management, transit console, dashboard, and the operations console —
+see [docs/web.md](docs/web.md)); OIDC login + CI federation ✅ (sub-project C —
+[docs/oidc.md](docs/oidc.md), [docs/ci-federation.md](docs/ci-federation.md));
+usage metrics ✅ (sub-project D — "Reads 24h"). **Phase 2 complete.**
 
-**Phase 3 — Rotation + dynamic:** scheduled static rotation; sync integrations
-(GitHub Actions, Kubernetes); dynamic Postgres credentials with a lease manager.
+**Phase 3 — Rotation + dynamic:** scheduled static rotation (Postgres +
+webhook) ✅; sync integrations (GitHub Actions, Kubernetes) ✅; dynamic Postgres
+credentials with a lease manager ✅. **Phase 3 complete.**
+
+All three build phases have shipped. Remaining work is polish, spec debt, and
+release hygiene — see the [gap analysis](gaps.md) and the live
+[status tracker](status.md).
 
 ### Non-goals
 
