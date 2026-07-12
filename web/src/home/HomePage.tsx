@@ -3,6 +3,7 @@ import { useProjects } from '../secrets/nav'
 import { HomeHeader } from './HomeHeader'
 import { StatCards } from './StatCards'
 import { HomeProjects } from './HomeProjects'
+import { ActivityFeed } from './ActivityFeed'
 
 export function HomePage() {
   useTitle('Home')
@@ -14,7 +15,7 @@ export function HomePage() {
       <HomeHeader projectCount={projects.data?.length ?? 0} />
       <StatCards projects={projects.data ?? []} />
       <HomeProjects projects={projects} />
-      {/* ActivityFeed composes here in a later task */}
+      <ActivityFeed />
     </div>
   )
 }
