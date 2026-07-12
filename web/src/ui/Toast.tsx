@@ -21,7 +21,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <RT.Root
             key={m.id}
             onOpenChange={(open) => { if (!open) setMsgs((s) => s.filter((x) => x.id !== m.id)) }}
-            className="flex items-center gap-2.5 rounded-card bg-ink px-4 py-2.5 text-[12.5px] text-card shadow-pop"
+            className="flex items-center gap-2.5 rounded border border-line bg-elevated px-4 py-2.5 text-[12.5px] text-ink shadow-pop"
           >
             <span aria-hidden className={m.tone === 'success' ? 'text-success' : 'text-danger'}>
               {m.tone === 'success' ? '✓' : '✕'}

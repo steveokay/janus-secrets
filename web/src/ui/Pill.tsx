@@ -9,7 +9,7 @@ const tones: Record<Tone, string> = {
   danger: 'bg-danger-soft text-danger',
   info: 'bg-info-soft text-info',
   brand: 'bg-brand-soft text-brand-text',
-  muted: 'bg-line-soft text-muted',
+  muted: 'bg-surface-3 text-ink-mute',
 }
 
 export function Pill({ tone, dot = false, className, children }: {
@@ -19,7 +19,7 @@ export function Pill({ tone, dot = false, className, children }: {
   children: ReactNode
 }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-px text-[11.5px] font-semibold', tones[tone], className)}>
+    <span className={cn('inline-flex items-center gap-1.5 rounded-pill border border-line px-2.5 py-px text-[11.5px] font-semibold', tones[tone], className)}>
       {dot && <span data-dot className="h-1.5 w-1.5 rounded-full bg-current" />}
       {children}
     </span>

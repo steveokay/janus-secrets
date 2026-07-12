@@ -3,7 +3,7 @@ import type { InputHTMLAttributes, ReactNode } from 'react'
 import { cn } from './cn'
 
 export const FIELD =
-  'w-full rounded border border-line bg-card px-3 py-1.5 text-[12.5px] text-ink placeholder:text-faint focus:border-brand focus-visible:outline-2 focus-visible:outline-brand'
+  'w-full rounded border border-line bg-surface-3 px-3 py-1.5 text-[12.5px] text-ink placeholder:text-ink-faint focus:border-brand-line focus:shadow-glow-soft focus-visible:outline-2 focus-visible:outline-brand transition-nocturne'
 
 // Shared label + error wrapper. id ties the label and error text to the control.
 export function Field({ id, label, error, children }: {

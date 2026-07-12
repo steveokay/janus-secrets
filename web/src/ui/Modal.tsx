@@ -14,13 +14,13 @@ export function Modal({ open, onClose, label, className, children }: {
   return (
     <D.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 bg-ink/30" />
+        <D.Overlay className="fixed inset-0 z-50 bg-ink/30 backdrop-blur-[8px]" />
         <D.Content
           aria-modal="true"
           aria-describedby={undefined}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 max-w-[92vw] -translate-x-1/2 -translate-y-1/2',
-            'rounded-card border border-line bg-card p-5 shadow-pop',
+            'rounded-card border border-line bg-elevated p-5 shadow-pop',
             className,
           )}
         >

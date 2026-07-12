@@ -15,10 +15,10 @@ export function Tooltip({ content, children, delay = 300 }: {
         <RT.Portal>
           <RT.Content
             sideOffset={6}
-            className="z-50 select-none rounded bg-ink px-2 py-1 text-[11.5px] text-card shadow-pop"
+            className="z-50 select-none rounded border border-line bg-elevated px-2 py-1 text-[11.5px] text-ink shadow-pop"
           >
             {content}
-            <RT.Arrow className="fill-ink" />
+            <RT.Arrow className="fill-elevated" />
           </RT.Content>
         </RT.Portal>
       </RT.Root>
