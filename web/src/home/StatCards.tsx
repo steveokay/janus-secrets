@@ -57,11 +57,25 @@ function engineValue(all: { status: string }[]): { value: ReactNode; tone?: 'ok'
   return { value: `${all.length} healthy`, tone: 'ok' }
 }
 
-/** Soonest upcoming timestamp among active items, or undefined when none. */
+/** Soonest timestamp among active items (unparsable dates dropped), or undefined when none. */
 function soonest<T extends { status: string }>(all: T[], at: (x: T) => string): string | undefined {
-  const times = all.filter((x) => x.status === 'active').map(at).filter(Boolean)
+  const times = all
+    .filter((x) => x.status === 'active')
+    .map(at)
+    .filter((t) => t && !Number.isNaN(new Date(t).getTime()))
   if (times.length === 0) return undefined
   return times.reduce((a, b) => (new Date(a).getTime() <= new Date(b).getTime() ? a : b))
+}
+
+/**
+ * Sub line for the engine cards: "next: in 2h" while upcoming; once the
+ * soonest active timestamp slips into the past, "next: 3h ago" reads as a
+ * contradiction, so render just "overdue" (relative string in the title).
+ */
+function nextSub(next: string | undefined): ReactNode {
+  if (!next) return undefined
+  if (new Date(next).getTime() < Date.now()) return <span title={relativeTime(next)}>overdue</span>
+  return `next: ${relativeTime(next)}`
 }
 
 function RotationsStat({ projects }: { projects: Project[] }) {
@@ -75,7 +89,7 @@ function RotationsStat({ projects }: { projects: Project[] }) {
       hidden={isError || (someForbidden && all.length === 0)}
       value={isLoading ? '—' : value}
       tone={isLoading ? undefined : tone}
-      sub={!isLoading && next ? `next: ${relativeTime(next)}` : undefined}
+      sub={isLoading ? undefined : nextSub(next)}
     />
   )
 }
@@ -88,7 +102,7 @@ function SyncsStat({ projects }: { projects: Project[] }) {
   // /operations renders it the same way.
   const firstFailed = all.find((t) => t.status === 'failed')
   const next = soonest(all, (t) => t.next_sync_at)
-  const sub = firstFailed?.last_error ?? (next ? `next: ${relativeTime(next)}` : undefined)
+  const sub = firstFailed?.last_error ?? nextSub(next)
   return (
     <Stat
       label="Syncs"

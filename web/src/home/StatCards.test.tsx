@@ -94,6 +94,18 @@ test('happy path: all four cards render computed values', async () => {
   expect(card('Audit events').getByText('chain verified')).toBeInTheDocument()
 })
 
+test('active rotation whose next run is in the past shows "overdue", not "next: X ago"', async () => {
+  const PAST = new Date(Date.now() - 3 * 3_600_000).toISOString()
+  mockAll({
+    policiesByProject: { p1: [rotationPolicy({ next_rotation_at: PAST })] },
+  })
+  renderApp(<StatCards projects={PROJECTS} />, { withAuth: false })
+
+  expect(await screen.findByText('1 healthy')).toBeInTheDocument()
+  expect(card('Rotations').getByText('overdue')).toBeInTheDocument()
+  expect(screen.queryByText(/next:/)).not.toBeInTheDocument()
+})
+
 test('rotation 403 for all projects hides only the rotation card', async () => {
   mockAll({
     reads: { reads_24h: 7, top_configs: [], top_tokens: [] },
