@@ -27,6 +27,7 @@ export default {
           soft: 'var(--brand-soft)',
           line: 'var(--brand-line)',
         },
+        'on-brand': 'var(--on-brand)',
         success: { DEFAULT: 'var(--ok)', soft: 'var(--ok-soft)' },
         warning: { DEFAULT: 'var(--warn)', soft: 'var(--warn-soft)' },
         danger: { DEFAULT: 'var(--danger)', soft: 'var(--danger-soft)' },

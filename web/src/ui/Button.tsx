@@ -4,10 +4,10 @@ import { cn } from './cn'
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger'
 const variants: Record<Variant, string> = {
-  primary: 'bg-brand-grad text-ink-hi shadow-glow-soft hover:shadow-glow transition-nocturne',
-  secondary: 'bg-surface-3 text-ink border border-line hover:bg-surface-3 hover:border-brand-line transition-nocturne',
+  primary: 'bg-brand-grad text-on-brand shadow-glow-soft hover:shadow-glow transition-nocturne',
+  secondary: 'bg-surface-3 text-ink border border-line hover:border-brand-line transition-nocturne',
   ghost: 'bg-transparent text-ink-mute hover:bg-brand-soft hover:text-brand-text transition-nocturne',
-  danger: 'bg-danger-soft text-danger border border-line hover:bg-danger-soft transition-nocturne',
+  danger: 'bg-danger-soft text-danger border border-line hover:border-danger transition-nocturne',
 }
 
 export function Button({

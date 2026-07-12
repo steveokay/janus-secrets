@@ -34,6 +34,7 @@
   --brand-soft: #EFECFE;
   --brand-line: #D8D2FB;
   --brand-grad: linear-gradient(135deg, #7C3AED, #6D28D9);
+  --on-brand: #FFFFFF;                  /* text on the dark violet gradient — AA in both themes */
   --nav-active: linear-gradient(90deg, rgba(124,58,237,.14), rgba(124,58,237,.03));
   --nav-rail: #7C3AED;
   --dirty-wash: linear-gradient(90deg, rgba(180,83,9,.10), transparent);
@@ -83,6 +84,7 @@ html.dark {
   --brand-soft: rgba(139,92,246,.16);
   --brand-line: rgba(139,92,246,.30);
   --brand-grad: linear-gradient(135deg, #8B5CF6, #7C3AED);
+  --on-brand: #FFFFFF;                  /* text on the dark violet gradient — AA in both themes */
   --nav-active: linear-gradient(90deg, rgba(139,92,246,.22), rgba(139,92,246,.05));
   --nav-rail: #8B5CF6;
   --dirty-wash: linear-gradient(90deg, rgba(245,158,11,.08), transparent);
