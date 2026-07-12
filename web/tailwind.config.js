@@ -10,7 +10,14 @@ export default {
         card: 'var(--card)',
         elevated: 'var(--elevated)',
         line: { DEFAULT: 'var(--border)', soft: 'var(--border-soft)' },
-        ink: 'var(--ink)',
+        surface: { 1: 'var(--surface-1)', 2: 'var(--surface-2)', 3: 'var(--surface-3)' },
+        ink: {
+          DEFAULT: 'var(--ink)',
+          hi: 'var(--ink-hi)',
+          body: 'var(--ink-body)',
+          mute: 'var(--ink-mute)',
+          faint: 'var(--ink-faint)',
+        },
         muted: 'var(--muted)',
         faint: 'var(--faint)',
         brand: {
@@ -25,13 +32,26 @@ export default {
         danger: { DEFAULT: 'var(--danger)', soft: 'var(--danger-soft)' },
         info: { DEFAULT: 'var(--info)', soft: 'var(--info-soft)' },
       },
+      backgroundImage: {
+        canvas: 'var(--canvas)',
+        'brand-grad': 'var(--brand-grad)',
+        'nav-active': 'var(--nav-active)',
+        'dirty-wash': 'var(--dirty-wash)',
+      },
       borderRadius: {
         DEFAULT: '8px',
-        card: '10px',
+        card: '12px',
+        bar: '10px',
+        logo: '7px',
+        pill: '99px',
       },
       boxShadow: {
         card: 'var(--shadow-card)',
         pop: 'var(--shadow-pop)',
+        'elev-1': 'var(--elev-1)',
+        'elev-2': 'var(--elev-2)',
+        glow: 'var(--glow-brand)',
+        'glow-soft': 'var(--glow-brand-soft)',
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
