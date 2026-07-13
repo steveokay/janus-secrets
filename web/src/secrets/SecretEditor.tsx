@@ -193,7 +193,7 @@ export function SecretEditor() {
     <div>
       {latest && (
         <p className="mb-2 text-[11px] text-ink-faint">
-          v{latest.version} · {rows.length} keys · updated {relativeTime(latest.created_at)} by {latest.created_by}
+          v{latest.version} · {rows.length} key{rows.length === 1 ? '' : 's'} · updated {relativeTime(latest.created_at)} by {latest.created_by}
         </p>
       )}
       <EditorToolbar
