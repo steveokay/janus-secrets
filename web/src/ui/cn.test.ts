@@ -8,5 +8,6 @@ test('merges conditional classes and resolves Tailwind conflicts', () => {
 test('resolves conflicts on custom token scales (rounded-card, shadow-*)', () => {
   expect(cn('rounded', 'rounded-card')).toBe('rounded-card')
   expect(cn('shadow-md', 'shadow-elev-1')).toBe('shadow-elev-1')
+  expect(cn('shadow-elev-1', 'shadow-elev-2')).toBe('shadow-elev-2')
   expect(cn('shadow-elev-1', 'shadow-pop')).toBe('shadow-pop')
 })
