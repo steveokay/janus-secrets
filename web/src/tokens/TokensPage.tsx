@@ -4,6 +4,7 @@ import { endpoints, TokenMeta, MintTokenResult } from '../lib/endpoints'
 import { ApiError, apiErrorTitle } from '../lib/api'
 import { useProjects, useEnvironments, useConfigs } from '../secrets/nav'
 import { Pill, Tone } from '../ui/Pill'
+import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { EmptyState } from '../ui/EmptyState'
@@ -36,7 +37,7 @@ function ScopeCell({ kind, id }: { kind: ScopeKind; id: string }) {
   return (
     <div className="flex items-center gap-1.5">
       <Pill tone={kindTone[kind]}>{kind}</Pill>
-      <span className="text-[12px] text-muted">{name}</span>
+      <span className="text-[12px] text-ink-mute">{name}</span>
     </div>
   )
 }
@@ -105,7 +106,7 @@ function MintTokenSheet({ onClose, onMinted }: {
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           />
         </label>
         <label className="text-[12px] font-semibold">
@@ -114,7 +115,7 @@ function MintTokenSheet({ onClose, onMinted }: {
             aria-label="kind"
             value={kind}
             onChange={(e) => handleKindChange(e.target.value as ScopeKind)}
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           >
             <option value="config">config</option>
             <option value="environment">environment</option>
@@ -129,7 +130,7 @@ function MintTokenSheet({ onClose, onMinted }: {
                 aria-label="project"
                 value={pid}
                 onChange={(e) => { setPid(e.target.value); setEid(''); setCid('') }}
-                className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+                className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
               >
                 <option value="">— select —</option>
                 {(projects.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -142,7 +143,7 @@ function MintTokenSheet({ onClose, onMinted }: {
                 value={eid}
                 onChange={(e) => { setEid(e.target.value); setCid('') }}
                 disabled={!pid}
-                className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal disabled:opacity-50"
+                className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne disabled:opacity-50"
               >
                 <option value="">— select —</option>
                 {(envs.data ?? []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -158,7 +159,7 @@ function MintTokenSheet({ onClose, onMinted }: {
               value={cid}
               onChange={(e) => setCid(e.target.value)}
               disabled={!eid}
-              className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal disabled:opacity-50"
+              className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne disabled:opacity-50"
             >
               <option value="">— select —</option>
               {(configs.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -171,7 +172,7 @@ function MintTokenSheet({ onClose, onMinted }: {
             aria-label="access"
             value={access}
             onChange={(e) => setAccess(e.target.value)}
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           >
             {accessOptions.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
@@ -184,27 +185,19 @@ function MintTokenSheet({ onClose, onMinted }: {
             min={1}
             value={ttl}
             onChange={(e) => setTtl(e.target.value)}
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           />
         </label>
         {mutation.isError && (
           <p role="alert" className="text-[12.5px] text-danger">{apiErrorTitle(mutation.error)}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!canSubmit || mutation.isPending}
-            className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={!canSubmit || mutation.isPending}>
             Mint
-          </button>
+          </Button>
         </div>
       </form>
     </Sheet>
@@ -237,13 +230,9 @@ export function TokensPage() {
   const rows = tokens.data ?? []
 
   const mintButton = (
-    <button
-      type="button"
-      onClick={() => setMintOpen(true)}
-      className="rounded bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-card"
-    >
+    <Button type="button" size="sm" onClick={() => setMintOpen(true)}>
       Mint token
-    </button>
+    </Button>
   )
 
   return (
@@ -251,7 +240,7 @@ export function TokensPage() {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[15px] font-semibold text-ink">Service tokens</h3>
-          <p className="text-[12.5px] text-faint">Scoped credentials for CI and automation</p>
+          <p className="text-[12.5px] text-ink-faint">Scoped credentials for CI and automation</p>
         </div>
         {mintButton}
       </div>
@@ -271,9 +260,9 @@ export function TokensPage() {
           action={mintButton}
         />
       ) : (
-        <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
+        <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
           <thead>
-            <tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint">
+            <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
               <th className="py-1.5">Name</th>
               <th className="py-1.5">Scope</th>
               <th className="py-1.5">Access</th>
@@ -285,7 +274,7 @@ export function TokensPage() {
           </thead>
           <tbody>
             {rows.map((t) => (
-              <tr key={t.id} className="border-t border-line-soft">
+              <tr key={t.id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
                 <td className="py-1.5">{t.name}</td>
                 <td className="py-1.5"><ScopeCell kind={t.scope_kind} id={t.scope_id} /></td>
                 <td className="py-1.5">{t.access}</td>
@@ -296,13 +285,14 @@ export function TokensPage() {
                 <td className="py-1.5">{t.revoked_at ? <Pill tone="danger">revoked</Pill> : null}</td>
                 <td className="py-1.5 text-right">
                   {!t.revoked_at && (
-                    <button
+                    <Button
                       type="button"
+                      variant="danger"
+                      size="sm"
                       onClick={() => setRevokeTarget(t)}
-                      className="text-[12.5px] font-semibold text-danger hover:underline"
                     >
                       Revoke
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
