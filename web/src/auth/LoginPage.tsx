@@ -46,7 +46,7 @@ export function LoginPage() {
       <form onSubmit={submit} aria-label="login" className="flex flex-col gap-3 text-left">
         <div className="text-center">
           <h1 className="text-[17px] font-semibold tracking-tight text-ink">Sign in to Janus</h1>
-          <p className="text-[12.5px] text-muted">Self-hosted secrets manager</p>
+          <p className="text-[12.5px] text-ink-mute">Self-hosted secrets manager</p>
         </div>
         <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />

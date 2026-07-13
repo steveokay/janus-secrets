@@ -19,7 +19,7 @@ export function EmptyState({ icon, title, hint, action, className }: {
         </div>
       )}
       <p className="text-[15px] font-semibold text-ink">{title}</p>
-      {hint && <p className="text-[12.5px] text-muted">{hint}</p>}
+      {hint && <p className="text-[12.5px] text-ink-mute">{hint}</p>}
       {action}
     </div>
   )
