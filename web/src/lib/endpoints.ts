@@ -117,6 +117,17 @@ export interface OIDCConfigInput {
   scopes: string[]; redirect_url: string; enabled: boolean
 }
 
+// CI federation (N5 T4) — instance-scoped admin config (needs OIDCManage).
+// Federation config + trust bindings carry NO secret values; match_claims
+// values are identity claims (repo names etc.), treated as metadata only.
+export interface FederationConfigView { issuer: string; audience: string; enabled: boolean }
+export interface FederationBindingView {
+  id: string; name: string; match_claims: Record<string, string>
+  scope_kind: 'config' | 'environment'; scope_id: string
+  access: 'read' | 'readwrite'; ttl_seconds: number; enabled: boolean
+}
+export type FederationBindingInput = Omit<FederationBindingView, 'id'>
+
 function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
@@ -226,4 +237,14 @@ export const endpoints = {
   getOIDCConfig: () => api.get<OIDCProviderView>('/v1/sys/oidc'),
   setOIDCConfig: (cfg: OIDCConfigInput) => api.put<{ ok: boolean }>('/v1/sys/oidc', cfg),
   deleteOIDCConfig: () => api.del<void>('/v1/sys/oidc'),
+
+  // CI federation (N5 T4). Config mirrors OIDC (200/404/403); no secret in any
+  // shape. Server validates: match_claims.repository required; access enum;
+  // ttl_seconds default 900 / cap 3600; scope_id must exist.
+  getFederationConfig: () => api.get<FederationConfigView>('/v1/sys/oidc/federation'),
+  setFederationConfig: (cfg: FederationConfigView) => api.put<{ ok: boolean }>('/v1/sys/oidc/federation', cfg),
+  deleteFederationConfig: () => api.del<void>('/v1/sys/oidc/federation'),
+  listFederationBindings: () => api.get<FederationBindingView[]>('/v1/sys/oidc/federation/bindings'),
+  createFederationBinding: (b: FederationBindingInput) => api.post<FederationBindingView>('/v1/sys/oidc/federation/bindings', b),
+  deleteFederationBinding: (id: string) => api.del<void>(`/v1/sys/oidc/federation/bindings/${id}`),
 }
