@@ -58,7 +58,7 @@ function RotationRow({ row }: { row: EngineRow<RotationView> }) {
   })
 
   return (
-    <tr className="border-b border-line-soft">
+    <tr className="border-b border-line-soft hover:bg-row-hover transition-nocturne">
       <td className="px-2 py-1.5">{row.projectName}</td>
       <td className="px-2 py-1.5">{row.cfg ? `${row.cfg.envName}/${row.cfg.configName}` : short(p.config_id)}</td>
       <td className="px-2 py-1.5 font-mono">{p.secret_key}</td>
@@ -72,7 +72,7 @@ function RotationRow({ row }: { row: EngineRow<RotationView> }) {
           <Button size="sm" variant="secondary" loading={rotate.isPending} onClick={() => rotate.mutate()}>Rotate now</Button>
           <Button size="sm" variant="ghost" loading={toggle.isPending} onClick={() => toggle.mutate()}>{p.status === 'paused' ? 'Resume' : 'Pause'}</Button>
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Interval</Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirmDel(true)}>Delete</Button>
+          <Button size="sm" variant="danger" onClick={() => setConfirmDel(true)}>Delete</Button>
         </div>
       </td>
       <IntervalModal

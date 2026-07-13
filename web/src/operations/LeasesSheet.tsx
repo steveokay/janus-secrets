@@ -44,10 +44,10 @@ function LeaseCard({ lease, roleId }: { lease: DynamicLeaseView; roleId: string 
         <span className="font-mono text-[12.5px] text-ink">{lease.db_username}</span>
         <StatusPill status={lease.status} />
       </div>
-      <div className="mt-1 text-[11px] text-muted">Expires <RelTime iso={lease.expires_at} /> · max <RelTime iso={lease.max_expires_at} /></div>
+      <div className="mt-1 text-[11px] text-ink-mute">Expires <RelTime iso={lease.expires_at} /> · max <RelTime iso={lease.max_expires_at} /></div>
       <div className="mt-2 flex justify-end gap-1">
         <Button size="sm" variant="ghost" disabled={terminal || lease.status !== 'active'} loading={renew.isPending} onClick={() => renew.mutate()}>Renew</Button>
-        <Button size="sm" variant="ghost" disabled={terminal} loading={revoke.isPending} onClick={() => revoke.mutate()}>Revoke</Button>
+        <Button size="sm" variant="danger" disabled={terminal} loading={revoke.isPending} onClick={() => revoke.mutate()}>Revoke</Button>
       </div>
     </li>
   )

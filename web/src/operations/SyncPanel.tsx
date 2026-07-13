@@ -50,7 +50,7 @@ function SyncRow({ row }: { row: EngineRow<SyncView> }) {
   const del = useMutation({ mutationFn: () => opsEndpoints.sync.remove(t.id), onSuccess: () => { toast({ title: 'Target deleted', tone: 'success' }); invalidate() }, onError: onErr })
 
   return (
-    <tr className="border-b border-line-soft">
+    <tr className="border-b border-line-soft hover:bg-row-hover transition-nocturne">
       <td className="px-2 py-1.5">{row.projectName}</td>
       <td className="px-2 py-1.5">{row.cfg ? `${row.cfg.envName}/${row.cfg.configName}` : '—'}</td>
       <td className="px-2 py-1.5"><Pill tone="muted">{t.provider}</Pill></td>
@@ -65,7 +65,7 @@ function SyncRow({ row }: { row: EngineRow<SyncView> }) {
           <Button size="sm" variant="secondary" loading={syncNow.isPending} onClick={() => syncNow.mutate()}>Sync now</Button>
           <Button size="sm" variant="ghost" loading={toggle.isPending} onClick={() => toggle.mutate()}>{t.status === 'paused' ? 'Resume' : 'Pause'}</Button>
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Interval</Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirmDel(true)}>Delete</Button>
+          <Button size="sm" variant="danger" onClick={() => setConfirmDel(true)}>Delete</Button>
         </div>
       </td>
       <IntervalModal open={editing} onClose={() => setEditing(false)} current={t.interval_seconds} onSave={(n) => opsEndpoints.sync.setInterval(t.id, n)} afterSave={() => { setEditing(false); invalidate() }} onError={onErr} />

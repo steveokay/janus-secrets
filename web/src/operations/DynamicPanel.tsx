@@ -66,7 +66,7 @@ function DynamicRow({
   })
 
   return (
-    <tr className="border-b border-line-soft">
+    <tr className="border-b border-line-soft hover:bg-row-hover transition-nocturne">
       <td className="px-2 py-1.5">{row.projectName}</td>
       <td className="px-2 py-1.5">{row.cfg ? `${row.cfg.envName}/${row.cfg.configName}` : '—'}</td>
       <td className="px-2 py-1.5 font-mono">{r.name}</td>
@@ -76,7 +76,7 @@ function DynamicRow({
         <div className="flex justify-end gap-1">
           <Button size="sm" variant="secondary" loading={issue.isPending} onClick={() => issue.mutate()}>Issue</Button>
           <Button size="sm" variant="ghost" onClick={() => onViewLeases(r.id, r.name)}>Leases</Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirmDel(true)}>Delete</Button>
+          <Button size="sm" variant="danger" onClick={() => setConfirmDel(true)}>Delete</Button>
         </div>
       </td>
       <ConfirmDialog

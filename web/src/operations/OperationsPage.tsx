@@ -28,7 +28,7 @@ export function OperationsPage() {
     <div className="mx-auto max-w-6xl px-6 py-6">
       <header className="mb-4">
         <h1 className="text-lg font-semibold text-ink">Operations</h1>
-        <p className="text-[12.5px] text-muted">Rotation, sync, and dynamic credentials across your projects.</p>
+        <p className="text-[12.5px] text-ink-mute">Rotation, sync, and dynamic credentials across your projects.</p>
       </header>
 
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -40,7 +40,7 @@ export function OperationsPage() {
               aria-selected={tab === t.id}
               className={cn(
                 'rounded px-3 py-1.5 text-[12.5px]',
-                tab === t.id ? 'bg-brand-soft text-brand-text' : 'text-muted hover:bg-line-soft',
+                tab === t.id ? 'bg-brand-soft text-brand-text' : 'text-ink-mute hover:bg-line-soft',
               )}
               onClick={() => setParams((p) => { p.set('tab', t.id); return p }, { replace: true })}
             >

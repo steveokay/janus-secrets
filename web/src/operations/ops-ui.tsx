@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Pill, type Tone } from '../ui/Pill'
 import { Tooltip } from '../ui/Tooltip'
@@ -21,12 +21,12 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 export function RelTime({ iso }: { iso?: string | null }) {
-  if (!iso) return <span className="text-faint">—</span>
+  if (!iso) return <span className="text-ink-faint">—</span>
   const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return <span className="text-faint">—</span>
+  if (Number.isNaN(t)) return <span className="text-ink-faint">—</span>
   return (
     <Tooltip content={new Date(iso).toLocaleString()}>
-      <span className="text-muted">{relative(t)}</span>
+      <span className="text-ink-mute">{relative(t)}</span>
     </Tooltip>
   )
 }
@@ -41,13 +41,26 @@ function relative(t: number): string {
 }
 
 export function LastError({ text }: { text?: string | null }) {
+  const [open, setOpen] = useState(false)
   if (!text) return null
   return (
-    <Tooltip content={text}>
-      <span aria-label="last error" className="inline-flex text-danger">
-        <AlertTriangle size={14} />
-      </span>
-    </Tooltip>
+    <span className="inline-flex flex-col items-start gap-1">
+      <button
+        type="button"
+        aria-label="last error"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 rounded text-[11px] font-medium text-danger hover:text-danger transition-nocturne focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-2"
+      >
+        <AlertTriangle size={13} />
+        Error
+      </button>
+      {open && (
+        <span className="block max-w-[240px] break-words rounded border border-danger-line bg-surface-3 p-2 text-[12px] text-ink-body">
+          {text}
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -87,10 +100,10 @@ export function OpsTable({
   if (isError) return <p role="alert" className="text-danger">Couldn't load. Try again shortly.</p>
   if (isEmpty) return <EmptyState title={emptyTitle} hint={emptyHint} />
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-card border border-line bg-surface-2 shadow-elev-1">
       <table className="w-full min-w-[720px] text-[12.5px]">
         <thead>
-          <tr className="border-b border-line text-left text-faint">
+          <tr className="border-b border-line bg-surface-1 text-left text-ink-faint">
             {columns.map((c) => (
               <th key={c} className="px-2 py-1.5 font-medium">{c}</th>
             ))}
@@ -99,7 +112,7 @@ export function OpsTable({
         <tbody>{children}</tbody>
       </table>
       {someForbidden && (
-        <p className={cn('mt-2 text-[11px] text-faint')}>Some projects are hidden — you don't manage this here.</p>
+        <p className={cn('px-2 py-2 text-[11px] text-ink-faint')}>Some projects are hidden — you don't manage this here.</p>
       )}
     </div>
   )
