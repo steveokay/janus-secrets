@@ -115,6 +115,7 @@ function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; f
 export const endpoints = {
   // sys / auth
   sealStatus: () => api.get<SealStatus>('/v1/sys/seal-status'),
+  seal: () => api.post<{ sealed: boolean }>('/v1/sys/seal'),
   unsealShare: (share: string) => api.post<SealStatus>('/v1/sys/unseal', { share }),
   unsealKms: () => api.post<SealStatus>('/v1/sys/unseal', {}),
   unsealReset: () => api.post<SealStatus>('/v1/sys/unseal/reset'),
