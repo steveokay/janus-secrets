@@ -43,7 +43,7 @@ export function CreateProjectForm({ onCreated, onClose }: { onCreated: (p: Proje
   )
   return (
     <Dialog title="Create project">
-      <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+      <p className="mb-3 text-[12.5px] leading-relaxed text-ink-mute">
         Group your Development, Staging, and Production secrets. Each project holds
         multiple configs with versioned history and per-environment access.
       </p>

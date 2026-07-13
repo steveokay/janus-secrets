@@ -17,7 +17,7 @@ export function RevealOnce({ open, onClose, title, secret, hint }: {
         <D.Overlay className="fixed inset-0 z-50 bg-ink/30" />
         <D.Content className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-card border border-line bg-card p-5 shadow-pop">
           <D.Title className="mb-1 text-[15px] font-semibold tracking-tight">{title}</D.Title>
-          <D.Description className="mb-3 text-[12.5px] text-muted">{hint}</D.Description>
+          <D.Description className="mb-3 text-[12.5px] text-ink-mute">{hint}</D.Description>
           <div className="mb-3 select-all break-all rounded border border-warning/40 bg-warning-soft px-3 py-2 font-mono text-[12.5px]">
             {secret}
           </div>

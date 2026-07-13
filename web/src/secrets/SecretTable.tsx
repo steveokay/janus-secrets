@@ -70,7 +70,7 @@ export function SecretTable({
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[720px] rounded-card border border-line bg-card shadow-elev-1 overflow-hidden">
-      <div className={cn(GRID, 'sticky top-0 z-10 bg-surface-1 py-2.5')}>
+      <div className={cn(GRID, 'bg-surface-1 py-2.5')}>
         {(['Key', 'Value', 'Origin', 'Ver', 'Actions'] as const).map((label) => (
           <span
             key={label}

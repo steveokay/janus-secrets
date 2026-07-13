@@ -18,8 +18,6 @@ export default {
           mute: 'var(--ink-mute)',
           faint: 'var(--ink-faint)',
         },
-        muted: 'var(--muted)',
-        faint: 'var(--faint)',
         brand: {
           DEFAULT: 'var(--brand)',
           deep: 'var(--brand-deep)',
@@ -54,7 +52,6 @@ export default {
         pill: '99px',
       },
       boxShadow: {
-        card: 'var(--shadow-card)',
         pop: 'var(--shadow-pop)',
         'elev-1': 'var(--elev-1)',
         'elev-2': 'var(--elev-2)',

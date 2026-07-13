@@ -61,7 +61,7 @@ export function HomeProjects({ projects }: { projects: UseQueryResult<Project[]>
         action={
           <Link
             to="/projects"
-            className="rounded bg-brand px-4 py-2 text-[13px] font-semibold text-on-brand shadow-card"
+            className="rounded bg-brand px-4 py-2 text-[13px] font-semibold text-on-brand shadow-elev-1"
           >
             New project
           </Link>

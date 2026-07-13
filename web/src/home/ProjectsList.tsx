@@ -33,14 +33,14 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
     <Link
       to={`/projects/${project.id}`}
       className={cn(
-        'group rounded-card border border-line bg-card p-4 shadow-card hover:border-brand-line',
+        'group rounded-card border border-line bg-card p-4 shadow-elev-1 hover:border-brand-line',
         view === 'list' && 'flex items-center gap-4',
       )}
     >
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
         {project.slug !== project.name && (
-          <div className="truncate font-mono text-[11.5px] text-faint">{project.slug}</div>
+          <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
         )}
       </div>
       <div className={cn('flex items-center gap-2', view === 'grid' && 'mt-3')}>
@@ -97,7 +97,7 @@ export function ProjectsList() {
           action={
             <button
               onClick={() => setCreating(true)}
-              className="rounded bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-card"
+              className="rounded bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-elev-1"
             >
               Create your first project
             </button>
@@ -115,7 +115,7 @@ export function ProjectsList() {
         <h2 className="text-[17px] font-semibold tracking-tight text-ink">Projects</h2>
         <button
           onClick={() => setCreating(true)}
-          className="flex items-center gap-1.5 rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card"
+          className="flex items-center gap-1.5 rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-elev-1"
         >
           <Plus size={14} strokeWidth={1.7} /> New project
         </button>
@@ -129,7 +129,7 @@ export function ProjectsList() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search projects…"
-          className="min-w-[200px] flex-1 rounded border border-line bg-card px-3 py-1.5 text-[12.5px] text-ink placeholder:text-faint"
+          className="min-w-[200px] flex-1 rounded border border-line bg-card px-3 py-1.5 text-[12.5px] text-ink placeholder:text-ink-faint"
         />
         <select
           aria-label="sort"
@@ -145,7 +145,7 @@ export function ProjectsList() {
             aria-label="grid view"
             aria-pressed={view === 'grid'}
             onClick={() => setView('grid')}
-            className={cn('flex h-8 w-8 items-center justify-center rounded-l text-muted', view === 'grid' && 'bg-brand-soft text-brand-text')}
+            className={cn('flex h-8 w-8 items-center justify-center rounded-l text-ink-mute', view === 'grid' && 'bg-brand-soft text-brand-text')}
           >
             <LayoutGrid size={15} strokeWidth={1.7} />
           </button>
@@ -153,7 +153,7 @@ export function ProjectsList() {
             aria-label="list view"
             aria-pressed={view === 'list'}
             onClick={() => setView('list')}
-            className={cn('flex h-8 w-8 items-center justify-center rounded-r text-muted', view === 'list' && 'bg-brand-soft text-brand-text')}
+            className={cn('flex h-8 w-8 items-center justify-center rounded-r text-ink-mute', view === 'list' && 'bg-brand-soft text-brand-text')}
           >
             <List size={15} strokeWidth={1.7} />
           </button>

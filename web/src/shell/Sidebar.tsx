@@ -36,7 +36,7 @@ function IconAdd({ label, onClick }: { label: string; onClick: () => void }) {
         type="button"
         onClick={onClick}
         aria-label={label}
-        className="flex h-5 w-5 items-center justify-center rounded text-faint hover:bg-brand-soft hover:text-brand-text"
+        className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-brand-soft hover:text-brand-text"
       >
         <Plus size={13} strokeWidth={1.7} />
       </button>
@@ -54,7 +54,7 @@ function EnvConfigs({ pid, eid, name, activeConfigId, onAddConfig }: {
   const configs = useConfigs(pid, eid)
   return (
     <li className="mx-1 mt-2">
-      <div className="flex items-center justify-between px-2 text-[12px] font-semibold text-muted">
+      <div className="flex items-center justify-between px-2 text-[12px] font-semibold text-ink-mute">
         <span className="flex items-center gap-2">
           <span className={cn('h-[7px] w-[7px] rounded-[2px]', envDotClass[envTone(name)])} />
           {name}
