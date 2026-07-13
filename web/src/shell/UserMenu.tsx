@@ -37,9 +37,9 @@ export function UserMenu() {
             sideOffset={6}
             className="min-w-[210px] rounded-card border border-line bg-card p-1.5 shadow-pop"
           >
-            <div className="px-2.5 pb-1.5 pt-1 text-[12px] text-faint">{user.name}</div>
+            <div className="px-2.5 pb-1.5 pt-1 text-[12px] text-ink-faint">{user.name}</div>
             <Menu.Separator className="my-1 h-px bg-line-soft" />
-            <div className="px-2.5 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-[.12em] text-faint">
+            <div className="px-2.5 pb-1 pt-1 text-[10.5px] font-bold uppercase tracking-[.12em] text-ink-faint">
               Theme
             </div>
             <Menu.RadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>

@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useLocation, matchPath } from 'react-router-dom'
+import { useLocation, useNavigate, matchPath } from 'react-router-dom'
+import { endpoints } from '../lib/endpoints'
 import type { Project, Environment, Config, MaskedSecret } from '../lib/endpoints'
+import { useTheme } from '../theme/ThemeProvider'
 
 export type PaletteGroup = 'Projects' | 'Configs' | 'Secrets' | 'Actions'
 
@@ -10,7 +12,20 @@ export interface PaletteItem {
   label: string
   sublabel?: string
   keywords: string
-  to: string // route to navigate to on select
+  to?: string // navigate on select…
+  action?: () => void // …or run this (mutually exclusive; action wins)
+}
+
+// Downloads the FULL audit log as CSV (no filters). The audit log contains
+// metadata only — actor/action/resource paths, never secret values — and the
+// export is itself server-side audited. Filtered export stays on the AuditPage.
+function downloadAuditCsv() {
+  const a = document.createElement('a')
+  a.href = endpoints.auditExportUrl({}, 'csv') // {} = no filters → all events
+  a.download = 'audit.csv'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }
 
 const NAV_ACTIONS: { label: string; to: string; keywords: string }[] = [
@@ -28,6 +43,8 @@ const NAV_ACTIONS: { label: string; to: string; keywords: string }[] = [
 export function usePaletteItems(): PaletteItem[] {
   const qc = useQueryClient()
   const loc = useLocation()
+  const navigate = useNavigate()
+  const { resolved, setTheme } = useTheme()
   const pid = matchPath('/projects/:projectId/*', loc.pathname)?.params.projectId
     ?? matchPath('/projects/:projectId', loc.pathname)?.params.projectId
 
@@ -67,6 +84,22 @@ export function usePaletteItems(): PaletteItem[] {
   for (const a of NAV_ACTIONS) {
     items.push({ id: `action:${a.to}`, group: 'Actions', label: a.label, keywords: a.keywords, to: a.to })
   }
+
+  // Action commands (DO things rather than navigate). Names-only — no secret data.
+  items.push({
+    id: 'action:new-project', group: 'Actions', label: 'New project',
+    keywords: 'new create project add', action: () => navigate('/projects?new=1'),
+  })
+  items.push({
+    id: 'action:export-audit', group: 'Actions', label: 'Export audit (CSV)',
+    keywords: 'export audit csv download events log',
+    action: () => downloadAuditCsv(), // all events, CSV; server audits the export
+  })
+  items.push({
+    id: 'action:toggle-theme', group: 'Actions', label: 'Toggle theme',
+    keywords: 'theme dark light toggle appearance',
+    action: () => setTheme(resolved === 'dark' ? 'light' : 'dark'),
+  })
 
   return items
 }

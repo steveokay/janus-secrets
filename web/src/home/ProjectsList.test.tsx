@@ -1,6 +1,8 @@
 import { http, HttpResponse } from 'msw'
-import { screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { ProjectsList } from './ProjectsList'
@@ -51,6 +53,28 @@ test('empty state offers to create the first project', async () => {
   renderApp(<ProjectsList />, { route: '/', withAuth: false })
   expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /create.*project/i })).toBeInTheDocument()
+})
+
+test('opens the create dialog on ?new=1 and clears the param', async () => {
+  mockProjects([{ id: 'p1', slug: 'api-gateway', name: 'api-gateway' }])
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  function LocationProbe() {
+    const loc = useLocation()
+    return <div data-testid="loc">{loc.search}</div>
+  }
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/projects?new=1']}>
+        <ProjectsList />
+        <LocationProbe />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+  // The create-project dialog appears.
+  expect(await screen.findByRole('heading', { name: /create project/i })).toBeInTheDocument()
+  // The `new` param is cleared so a refresh/back doesn't re-open it.
+  expect(screen.getByTestId('loc')).toHaveTextContent('')
+  expect(screen.getByTestId('loc').textContent).not.toContain('new=1')
 })
 
 test('shows the instance Reads 24h strip above the projects', async () => {

@@ -57,7 +57,7 @@ function ConfigCard({ pid, config, depth, ops }: { pid: string; config: Config; 
     >
       <div className="flex items-center gap-2">
         {depth > 0 && <span className="text-[11px] text-info">↳</span>}
-        <Lock size={12} strokeWidth={1.7} className="text-faint" />
+        <Lock size={12} strokeWidth={1.7} className="text-ink-faint" />
         <span className="font-mono text-[12.5px] text-ink">{config.name}</span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -118,14 +118,14 @@ function EnvColumn({ pid, env, configs, loading, error, ops, onAddConfig }: {
       <button
         type="button"
         onClick={() => onAddConfig(env, configs)}
-        className="mb-2 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-line py-2 text-[12px] font-semibold text-faint hover:border-brand-line hover:text-brand-text"
+        className="mb-2 flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-line py-2 text-[12px] font-semibold text-ink-faint hover:border-brand-line hover:text-brand-text"
       >
         <Plus size={13} strokeWidth={1.7} /> Add config
       </button>
       <div className="flex flex-col gap-1.5">
         {loading && <div aria-hidden className="h-9 rounded bg-line-soft" />}
         {error && <p role="alert" className="px-1 text-[12px] text-danger">Couldn't load configs.</p>}
-        {!loading && !error && configs.length === 0 && <p className="px-1 text-[12px] text-faint">No configs yet</p>}
+        {!loading && !error && configs.length === 0 && <p className="px-1 text-[12px] text-ink-faint">No configs yet</p>}
         {!error && <ConfigNodes pid={pid} roots={roots} all={configs} depth={0} ops={ops} />}
       </div>
     </section>
@@ -184,11 +184,11 @@ export function ProjectBoard() {
     <div>
       <h1 className="sr-only">{project?.name ?? 'Project'}</h1>
       <div className="mb-1 flex items-center gap-2 text-[13px]">
-        <Link to="/projects" className="text-muted hover:text-ink">Projects</Link>
-        <span className="text-faint">/</span>
+        <Link to="/projects" className="text-ink-mute hover:text-ink">Projects</Link>
+        <span className="text-ink-faint">/</span>
         <span className="font-semibold text-ink">{project?.name ?? '…'}</span>
       </div>
-      <p className="mb-5 text-[12.5px] text-faint">
+      <p className="mb-5 text-[12.5px] text-ink-faint">
         Inject secrets with the Janus CLI — <code className="rounded bg-brand-soft px-1.5 py-0.5 font-mono text-[11.5px] text-brand-text">janus run</code>
       </p>
       <ProjectReadsStrip pid={pid} />
@@ -205,7 +205,7 @@ export function ProjectBoard() {
           title="No environments yet"
           hint="Environments hold your configs — dev, staging, prod."
           action={
-            <button onClick={() => setCreatingEnv(true)} className="rounded bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-card">
+            <button onClick={() => setCreatingEnv(true)} className="rounded bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-elev-1">
               Create environment
             </button>
           }
@@ -227,7 +227,7 @@ export function ProjectBoard() {
           <button
             type="button"
             onClick={() => setCreatingEnv(true)}
-            className="flex h-9 shrink-0 items-center gap-1.5 self-start rounded border border-dashed border-line px-3 text-[12px] font-semibold text-faint hover:border-brand-line hover:text-brand-text"
+            className="flex h-9 shrink-0 items-center gap-1.5 self-start rounded border border-dashed border-line px-3 text-[12px] font-semibold text-ink-faint hover:border-brand-line hover:text-brand-text"
           >
             <Plus size={13} strokeWidth={1.7} /> Add environment
           </button>

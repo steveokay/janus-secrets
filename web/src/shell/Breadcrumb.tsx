@@ -35,7 +35,7 @@ export function Breadcrumb() {
   ].filter((p): p is { key: string; label: string; strong: boolean } => !!p.label)
 
   return (
-    <nav aria-label="breadcrumb" className="flex items-center gap-1.5 text-[13px] text-muted">
+    <nav aria-label="breadcrumb" className="flex items-center gap-1.5 text-[13px] text-ink-mute">
       {parts.map((p, i) => (
         <Fragment key={p.key}>
           {i > 0 && <span aria-hidden className="text-line">/</span>}

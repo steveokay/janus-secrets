@@ -7,12 +7,12 @@ function TopList({ title, items }: { title: string; items: { id: string; name: s
   if (items.length === 0) return null
   return (
     <div className="min-w-0 flex-1">
-      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-faint">{title}</div>
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-ink-faint">{title}</div>
       <ul className="flex flex-col gap-1">
         {items.map((it) => (
           <li key={it.id} className="flex items-center justify-between gap-3">
-            <span className="truncate font-mono text-[12px] text-muted">{it.name}</span>
-            <span className="shrink-0 tabular-nums text-[12px] text-faint">{it.reads.toLocaleString()}</span>
+            <span className="truncate font-mono text-[12px] text-ink-mute">{it.name}</span>
+            <span className="shrink-0 tabular-nums text-[12px] text-ink-faint">{it.reads.toLocaleString()}</span>
           </li>
         ))}
       </ul>
@@ -27,11 +27,11 @@ function StripBody({ data }: { data: Reads24h }) {
     <div data-metrics-strip className="mb-5 rounded-card border border-line bg-card p-4">
       <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
         <div className="shrink-0">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-faint">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-ink-faint">
             <Activity size={13} strokeWidth={1.7} /> Reads 24h
           </div>
           <div className="mt-1 text-[28px] font-semibold tabular-nums text-ink">{data.reads_24h.toLocaleString()}</div>
-          {data.reads_24h === 0 && <div className="text-[12px] text-faint">No reads yet</div>}
+          {data.reads_24h === 0 && <div className="text-[12px] text-ink-faint">No reads yet</div>}
         </div>
         <TopList title="Top configs" items={configs} />
         <TopList title="Top tokens" items={tokens} />

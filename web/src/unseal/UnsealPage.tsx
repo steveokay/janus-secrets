@@ -47,15 +47,15 @@ export function UnsealPage({ onUnsealed }: { onUnsealed: () => void }) {
     try { setStatus(await endpoints.unsealReset()) } catch { setError('Reset failed.') }
   }
 
-  if (!status) return <p className="mt-24 text-center text-muted">Loading…</p>
+  if (!status) return <p className="mt-24 text-center text-ink-mute">Loading…</p>
   if (status.type === 'awskms')
-    return <p className="mt-24 text-center text-muted">Waiting for KMS auto-unseal…</p>
+    return <p className="mt-24 text-center text-ink-mute">Waiting for KMS auto-unseal…</p>
 
   return (
     <AuthCard>
       <Pill tone="danger" dot>Sealed</Pill>
       <h1 className="mt-3 text-[17px] font-semibold tracking-tight text-ink">Unseal Janus</h1>
-      <p className="text-[12.5px] text-muted">
+      <p className="text-[12.5px] text-ink-mute">
         {status.progress?.submitted ?? 0} of {status.threshold} shares submitted
       </p>
       <div className="my-4 flex gap-1.5" aria-label={`Share progress: ${status.progress?.submitted ?? 0} of ${status.threshold}`}>
@@ -71,7 +71,7 @@ export function UnsealPage({ onUnsealed }: { onUnsealed: () => void }) {
           <Button type="submit" loading={busy} className="flex-1">Submit share</Button>
           <Button type="button" variant="secondary" onClick={reset}>Reset</Button>
         </div>
-        <p className="text-[11.5px] text-faint">Shares are held in memory only and never logged.</p>
+        <p className="text-[11.5px] text-ink-faint">Shares are held in memory only and never logged.</p>
       </form>
     </AuthCard>
   )
