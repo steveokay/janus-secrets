@@ -11,6 +11,7 @@ import {
 import { ApiError, apiErrorTitle } from '../lib/api'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { Pill } from '../ui/Pill'
+import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { EmptyState } from '../ui/EmptyState'
@@ -65,7 +66,7 @@ function AddMemberSheet({ scope, members, users, onClose }: {
             value={uid}
             onChange={(e) => setUid(e.target.value)}
             required
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           >
             <option value="">— select —</option>
             {candidates.map((u) => <option key={u.id} value={u.id}>{u.email}</option>)}
@@ -77,7 +78,7 @@ function AddMemberSheet({ scope, members, users, onClose }: {
             aria-label="role"
             value={role}
             onChange={(e) => setRole(e.target.value as MemberRole)}
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           >
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -86,20 +87,12 @@ function AddMemberSheet({ scope, members, users, onClose }: {
           <p role="alert" className="text-[12.5px] text-danger">{apiErrorTitle(mutation.error)}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!uid || mutation.isPending}
-            className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={!uid || mutation.isPending}>
             Add
-          </button>
+          </Button>
         </div>
       </form>
     </Sheet>
@@ -140,27 +133,19 @@ function CreateUserSheet({ onClose, onCreated }: {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="mt-1 w-full rounded border border-line px-3 py-2 text-[13px] font-normal"
+            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           />
         </label>
         {mutation.isError && (
           <p role="alert" className="text-[12.5px] text-danger">{apiErrorTitle(mutation.error)}</p>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={email.trim() === '' || mutation.isPending}
-            className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={email.trim() === '' || mutation.isPending}>
             Create
-          </button>
+          </Button>
         </div>
       </form>
     </Sheet>
@@ -261,27 +246,23 @@ export function MembersPage() {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[15px] font-semibold text-ink">Members</h3>
-          <p className="text-[12.5px] text-faint">Role bindings scoped to the instance, a project, or an environment</p>
+          <p className="text-[12.5px] text-ink-faint">Role bindings scoped to the instance, a project, or an environment</p>
         </div>
         {scope && !forbidden && (
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="rounded bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-card"
-          >
+          <Button type="button" size="sm" onClick={() => setAddOpen(true)}>
             Add member
-          </button>
+          </Button>
         )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-2">
-        <label className="text-[12px] font-semibold text-muted">
+        <label className="text-[12px] font-semibold text-ink-mute">
           Scope
           <select
             aria-label="scope"
             value={scopeKind}
             onChange={(e) => handleScopeKind(e.target.value as ScopeKind)}
-            className="mt-1 block rounded border border-line bg-card px-3 py-1.5 text-[13px] font-normal text-ink"
+            className="mt-1 block rounded border border-line bg-surface-3 px-3 py-1.5 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           >
             <option value="instance">Instance</option>
             <option value="project">Project</option>
@@ -289,13 +270,13 @@ export function MembersPage() {
           </select>
         </label>
         {scopeKind !== 'instance' && (
-          <label className="text-[12px] font-semibold text-muted">
+          <label className="text-[12px] font-semibold text-ink-mute">
             Project
             <select
               aria-label="project"
               value={pid}
               onChange={(e) => { setPid(e.target.value); setEid('') }}
-              className="mt-1 block rounded border border-line bg-card px-3 py-1.5 text-[13px] font-normal text-ink"
+              className="mt-1 block rounded border border-line bg-surface-3 px-3 py-1.5 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
             >
               <option value="">— select —</option>
               {(projects.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -303,14 +284,14 @@ export function MembersPage() {
           </label>
         )}
         {scopeKind === 'environment' && (
-          <label className="text-[12px] font-semibold text-muted">
+          <label className="text-[12px] font-semibold text-ink-mute">
             Environment
             <select
               aria-label="environment"
               value={eid}
               onChange={(e) => setEid(e.target.value)}
               disabled={!pid}
-              className="mt-1 block rounded border border-line bg-card px-3 py-1.5 text-[13px] font-normal text-ink disabled:opacity-50"
+              className="mt-1 block rounded border border-line bg-surface-3 px-3 py-1.5 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne disabled:opacity-50"
             >
               <option value="">— select —</option>
               {(envs.data ?? []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -322,7 +303,7 @@ export function MembersPage() {
       {forbidden ? (
         <EmptyState title="Member access required" hint="Ask an instance admin or owner for access." />
       ) : !scope ? (
-        <p className="text-[12.5px] text-muted">Pick a project{scopeKind === 'environment' ? ' and environment' : ''} to view members.</p>
+        <p className="text-[12.5px] text-ink-mute">Pick a project{scopeKind === 'environment' ? ' and environment' : ''} to view members.</p>
       ) : members.isError ? (
         <p role="alert" className="text-[12.5px] text-danger">Couldn't load members.</p>
       ) : members.isLoading ? (
@@ -332,9 +313,9 @@ export function MembersPage() {
       ) : rows.length === 0 ? (
         <EmptyState title="No members yet" hint="Add a user and grant them a role in this scope." />
       ) : (
-        <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
+        <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
           <thead>
-            <tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint">
+            <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
               <th className="py-1.5">Email</th>
               <th className="py-1.5">Role</th>
               <th className="py-1.5" />
@@ -344,26 +325,27 @@ export function MembersPage() {
             {rows.map((m) => {
               const label = displayName(m.user_id, usersById)
               return (
-                <tr key={m.user_id} className="border-t border-line-soft">
+                <tr key={m.user_id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
                   <td className="py-1.5">{label}</td>
                   <td className="py-1.5">
                     <select
                       aria-label={`role for ${label}`}
                       value={m.role}
                       onChange={(e) => setPendingRole({ uid: m.user_id, role: e.target.value as MemberRole, label })}
-                      className="rounded border border-line bg-card px-2 py-1 text-[12.5px] text-ink"
+                      className="rounded border border-line bg-surface-3 px-2 py-1 text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
                     >
                       {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </td>
                   <td className="py-1.5 text-right">
-                    <button
+                    <Button
                       type="button"
+                      variant="danger"
+                      size="sm"
                       onClick={() => setRemoveTarget({ uid: m.user_id, label })}
-                      className="text-[12.5px] font-semibold text-danger hover:underline"
                     >
                       Remove
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               )
@@ -377,19 +359,15 @@ export function MembersPage() {
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <h3 className="text-[15px] font-semibold text-ink">Users</h3>
-              <p className="text-[12.5px] text-faint">Local accounts on this instance</p>
+              <p className="text-[12.5px] text-ink-faint">Local accounts on this instance</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="rounded bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-card"
-            >
+            <Button type="button" size="sm" onClick={() => setCreateOpen(true)}>
               Create user
-            </button>
+            </Button>
           </div>
-          <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
+          <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
             <thead>
-              <tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint">
+              <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
                 <th className="py-1.5">Email</th>
                 <th className="py-1.5">Status</th>
                 <th className="py-1.5" />
@@ -397,18 +375,19 @@ export function MembersPage() {
             </thead>
             <tbody>
               {usersList.map((u) => (
-                <tr key={u.id} className="border-t border-line-soft">
+                <tr key={u.id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
                   <td className="py-1.5">{u.email}</td>
                   <td className="py-1.5">{u.disabled ? <Pill tone="danger">disabled</Pill> : <Pill tone="success">active</Pill>}</td>
                   <td className="py-1.5 text-right">
                     {!u.disabled && (
-                      <button
+                      <Button
                         type="button"
+                        variant="danger"
+                        size="sm"
                         onClick={() => setDisableTarget(u)}
-                        className="text-[12.5px] font-semibold text-danger hover:underline"
                       >
                         Disable
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>

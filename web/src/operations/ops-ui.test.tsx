@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { StatusPill, RelTime, LastError, OpsTable } from './ops-ui'
 
 test('StatusPill maps engine states to tones/text', () => {
@@ -17,6 +18,22 @@ test('LastError shows a warning marker only when text present', () => {
   expect(screen.queryByLabelText('last error')).toBeNull()
   rerender(<LastError text="apply failed" />)
   expect(screen.getByLabelText('last error')).toBeInTheDocument()
+})
+
+test('LastError toggles the full error text inline on click', async () => {
+  const full = 'apply failed: upstream provider rejected the request'
+  render(<LastError text={full} />)
+  const toggle = screen.getByLabelText('last error')
+  // collapsed: full text not rendered, aria-expanded false
+  expect(screen.queryByText(full)).toBeNull()
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  // expand
+  await userEvent.click(toggle)
+  expect(screen.getByText(full)).toBeInTheDocument()
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  // collapse again
+  await userEvent.click(toggle)
+  expect(screen.queryByText(full)).toBeNull()
 })
 
 test('OpsTable renders forbidden EmptyState when allForbidden', () => {

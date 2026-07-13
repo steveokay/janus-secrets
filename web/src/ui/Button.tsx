@@ -10,6 +10,18 @@ const variants: Record<Variant, string> = {
   danger: 'bg-danger-soft text-danger border border-line hover:border-danger transition-nocturne',
 }
 
+// Shared class recipe so non-<button> triggers (e.g. Radix AlertDialog Action/Cancel,
+// which own their own element) render identically to a kit Button.
+export function buttonClasses(variant: Variant = 'primary', size: 'md' | 'sm' = 'md', className?: string) {
+  return cn(
+    'inline-flex items-center gap-[7px] rounded font-semibold text-[13px] px-3.5 py-2',
+    'focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-2',
+    variants[variant],
+    size === 'sm' && 'text-[12px] px-2.5 py-1.5',
+    className,
+  )
+}
+
 export function Button({
   variant = 'primary', size = 'md', block = false, loading = false,
   className, disabled, children, ...rest
@@ -25,10 +37,7 @@ export function Button({
       {...rest}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex items-center gap-[7px] rounded font-semibold text-[13px] px-3.5 py-2',
-        'focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-2',
-        variants[variant],
-        size === 'sm' && 'text-[12px] px-2.5 py-1.5',
+        buttonClasses(variant, size),
         block && 'w-full justify-center py-2.5',
         (disabled || loading) && 'opacity-40 cursor-not-allowed',
         className,

@@ -28,7 +28,7 @@ export function IssuedCredsModal({ creds, onClose }: { creds: IssuedCreds | null
         <p className="text-[12px] text-danger">Shown once — copy the password now. It will not be shown again.</p>
         <Row label="Username" value={creds.username} onCopy={() => copy('Username', creds.username)} />
         <Row label="Password" value={creds.password} onCopy={() => copy('Password', creds.password)} mono />
-        <p className="text-[11px] text-faint">Expires {new Date(creds.expires_at).toLocaleString()}</p>
+        <p className="text-[11px] text-ink-faint">Expires {new Date(creds.expires_at).toLocaleString()}</p>
         <div className="flex justify-end">
           <Button size="sm" onClick={onClose}>Done</Button>
         </div>
@@ -41,10 +41,10 @@ function Row({ label, value, onCopy, mono }: { label: string; value: string; onC
   return (
     <div className="flex items-center justify-between gap-2 rounded border border-line bg-card px-2 py-1.5">
       <div className="min-w-0">
-        <div className="text-[10px] uppercase tracking-wide text-faint">{label}</div>
+        <div className="text-[10px] uppercase tracking-wide text-ink-faint">{label}</div>
         <div className={mono ? 'truncate font-mono text-[12.5px] text-ink' : 'truncate text-[12.5px] text-ink'}>{value}</div>
       </div>
-      <button type="button" aria-label={`copy ${label}`} className="text-muted hover:text-ink" onClick={onCopy}>
+      <button type="button" aria-label={`copy ${label}`} className="text-ink-mute hover:text-ink" onClick={onCopy}>
         <Copy size={14} />
       </button>
     </div>
