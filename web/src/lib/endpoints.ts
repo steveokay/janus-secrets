@@ -104,6 +104,19 @@ export interface TransitKey {
 }
 export interface TransitKeyConfig { min_decryption_version?: number; deletion_allowed?: boolean }
 
+// OIDC provider (N5 T3) — instance-scoped admin config (needs OIDCManage).
+// The client secret is WRITE-ONLY: the read view carries only `secret_set`,
+// never the secret itself. PUT is a full replace and REQUIRES `client_secret`
+// (empty → 400 validation), so it must be re-entered on every save.
+export interface OIDCProviderView {
+  name: string; issuer: string; client_id: string; scopes: string[]
+  redirect_url: string; enabled: boolean; secret_set: boolean
+}
+export interface OIDCConfigInput {
+  name: string; issuer: string; client_id: string; client_secret: string
+  scopes: string[]; redirect_url: string; enabled: boolean
+}
+
 function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
@@ -207,4 +220,10 @@ export const endpoints = {
     api.post<{ signature: string }>(`/v1/transit/sign/${encodeURIComponent(name)}`, { input }),
   transitVerify: (name: string, input: string, signature: string) =>
     api.post<{ valid: boolean }>(`/v1/transit/verify/${encodeURIComponent(name)}`, { input, signature }),
+
+  // OIDC provider (N5 T3). getOIDCConfig NEVER returns the client secret
+  // (only `secret_set`); setOIDCConfig is a full replace that requires it.
+  getOIDCConfig: () => api.get<OIDCProviderView>('/v1/sys/oidc'),
+  setOIDCConfig: (cfg: OIDCConfigInput) => api.put<{ ok: boolean }>('/v1/sys/oidc', cfg),
+  deleteOIDCConfig: () => api.del<void>('/v1/sys/oidc'),
 }
