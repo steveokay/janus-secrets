@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient, setAuthEventHandler } from './lib/queryClient'
 import { ToastProvider } from './ui/Toast'
@@ -20,9 +20,12 @@ import { TransitPage } from './transit/TransitPage'
 import { OperationsPage } from './operations/OperationsPage'
 import { SettingsPage } from './settings/SettingsPage'
 import { PaletteProvider } from './palette/PaletteProvider'
+import { ErrorBoundary } from './shell/ErrorBoundary'
+import { NotFound } from './shell/NotFound'
 
 function Gate() {
   const { user, loading, refresh } = useAuth()
+  const location = useLocation()
   const [seal, setSeal] = useState<SealStatus | null>(null)
 
   useEffect(() => { endpoints.sealStatus().then(setSeal).catch(() => setSeal(null)) }, [])
@@ -49,20 +52,22 @@ function Gate() {
   return (
     <PaletteProvider>
       <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/projects" element={<ProjectsList />} />
-          <Route path="/projects/:projectId" element={<ProjectBoard />} />
-          <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
-          <Route path="/projects/:projectId/audit" element={<AuditPage />} />
-          <Route path="/audit" element={<AuditPage />} />
-          <Route path="/tokens" element={<TokensPage />} />
-          <Route path="/members" element={<MembersPage />} />
-          <Route path="/transit" element={<TransitPage />} />
-          <Route path="/operations" element={<OperationsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <ErrorBoundary key={location.pathname}>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/projects" element={<ProjectsList />} />
+            <Route path="/projects/:projectId" element={<ProjectBoard />} />
+            <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
+            <Route path="/projects/:projectId/audit" element={<AuditPage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="/tokens" element={<TokensPage />} />
+            <Route path="/members" element={<MembersPage />} />
+            <Route path="/transit" element={<TransitPage />} />
+            <Route path="/operations" element={<OperationsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </ErrorBoundary>
       </AppLayout>
     </PaletteProvider>
   )
