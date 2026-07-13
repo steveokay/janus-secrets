@@ -265,6 +265,7 @@ function AddKeyRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
       <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
       <Button
         variant="secondary"
+        size="sm"
         disabled={!key}
         onClick={() => { onAdd(key, value); setKey(''); setValue('') }}
       >

@@ -7,6 +7,7 @@ import { useToast } from '../ui/Toast'
 import { timeAgo } from '../lib/time'
 import { cn } from '../ui/cn'
 import { Skeleton } from '../ui/Skeleton'
+import { Button } from '../ui/Button'
 
 function DiffView({ cid, version }: { cid: string; version: number }) {
   // Key NAMES only — the server never returns values on this surface.
@@ -14,7 +15,7 @@ function DiffView({ cid, version }: { cid: string; version: number }) {
     queryKey: ['config', cid, 'diff', version - 1, version],
     queryFn: () => endpoints.diffVersions(cid, version - 1, version),
   })
-  if (diff.isLoading) return <p className="text-[12px] text-faint">Loading…</p>
+  if (diff.isLoading) return <p className="text-[12px] text-ink-faint">Loading…</p>
   if (diff.isError) return <p className="text-[12px] text-danger">Couldn't load diff.</p>
   const d = diff.data!
   const groups = [
@@ -22,12 +23,12 @@ function DiffView({ cid, version }: { cid: string; version: number }) {
     { label: 'Changed', keys: d.changed, tone: 'warning' as const },
     { label: 'Removed', keys: d.removed, tone: 'danger' as const },
   ].filter((g) => g.keys.length > 0)
-  if (!groups.length) return <p className="text-[12px] text-faint">No key changes</p>
+  if (!groups.length) return <p className="text-[12px] text-ink-faint">No key changes</p>
   return (
     <div className="flex flex-col gap-2">
       {groups.map((g) => (
         <div key={g.label}>
-          <p className="mb-1 text-[10.5px] font-bold uppercase tracking-[.1em] text-faint">{g.label}</p>
+          <p className="mb-1 text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-faint">{g.label}</p>
           <div className="flex flex-wrap gap-1">
             {g.keys.map((k) => <Pill key={k} tone={g.tone} className="font-mono text-[11px]">{k}</Pill>)}
           </div>
@@ -76,33 +77,33 @@ export function VersionHistory({ cid, dirty }: { cid: string; dirty: boolean }) 
             <button
               type="button"
               onClick={() => setOpenDiff((s) => (s === v.version ? null : v.version))}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-line-soft/50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-row-hover transition-nocturne"
             >
               <Pill tone={v.version === latest ? 'success' : 'brand'}>v{v.version}</Pill>
-              <span className={cn('flex-1 truncate text-[13px]', v.message ? 'text-ink' : 'text-faint')}>
+              <span className={cn('flex-1 truncate text-[13px]', v.message ? 'text-ink' : 'text-ink-faint')}>
                 {v.message || 'no message'}
               </span>
             </button>
-            <div className="flex items-center justify-between px-3 pb-2 text-[11.5px] text-faint">
+            <div className="flex items-center justify-between px-3 pb-2 text-[11.5px] text-ink-faint">
               <span>{v.created_by} · {timeAgo(v.created_at)}</span>
               {v.version === latest ? (
                 <span className="text-[10.5px] font-bold uppercase tracking-[.1em]">current</span>
               ) : (
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={dirty || rollback.isPending}
                   title={dirty ? 'Save or discard your changes first' : undefined}
                   onClick={() => setConfirming(v)}
-                  className="rounded border border-line bg-card px-2 py-0.5 text-[11.5px] font-semibold disabled:opacity-40"
                 >
                   Roll back
-                </button>
+                </Button>
               )}
             </div>
             {openDiff === v.version && (
               <div className="border-t border-line-soft px-3 py-2">
                 {v.version === 1
-                  ? <p className="text-[12px] text-faint">Initial version</p>
+                  ? <p className="text-[12px] text-ink-faint">Initial version</p>
                   : <DiffView cid={cid} version={v.version} />}
               </div>
             )}

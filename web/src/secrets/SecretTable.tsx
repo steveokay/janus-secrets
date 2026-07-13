@@ -37,7 +37,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:text-brand-text hover:bg-surface-3 transition-nocturne"
+      className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:text-brand-text hover:bg-surface-3"
     >
       {children}
     </button>

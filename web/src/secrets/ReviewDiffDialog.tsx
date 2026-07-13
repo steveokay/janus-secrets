@@ -3,6 +3,7 @@ import type { Buffer } from './dirty'
 import { rowState } from './rowState'
 import { cn } from '../ui/cn'
 import { Modal } from '../ui/Modal'
+import { Button } from '../ui/Button'
 
 // Pre-save change review. Lists pending key names by change type — NEVER values
 // (values stay in-row on reveal; this surface is value-free).
@@ -30,12 +31,12 @@ export function ReviewDiffDialog({ open, onClose, buffer, masked, original, vers
 
   return (
     <Modal open={open} onClose={onClose} label="Review changes" className="w-[380px]">
-      <h2 className="mb-3 text-[15px] font-semibold text-ink">Review changes</h2>
+      <h2 className="mb-3 text-[15px] font-semibold text-ink-hi">Review changes</h2>
       <div className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto">
-        {empty && <p className="text-[12.5px] text-faint">No pending changes.</p>}
+        {empty && <p className="text-[12.5px] text-ink-faint">No pending changes.</p>}
         {sections.filter((s) => s.keys.length > 0).map((s) => (
           <div key={s.title}>
-            <div className="mb-1 text-[10.5px] font-bold uppercase tracking-[.1em] text-faint">
+            <div className="mb-1 text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-faint">
               {s.title} ({s.keys.length})
             </div>
             <ul className="flex flex-col gap-1">
@@ -50,21 +51,12 @@ export function ReviewDiffDialog({ open, onClose, buffer, masked, original, vers
         ))}
       </div>
       <div className="mt-4 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-        >
+        <Button variant="secondary" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saving || empty}
-          className="rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-40"
-        >
+        </Button>
+        <Button variant="primary" onClick={onSave} disabled={saving || empty}>
           {saving ? 'Saving…' : `Save as v${version + 1}`}
-        </button>
+        </Button>
       </div>
     </Modal>
   )
