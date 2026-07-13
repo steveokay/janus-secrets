@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQueries } from '@tanstack/react-query'
 import { LayoutGrid, List, Plus, FolderGit2 } from 'lucide-react'
 import { endpoints, Project } from '../lib/endpoints'
@@ -64,6 +64,18 @@ export function ProjectsList() {
   const [sort, setSort] = useState<Sort>('name-asc')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [creating, setCreating] = useState(false)
+  const [params, setParams] = useSearchParams()
+
+  // ⌘K "New project" deep-links here with ?new=1. Open the create modal and
+  // clear the param so a refresh/back doesn't re-open it.
+  useEffect(() => {
+    if (params.get('new') === '1') {
+      setCreating(true)
+      const next = new URLSearchParams(params)
+      next.delete('new')
+      setParams(next, { replace: true })
+    }
+  }, [params, setParams])
 
   const shown = useMemo(() => {
     const list = (projects.data ?? []).filter(

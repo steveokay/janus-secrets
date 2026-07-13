@@ -27,7 +27,8 @@ export function PaletteProvider({ children }: { children: React.ReactNode }) {
 
   const onSelect = useCallback((item: PaletteItem) => {
     setOpen(false)
-    navigate(item.to)
+    if (item.action) item.action()
+    else if (item.to) navigate(item.to)
   }, [navigate])
 
   const value = useMemo(() => ({ open, close, isOpen }), [open, close, isOpen])

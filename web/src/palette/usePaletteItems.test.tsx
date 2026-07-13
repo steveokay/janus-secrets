@@ -2,13 +2,16 @@ import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { expect, test } from 'vitest'
+import { ThemeProvider } from '../theme/ThemeProvider'
 import { usePaletteItems, type PaletteItem } from './usePaletteItems'
 
 function wrapper(qc: QueryClient, route: string) {
   return function W({ children }: { children: React.ReactNode }) {
     return (
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+        </ThemeProvider>
       </QueryClientProvider>
     )
   }
