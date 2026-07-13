@@ -9,6 +9,10 @@ function mockMe(status: number) {
   server.use(http.get('/v1/auth/me', () =>
     status === 200 ? HttpResponse.json({ kind: 'user', id: 'u1', name: 'me@corp.io' }) : new HttpResponse(null, { status }),
   ))
+  // The login page probes OIDC status on mount; default it to disabled so tests
+  // that don't care about SSO don't hit msw's onUnhandledRequest:'error'. Tests
+  // exercising the button override this with their own handler.
+  server.use(http.get('/v1/auth/oidc/status', () => HttpResponse.json({ enabled: false })))
 }
 
 test('successful login triggers /me refresh', async () => {
@@ -43,4 +47,23 @@ test('429 shows a rate-limit message', async () => {
   await userEvent.type(screen.getByLabelText(/password/i), 'pw')
   await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
   expect(await screen.findByRole('alert')).toHaveTextContent(/too many attempts/i)
+})
+
+test('no SSO button when no provider is enabled (password form still renders)', async () => {
+  mockMe(401)
+  server.use(http.get('/v1/auth/oidc/status', () => HttpResponse.json({ enabled: false })))
+  renderApp(<LoginPage />, { withAuth: true })
+  // The email/password form is still present.
+  expect(await screen.findByLabelText(/email/i)).toBeInTheDocument()
+  expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
+  // And no SSO link renders.
+  await waitFor(() => expect(screen.queryByRole('link', { name: /sign in with/i })).toBeNull())
+})
+
+test('shows the SSO button only when a provider is enabled', async () => {
+  mockMe(401)
+  server.use(http.get('/v1/auth/oidc/status', () => HttpResponse.json({ enabled: true, name: 'default' })))
+  renderApp(<LoginPage />, { withAuth: true })
+  const link = await screen.findByRole('link', { name: /sign in with/i })
+  expect(link).toHaveAttribute('href', '/v1/auth/oidc/login')
 })

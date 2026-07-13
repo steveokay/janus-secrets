@@ -128,6 +128,10 @@ export interface FederationBindingView {
 }
 export type FederationBindingInput = Omit<FederationBindingView, 'id'>
 
+// OIDC login status (N5 T5) — unauthenticated, rate-limited probe that gates the
+// "Sign in with SSO" button on the login page. Names-only; carries no secret.
+export interface OIDCLoginStatus { enabled: boolean; name?: string }
+
 function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
@@ -147,6 +151,9 @@ export const endpoints = {
   login: (email: string, password: string) =>
     api.post<{ user: { id: string; email: string } }>('/v1/auth/login', { email, password }),
   logout: () => api.post<void>('/v1/auth/logout'),
+  // Unauthenticated: reports whether an OIDC provider is enabled (+ its name),
+  // gating the login page's "Sign in with SSO" button. No secret in any shape.
+  oidcLoginStatus: () => api.get<OIDCLoginStatus>('/v1/auth/oidc/status'),
   changePassword: (current_password: string, new_password: string) =>
     api.post<void>('/v1/auth/password', { current_password, new_password }),
 
