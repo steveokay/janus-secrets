@@ -14,6 +14,12 @@ const railTone: Record<'added' | 'edited' | 'removed', string> = {
   edited: 'bg-warning',
   removed: 'bg-danger',
 }
+// Row washes (background-images — they compose with the hover background-color).
+const washTone: Record<'added' | 'edited' | 'removed', string> = {
+  added: 'bg-added-wash',
+  edited: 'bg-dirty-wash',
+  removed: 'bg-removed-wash',
+}
 const chipTone: Record<'added' | 'edited' | 'removed', string> = {
   added: 'text-success',
   edited: 'text-warning',
@@ -31,7 +37,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="inline-flex h-6 w-6 items-center justify-center rounded text-faint hover:text-brand-text"
+      className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:text-brand-text hover:bg-surface-3 transition-nocturne"
     >
       {children}
     </button>
@@ -63,12 +69,12 @@ export function SecretTable({
 
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-[720px] rounded-card border border-line bg-card overflow-hidden">
-      <div className={cn(GRID, 'sticky top-0 z-10 bg-page py-2.5')}>
+      <div className="min-w-[720px] rounded-card border border-line bg-card shadow-elev-1 overflow-hidden">
+      <div className={cn(GRID, 'sticky top-0 z-10 bg-surface-1 py-2.5')}>
         {(['Key', 'Value', 'Origin', 'Ver', 'Actions'] as const).map((label) => (
           <span
             key={label}
-            className={cn('text-[10.5px] font-bold uppercase tracking-[.1em] text-faint', label === 'Actions' && 'text-right')}
+            className={cn('text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-faint', label === 'Actions' && 'text-right')}
           >
             {label}
           </span>
@@ -80,7 +86,7 @@ export function SecretTable({
         const isRemoved = st.change === 'removed'
         const strike = isRemoved ? 'line-through opacity-45' : ''
         return (
-          <div key={key} className={cn('group relative border-t border-line-soft', GRID, 'py-2.5')}>
+          <div key={key} className={cn('group relative border-t border-line-soft hover:bg-row-hover transition-nocturne', GRID, 'py-2.5', st.change && washTone[st.change])}>
             {st.change && <span className={cn('absolute left-0 top-0 bottom-0 w-[3px]', railTone[st.change])} />}
 
             {/* Key */}
@@ -94,14 +100,14 @@ export function SecretTable({
             </span>
 
             {/* Value */}
-            <span className={cn('font-mono text-[12.5px] text-muted flex items-center gap-2 min-w-0', strike)}>
+            <span className={cn('font-mono text-[12.5px] text-ink-mute flex items-center gap-2 min-w-0', strike)}>
               {isEditing ? (
                 <input
                   aria-label={`value for ${key}`}
                   value={key in buffer ? (buffer[key].value ?? '') : (original[key] ?? '')}
                   onChange={(e) => onChangeValue(key, e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Escape') onRevert(key) }}
-                  className="w-full rounded border border-line bg-card px-2.5 py-1 font-mono text-[12.5px] text-ink focus:border-brand"
+                  className="w-full rounded border border-line bg-surface-3 px-2.5 py-1 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft"
                 />
               ) : (
                 <>
@@ -124,7 +130,7 @@ export function SecretTable({
             </span>
 
             {/* Ver */}
-            <span className="text-faint text-[12px] tabular-nums">
+            <span className="text-ink-faint text-[12px] tabular-nums">
               {st.existing ? `v${masked[key].value_version}` : '—'}
             </span>
 

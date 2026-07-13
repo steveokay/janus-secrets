@@ -43,7 +43,7 @@
   --row-hover: rgba(106,92,245,.04);
   --added-wash: linear-gradient(90deg, rgba(23,138,80,.07), transparent);
   --removed-wash: linear-gradient(90deg, rgba(201,42,42,.06), transparent);
-  --bar-glow: var(--elev-2), var(--glow-brand-soft);
+  --bar-glow: var(--elev-2), var(--glow-brand-soft); /* stacked: elevation + brand glow */
   /* ---- Semantic (AA on light) ---- */
   --ok: #178A50;      --ok-soft: #E4F5EC;
   --warn: #B45309;    --warn-soft: #FCF0DF;
@@ -102,8 +102,8 @@ html.dark {
   /* ---- Editor row states (N3) ---- */
   --row-hover: rgba(139,92,246,.05);
   --added-wash: linear-gradient(90deg, rgba(74,222,128,.07), transparent);
-  --removed-wash: linear-gradient(90deg, rgba(244,63,94,.06), transparent);
-  --bar-glow: var(--elev-2), var(--glow-brand-soft);
+  --removed-wash: linear-gradient(90deg, rgba(251,113,133,.06), transparent);
+  --bar-glow: var(--elev-2), var(--glow-brand-soft); /* stacked: elevation + brand glow */
   /* ---- Semantic (dark §3.3) ---- */
   --ok: #4ADE80;      --ok-soft: rgba(74,222,128,.14);
   --warn: #FCD34D;    --warn-soft: rgba(245,158,11,.16);
