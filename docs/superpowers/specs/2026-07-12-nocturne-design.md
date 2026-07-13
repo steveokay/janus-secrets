@@ -103,7 +103,9 @@ Carried forward from the dark-redesign spec, with Nocturne additions:
 
 4. **One accent.** A single violet `brand` accent. Semantic green / amber / red
    express **state only**, never decoration. Environment color coding:
-   **dev = blue, staging = amber, prod = red.**
+   **dev = blue, staging = amber, prod = red.** Exception: project glyph
+   gradients (`--glyph-a…d`) are *identity* coding, not state — they may use
+   non-brand hues but must never reuse the danger family.
 
 5. **Monospace scope.** Monospace is reserved for secret keys / values **and
    audit action codes**. All chrome uses sans.

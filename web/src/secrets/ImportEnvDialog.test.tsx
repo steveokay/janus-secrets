@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -24,10 +24,12 @@ test('import .env stages parsed pairs into the buffer as pending rows', async ()
   await screen.findByText('DB_URL')
   await userEvent.click(screen.getByRole('button', { name: /import \.env/i }))
   const ta = await screen.findByLabelText(/paste .*env/i)
-  // KEY=VALUE only; comment ignored, malformed line skipped.
+  // KEY=VALUE only; comment ignored, malformed line skipped. Scoped to the
+  // dialog: the editor's header metadata line ("… 1 keys …") also matches.
   fireEvent.change(ta, { target: { value: 'NEW_KEY=abc\n# a comment\nBAD KEY=x' } })
-  expect(screen.getByText(/1 key/i)).toBeInTheDocument()
-  expect(screen.getByText(/1 skipped/i)).toBeInTheDocument()
+  const dialog = screen.getByRole('dialog')
+  expect(within(dialog).getByText(/1 key/i)).toBeInTheDocument()
+  expect(within(dialog).getByText(/1 skipped/i)).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /import 1/i }))
   // The imported key now shows as a pending added row.
   expect(await screen.findByText('NEW_KEY')).toBeInTheDocument()

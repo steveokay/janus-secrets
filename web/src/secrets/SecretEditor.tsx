@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints } from '../lib/endpoints'
+import type { VersionMeta } from '../lib/endpoints'
 import { errorMessage } from '../lib/api'
+import { relativeTime } from '../lib/relativeTime'
 import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
 import { useTitle } from '../lib/title'
 import { useToast } from '../ui/Toast'
+import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { Sheet } from '../ui/Sheet'
 import { SecretTable } from './SecretTable'
@@ -179,9 +182,20 @@ export function SecretEditor() {
   // Ordered key list: existing masked keys, then keys added only in the buffer.
   const addedKeys = Object.keys(buffer).filter((k) => !(k in maskedRows) && buffer[k].value !== null)
   const rows = [...Object.keys(maskedRows), ...addedKeys]
+  // Latest config version metadata — the API returns versions oldest-first
+  // (store ListVersions ORDER BY version ASC), so take the max, not [0].
+  const latest = (versions.data ?? []).reduce<VersionMeta | null>(
+    (a, b) => (!a || b.version > a.version ? b : a),
+    null,
+  )
 
   return (
     <div>
+      {latest && (
+        <p className="mb-2 text-[11px] text-ink-faint">
+          v{latest.version} · {rows.length} key{rows.length === 1 ? '' : 's'} · updated {relativeTime(latest.created_at)} by {latest.created_by}
+        </p>
+      )}
       <EditorToolbar
         filter={filter}
         onFilter={setFilter}
@@ -247,15 +261,16 @@ function AddKeyRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
   const [value, setValue] = useState('')
   return (
     <div className="mt-3 flex gap-2">
-      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-card px-2.5 py-1.5 font-mono text-[12.5px] text-ink" />
-      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-card px-2.5 py-1.5 font-mono text-[12.5px] text-ink" />
-      <button
+      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
+      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
+      <Button
+        variant="secondary"
+        size="sm"
         disabled={!key}
         onClick={() => { onAdd(key, value); setKey(''); setValue('') }}
-        className="rounded border border-line bg-card px-3 text-[13px] font-semibold text-ink disabled:opacity-40"
       >
         ＋ Add key
-      </button>
+      </Button>
     </div>
   )
 }

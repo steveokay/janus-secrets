@@ -1,4 +1,5 @@
 import { Search, Upload, History, Eye, EyeOff } from 'lucide-react'
+import { Button } from '../ui/Button'
 
 // Editor toolbar (mockup §06): key filter + Import .env + History + reveal-all.
 export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyRevealed, onToggleRevealAll }: {
@@ -11,8 +12,8 @@ export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyReveal
 }) {
   return (
     <div className="mb-3.5 flex flex-wrap items-center gap-2.5">
-      <div className="flex max-w-[260px] flex-1 items-center gap-2 rounded border border-line bg-card px-2.5 py-1.5">
-        <Search size={14} strokeWidth={1.7} className="shrink-0 text-faint" />
+      <div className="flex max-w-[260px] flex-1 items-center gap-2 rounded border border-line bg-surface-3 px-2.5 py-1.5 focus-within:border-brand-line">
+        <Search size={14} strokeWidth={1.7} className="shrink-0 text-ink-faint" />
         <input
           type="search"
           role="searchbox"
@@ -20,31 +21,19 @@ export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyReveal
           value={filter}
           onChange={(e) => onFilter(e.target.value)}
           placeholder="Filter keys…"
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
+          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-faint"
         />
       </div>
-      <button
-        type="button"
-        onClick={onImport}
-        className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-      >
+      <Button variant="secondary" size="sm" onClick={onImport}>
         <Upload size={14} strokeWidth={1.7} /> Import .env
-      </button>
-      <button
-        type="button"
-        onClick={onHistory}
-        className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-      >
+      </Button>
+      <Button variant="secondary" size="sm" onClick={onHistory}>
         <History size={14} strokeWidth={1.7} /> History
-      </button>
-      <button
-        type="button"
-        onClick={onToggleRevealAll}
-        className="flex items-center gap-1.5 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-      >
+      </Button>
+      <Button variant="secondary" size="sm" onClick={onToggleRevealAll}>
         {anyRevealed ? <EyeOff size={14} strokeWidth={1.7} /> : <Eye size={14} strokeWidth={1.7} />}
         {anyRevealed ? 'Hide all' : 'Reveal all'}
-      </button>
+      </Button>
     </div>
   )
 }

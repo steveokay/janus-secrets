@@ -39,6 +39,11 @@
   --nav-rail: #7C3AED;
   --dirty-wash: linear-gradient(90deg, rgba(180,83,9,.10), transparent);
   --dirty-rail: #B45309;
+  /* ---- Editor row states (N3) ---- */
+  --row-hover: rgba(106,92,245,.04);
+  --added-wash: linear-gradient(90deg, rgba(23,138,80,.07), transparent);
+  --removed-wash: linear-gradient(90deg, rgba(201,42,42,.06), transparent);
+  --bar-glow: var(--elev-2), var(--glow-brand-soft); /* stacked: elevation + brand glow */
   /* ---- Semantic (AA on light) ---- */
   --ok: #178A50;      --ok-soft: #E4F5EC;
   --warn: #B45309;    --warn-soft: #FCF0DF;
@@ -55,7 +60,7 @@
   --glyph-a: linear-gradient(135deg, #8B5CF6, #6D28D9);
   --glyph-b: linear-gradient(135deg, #0EA5E9, #0369A1);
   --glyph-c: linear-gradient(135deg, #F59E0B, #B45309);
-  --glyph-d: linear-gradient(135deg, #F43F5E, #BE123C);
+  --glyph-d: linear-gradient(135deg, #14B8A6, #0F766E);
 }
 
 html.dark {
@@ -94,6 +99,11 @@ html.dark {
   --nav-rail: #8B5CF6;
   --dirty-wash: linear-gradient(90deg, rgba(245,158,11,.08), transparent);
   --dirty-rail: #F59E0B;
+  /* ---- Editor row states (N3) ---- */
+  --row-hover: rgba(139,92,246,.05);
+  --added-wash: linear-gradient(90deg, rgba(74,222,128,.07), transparent);
+  --removed-wash: linear-gradient(90deg, rgba(251,113,133,.06), transparent);
+  --bar-glow: var(--elev-2), var(--glow-brand-soft); /* stacked: elevation + brand glow */
   /* ---- Semantic (dark §3.3) ---- */
   --ok: #4ADE80;      --ok-soft: rgba(74,222,128,.14);
   --warn: #FCD34D;    --warn-soft: rgba(245,158,11,.16);
@@ -110,5 +120,5 @@ html.dark {
   --glyph-a: linear-gradient(135deg, #8B5CF6, #6D28D9);
   --glyph-b: linear-gradient(135deg, #0EA5E9, #0369A1);
   --glyph-c: linear-gradient(135deg, #F59E0B, #B45309);
-  --glyph-d: linear-gradient(135deg, #F43F5E, #BE123C);
+  --glyph-d: linear-gradient(135deg, #14B8A6, #0F766E);
 }
