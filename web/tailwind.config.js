@@ -32,6 +32,7 @@ export default {
         warning: { DEFAULT: 'var(--warn)', soft: 'var(--warn-soft)' },
         danger: { DEFAULT: 'var(--danger)', soft: 'var(--danger-soft)', line: 'var(--danger-line)' },
         info: { DEFAULT: 'var(--info)', soft: 'var(--info-soft)' },
+        'row-hover': 'var(--row-hover)',
       },
       backgroundImage: {
         canvas: 'var(--canvas)',
@@ -42,6 +43,8 @@ export default {
         'glyph-b': 'var(--glyph-b)',
         'glyph-c': 'var(--glyph-c)',
         'glyph-d': 'var(--glyph-d)',
+        'added-wash': 'var(--added-wash)',
+        'removed-wash': 'var(--removed-wash)',
       },
       borderRadius: {
         DEFAULT: '8px',
@@ -57,6 +60,7 @@ export default {
         'elev-2': 'var(--elev-2)',
         glow: 'var(--glow-brand)',
         'glow-soft': 'var(--glow-brand-soft)',
+        bar: 'var(--bar-glow)',
       },
       fontFamily: {
         sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
