@@ -2,7 +2,7 @@ const MIN = 60_000, HOUR = 3_600_000, DAY = 86_400_000
 
 /**
  * "2m ago" / "in 3d" style relative time; falls back to "Mon D" past ~30 days.
- * Bidirectional superset of `timeAgo` in `./time.ts`; prefer this for new code.
+ * Bidirectional (past AND future); floor semantics.
  */
 export function relativeTime(iso: string, now: Date = new Date()): string {
   const t = new Date(iso).getTime()

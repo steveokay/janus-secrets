@@ -10,7 +10,7 @@ import { EmptyState } from '../ui/EmptyState'
 import { RevealOnce } from '../ui/RevealOnce'
 import { useToast } from '../ui/Toast'
 import { useTitle } from '../lib/title'
-import { timeAgo } from '../lib/time'
+import { relativeTime } from '../lib/relativeTime'
 
 type ScopeKind = TokenMeta['scope_kind']
 
@@ -289,9 +289,9 @@ export function TokensPage() {
                 <td className="py-1.5">{t.name}</td>
                 <td className="py-1.5"><ScopeCell kind={t.scope_kind} id={t.scope_id} /></td>
                 <td className="py-1.5">{t.access}</td>
-                <td className="py-1.5"><span title={t.created_at}>{timeAgo(t.created_at)}</span></td>
+                <td className="py-1.5"><span title={t.created_at}>{relativeTime(t.created_at)}</span></td>
                 <td className="py-1.5">
-                  {t.expires_at ? <span title={t.expires_at}>{timeAgo(t.expires_at)}</span> : 'never'}
+                  {t.expires_at ? <span title={t.expires_at}>{relativeTime(t.expires_at)}</span> : 'never'}
                 </td>
                 <td className="py-1.5">{t.revoked_at ? <Pill tone="danger">revoked</Pill> : null}</td>
                 <td className="py-1.5 text-right">

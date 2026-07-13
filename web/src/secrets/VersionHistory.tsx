@@ -4,7 +4,7 @@ import { endpoints, VersionMeta } from '../lib/endpoints'
 import { Pill } from '../ui/Pill'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
-import { timeAgo } from '../lib/time'
+import { relativeTime } from '../lib/relativeTime'
 import { cn } from '../ui/cn'
 import { Skeleton } from '../ui/Skeleton'
 import { Button } from '../ui/Button'
@@ -85,7 +85,7 @@ export function VersionHistory({ cid, dirty }: { cid: string; dirty: boolean }) 
               </span>
             </button>
             <div className="flex items-center justify-between px-3 pb-2 text-[11.5px] text-ink-faint">
-              <span>{v.created_by} · {timeAgo(v.created_at)}</span>
+              <span>{v.created_by} · {relativeTime(v.created_at)}</span>
               {v.version === latest ? (
                 <span className="text-[10.5px] font-bold uppercase tracking-[.1em]">current</span>
               ) : (

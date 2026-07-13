@@ -5,7 +5,7 @@ import { ApiError } from '../lib/api'
 import { Pill } from '../ui/Pill'
 import { EmptyState } from '../ui/EmptyState'
 import { useTitle } from '../lib/title'
-import { timeAgo } from '../lib/time'
+import { relativeTime } from '../lib/relativeTime'
 import { resultTone } from './resultTone'
 
 // Draft (inputs) vs applied (committed on Apply) — the events query only
@@ -191,7 +191,7 @@ export function AuditPage() {
             <tbody>
               {rows.map((e) => (
                 <tr key={e.seq} className="border-t border-line-soft">
-                  <td className="py-1"><span title={e.occurred_at}>{timeAgo(e.occurred_at)}</span></td>
+                  <td className="py-1"><span title={e.occurred_at}>{relativeTime(e.occurred_at)}</span></td>
                   <td className="py-1">
                     <div>{e.actor_name}</div>
                     <div className="text-[10.5px] text-faint">{e.actor_kind}</div>
