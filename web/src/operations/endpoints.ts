@@ -72,10 +72,47 @@ export interface IssuedCreds {
   expires_at: string
 }
 
+// --- Create request shapes (write-only; secrets nested + omitempty) ---
+
+export interface RotationCreateInput {
+  config_id: string
+  secret_key: string
+  type: 'postgres' | 'webhook'
+  interval_seconds: number
+  config: {
+    admin_dsn?: string; role?: string; password_len?: number
+    url?: string; hmac_key?: string
+    notify_url?: string; notify_hmac_key?: string
+  }
+}
+
+export interface SyncCreateInput {
+  config_id: string
+  provider: 'github' | 'k8s'
+  prune?: boolean
+  interval_seconds: number
+  addr: { owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string }
+  creds: { pat?: string; api_url?: string; ca_cert?: string; token?: string }
+}
+
+export interface DynamicRoleCreateInput {
+  config_id: string
+  name: string
+  default_ttl_seconds: number
+  max_ttl_seconds: number
+  config: {
+    admin_dsn?: string
+    creation_statements?: string
+    revocation_statements?: string
+    renew_statements?: string
+  }
+}
+
 export const opsEndpoints = {
   rotation: {
     list: (pid: string) =>
       api.get<{ policies: RotationView[] }>(`/v1/rotation/policies?project_id=${encodeURIComponent(pid)}`).then((r) => r.policies ?? []),
+    create: (body: RotationCreateInput) => api.post<RotationView>('/v1/rotation/policies', body),
     rotateNow: (id: string) => api.post<{ rotated: boolean; config_version: number }>(`/v1/rotation/policies/${id}/rotate`),
     setStatus: (id: string, status: 'active' | 'paused') => api.patch<RotationView>(`/v1/rotation/policies/${id}`, { status }),
     setInterval: (id: string, interval_seconds: number) => api.patch<RotationView>(`/v1/rotation/policies/${id}`, { interval_seconds }),
@@ -84,6 +121,7 @@ export const opsEndpoints = {
   sync: {
     list: (pid: string) =>
       api.get<{ targets: SyncView[] }>(`/v1/sync/targets?project_id=${encodeURIComponent(pid)}`).then((r) => r.targets ?? []),
+    create: (body: SyncCreateInput) => api.post<SyncView>('/v1/sync/targets', body),
     syncNow: (id: string) => api.post<{ synced: boolean }>(`/v1/sync/targets/${id}/sync`),
     setStatus: (id: string, status: 'active' | 'paused') => api.patch<SyncView>(`/v1/sync/targets/${id}`, { status }),
     setInterval: (id: string, interval_seconds: number) => api.patch<SyncView>(`/v1/sync/targets/${id}`, { interval_seconds }),
@@ -92,6 +130,7 @@ export const opsEndpoints = {
   dynamic: {
     listRoles: (cid: string) =>
       api.get<{ roles: DynamicRoleView[] }>(`/v1/dynamic/roles?config_id=${encodeURIComponent(cid)}`).then((r) => r.roles ?? []),
+    createRole: (body: DynamicRoleCreateInput) => api.post<DynamicRoleView>('/v1/dynamic/roles', body),
     deleteRole: (id: string) => api.del<void>(`/v1/dynamic/roles/${id}`),
     issue: (roleId: string) => api.post<IssuedCreds>(`/v1/dynamic/roles/${roleId}/creds`),
     listLeases: (roleId: string) =>
