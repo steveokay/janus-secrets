@@ -1,4 +1,5 @@
 import { Search, Upload, History, Eye, EyeOff } from 'lucide-react'
+import { Button } from '../ui/Button'
 
 // Editor toolbar (mockup §06): key filter + Import .env + History + reveal-all.
 export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyRevealed, onToggleRevealAll }: {
@@ -23,28 +24,16 @@ export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyReveal
           className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-faint"
         />
       </div>
-      <button
-        type="button"
-        onClick={onImport}
-        className="flex items-center gap-1.5 rounded border border-line bg-surface-3 px-3 py-1.5 text-[13px] font-semibold text-ink-mute hover:text-ink transition-nocturne"
-      >
+      <Button variant="secondary" size="sm" onClick={onImport}>
         <Upload size={14} strokeWidth={1.7} /> Import .env
-      </button>
-      <button
-        type="button"
-        onClick={onHistory}
-        className="flex items-center gap-1.5 rounded border border-line bg-surface-3 px-3 py-1.5 text-[13px] font-semibold text-ink-mute hover:text-ink transition-nocturne"
-      >
+      </Button>
+      <Button variant="secondary" size="sm" onClick={onHistory}>
         <History size={14} strokeWidth={1.7} /> History
-      </button>
-      <button
-        type="button"
-        onClick={onToggleRevealAll}
-        className="flex items-center gap-1.5 rounded border border-line bg-surface-3 px-3 py-1.5 text-[13px] font-semibold text-ink-mute hover:text-ink transition-nocturne"
-      >
+      </Button>
+      <Button variant="secondary" size="sm" onClick={onToggleRevealAll}>
         {anyRevealed ? <EyeOff size={14} strokeWidth={1.7} /> : <Eye size={14} strokeWidth={1.7} />}
         {anyRevealed ? 'Hide all' : 'Reveal all'}
-      </button>
+      </Button>
     </div>
   )
 }
