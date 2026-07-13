@@ -96,7 +96,10 @@ function CreateRotationSheet({ open, onOpenChange, filter }: {
 
   const isPg = form.type === 'postgres'
   const canCreate = !!form.config_id && !!form.secret_key.trim() &&
-    (isPg ? !!form.admin_dsn : !!form.url.trim() && !!form.hmac_key)
+    form.interval_seconds >= 1 &&
+    (isPg
+      ? !!form.admin_dsn && form.password_len >= 8
+      : !!form.url.trim() && !!form.hmac_key)
 
   function submit() {
     const config: RotationCreateInput['config'] = isPg
@@ -113,13 +116,14 @@ function CreateRotationSheet({ open, onOpenChange, filter }: {
     })
   }
 
+  // Reset lifecycle: the open-edge useEffect re-seeds an empty form on every
+  // open (+onSuccess), so close paths just close — no redundant reset here.
   function cancel() {
-    setForm(emptyRotationForm())
     onOpenChange(false)
   }
 
   return (
-    <Sheet open={open} onOpenChange={(o) => { if (!o) setForm(emptyRotationForm()); onOpenChange(o) }} title="New rotation policy">
+    <Sheet open={open} onOpenChange={onOpenChange} title="New rotation policy">
       <div className="flex flex-col gap-3">
         <ConfigPicker filter={filter} value={form.config_id} onChange={(id) => setForm((f) => ({ ...f, config_id: id }))} />
 

@@ -135,3 +135,21 @@ test('successful create closes the Sheet and invalidates the list', async () => 
   await waitFor(() => expect(screen.queryByRole('heading', { name: /new rotation policy/i })).not.toBeInTheDocument())
   await waitFor(() => expect(listCalls).toBeGreaterThan(before))
 })
+
+test('a create error keeps the Sheet open and shows the inline message', async () => {
+  topo(); mockList([])
+  server.use(http.post('/v1/rotation/policies', () =>
+    HttpResponse.json({ error: { code: 'validation', message: 'invalid rotation policy configuration' } }, { status: 400 })))
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  await userEvent.click(await screen.findByRole('button', { name: /new policy/i }))
+  await screen.findByRole('option', { name: 'Acme / prod / prod' })
+  await userEvent.selectOptions(screen.getByLabelText(/^config$/i), 'c1')
+  await userEvent.type(screen.getByLabelText(/secret key/i), 'DB_PASSWORD')
+  await userEvent.type(screen.getByLabelText(/admin dsn/i), 'postgres://u:p@h/db')
+  await userEvent.click(screen.getByRole('button', { name: /^create$/i }))
+  // Sheet stays open, inline error surfaces. A 400 `validation` maps through
+  // errorMessage() to the curated "Please check your input." (raw server text
+  // is NOT echoed — no-leak posture), so assert the rendered inline message.
+  expect(await screen.findByText(/please check your input/i)).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: /new rotation policy/i })).toBeInTheDocument()
+})
