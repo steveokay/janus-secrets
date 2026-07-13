@@ -95,6 +95,19 @@ export interface SyncCreateInput {
   creds: { pat?: string; api_url?: string; ca_cert?: string; token?: string }
 }
 
+export interface DynamicRoleCreateInput {
+  config_id: string
+  name: string
+  default_ttl_seconds: number
+  max_ttl_seconds: number
+  config: {
+    admin_dsn?: string
+    creation_statements?: string
+    revocation_statements?: string
+    renew_statements?: string
+  }
+}
+
 export const opsEndpoints = {
   rotation: {
     list: (pid: string) =>
@@ -117,6 +130,7 @@ export const opsEndpoints = {
   dynamic: {
     listRoles: (cid: string) =>
       api.get<{ roles: DynamicRoleView[] }>(`/v1/dynamic/roles?config_id=${encodeURIComponent(cid)}`).then((r) => r.roles ?? []),
+    createRole: (body: DynamicRoleCreateInput) => api.post<DynamicRoleView>('/v1/dynamic/roles', body),
     deleteRole: (id: string) => api.del<void>(`/v1/dynamic/roles/${id}`),
     issue: (roleId: string) => api.post<IssuedCreds>(`/v1/dynamic/roles/${roleId}/creds`),
     listLeases: (roleId: string) =>

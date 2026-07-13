@@ -1,11 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus } from 'lucide-react'
 import { Button } from '../ui/Button'
+import { Pill } from '../ui/Pill'
+import { Sheet } from '../ui/Sheet'
+import { Input } from '../ui/Input'
+import { Textarea } from '../ui/Textarea'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
-import { apiErrorTitle } from '../lib/api'
-import { opsEndpoints, type DynamicRoleView, type IssuedCreds } from './endpoints'
+import { apiErrorTitle, errorMessage } from '../lib/api'
+import { opsEndpoints, type DynamicRoleView, type DynamicRoleCreateInput, type IssuedCreds } from './endpoints'
 import { useDynamicRoles, type EngineRow, type ProjectFilter } from './useAggregated'
+import { ConfigPicker } from './ConfigPicker'
 import { OpsTable } from './ops-ui'
 import { IssuedCredsModal } from './IssuedCredsModal'
 import { LeasesSheet } from './LeasesSheet'
@@ -14,9 +20,15 @@ export function DynamicPanel({ filter }: { filter: ProjectFilter }) {
   const { rows, isLoading, isError, someForbidden } = useDynamicRoles(filter)
   const [issued, setIssued] = useState<IssuedCreds | null>(null)
   const [leasesFor, setLeasesFor] = useState<{ id: string; name: string } | null>(null)
+  const [creating, setCreating] = useState(false)
 
   return (
-    <>
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <Button variant="secondary" size="sm" onClick={() => setCreating(true)}>
+          <Plus size={13} strokeWidth={1.8} /> New role
+        </Button>
+      </div>
       <OpsTable
         columns={['Project', 'Config', 'Role', 'Default TTL', 'Max TTL', '']}
         isLoading={isLoading}
@@ -25,15 +37,183 @@ export function DynamicPanel({ filter }: { filter: ProjectFilter }) {
         isEmpty={rows.length === 0}
         someForbidden={someForbidden}
         forbiddenHint="Listing dynamic roles needs the dynamic:manage role (admin/owner)."
-        emptyHint="No dynamic roles. Create one with `janus dynamic roles create`."
+        emptyHint="No dynamic roles yet."
       >
         {rows.map((r) => (
           <DynamicRow key={r.data.id} row={r} onIssued={setIssued} onViewLeases={(id, name) => setLeasesFor({ id, name })} />
         ))}
       </OpsTable>
+      <CreateRoleSheet open={creating} onOpenChange={setCreating} filter={filter} />
       <IssuedCredsModal creds={issued} onClose={() => setIssued(null)} />
       <LeasesSheet roleId={leasesFor?.id ?? null} roleName={leasesFor?.name ?? ''} onClose={() => setLeasesFor(null)} />
-    </>
+    </div>
+  )
+}
+
+// Write-only create form. The secret field (admin_dsn) lives ONLY in this
+// ephemeral state, is sent once in the POST body, and is never rendered from a
+// fetched value (list + create responses are masked — no admin_dsn). The SQL
+// templates are admin input (not secrets); {{password}} in them is the literal
+// interpolation marker, not a real credential.
+interface RoleForm {
+  config_id: string
+  name: string
+  default_ttl_seconds: number
+  max_ttl_seconds: number
+  admin_dsn: string
+  creation_statements: string
+  revocation_statements: string
+  renew_statements: string
+}
+
+function emptyRoleForm(): RoleForm {
+  return {
+    config_id: '', name: '', default_ttl_seconds: 3600, max_ttl_seconds: 86400,
+    admin_dsn: '', creation_statements: '', revocation_statements: '', renew_statements: '',
+  }
+}
+
+function CreateRoleSheet({ open, onOpenChange, filter }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  filter: ProjectFilter
+}) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [form, setForm] = useState<RoleForm>(emptyRoleForm)
+
+  // Reset the form (secret → '') whenever the Sheet opens.
+  useEffect(() => {
+    if (open) setForm(emptyRoleForm())
+  }, [open])
+
+  const create = useMutation({
+    mutationFn: (body: DynamicRoleCreateInput) => opsEndpoints.dynamic.createRole(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ops', 'dynamic'] })
+      setForm(emptyRoleForm())
+      onOpenChange(false)
+      toast({ title: 'Role created', tone: 'success' })
+    },
+    onError: (e) => toast({ title: errorMessage(e), tone: 'danger' }),
+  })
+
+  const canCreate = !!form.config_id && !!form.name.trim() && !!form.admin_dsn &&
+    !!form.creation_statements.trim() &&
+    form.default_ttl_seconds >= 1 && form.max_ttl_seconds >= 1
+
+  function submit() {
+    const config: DynamicRoleCreateInput['config'] = {
+      admin_dsn: form.admin_dsn,
+      creation_statements: form.creation_statements.trim(),
+    }
+    if (form.revocation_statements.trim()) config.revocation_statements = form.revocation_statements.trim()
+    if (form.renew_statements.trim()) config.renew_statements = form.renew_statements.trim()
+    create.mutate({
+      config_id: form.config_id,
+      name: form.name.trim(),
+      default_ttl_seconds: form.default_ttl_seconds,
+      max_ttl_seconds: form.max_ttl_seconds,
+      config,
+    })
+  }
+
+  // Reset lifecycle: the open-edge useEffect re-seeds an empty form on every
+  // open (+onSuccess), so close paths just close — no redundant reset here.
+  function cancel() {
+    onOpenChange(false)
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title="New dynamic role">
+      <div className="flex flex-col gap-3">
+        <ConfigPicker filter={filter} value={form.config_id} onChange={(id) => setForm((f) => ({ ...f, config_id: id }))} />
+
+        <Input
+          label="Name"
+          value={form.name}
+          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          placeholder="readonly"
+          autoComplete="off"
+          className="font-mono"
+        />
+
+        <Input
+          label="Default TTL (seconds)"
+          type="number"
+          min={1}
+          value={String(form.default_ttl_seconds)}
+          onChange={(e) => setForm((f) => ({ ...f, default_ttl_seconds: Number(e.target.value) }))}
+          autoComplete="off"
+        />
+        <Input
+          label="Max TTL (seconds)"
+          type="number"
+          min={1}
+          value={String(form.max_ttl_seconds)}
+          onChange={(e) => setForm((f) => ({ ...f, max_ttl_seconds: Number(e.target.value) }))}
+          autoComplete="off"
+        />
+
+        <Input
+          label="Admin DSN"
+          type="password"
+          autoComplete="off"
+          value={form.admin_dsn}
+          onChange={(e) => setForm((f) => ({ ...f, admin_dsn: e.target.value }))}
+          placeholder="postgres://admin@host/db"
+        />
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-ink-mute">Placeholders:</span>
+            <Pill tone="muted" className="font-mono">{'{{name}}'}</Pill>
+            <Pill tone="muted" className="font-mono">{'{{password}}'}</Pill>
+            <Pill tone="muted" className="font-mono">{'{{expiration}}'}</Pill>
+          </div>
+          <Textarea
+            label="Creation statements"
+            value={form.creation_statements}
+            onChange={(e) => setForm((f) => ({ ...f, creation_statements: e.target.value }))}
+            placeholder={'CREATE ROLE "{{name}}" LOGIN PASSWORD \'{{password}}\' VALID UNTIL \'{{expiration}}\';'}
+            rows={4}
+            autoComplete="off"
+            spellCheck={false}
+            className="font-mono"
+          />
+        </div>
+
+        <Textarea
+          label="Revocation statements (optional)"
+          value={form.revocation_statements}
+          onChange={(e) => setForm((f) => ({ ...f, revocation_statements: e.target.value }))}
+          placeholder={'DROP ROLE "{{name}}";'}
+          rows={2}
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono"
+        />
+        <Textarea
+          label="Renew statements (optional)"
+          value={form.renew_statements}
+          onChange={(e) => setForm((f) => ({ ...f, renew_statements: e.target.value }))}
+          placeholder={'ALTER ROLE "{{name}}" VALID UNTIL \'{{expiration}}\';'}
+          rows={2}
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono"
+        />
+
+        {create.isError && (
+          <p className="text-[11.5px] text-danger">{errorMessage(create.error)}</p>
+        )}
+
+        <div className="mt-1 flex justify-end gap-2">
+          <Button variant="secondary" onClick={cancel}>Cancel</Button>
+          <Button variant="primary" loading={create.isPending} disabled={!canCreate} onClick={submit}>Create</Button>
+        </div>
+      </div>
+    </Sheet>
   )
 }
 
