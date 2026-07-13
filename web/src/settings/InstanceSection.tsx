@@ -29,9 +29,10 @@ export function InstanceSection() {
     setSealing(true)
     try {
       await endpoints.seal()
-      toast({ title: 'Instance sealed', tone: 'success' })
-      // The Gate (App.tsx) only flips to UnsealPage on the next 503; a full
-      // reload gives an immediate, unambiguous transition after a manual seal.
+      // No success toast: the reload-to-UnsealPage below is the feedback and
+      // would unmount before any toast could render. The Gate (App.tsx) only
+      // flips to UnsealPage on the next 503; a full reload gives an immediate,
+      // unambiguous transition after a manual seal.
       window.location.reload()
     } catch (e) {
       toast({ title: errorMessage(e), tone: 'danger' })

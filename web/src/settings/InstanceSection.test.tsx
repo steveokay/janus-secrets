@@ -48,6 +48,36 @@ test('sealing requires typing SEAL and calls the endpoint', async () => {
   vi.unstubAllGlobals()
 })
 
+test('renders the Sealed pill when the instance is sealed', async () => {
+  server.use(
+    http.get('/v1/sys/seal-status', () =>
+      HttpResponse.json({
+        initialized: true, sealed: true, type: 'shamir',
+        threshold: 3, shares: 5, progress: { submitted: 0, required: 3 },
+      })),
+  )
+  mount()
+  expect(await screen.findByText(/^sealed$/i)).toBeInTheDocument()
+})
+
+test('a failed seal surfaces a danger toast and does not reload', async () => {
+  const reload = vi.fn()
+  vi.stubGlobal('location', { ...window.location, reload })
+  server.use(
+    http.get('/v1/sys/seal-status', () =>
+      HttpResponse.json({ initialized: true, sealed: false, type: 'shamir', threshold: 1, shares: 1 })),
+    http.post('/v1/sys/seal', () =>
+      HttpResponse.json({ error: { code: 'forbidden', message: 'You do not have permission to seal.' } }, { status: 403 })),
+  )
+  mount()
+  await userEvent.click(await screen.findByRole('button', { name: /seal instance/i }))
+  await userEvent.type(screen.getByLabelText(/type SEAL/i), 'SEAL')
+  await userEvent.click(screen.getByRole('button', { name: /^seal$/i }))
+  expect(await screen.findByText(/permission to seal/i)).toBeInTheDocument()
+  expect(reload).not.toHaveBeenCalled()
+  vi.unstubAllGlobals()
+})
+
 test('backup download surfaces an error toast on 403', async () => {
   server.use(
     http.get('/v1/sys/seal-status', () =>

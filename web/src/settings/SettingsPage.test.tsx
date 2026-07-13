@@ -1,6 +1,17 @@
+import { http, HttpResponse } from 'msw'
+import { beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { SettingsPage } from './SettingsPage'
+
+// The default (Instance) section fires GET /v1/sys/seal-status on mount; without
+// a handler that's an unhandled request under onUnhandledRequest:'error'. awskms
+// avoids rendering any Shamir threshold/shares in the shell test.
+beforeEach(() => server.use(
+  http.get('/v1/sys/seal-status', () =>
+    HttpResponse.json({ initialized: true, sealed: false, type: 'awskms' })),
+))
 
 test('renders subnav and defaults to the Instance section', async () => {
   renderApp(<SettingsPage />, { route: '/settings', withAuth: false })
