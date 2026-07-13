@@ -86,6 +86,15 @@ export interface RotationCreateInput {
   }
 }
 
+export interface SyncCreateInput {
+  config_id: string
+  provider: 'github' | 'k8s'
+  prune?: boolean
+  interval_seconds: number
+  addr: { owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string }
+  creds: { pat?: string; api_url?: string; ca_cert?: string; token?: string }
+}
+
 export const opsEndpoints = {
   rotation: {
     list: (pid: string) =>
@@ -99,6 +108,7 @@ export const opsEndpoints = {
   sync: {
     list: (pid: string) =>
       api.get<{ targets: SyncView[] }>(`/v1/sync/targets?project_id=${encodeURIComponent(pid)}`).then((r) => r.targets ?? []),
+    create: (body: SyncCreateInput) => api.post<SyncView>('/v1/sync/targets', body),
     syncNow: (id: string) => api.post<{ synced: boolean }>(`/v1/sync/targets/${id}/sync`),
     setStatus: (id: string, status: 'active' | 'paused') => api.patch<SyncView>(`/v1/sync/targets/${id}`, { status }),
     setInterval: (id: string, interval_seconds: number) => api.patch<SyncView>(`/v1/sync/targets/${id}`, { interval_seconds }),
