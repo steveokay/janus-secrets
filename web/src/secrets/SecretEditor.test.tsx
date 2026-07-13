@@ -228,6 +228,39 @@ test('reveal-all fetches once (bulk raw); a pending edit survives the auto-re-ma
   await waitFor(() => expect(screen.getByRole('button', { name: /save as v4/i })).toBeInTheDocument())
 })
 
+test('a failed clipboard write surfaces a danger toast', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  const orig = navigator.clipboard
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: () => Promise.reject(new Error('denied')) },
+    configurable: true,
+  })
+  try {
+    renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+    await screen.findByText('DB_URL')
+    await userEvent.click(screen.getByRole('button', { name: /copy db_url/i }))
+    expect(await screen.findByText('Copy failed')).toBeInTheDocument()
+  } finally {
+    Object.defineProperty(navigator, 'clipboard', { value: orig, configurable: true })
+  }
+})
+
+test('the empty state offers an Add secret CTA that focuses the new-key input', async () => {
+  server.use(
+    http.get('/v1/configs/cEmpty/secrets', ({ request }) => {
+      if (new URL(request.url).searchParams.get('reveal') === 'true')
+        return HttpResponse.json({ version: 0, secrets: {} })
+      return HttpResponse.json({ secrets: {} })
+    }),
+    http.get('/v1/configs/cEmpty/versions', () => HttpResponse.json({ versions: [] })),
+  )
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/cEmpty', withAuth: false })
+  await screen.findByText('No secrets yet')
+  await userEvent.click(screen.getByRole('button', { name: /add secret/i }))
+  expect(document.activeElement).toBe(screen.getByLabelText('new key'))
+})
+
 test('History button opens the version sheet', async () => {
   seed()
   server.use(

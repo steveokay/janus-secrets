@@ -135,7 +135,7 @@ export function SecretEditor() {
       await navigator.clipboard?.writeText(value)
       toast({ title: `Copied ${key}` })
     } catch {
-      /* clipboard unavailable / denied — no-op */
+      toast({ title: 'Copy failed', tone: 'danger' })
     }
   }
   // Editing a masked existing key needs its raw original (for prefill + diff)
@@ -209,6 +209,19 @@ export function SecretEditor() {
           className="mt-10"
           title="No secrets yet"
           hint="Add your first key below — it's encrypted before it ever touches the database."
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const el = document.getElementById('add-key-input')
+                el?.scrollIntoView?.({ block: 'center' })
+                el?.focus()
+              }}
+            >
+              Add secret
+            </Button>
+          }
         />
       ) : (
         <SecretTable
@@ -261,7 +274,7 @@ function AddKeyRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
   const [value, setValue] = useState('')
   return (
     <div className="mt-3 flex gap-2">
-      <input aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
+      <input id="add-key-input" aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
       <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
       <Button
         variant="secondary"
