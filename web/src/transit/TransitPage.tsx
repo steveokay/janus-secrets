@@ -1,10 +1,12 @@
-import { FormEvent, ReactNode, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Shield, Lock, Unlock, Plus } from 'lucide-react'
 import { endpoints, TransitKey, TransitKeyType } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
 import { useToast } from '../ui/Toast'
 import { Pill } from '../ui/Pill'
+import { Button } from '../ui/Button'
+import { Modal } from '../ui/Modal'
 import { KeyActions } from './KeyActions'
 import { Playground } from './Playground'
 import { EmptyState } from '../ui/EmptyState'
@@ -13,20 +15,9 @@ import { cn } from '../ui/cn'
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,64}$/
 
-// Centered create-key modal. Mirrors the CreateForms.tsx Dialog + useSubmit
-// pattern (local, presentational shell) but surfaces failures via
-// apiErrorTitle so the server's curated 409 conflict message reaches the user.
-function Dialog({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30">
-      <div className="w-80 rounded-card border border-line bg-card p-5 shadow-pop">
-        <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-ink">{title}</h2>
-        {children}
-      </div>
-    </div>
-  )
-}
-
+// Create-key modal. Uses the shared kit Modal primitive (focus-trap, Esc,
+// aria-modal, restore-focus) and surfaces failures via apiErrorTitle so the
+// server's curated 409 conflict message reaches the user.
 function CreateKeyForm({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
@@ -54,7 +45,8 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Dialog title="Create transit key">
+    <Modal open onClose={onClose} label="Create transit key" className="w-80">
+      <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-ink">Create transit key</h2>
       <form onSubmit={submit} className="flex flex-col gap-2.5">
         <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
           Name
@@ -63,16 +55,16 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. app"
-            className="rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink placeholder:text-faint"
+            className="rounded border border-line bg-surface-3 px-3 py-2 font-mono text-[12.5px] font-normal text-ink placeholder:text-ink-faint focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           />
-          <span className="text-[11px] font-normal text-faint">Letters, digits, dash and underscore; up to 64 characters.</span>
+          <span className="text-[11px] font-normal text-ink-faint">Letters, digits, dash and underscore; up to 64 characters.</span>
           {name !== '' && !valid && (
             <span className="text-[11px] font-normal text-danger">Invalid key name.</span>
           )}
         </label>
         <fieldset className="flex flex-col gap-1.5">
           <legend className="text-[12px] font-semibold text-ink">Type</legend>
-          <label className="flex items-center gap-2 text-[12.5px] font-normal text-muted">
+          <label className="flex items-center gap-2 text-[12.5px] font-normal text-ink-mute">
             <input
               type="radio"
               name="key-type"
@@ -82,9 +74,9 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
               className="accent-brand"
             />
             <span className="font-mono">aes256-gcm</span>
-            <span className="text-faint">encrypt / decrypt</span>
+            <span className="text-ink-faint">encrypt / decrypt</span>
           </label>
-          <label className="flex items-center gap-2 text-[12.5px] font-normal text-muted">
+          <label className="flex items-center gap-2 text-[12.5px] font-normal text-ink-mute">
             <input
               type="radio"
               name="key-type"
@@ -94,28 +86,20 @@ function CreateKeyForm({ onClose }: { onClose: () => void }) {
               className="accent-brand"
             />
             <span className="font-mono">ed25519</span>
-            <span className="text-faint">sign / verify</span>
+            <span className="text-ink-faint">sign / verify</span>
           </label>
         </fieldset>
         {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
         <div className="mt-1 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!valid || m.isPending}
-            className="rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={!valid || m.isPending}>
             Create key
-          </button>
+          </Button>
         </div>
       </form>
-    </Dialog>
+    </Modal>
   )
 }
 
@@ -135,7 +119,7 @@ function KeyRow({ k, selected, onSelect }: {
       data-key-name={k.name}
       aria-current={selected ? 'true' : undefined}
       className={cn(
-        'flex items-center gap-3 border-t border-line-soft px-3 py-2 first:border-t-0 hover:bg-line-soft',
+        'flex items-center gap-3 border-t border-line-soft px-3 py-2 first:border-t-0 transition-nocturne hover:bg-row-hover',
         selected && 'bg-brand-soft hover:bg-brand-soft',
       )}
     >
@@ -148,12 +132,12 @@ function KeyRow({ k, selected, onSelect }: {
         <Pill tone={typeTone[k.type]}>{k.type}</Pill>
         <Pill tone="muted">v{k.latest_version}</Pill>
         {k.min_decryption_version > 1 && (
-          <span className="text-[11.5px] text-faint">min v{k.min_decryption_version}</span>
+          <span className="text-[11.5px] text-ink-faint">min v{k.min_decryption_version}</span>
         )}
         {k.deletion_allowed ? (
-          <Unlock size={14} strokeWidth={1.7} className="text-faint" aria-label="deletion allowed" />
+          <Unlock size={14} strokeWidth={1.7} className="text-ink-faint" aria-label="deletion allowed" />
         ) : (
-          <Lock size={14} strokeWidth={1.7} className="text-faint" aria-label="deletion protected" />
+          <Lock size={14} strokeWidth={1.7} className="text-ink-faint" aria-label="deletion protected" />
         )}
       </button>
       <KeyActions keyMeta={k} />
@@ -170,13 +154,9 @@ export function TransitPage() {
   const rows = keys.data ?? []
 
   const newKeyButton = (
-    <button
-      type="button"
-      onClick={() => setCreating(true)}
-      className="flex items-center gap-1.5 rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white shadow-card"
-    >
+    <Button type="button" size="sm" onClick={() => setCreating(true)}>
       <Plus size={14} strokeWidth={1.7} /> New key
-    </button>
+    </Button>
   )
 
   return (
@@ -184,7 +164,7 @@ export function TransitPage() {
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-[17px] font-semibold tracking-tight text-ink">Transit</h2>
-          <p className="text-[12.5px] text-faint">Named encryption &amp; signing keys for encrypt-as-a-service.</p>
+          <p className="text-[12.5px] text-ink-faint">Named encryption &amp; signing keys for encrypt-as-a-service.</p>
         </div>
         {rows.length > 0 && newKeyButton}
       </div>
@@ -203,7 +183,7 @@ export function TransitPage() {
           action={newKeyButton}
         />
       ) : (
-        <div className="overflow-hidden rounded-card border border-line bg-card shadow-card">
+        <div className="overflow-hidden rounded-card border border-line bg-surface-2 shadow-elev-1">
           {rows.map((k) => (
             <KeyRow
               key={k.name}

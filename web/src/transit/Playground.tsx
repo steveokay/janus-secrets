@@ -4,6 +4,8 @@ import { Copy } from 'lucide-react'
 import { endpoints, TransitKey } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
 import { Pill } from '../ui/Pill'
+import { Button } from '../ui/Button'
+import { FIELD } from '../ui/Input'
 import { useToast } from '../ui/Toast'
 
 // UTF-8 text → base64. Encrypt/sign inputs are typed text the UI encodes before
@@ -20,9 +22,9 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-const inputCls =
-  'rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink placeholder:text-faint'
-const btnCls = 'self-start rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-50'
+// Reuse the kit field token class (bg-surface-3, focus glow, transition) but
+// keep monospace — these controls hold ciphertext / base64 / signatures.
+const inputCls = `${FIELD} font-mono`
 
 // Output envelope (ciphertext / signature). NOT secret — no plaintext or key
 // material ever reaches here. Selectable mono block + guarded clipboard copy.
@@ -42,11 +44,11 @@ function OutBlock({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[.08em] text-faint">{label}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[.08em] text-ink-faint">{label}</span>
         <button
           type="button"
           onClick={copy}
-          className="flex items-center gap-1 text-[11.5px] font-semibold text-muted hover:text-ink"
+          className="flex items-center gap-1 text-[11.5px] font-semibold text-ink-mute transition-nocturne hover:text-ink"
         >
           <Copy size={13} strokeWidth={1.7} /> Copy
         </button>
@@ -60,10 +62,10 @@ function OutBlock({ label, value }: { label: string; value: string }) {
 
 function OpCard({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-2.5 rounded-card border border-line bg-card p-4 shadow-card">
+    <section className="flex flex-col gap-2.5 rounded-card border border-line bg-card p-4 shadow-elev-1">
       <div>
         <h4 className="text-[13.5px] font-semibold text-ink">{title}</h4>
-        <p className="text-[11.5px] text-faint">{hint}</p>
+        <p className="text-[11.5px] text-ink-faint">{hint}</p>
       </div>
       {children}
     </section>
@@ -112,7 +114,7 @@ function EncryptCard({ name }: { name: string }) {
             className={inputCls}
           />
         </Field>
-        <button type="submit" disabled={m.isPending} className={btnCls}>Encrypt</button>
+        <Button type="submit" size="sm" className="self-start" disabled={m.isPending}>Encrypt</Button>
         {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
         {out && <OutBlock label="Ciphertext" value={out} />}
       </form>
@@ -159,7 +161,7 @@ function RewrapCard({ name }: { name: string }) {
             className={inputCls}
           />
         </Field>
-        <button type="submit" disabled={m.isPending} className={btnCls}>Rewrap</button>
+        <Button type="submit" size="sm" className="self-start" disabled={m.isPending}>Rewrap</Button>
         {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
         {out && <OutBlock label="New ciphertext" value={out} />}
       </form>
@@ -198,7 +200,7 @@ function SignCard({ name }: { name: string }) {
             className={inputCls}
           />
         </Field>
-        <button type="submit" disabled={m.isPending} className={btnCls}>Sign</button>
+        <Button type="submit" size="sm" className="self-start" disabled={m.isPending}>Sign</Button>
         {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
         {out && <OutBlock label="Signature" value={out} />}
       </form>
@@ -247,7 +249,7 @@ function VerifyCard({ name }: { name: string }) {
             className={inputCls}
           />
         </Field>
-        <button type="submit" disabled={m.isPending} className={btnCls}>Verify</button>
+        <Button type="submit" size="sm" className="self-start" disabled={m.isPending}>Verify</Button>
         {error && <p role="alert" className="text-[12.5px] text-danger">{error}</p>}
         {valid !== null && (
           valid
@@ -270,7 +272,7 @@ export function Playground({ keyMeta }: { keyMeta: TransitKey }) {
       <div className="mb-3 flex items-center gap-2">
         <h3 className="font-mono text-[14px] font-semibold text-ink">{keyMeta.name}</h3>
         <Pill tone={keyMeta.type === 'aes256-gcm' ? 'info' : 'brand'}>{keyMeta.type}</Pill>
-        <span className="text-[11.5px] text-faint">Crypto playground · no plaintext leaves the server</span>
+        <span className="text-[11.5px] text-ink-faint">Crypto playground · no plaintext leaves the server</span>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {keyMeta.type === 'aes256-gcm' ? (

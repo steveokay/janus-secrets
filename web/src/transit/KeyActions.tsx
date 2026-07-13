@@ -1,27 +1,16 @@
-import { FormEvent, ReactNode, useState } from 'react'
+import { FormEvent, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import * as Menu from '@radix-ui/react-dropdown-menu'
 import { MoreHorizontal } from 'lucide-react'
 import { endpoints, TransitKey } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { Button } from '../ui/Button'
+import { Modal } from '../ui/Modal'
 import { useToast } from '../ui/Toast'
 
 const item =
   'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-text'
-
-// Local centered modal shell — mirrors the TransitPage create-key Dialog so the
-// management dialogs share the same overlay/card chrome (token classes only).
-function Dialog({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30">
-      <div className="w-80 rounded-card border border-line bg-card p-5 shadow-pop">
-        <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-ink">{title}</h2>
-        {children}
-      </div>
-    </div>
-  )
-}
 
 function ConfigureDialog({ keyMeta, onClose, onError }: {
   keyMeta: TransitKey
@@ -52,7 +41,8 @@ function ConfigureDialog({ keyMeta, onClose, onError }: {
   }
 
   return (
-    <Dialog title={`Configure ${keyMeta.name}`}>
+    <Modal open onClose={onClose} label={`Configure ${keyMeta.name}`} className="w-80">
+      <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-ink">Configure {keyMeta.name}</h2>
       <form onSubmit={submit} className="flex flex-col gap-2.5">
         <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
           Min decryption version
@@ -63,13 +53,13 @@ function ConfigureDialog({ keyMeta, onClose, onError }: {
             max={keyMeta.latest_version}
             value={minVer}
             onChange={(e) => setMinVer(e.target.value)}
-            className="rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-3 py-2 font-mono text-[12.5px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           />
-          <span className="text-[11px] font-normal text-faint">
+          <span className="text-[11px] font-normal text-ink-faint">
             Between 1 and {keyMeta.latest_version} (the latest version).
           </span>
         </label>
-        <label className="flex items-center gap-2 text-[12.5px] font-normal text-muted">
+        <label className="flex items-center gap-2 text-[12.5px] font-normal text-ink-mute">
           <input
             type="checkbox"
             checked={deletionAllowed}
@@ -79,23 +69,15 @@ function ConfigureDialog({ keyMeta, onClose, onError }: {
           Allow deletion
         </label>
         <div className="mt-1 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={m.isPending}
-            className="rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={m.isPending}>
             Save
-          </button>
+          </Button>
         </div>
       </form>
-    </Dialog>
+    </Modal>
   )
 }
 
@@ -124,7 +106,8 @@ function TrimDialog({ keyMeta, onClose, onError }: {
   }
 
   return (
-    <Dialog title={`Trim ${keyMeta.name}`}>
+    <Modal open onClose={onClose} label={`Trim ${keyMeta.name}`} className="w-80">
+      <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-ink">Trim {keyMeta.name}</h2>
       <form onSubmit={submit} className="flex flex-col gap-2.5">
         <label className="flex flex-col gap-1 text-[12px] font-semibold text-ink">
           Min available version
@@ -135,30 +118,22 @@ function TrimDialog({ keyMeta, onClose, onError }: {
             max={keyMeta.min_decryption_version}
             value={minAvail}
             onChange={(e) => setMinAvail(e.target.value)}
-            className="rounded border border-line bg-card px-3 py-2 font-mono text-[12.5px] font-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-3 py-2 font-mono text-[12.5px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
           />
-          <span className="text-[11px] font-normal text-faint">
+          <span className="text-[11px] font-normal text-ink-faint">
             Older versions are permanently removed; must be &le; min decryption version (v{keyMeta.min_decryption_version}).
           </span>
         </label>
         <div className="mt-1 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold text-ink"
-          >
+          <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={m.isPending}
-            className="rounded bg-brand px-4 py-1.5 text-[13px] font-semibold text-white shadow-card disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={m.isPending}>
             Apply
-          </button>
+          </Button>
         </div>
       </form>
-    </Dialog>
+    </Modal>
   )
 }
 
@@ -200,7 +175,7 @@ export function KeyActions({ keyMeta }: { keyMeta: TransitKey }) {
       <Menu.Root>
         <Menu.Trigger
           aria-label={`actions for ${keyMeta.name}`}
-          className="flex h-7 w-7 items-center justify-center rounded border border-line bg-card text-muted outline-none hover:bg-line-soft data-[state=open]:bg-line-soft"
+          className="flex h-7 w-7 items-center justify-center rounded border border-line bg-surface-3 text-ink-mute outline-none transition-nocturne hover:bg-row-hover data-[state=open]:bg-row-hover"
         >
           <MoreHorizontal size={16} strokeWidth={1.7} />
         </Menu.Trigger>
