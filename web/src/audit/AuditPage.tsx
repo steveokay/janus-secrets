@@ -3,6 +3,7 @@ import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { endpoints, AuditEvent, AuditEventFilters } from '../lib/endpoints'
 import { ApiError } from '../lib/api'
 import { Pill } from '../ui/Pill'
+import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
@@ -52,7 +53,7 @@ export function AuditPage() {
   } else if (verify.isError) {
     badge = <Pill tone="danger">Verify failed</Pill>
   } else if (verify.data?.valid) {
-    badge = <Pill tone="success" dot>Chain verified · {verify.data.count} events</Pill>
+    badge = <Pill tone="success" dot className="shadow-glow">Chain verified · {verify.data.count} events</Pill>
   } else {
     badge = <Pill tone="danger" dot>Chain broken at #{verify.data?.broken_at_seq}</Pill>
   }
@@ -67,37 +68,37 @@ export function AuditPage() {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[15px] font-semibold text-ink">Audit log</h3>
-          <p className="text-[12.5px] text-faint">All events across this instance</p>
+          <p className="text-[12.5px] text-ink-faint">All events across this instance</p>
         </div>
         <div className="flex items-center gap-2">{badge}</div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-end gap-2 rounded-card border border-line bg-card p-3">
-        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-faint">
+        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-ink-faint">
           Actor
           <input
             aria-label="actor filter"
             value={draft.actor}
             onChange={(e) => setDraft((d) => ({ ...d, actor: e.target.value }))}
-            className="rounded border border-line px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink focus:border-brand-line"
           />
         </label>
-        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-faint">
+        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-ink-faint">
           Action
           <input
             aria-label="action filter"
             value={draft.action}
             onChange={(e) => setDraft((d) => ({ ...d, action: e.target.value }))}
-            className="rounded border border-line px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink focus:border-brand-line"
           />
         </label>
-        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-faint">
+        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-ink-faint">
           Result
           <select
             aria-label="result filter"
             value={draft.result}
             onChange={(e) => setDraft((d) => ({ ...d, result: e.target.value }))}
-            className="rounded border border-line px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink focus:border-brand-line"
           >
             <option value="">All</option>
             <option value="success">success</option>
@@ -105,40 +106,32 @@ export function AuditPage() {
             <option value="error">error</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-faint">
+        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-ink-faint">
           From
           <input
             aria-label="from filter"
             type="datetime-local"
             value={draft.from}
             onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
-            className="rounded border border-line px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink focus:border-brand-line"
           />
         </label>
-        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-faint">
+        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-ink-faint">
           To
           <input
             aria-label="to filter"
             type="datetime-local"
             value={draft.to}
             onChange={(e) => setDraft((d) => ({ ...d, to: e.target.value }))}
-            className="rounded border border-line px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink"
+            className="rounded border border-line bg-surface-3 px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink focus:border-brand-line"
           />
         </label>
-        <button
-          type="button"
-          onClick={applyFilters}
-          className="rounded bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-card"
-        >
+        <Button type="button" size="sm" onClick={applyFilters}>
           Apply
-        </button>
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="text-[12.5px] font-semibold text-faint hover:text-ink"
-        >
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
           Reset
-        </button>
+        </Button>
         {!forbidden && (
           <div className="ml-auto flex flex-col items-end gap-1">
             <div className="flex gap-2">
@@ -157,7 +150,7 @@ export function AuditPage() {
                 Export CSV
               </a>
             </div>
-            <p className="text-[11px] text-faint">Exports are audited.</p>
+            <p className="text-[11px] text-ink-faint">Exports are audited.</p>
           </div>
         )}
       </div>
@@ -177,9 +170,9 @@ export function AuditPage() {
         <EmptyState title="No events match these filters." />
       ) : (
         <>
-          <table className="w-full overflow-hidden rounded-card border border-line bg-card text-sm shadow-card">
+          <table className="w-full overflow-hidden rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
             <thead>
-              <tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-faint">
+              <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
                 <th className="py-1.5">Time</th>
                 <th className="py-1.5">Actor</th>
                 <th className="py-1.5">Action</th>
@@ -190,11 +183,11 @@ export function AuditPage() {
             </thead>
             <tbody>
               {rows.map((e) => (
-                <tr key={e.seq} className="border-t border-line-soft">
+                <tr key={e.seq} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
                   <td className="py-1"><span title={e.occurred_at}>{relativeTime(e.occurred_at)}</span></td>
                   <td className="py-1">
                     <div>{e.actor_name}</div>
-                    <div className="text-[10.5px] text-faint">{e.actor_kind}</div>
+                    <div className="text-[10.5px] text-ink-faint">{e.actor_kind}</div>
                   </td>
                   <td className="py-1 font-mono text-[12px]">{e.action}</td>
                   <td className="max-w-[220px] truncate py-1 font-mono text-[12px]" title={e.resource}>
@@ -202,7 +195,7 @@ export function AuditPage() {
                   </td>
                   <td className="py-1"><Pill tone={resultTone[e.result]}>{e.result}</Pill></td>
                   <td
-                    className="max-w-[240px] truncate py-1 text-[12px] text-faint"
+                    className="max-w-[240px] truncate py-1 text-[12px] text-ink-faint"
                     title={e.detail ?? undefined}
                   >
                     {e.detail}
@@ -212,14 +205,16 @@ export function AuditPage() {
             </tbody>
           </table>
           {events.hasNextPage && (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
+              className="mt-3"
               onClick={() => void events.fetchNextPage()}
               disabled={events.isFetchingNextPage}
-              className="mt-3 rounded border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold disabled:opacity-40"
             >
               {events.isFetchingNextPage ? 'Loading…' : 'Load more'}
-            </button>
+            </Button>
           )}
         </>
       )}
