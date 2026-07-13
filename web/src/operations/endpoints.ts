@@ -72,10 +72,25 @@ export interface IssuedCreds {
   expires_at: string
 }
 
+// --- Create request shapes (write-only; secrets nested + omitempty) ---
+
+export interface RotationCreateInput {
+  config_id: string
+  secret_key: string
+  type: 'postgres' | 'webhook'
+  interval_seconds: number
+  config: {
+    admin_dsn?: string; role?: string; password_len?: number
+    url?: string; hmac_key?: string
+    notify_url?: string; notify_hmac_key?: string
+  }
+}
+
 export const opsEndpoints = {
   rotation: {
     list: (pid: string) =>
       api.get<{ policies: RotationView[] }>(`/v1/rotation/policies?project_id=${encodeURIComponent(pid)}`).then((r) => r.policies ?? []),
+    create: (body: RotationCreateInput) => api.post<RotationView>('/v1/rotation/policies', body),
     rotateNow: (id: string) => api.post<{ rotated: boolean; config_version: number }>(`/v1/rotation/policies/${id}/rotate`),
     setStatus: (id: string, status: 'active' | 'paused') => api.patch<RotationView>(`/v1/rotation/policies/${id}`, { status }),
     setInterval: (id: string, interval_seconds: number) => api.patch<RotationView>(`/v1/rotation/policies/${id}`, { interval_seconds }),
