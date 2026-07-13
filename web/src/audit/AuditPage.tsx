@@ -170,7 +170,7 @@ export function AuditPage() {
         <EmptyState title="No events match these filters." />
       ) : (
         <>
-          <table className="w-full overflow-hidden rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
+          <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
             <thead>
               <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
                 <th className="py-1.5">Time</th>
