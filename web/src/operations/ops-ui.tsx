@@ -50,7 +50,7 @@ export function LastError({ text }: { text?: string | null }) {
         aria-label="last error"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 rounded text-[11px] font-medium text-danger hover:text-danger transition-nocturne focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-2"
+        className="inline-flex items-center gap-1 rounded text-[11px] font-medium text-danger hover:opacity-80 transition-nocturne focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand focus-visible:outline-offset-2"
       >
         <AlertTriangle size={13} />
         Error
