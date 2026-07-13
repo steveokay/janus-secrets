@@ -10,7 +10,6 @@ import { UnsealPage } from './unseal/UnsealPage'
 import { AppLayout } from './shell/AppLayout'
 import { Sidebar } from './shell/Sidebar'
 import { SecretEditor } from './secrets/SecretEditor'
-import { Placeholder } from './shell/Placeholder'
 import { HomePage } from './home/HomePage'
 import { ProjectsList } from './home/ProjectsList'
 import { ProjectBoard } from './home/ProjectBoard'
@@ -19,6 +18,7 @@ import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
 import { TransitPage } from './transit/TransitPage'
 import { OperationsPage } from './operations/OperationsPage'
+import { SettingsPage } from './settings/SettingsPage'
 import { PaletteProvider } from './palette/PaletteProvider'
 
 function Gate() {
@@ -60,7 +60,7 @@ function Gate() {
           <Route path="/members" element={<MembersPage />} />
           <Route path="/transit" element={<TransitPage />} />
           <Route path="/operations" element={<OperationsPage />} />
-          <Route path="/settings" element={<Placeholder feature="Settings" />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppLayout>

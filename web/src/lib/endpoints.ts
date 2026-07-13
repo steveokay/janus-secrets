@@ -104,6 +104,34 @@ export interface TransitKey {
 }
 export interface TransitKeyConfig { min_decryption_version?: number; deletion_allowed?: boolean }
 
+// OIDC provider (N5 T3) — instance-scoped admin config (needs OIDCManage).
+// The client secret is WRITE-ONLY: the read view carries only `secret_set`,
+// never the secret itself. PUT is a full replace and REQUIRES `client_secret`
+// (empty → 400 validation), so it must be re-entered on every save.
+export interface OIDCProviderView {
+  name: string; issuer: string; client_id: string; scopes: string[]
+  redirect_url: string; enabled: boolean; secret_set: boolean
+}
+export interface OIDCConfigInput {
+  name: string; issuer: string; client_id: string; client_secret: string
+  scopes: string[]; redirect_url: string; enabled: boolean
+}
+
+// CI federation (N5 T4) — instance-scoped admin config (needs OIDCManage).
+// Federation config + trust bindings carry NO secret values; match_claims
+// values are identity claims (repo names etc.), treated as metadata only.
+export interface FederationConfigView { issuer: string; audience: string; enabled: boolean }
+export interface FederationBindingView {
+  id: string; name: string; match_claims: Record<string, string>
+  scope_kind: 'config' | 'environment'; scope_id: string
+  access: 'read' | 'readwrite'; ttl_seconds: number; enabled: boolean
+}
+export type FederationBindingInput = Omit<FederationBindingView, 'id'>
+
+// OIDC login status (N5 T5) — unauthenticated, rate-limited probe that gates the
+// "Sign in with SSO" button on the login page. Names-only; carries no secret.
+export interface OIDCLoginStatus { enabled: boolean; name?: string }
+
 function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; format?: string }): string {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(f)) {
@@ -115,6 +143,7 @@ function auditParams(f: AuditEventFilters & { cursor?: number; limit?: number; f
 export const endpoints = {
   // sys / auth
   sealStatus: () => api.get<SealStatus>('/v1/sys/seal-status'),
+  seal: () => api.post<{ sealed: boolean }>('/v1/sys/seal'),
   unsealShare: (share: string) => api.post<SealStatus>('/v1/sys/unseal', { share }),
   unsealKms: () => api.post<SealStatus>('/v1/sys/unseal', {}),
   unsealReset: () => api.post<SealStatus>('/v1/sys/unseal/reset'),
@@ -122,6 +151,9 @@ export const endpoints = {
   login: (email: string, password: string) =>
     api.post<{ user: { id: string; email: string } }>('/v1/auth/login', { email, password }),
   logout: () => api.post<void>('/v1/auth/logout'),
+  // Unauthenticated: reports whether an OIDC provider is enabled (+ its name),
+  // gating the login page's "Sign in with SSO" button. No secret in any shape.
+  oidcLoginStatus: () => api.get<OIDCLoginStatus>('/v1/auth/oidc/status'),
   changePassword: (current_password: string, new_password: string) =>
     api.post<void>('/v1/auth/password', { current_password, new_password }),
 
@@ -206,4 +238,20 @@ export const endpoints = {
     api.post<{ signature: string }>(`/v1/transit/sign/${encodeURIComponent(name)}`, { input }),
   transitVerify: (name: string, input: string, signature: string) =>
     api.post<{ valid: boolean }>(`/v1/transit/verify/${encodeURIComponent(name)}`, { input, signature }),
+
+  // OIDC provider (N5 T3). getOIDCConfig NEVER returns the client secret
+  // (only `secret_set`); setOIDCConfig is a full replace that requires it.
+  getOIDCConfig: () => api.get<OIDCProviderView>('/v1/sys/oidc'),
+  setOIDCConfig: (cfg: OIDCConfigInput) => api.put<{ ok: boolean }>('/v1/sys/oidc', cfg),
+  deleteOIDCConfig: () => api.del<void>('/v1/sys/oidc'),
+
+  // CI federation (N5 T4). Config mirrors OIDC (200/404/403); no secret in any
+  // shape. Server validates: match_claims.repository required; access enum;
+  // ttl_seconds default 900 / cap 3600; scope_id must exist.
+  getFederationConfig: () => api.get<FederationConfigView>('/v1/sys/oidc/federation'),
+  setFederationConfig: (cfg: FederationConfigView) => api.put<{ ok: boolean }>('/v1/sys/oidc/federation', cfg),
+  deleteFederationConfig: () => api.del<void>('/v1/sys/oidc/federation'),
+  listFederationBindings: () => api.get<FederationBindingView[]>('/v1/sys/oidc/federation/bindings'),
+  createFederationBinding: (b: FederationBindingInput) => api.post<FederationBindingView>('/v1/sys/oidc/federation/bindings', b),
+  deleteFederationBinding: (id: string) => api.del<void>(`/v1/sys/oidc/federation/bindings/${id}`),
 }

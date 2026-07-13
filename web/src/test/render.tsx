@@ -17,6 +17,7 @@ const ROUTE_PATTERNS = [
   '/projects/:projectId',
   '/projects/:projectId/configs/:configId',
   '/projects/:projectId/audit',
+  '/settings',
 ]
 
 export function renderApp(ui: ReactElement, { route = '/', withAuth = true }: { route?: string; withAuth?: boolean } = {}) {
