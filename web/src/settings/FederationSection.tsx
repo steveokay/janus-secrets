@@ -313,9 +313,9 @@ function TrustBindingsCard() {
                   })}
                 />
                 <input
-                  aria-label={row.key === 'repository' ? 'repository' : `claim value ${i + 1}`}
+                  aria-label={i === 0 ? 'repository' : `claim value ${i + 1}`}
                   className={cn(FIELD, 'flex-1 font-mono')}
-                  placeholder={row.key === 'repository' ? 'org/repo' : 'value'}
+                  placeholder={i === 0 ? 'org/repo' : 'value'}
                   value={row.value}
                   onChange={(e) => setForm((f) => {
                     const claims = [...f.claims]; claims[i] = { ...claims[i], value: e.target.value }; return { ...f, claims }

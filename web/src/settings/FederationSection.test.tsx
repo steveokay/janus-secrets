@@ -115,6 +115,52 @@ test('create-binding Sheet requires repository, then POSTs the expected shape', 
   expect(body.enabled).toBe(true)
 })
 
+test('create-binding serializes multiple claim rows into match_claims', async () => {
+  let body: any
+  server.use(
+    http.get('/v1/sys/oidc/federation', () => HttpResponse.json(CONFIG)),
+    http.get('/v1/sys/oidc/federation/bindings', () => HttpResponse.json([])),
+    http.post('/v1/sys/oidc/federation/bindings', async ({ request }) => {
+      body = await request.json()
+      return HttpResponse.json({ ...BINDING, ...body }, { status: 201 })
+    }),
+  )
+  mount()
+  await userEvent.click(await screen.findByRole('button', { name: /new binding/i }))
+  await userEvent.type(screen.getByLabelText(/^name$/i), 'ci-deploy')
+  await userEvent.type(screen.getByLabelText(/^repository$/i), 'org/repo')
+  await userEvent.type(screen.getByLabelText(/scope id/i), 'cfg-uuid')
+  // add an extra claim row and fill it (positional aria-labels, row index 1)
+  await userEvent.click(screen.getByRole('button', { name: /add claim/i }))
+  await userEvent.type(screen.getByLabelText(/claim key 2/i), 'ref')
+  await userEvent.type(screen.getByLabelText(/claim value 2/i), 'refs/heads/main')
+  await userEvent.click(screen.getByRole('button', { name: /create binding/i }))
+  await waitFor(() => expect(body).toBeTruthy())
+  expect(body.match_claims).toEqual({ repository: 'org/repo', ref: 'refs/heads/main' })
+})
+
+test('provider delete confirms then calls DELETE and refetches', async () => {
+  let deleted = false
+  let getCount = 0
+  server.use(
+    http.get('/v1/sys/oidc/federation', () => {
+      getCount++
+      // after delete, the config is gone → 404 (drives the empty state)
+      if (deleted) return HttpResponse.json({ error: { code: 'not_found', message: 'gone' } }, { status: 404 })
+      return HttpResponse.json(CONFIG)
+    }),
+    http.get('/v1/sys/oidc/federation/bindings', () => HttpResponse.json([])),
+    http.delete('/v1/sys/oidc/federation', () => { deleted = true; return new HttpResponse(null, { status: 204 }) }),
+  )
+  mount()
+  await userEvent.click(await screen.findByRole('button', { name: /delete provider/i }))
+  await userEvent.click(await screen.findByRole('button', { name: /^delete$/i }))
+  await waitFor(() => expect(deleted).toBe(true))
+  // invalidation triggers a refetch → the now-404 config renders the empty state
+  expect(await screen.findByText(/no trust provider configured/i)).toBeInTheDocument()
+  expect(getCount).toBeGreaterThan(1)
+})
+
 test('delete-binding confirms then calls DELETE', async () => {
   let deleted = false
   server.use(
