@@ -168,4 +168,40 @@ func TestPromoteApplyE2E(t *testing.T) {
 		`{"from_config":"`+devCfg.ID+`","to_config":"`+stgCfg.ID+`","source_version":`+strconv.Itoa(cv2.Version)+`,"selections":[{"key":"B","action":"set"}]}`, nil); code != http.StatusConflict {
 		t.Fatalf("locked-key apply: want 409, got %d", code)
 	}
+
+	// --- Create-target with a PROJECT-SCOPED developer -> 200 (Finding 1 regression) ---
+	// A project-scoped developer has config:create + secret:promote + secret:read.
+	// Promotion with create:true resolves the target env through the scope resolver
+	// so the create-target authz sees the ProjectID (not a bare EnvID). Before the
+	// fix this 403'd because bindingApplies requires res.ProjectID for a
+	// PROJECT-scoped binding to match; after the fix it succeeds and the target is
+	// created + secrets promoted.
+	createrID, createrPassword, err := srv.auth.CreateUser(ctx, "promo-creator@corp.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: createrID, ScopeLevel: "project", ProjectID: &p.ID, Role: "developer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	createrCookie := login(t, ts.URL, "promo-creator@corp.io", createrPassword)
+	// Seed a source config in staging to promote forward into a NEW prod config.
+	// staging root already has B (bval) from the earlier owner apply; promote it
+	// forward into a brand-new prod config "default" (does not exist yet).
+	stgRootVer, err := srv.service.LatestVersion(ctx, stgCfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var createResp struct {
+		TargetVersion int      `json:"target_version"`
+		Applied       []string `json:"applied"`
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/promote", createrCookie, "",
+		`{"from_config":"`+stgCfg.ID+`","to_env":"`+prod.ID+`","to_name":"default","create":true,"source_version":`+strconv.Itoa(stgRootVer)+`,"selections":[{"key":"B","action":"set"}]}`, &createResp); code != 200 {
+		t.Fatalf("project-scoped developer create-target apply: want 200, got %d", code)
+	}
+	if len(createResp.Applied) != 1 || createResp.Applied[0] != "B" {
+		t.Fatalf("create-target apply: want applied [B], got %+v", createResp.Applied)
+	}
 }

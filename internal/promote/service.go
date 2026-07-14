@@ -89,6 +89,16 @@ func New(sec *secrets.Service, st *store.Store) *Service {
 	}
 }
 
+// zeroizeSecrets best-effort wipes decrypted plaintext no longer needed. Not a
+// guarantee (GC may have copied), but keeps the reveal-map lifetime short.
+func zeroizeSecrets(m map[string]secrets.Secret) {
+	for _, s := range m {
+		for i := range s.Value {
+			s.Value[i] = 0
+		}
+	}
+}
+
 // projectAndEnv returns (projectID, envID) for a config via config→env→project.
 func (s *Service) projectAndEnv(ctx context.Context, configID string) (string, string, error) {
 	c, err := s.configs.Get(ctx, configID)
@@ -142,6 +152,7 @@ func (s *Service) Preview(ctx context.Context, sourceConfigID, targetConfigID, a
 	if err != nil {
 		return Diff{}, err
 	}
+	defer zeroizeSecrets(srcVals)
 	_, dstVals, err := s.secrets.RevealConfig(ctx, targetConfigID)
 	if err != nil {
 		// An existing target that has no version yet holds no values; treat it as
@@ -151,6 +162,9 @@ func (s *Service) Preview(ctx context.Context, sourceConfigID, targetConfigID, a
 		} else {
 			return Diff{}, err
 		}
+	}
+	if dstVals != nil {
+		defer zeroizeSecrets(dstVals)
 	}
 	lockedKeys, err := s.locked.List(ctx, targetConfigID)
 	if err != nil {
@@ -236,6 +250,7 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, err
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	defer zeroizeSecrets(srcVals)
 
 	changes := make([]secrets.SecretChange, 0, len(req.Selections))
 	applied := make([]Selection, 0, len(req.Selections))

@@ -198,6 +198,10 @@ func (s *Server) handlePromotePreview(w http.ResponseWriter, r *http.Request) {
 		s.writePromoteError(w, err)
 		return
 	}
+	if err := s.record(r, "secret.reveal", "configs/"+from+"/secrets", "success", "", "promote-preview"); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
 	if err := s.record(r, "secret.reveal", "configs/"+to+"/secrets", "success", "", "promote-preview"); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
@@ -243,7 +247,14 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		dstRes = authz.Resource{EnvID: body.ToEnv}
+		if body.ToEnv == "" {
+			writeError(w, http.StatusBadRequest, CodeValidation, "to_env is required when creating the target")
+			return
+		}
+		if dstRes, err = s.resolveScopeResource(r.Context(), "environment", body.ToEnv); err != nil {
+			s.writeServiceError(w, err)
+			return
+		}
 		if err := s.can(r, authz.ConfigCreate, dstRes); err != nil {
 			s.writeAuthzError(w, err)
 			return
