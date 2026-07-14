@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -243,6 +244,13 @@ func (kr *kekResolver) forVersion(ctx context.Context, version int) ([]byte, err
 	} else {
 		b, err := kr.s.kekVers.GetWrapped(ctx, kr.proj.ID, version)
 		if err != nil {
+			// A superseded version that no longer exists means a concurrent KEK
+			// rewrap retired it (all its DEKs were re-wrapped) after we snapshotted
+			// this row — signal a retire race so the caller can re-read and retry
+			// rather than surfacing a spurious failure.
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, errKEKVersionRetired
+			}
 			return nil, mapStoreErr(err)
 		}
 		wrapped = b
@@ -267,10 +275,42 @@ func (kr *kekResolver) zero() {
 }
 
 // decryptValue decrypts one stored SecretValue, resolving the project KEK for
-// the value's own DEKKeyVersion via res (rotation-aware). Only the KEK source
-// differs from the write path; AAD derivation, DEK unwrap, and Decrypt are
-// unchanged.
+// the value's own DEKKeyVersion (rotation-aware). If a concurrent KEK rewrap
+// retired the version this row's snapshot referenced (a narrow TOCTOU between
+// the state snapshot and KEK resolution), it re-reads the row and project once
+// and retries against fresh, consistent state — the row is then at a live
+// version. Bounded to a single retry, so genuinely corrupt data still fails
+// with ErrDecrypt rather than looping.
 func (s *Service) decryptValue(ctx context.Context, proj *store.Project, configID string, sv store.SecretValue, res *kekResolver) ([]byte, error) {
+	pt, err := s.decryptValueOnce(ctx, proj, configID, sv, res)
+	if !errors.Is(err, errKEKVersionRetired) {
+		return pt, err
+	}
+	// Retire race: re-read the row (fresh wrapped_dek/dek_key_version) and the
+	// project (fresh KEK) and retry once under a fresh resolver.
+	fresh, ferr := s.secrets.GetValueByID(ctx, sv.ID)
+	if ferr != nil {
+		return nil, ErrDecrypt
+	}
+	_, freshProj, ferr := s.resolveProject(ctx, configID)
+	if ferr != nil {
+		return nil, ErrDecrypt
+	}
+	res2 := s.newKEKResolver(freshProj)
+	defer res2.zero()
+	pt, err = s.decryptValueOnce(ctx, freshProj, configID, fresh, res2)
+	if errors.Is(err, errKEKVersionRetired) {
+		// Another retire landed in the microscopic re-read window; give up rather
+		// than loop. Never surface the internal sentinel to callers.
+		return nil, ErrDecrypt
+	}
+	return pt, err
+}
+
+// decryptValueOnce is a single decrypt attempt against the given snapshot. Only
+// the KEK source differs from the write path; AAD derivation, DEK unwrap, and
+// Decrypt are unchanged.
+func (s *Service) decryptValueOnce(ctx context.Context, proj *store.Project, configID string, sv store.SecretValue, res *kekResolver) ([]byte, error) {
 	aad, err := dekAAD(proj.ID, configID+"/"+sv.Key, sv.ValueVersion)
 	if err != nil {
 		return nil, err

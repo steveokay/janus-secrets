@@ -190,6 +190,23 @@ func (r *SecretRepo) GetVersion(ctx context.Context, configID string, version in
 	return cv, state, nil
 }
 
+// GetValueByID returns a single secret_values row by its id. The read path uses
+// it to re-read a row after a concurrent KEK rewrap advanced the row and retired
+// the KEK version its snapshot referenced, so it can retry against fresh state.
+func (r *SecretRepo) GetValueByID(ctx context.Context, id string) (SecretValue, error) {
+	var sv SecretValue
+	err := r.s.pool.QueryRow(ctx,
+		`SELECT id::text, config_id::text, key, value_version,
+		        wrapped_dek, ciphertext, nonce, dek_key_version, created_at
+		 FROM secret_values WHERE id = $1::uuid`, id).
+		Scan(&sv.ID, &sv.ConfigID, &sv.Key, &sv.ValueVersion,
+			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt)
+	if err != nil {
+		return SecretValue{}, mapError(err)
+	}
+	return sv, nil
+}
+
 // ListVersions returns a config's version metadata, oldest first.
 func (r *SecretRepo) ListVersions(ctx context.Context, configID string) ([]ConfigVersion, error) {
 	rows, err := r.s.pool.Query(ctx,
