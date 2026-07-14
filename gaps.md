@@ -45,11 +45,15 @@ These exist and work but are shallow versions of what the mockup/product implies
 - Review-diff is value-free by design but shows no old→new for *non-secret* metadata either (e.g. key renames read as delete+add). _(still open — no run-history / key-rename diff.)_
 
 ### 2.2 Operations console (`web/src/operations/`) — MED
-- No create flows (see 1.5) — biggest single item.
-- Tables: no column sorting, no bulk pause/resume/delete, truncated "last error" with no expand.
-- No run-history timeline per policy/target (last N runs, success/fail, duration) — backend stores last_error/last_run only, so partly a backend gap too.
-- No health overview (success rate, failing count) above the tabs.
-- Dynamic panel: role update (PATCH) exists in backend but not in UI.
+
+**Update 2026-07-14 (ops-console-depth):** shipped the depth batch across two PRs — **PR #69** added durable run-history backend (`rotation_runs`/`sync_runs` tables, same-tx atomic recording, 100-cap per entity, value-free `GET …/runs` endpoints); **PR 2** (this branch) added the frontend depth. Remaining open items kept below.
+
+- No create flows (see 1.5) — biggest single item. _(still open)_
+- ~~Tables: no column sorting, no bulk pause/resume/delete~~ **[DONE]** — sortable headers on all three panels; row checkboxes + selection bar with bulk pause/resume/rotate-or-sync-now/delete (rotation·sync) and bulk delete-role + lease bulk-revoke (dynamic), each a `Promise.allSettled` fan-out over the audited per-id endpoints. Truncated "last error" already expands inline (`LastError`).
+- ~~No run-history timeline per policy/target (last N runs, success/fail, duration)~~ **[DONE]** — per-row "Runs" drill-in Sheet (when/status/duration/config-version/attempt, value-free); dynamic reuses the existing leases Sheet.
+- ~~No health overview (success rate, failing count) above the tabs~~ **[DONE]** — current-state `HealthStrip` (active·failing·paused per engine, dynamic = role count) above the tabs; failing renders in the danger token and the segment jumps to that tab.
+- Dynamic panel: role update (PATCH) exists in backend but not in UI. _(still open)_
+- Per-role lease-health aggregate on the dynamic health segment deliberately deferred (would be an N-query fan-out per page load). _(open, low priority)_
 
 ### 2.3 Audit viewer (`web/src/audit/AuditPage.tsx`) — MED
 - No click-to-expand event detail (rows are summary-only).
