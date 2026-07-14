@@ -27,3 +27,11 @@ test('prune keeps only allowed keys', () => {
   expect(result.current.count).toBe(2)
   expect(result.current.isSelected('B')).toBe(false)
 })
+
+test('prune returns same ref when nothing changes', () => {
+  const { result } = renderHook(() => useRowSelection())
+  act(() => result.current.setAll(['A', 'B']))
+  const before = result.current.selected
+  act(() => result.current.prune(['A', 'B']))
+  expect(result.current.selected).toBe(before) // same ref, no needless render
+})
