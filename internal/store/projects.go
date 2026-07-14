@@ -1,6 +1,10 @@
 package store
 
-import "context"
+import (
+	"context"
+
+	"github.com/jackc/pgx/v5"
+)
 
 // ProjectRepo persists projects.
 type ProjectRepo struct{ s *Store }
@@ -86,4 +90,48 @@ func (r *ProjectRepo) Undelete(ctx context.Context, id string) error {
 // references it (NO ACTION foreign keys).
 func (r *ProjectRepo) Destroy(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx, `DELETE FROM projects WHERE id = $1::uuid`, id)
+}
+
+// RotateKEK atomically installs a new KEK version for a live project. It locks
+// the project row, preserves the current (version, wrapped_kek) into
+// project_kek_versions, then calls wrapNew(oldVersion) to obtain the newly
+// wrapped KEK (the caller does the keyring wrap; no DB access in the closure)
+// and updates the project to version+1. Returns the new version, or ErrNotFound
+// if the project does not exist or is soft-deleted.
+func (r *ProjectRepo) RotateKEK(ctx context.Context, id string, wrapNew func(oldVersion int) (newWrapped []byte, err error)) (int, error) {
+	var newVersion int
+	err := r.s.withTx(ctx, func(tx pgx.Tx) error {
+		var oldVersion int
+		var oldWrapped []byte
+		row := tx.QueryRow(ctx,
+			`SELECT kek_version, wrapped_kek FROM projects
+			  WHERE id=$1::uuid AND deleted_at IS NULL FOR UPDATE`, id)
+		if err := row.Scan(&oldVersion, &oldWrapped); err != nil {
+			return mapError(err) // pgx.ErrNoRows -> ErrNotFound
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO project_kek_versions (project_id, version, wrapped_kek)
+			 VALUES ($1::uuid, $2, $3)`, id, oldVersion, oldWrapped); err != nil {
+			return mapError(err)
+		}
+		newWrapped, err := wrapNew(oldVersion)
+		if err != nil {
+			return err
+		}
+		newVersion = oldVersion + 1
+		tag, err := tx.Exec(ctx,
+			`UPDATE projects SET wrapped_kek=$2, kek_version=$3, updated_at=now() WHERE id=$1::uuid`,
+			id, newWrapped, newVersion)
+		if err != nil {
+			return mapError(err)
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return newVersion, nil
 }
