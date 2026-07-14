@@ -1,3 +1,4 @@
+import { vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -283,4 +284,72 @@ test('selecting a row shows the selection bar and bulk delete stages a removal',
   expect(screen.getByText(/1 selected/i)).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
   expect(await screen.findByText(/deleted 1/i)).toBeInTheDocument()
+})
+
+test('bulk reveal fires one audited reveal per selected existing key', async () => {
+  seed()
+  const hits: string[] = []
+  server.use(http.get('/v1/configs/c1/secrets/:key', ({ params }) => {
+    hits.push(String(params.key)); return HttpResponse.json({ key: String(params.key), value: 'v' })
+  }))
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^reveal$/i }))
+  await waitFor(() => expect(hits).toEqual(['DB_URL']))
+})
+
+test('bulk copy reveals then writes .env text to clipboard', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  const orig = navigator.clipboard
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  try {
+    renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+    await screen.findByText('DB_URL')
+    await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+    await userEvent.click(screen.getByRole('button', { name: /copy \.env/i }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('DB_URL=postgres://a')))
+  } finally {
+    Object.defineProperty(navigator, 'clipboard', { value: orig, configurable: true })
+  }
+})
+
+test('bulk download shows a confirm, then reveals (audited) on confirm', async () => {
+  seed()
+  const hits: string[] = []
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => {
+    hits.push('DB_URL'); return HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })
+  }))
+  // jsdom lacks object-URL APIs — stub so the download path doesn't throw.
+  Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() })
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+  await userEvent.click(screen.getByRole('button', { name: /download \.env/i }))
+  // ConfirmDialog appears; no reveal yet
+  expect(await screen.findByText('Download secrets as .env?')).toBeInTheDocument()
+  expect(hits).toEqual([])
+  await userEvent.click(screen.getByRole('button', { name: /^download$/i }))
+  await waitFor(() => expect(hits).toEqual(['DB_URL']))
+  await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalled())
+})
+
+test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  // ensure no input is focused so the window keydown nav is live
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  document.body.focus()
+  await userEvent.keyboard('{ArrowDown}e')
+  expect(await screen.findByRole('textbox', { name: /value for db_url/i })).toBeInTheDocument()
+  // Escape out of the edit field first (focus returns to body), then '/'
+  await userEvent.keyboard('{Escape}')
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  document.body.focus()
+  await userEvent.keyboard('/')
+  expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: /filter keys/i }))
 })

@@ -1,10 +1,12 @@
+import type { Ref } from 'react'
 import { Search, Upload, History, Eye, EyeOff } from 'lucide-react'
 import { Button } from '../ui/Button'
 
 // Editor toolbar (mockup §06): key filter + Import .env + History + reveal-all.
-export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyRevealed, onToggleRevealAll }: {
+export function EditorToolbar({ filter, onFilter, filterRef, onImport, onHistory, anyRevealed, onToggleRevealAll }: {
   filter: string
   onFilter: (v: string) => void
+  filterRef?: Ref<HTMLInputElement>
   onImport: () => void
   onHistory: () => void
   anyRevealed: boolean
@@ -15,6 +17,7 @@ export function EditorToolbar({ filter, onFilter, onImport, onHistory, anyReveal
       <div className="flex max-w-[260px] flex-1 items-center gap-2 rounded border border-line bg-surface-3 px-2.5 py-1.5 focus-within:border-brand-line">
         <Search size={14} strokeWidth={1.7} className="shrink-0 text-ink-faint" />
         <input
+          ref={filterRef}
           type="search"
           role="searchbox"
           aria-label="filter keys"

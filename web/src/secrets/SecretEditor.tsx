@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { endpoints } from '../lib/endpoints'
@@ -23,6 +23,9 @@ import { ReviewDiffDialog } from './ReviewDiffDialog'
 import { ImportEnvDialog } from './ImportEnvDialog'
 import { VersionHistory } from './VersionHistory'
 import { Skeleton } from '../ui/Skeleton'
+import { toEnvText } from './exportEnv'
+import { useRowNav } from './useRowNav'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 
 export function SecretEditor() {
   useTitle('Secrets')
@@ -43,6 +46,8 @@ export function SecretEditor() {
   const [importOpen, setImportOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
   const [sort, setSort] = useState<SortState>(null)
+  const [confirmDownload, setConfirmDownload] = useState(false)
+  const filterRef = useRef<HTMLInputElement>(null)
   const selection = useRowSelection()
   function cycleSort(key: SortKey) {
     setSort((s) => {
@@ -210,6 +215,59 @@ export function SecretEditor() {
     toast({ title: `Deleted ${deleted}${skipped ? ` · skipped ${skipped} inherited` : ''}` })
   }
 
+  // Bulk reveal — one audited per-key RAW reveal each (NOT rawConfig), into the
+  // ephemeral `revealed` map. Skips added/new keys (no server value yet).
+  async function bulkReveal(keys: string[]) {
+    for (const key of keys) {
+      const st = rowState(key, maskedRows, buffer, original)
+      if (st.existing) await reveal(key)
+    }
+  }
+  // Reveal selected existing keys (audited, per-key) into a LOCAL array — never
+  // stored in state or the query cache. Reuses an already-revealed value.
+  async function revealPairs(keys: string[]): Promise<Array<[string, string]>> {
+    const out: Array<[string, string]> = []
+    for (const key of keys) {
+      const st = rowState(key, maskedRows, buffer, original)
+      if (!st.existing) continue
+      const value = key in revealed ? revealed[key] : await reveal(key)
+      out.push([key, value])
+    }
+    return out
+  }
+  async function bulkCopy(keys: string[]) {
+    try {
+      const text = toEnvText(await revealPairs(keys)) // local only
+      await navigator.clipboard?.writeText(text)
+      toast({ title: `Copied ${keys.length} key${keys.length === 1 ? '' : 's'} as .env` })
+    } catch {
+      toast({ title: 'Copy failed', tone: 'danger' })
+    }
+  }
+  async function bulkDownload(keys: string[]) {
+    try {
+      const text = toEnvText(await revealPairs(keys)) // local only
+      const blob = new Blob([text], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = 'secrets.env'
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url) // do not cache the plaintext blob
+      toast({ title: `Downloaded ${keys.length} key${keys.length === 1 ? '' : 's'}` })
+    } catch {
+      toast({ title: 'Download failed', tone: 'danger' })
+    }
+  }
+
+  const nav = useRowNav({
+    visible,
+    onEdit: (k) => void edit(k),
+    onReveal: (k) => void reveal(k),
+    onRemove: (k) => remove(k),
+    onToggleSelect: (k) => selection.toggle(k),
+    onFocusFilter: () => filterRef.current?.focus(),
+  })
+
   if (masked.isLoading || versions.isLoading)
     return (
       <div aria-hidden className="flex flex-col gap-2">
@@ -235,6 +293,7 @@ export function SecretEditor() {
       <EditorToolbar
         filter={filter}
         onFilter={setFilter}
+        filterRef={filterRef}
         onImport={() => setImportOpen(true)}
         onHistory={() => setShowHistory(true)}
         anyRevealed={anyRevealed}
@@ -264,9 +323,9 @@ export function SecretEditor() {
         {selection.count > 0 && (
           <SelectionBar
             count={selection.count}
-            onReveal={() => {}}   /* Task 8 */
-            onCopy={() => {}}     /* Task 8 */
-            onDownload={() => {}} /* Task 8 */
+            onReveal={() => void bulkReveal([...selection.selected])}
+            onCopy={() => void bulkCopy([...selection.selected])}
+            onDownload={() => setConfirmDownload(true)}
             onDelete={bulkDelete}
             onClear={selection.clear}
           />
@@ -283,7 +342,7 @@ export function SecretEditor() {
           selected={selection.selected}
           onToggleSelect={selection.toggle}
           onSelectAll={selection.setAll}
-          active={null}
+          active={nav.active}
           onReveal={(key) => void reveal(key)}
           onCopy={(key) => void copy(key)}
           onEdit={(key) => void edit(key)}
@@ -318,6 +377,15 @@ export function SecretEditor() {
         onSave={() => save.mutate()}
       />
       <ImportEnvDialog open={importOpen} onClose={() => setImportOpen(false)} onApply={applyImport} />
+      <ConfirmDialog
+        open={confirmDownload}
+        onOpenChange={setConfirmDownload}
+        title="Download secrets as .env?"
+        body={`This writes ${selection.count} secret value${selection.count === 1 ? '' : 's'} in plaintext to a file on your device.`}
+        confirmLabel="Download"
+        tone="danger"
+        onConfirm={() => { const keys = [...selection.selected]; setConfirmDownload(false); void bulkDownload(keys) }}
+      />
     </div>
   )
 }
