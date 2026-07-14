@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -11,6 +11,7 @@ function topo() {
   server.use(http.get('/v1/projects/:pid/environments/:eid/configs', () => HttpResponse.json({ configs: [{ id: 'c1', environment_id: 'e1', name: 'prod', inherits_from: null, created_at: 'x' }] })))
 }
 const POLICY = { id: 'r1', project_id: 'p1', config_id: 'c1', secret_key: 'DB_PASSWORD', type: 'postgres', interval_seconds: 3600, status: 'active', failure_count: 0, last_error: null, next_rotation_at: new Date(Date.now() + 7200_000).toISOString(), last_rotated_at: null, created_at: 'x' }
+const POLICY2 = { ...POLICY, id: 'r2', secret_key: 'API_KEY', next_rotation_at: new Date(Date.now() + 3600_000).toISOString() }
 function mockList(policies = [POLICY]) {
   server.use(http.get('/v1/rotation/policies', () => HttpResponse.json({ policies })))
 }
@@ -152,4 +153,75 @@ test('a create error keeps the Sheet open and shows the inline message', async (
   // is NOT echoed — no-leak posture), so assert the rendered inline message.
   expect(await screen.findByText(/please check your input/i)).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: /new rotation policy/i })).toBeInTheDocument()
+})
+
+// ── Depth: sort + bulk + run-history ─────────────────────────────────────────
+
+test('bulk pause fans out one PATCH per selected id + summary toast', async () => {
+  topo(); mockList([POLICY, POLICY2])
+  const hits: string[] = []
+  server.use(http.patch('/v1/rotation/policies/:id', async ({ params, request }) => {
+    hits.push(params.id as string)
+    await request.json()
+    return HttpResponse.json({ ...POLICY, id: params.id as string, status: 'paused' })
+  }))
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('DB_PASSWORD')
+  await userEvent.click(screen.getByLabelText('select DB_PASSWORD'))
+  await userEvent.click(screen.getByLabelText('select API_KEY'))
+  const bar = screen.getByRole('toolbar', { name: /bulk actions/i })
+  await userEvent.click(within(bar).getByRole('button', { name: /^pause$/i }))
+  await waitFor(() => expect(hits.sort()).toEqual(['r1', 'r2']))
+  // selection clears after the fan-out settles → the bulk bar goes away
+  await waitFor(() => expect(screen.queryByRole('toolbar', { name: /bulk actions/i })).not.toBeInTheDocument())
+})
+
+test('bulk delete only fans out after ConfirmDialog confirm', async () => {
+  topo(); mockList([POLICY, POLICY2])
+  const hits: string[] = []
+  server.use(http.delete('/v1/rotation/policies/:id', ({ params }) => { hits.push(params.id as string); return new HttpResponse(null, { status: 204 }) }))
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('DB_PASSWORD')
+  await userEvent.click(screen.getByLabelText('select DB_PASSWORD'))
+  await userEvent.click(screen.getByLabelText('select API_KEY'))
+  // The bulk-bar Delete opens the confirm dialog; no calls yet.
+  const bar = screen.getByRole('toolbar', { name: /bulk actions/i })
+  await userEvent.click(within(bar).getByRole('button', { name: /^delete$/i }))
+  expect(hits).toHaveLength(0)
+  const dialog = await screen.findByRole('alertdialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+  await waitFor(() => expect(hits.sort()).toEqual(['r1', 'r2']))
+})
+
+test('clicking a sortable header reorders rows', async () => {
+  topo(); mockList([POLICY, POLICY2])
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('DB_PASSWORD')
+  // default order (failing-first, then soonest next): both active → API_KEY (nearer) first
+  const before = screen.getAllByText(/DB_PASSWORD|API_KEY/).map((n) => n.textContent)
+  expect(before[0]).toBe('API_KEY')
+  // sort by secret key ascending → API_KEY before DB_PASSWORD (still API first)
+  await userEvent.click(screen.getByRole('button', { name: /sort by secret key/i }))
+  const asc = screen.getAllByText(/DB_PASSWORD|API_KEY/).map((n) => n.textContent)
+  expect(asc[0]).toBe('API_KEY')
+  // descending → DB_PASSWORD first
+  await userEvent.click(screen.getByRole('button', { name: /sort by secret key/i }))
+  const desc = screen.getAllByText(/DB_PASSWORD|API_KEY/).map((n) => n.textContent)
+  expect(desc[0]).toBe('DB_PASSWORD')
+})
+
+test('per-row Runs button opens the sheet and renders mocked runs', async () => {
+  topo(); mockList([POLICY])
+  server.use(http.get('/v1/rotation/policies/r1/runs', () => HttpResponse.json({
+    runs: [
+      { id: 1, started_at: new Date(Date.now() - 60_000).toISOString(), ended_at: new Date(Date.now() - 59_000).toISOString(), status: 'success', config_version: 5, attempt_num: 1 },
+      { id: 2, started_at: new Date(Date.now() - 120_000).toISOString(), ended_at: new Date(Date.now() - 119_000).toISOString(), status: 'failure', error: 'apply failed', attempt_num: 2 },
+    ],
+    next_cursor: null,
+  })))
+  renderApp(<RotationPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('DB_PASSWORD')
+  await userEvent.click(screen.getByRole('button', { name: /^runs$/i }))
+  expect(await screen.findByText('success')).toBeInTheDocument()
+  expect(screen.getByText('failure')).toBeInTheDocument()
 })

@@ -17,6 +17,9 @@ const STATUS_TONE: Record<string, Tone> = {
   expired: 'muted',
   revoked: 'muted',
   revoke_failed: 'danger',
+  // run-history statuses (reuses this pill)
+  success: 'success',
+  failure: 'danger',
 }
 
 export function StatusPill({ status }: { status: string }) {
@@ -79,6 +82,9 @@ export function OpsTable({
   emptyHint,
   sort,
   onSort,
+  selectable = false,
+  allSelected = false,
+  onToggleAll,
   children,
 }: {
   columns: Array<string | OpsColumn>
@@ -92,6 +98,9 @@ export function OpsTable({
   emptyHint?: string
   sort?: OpsSort
   onSort?: (key: string) => void
+  selectable?: boolean
+  allSelected?: boolean
+  onToggleAll?: () => void
   children: ReactNode
 }) {
   if (isLoading) {
@@ -111,6 +120,17 @@ export function OpsTable({
       <table className="w-full min-w-[720px] text-[12.5px]">
         <thead>
           <tr className="border-b border-line bg-surface-1 text-left text-ink-faint">
+            {selectable && (
+              <th className="px-2 py-1.5 w-8">
+                <input
+                  type="checkbox"
+                  aria-label="select all"
+                  checked={!!allSelected}
+                  onChange={onToggleAll}
+                  className="accent-brand"
+                />
+              </th>
+            )}
             {columns.map((c) => {
               if (typeof c === 'string') {
                 return <th key={c} className="px-2 py-1.5 font-medium">{c}</th>
