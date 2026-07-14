@@ -50,7 +50,7 @@ func (s *Service) rotatorFor(typ string) (rotatorApplier, error) {
 // rotate performs one crash-safe rotation of p: persist-pending → idempotent
 // apply → commit (write new config version, clear pending) → notify. A pending
 // value from a prior crash/attempt is reused so the external apply is idempotent.
-func (s *Service) rotate(ctx context.Context, p *store.RotationPolicy) error {
+func (s *Service) rotate(ctx context.Context, p *store.RotationPolicy, startedAt time.Time) error {
 	proj, err := s.projects.Get(ctx, p.ProjectID)
 	if err != nil {
 		return mapStoreErr(err)
@@ -100,7 +100,7 @@ func (s *Service) rotate(ctx context.Context, p *store.RotationPolicy) error {
 		return err
 	}
 	next := s.now().Add(time.Duration(p.IntervalSeconds) * time.Second)
-	if err := s.repo.MarkRotated(ctx, p.ID, cv.Version, next); err != nil {
+	if err := s.repo.MarkRotated(ctx, p.ID, cv.Version, next, startedAt, p.FailureCount); err != nil {
 		return mapStoreErr(err)
 	}
 	s.notify(ctx, cfg, p, cv.Version)
@@ -110,7 +110,8 @@ func (s *Service) rotate(ctx context.Context, p *store.RotationPolicy) error {
 // attempt runs rotate and records the audit event + failure bookkeeping. It is
 // the single entry point for both the scheduler and manual rotate-now.
 func (s *Service) attempt(ctx context.Context, p *store.RotationPolicy) error {
-	err := s.rotate(ctx, p)
+	startedAt := s.now()
+	err := s.rotate(ctx, p, startedAt)
 	if err != nil {
 		// A sealed server is expected operational state, not a rotation fault:
 		// do NOT count it as a failure (no MarkFailure → no failure_count bump,
@@ -123,7 +124,7 @@ func (s *Service) attempt(ctx context.Context, p *store.RotationPolicy) error {
 			return err
 		}
 		next := s.now().Add(backoff(p.FailureCount + 1))
-		if merr := s.repo.MarkFailure(ctx, p.ID, sanitize(err), next, failureThreshold); merr != nil {
+		if merr := s.repo.MarkFailure(ctx, p.ID, sanitize(err), next, failureThreshold, startedAt, p.FailureCount+1); merr != nil {
 			s.logger.Warn("rotation mark-failure failed", "policy", p.ID, "err", merr)
 		}
 		s.recordRotate(ctx, p, "failure", sanitize(err))

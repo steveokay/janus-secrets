@@ -155,3 +155,62 @@ func TestRotationRunsPrunePolicyIsolation(t *testing.T) {
 		t.Fatalf("policy A: want %d rows after cap, got %d", RunHistoryCap, got)
 	}
 }
+
+// TestRotationMarkRecordsRun locks in that the mark-path methods
+// (MarkRotated/MarkFailure) record a run row atomically with the policy-state
+// UPDATE — the durable per-run history the operations console reads.
+func TestRotationMarkRecordsRun(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	r := NewRotationRepo(s)
+
+	projectID, _, configID := mkConfig(t, s, "prod")
+	pol, err := r.Create(ctx, newPolicy(t, s, projectID, configID, "DB_PASSWORD"))
+	if err != nil {
+		t.Fatalf("Create policy: %v", err)
+	}
+
+	// A successful mark records a success run carrying the config version.
+	if err := r.MarkRotated(ctx, pol.ID, 7, time.Now().Add(time.Hour), time.Now(), 0); err != nil {
+		t.Fatalf("MarkRotated: %v", err)
+	}
+	runs, err := r.ListRuns(ctx, pol.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("ListRuns after MarkRotated: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("want 1 run after MarkRotated, got %d", len(runs))
+	}
+	if runs[0].Status != "success" {
+		t.Fatalf("want status success, got %q", runs[0].Status)
+	}
+	if runs[0].ConfigVersion == nil || *runs[0].ConfigVersion != 7 {
+		t.Fatalf("want config_version 7, got %v", runs[0].ConfigVersion)
+	}
+	if runs[0].Error != nil {
+		t.Fatalf("want nil error on success run, got %v", *runs[0].Error)
+	}
+
+	// A failure mark records a failure run carrying the sanitized error, no version.
+	if err := r.MarkFailure(ctx, pol.ID, "apply failed", time.Now().Add(time.Hour), 3, time.Now(), 1); err != nil {
+		t.Fatalf("MarkFailure: %v", err)
+	}
+	runs, err = r.ListRuns(ctx, pol.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("ListRuns after MarkFailure: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("want 2 runs after MarkFailure, got %d", len(runs))
+	}
+	newest := runs[0]
+	if newest.Status != "failure" {
+		t.Fatalf("want newest status failure, got %q", newest.Status)
+	}
+	if newest.Error == nil || *newest.Error != "apply failed" {
+		t.Fatalf("want error \"apply failed\", got %v", newest.Error)
+	}
+	if newest.ConfigVersion != nil {
+		t.Fatalf("want nil config_version on failure run, got %v", *newest.ConfigVersion)
+	}
+}

@@ -148,7 +148,7 @@ func TestRotationRepoLifecycle(t *testing.T) {
 
 	// MarkRotated clears pending, resets failure state, sets version/next, status active.
 	next := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second)
-	if err := r.MarkRotated(ctx, got.ID, 5, next); err != nil {
+	if err := r.MarkRotated(ctx, got.ID, 5, next, time.Now(), 0); err != nil {
 		t.Fatalf("MarkRotated: %v", err)
 	}
 	rotated, err := r.Get(ctx, got.ID)
@@ -178,7 +178,7 @@ func TestRotationRepoLifecycle(t *testing.T) {
 	const threshold = 3
 	retryAt := time.Now().Add(time.Minute).UTC().Truncate(time.Second)
 	for i := 1; i < threshold; i++ {
-		if err := r.MarkFailure(ctx, got.ID, "sanitized failure", retryAt, threshold); err != nil {
+		if err := r.MarkFailure(ctx, got.ID, "sanitized failure", retryAt, threshold, time.Now(), i); err != nil {
 			t.Fatalf("MarkFailure #%d: %v", i, err)
 		}
 		p, err := r.Get(ctx, got.ID)
@@ -193,7 +193,7 @@ func TestRotationRepoLifecycle(t *testing.T) {
 		}
 	}
 	// One more failure crosses the threshold.
-	if err := r.MarkFailure(ctx, got.ID, "sanitized failure", retryAt, threshold); err != nil {
+	if err := r.MarkFailure(ctx, got.ID, "sanitized failure", retryAt, threshold, time.Now(), threshold); err != nil {
 		t.Fatalf("MarkFailure (threshold-crossing): %v", err)
 	}
 	failed, err := r.Get(ctx, got.ID)
