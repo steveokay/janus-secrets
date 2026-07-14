@@ -117,7 +117,7 @@ RBAC: reuse the existing project **owner** role check (the pattern used by other
 
 ## Error handling
 
-- Sealed → `ErrSealed` → 503 for **rotate** and **rewrap** (both need the master). The **status GET works while sealed** — it only reads version numbers and DEK counts, no key material.
+- Sealed → 503 for **all three** endpoints. Rotate and rewrap genuinely need the master (`ErrSealed`); the status GET is a pure read of version numbers and DEK counts, but it lives under the `/v1/projects/…` routes and is therefore short-circuited to 503 by the global `RequireUnsealed` middleware while sealed — consistent with every other project route, and it is not special-cased out of the seal gate.
 - Unknown or soft-deleted project → `ErrNotFound` → 404.
 - Non-owner principal → 403 (deny by default).
 - A tampered/corrupt `wrapped_dek` (AEAD open fails) during rewrap → the batch tx rolls back and the operation returns an error naming the offending `secret_values.id` (never the key material); the sweep is resumable after the operator investigates.
