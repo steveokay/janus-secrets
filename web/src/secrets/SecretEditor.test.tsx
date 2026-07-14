@@ -273,3 +273,14 @@ test('History button opens the version sheet', async () => {
   expect(await screen.findByText('Version history')).toBeInTheDocument()
   expect(await screen.findByText('first')).toBeInTheDocument()
 })
+
+test('selecting a row shows the selection bar and bulk delete stages a removal', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+  expect(screen.getByText(/1 selected/i)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+  expect(await screen.findByText(/deleted 1/i)).toBeInTheDocument()
+})

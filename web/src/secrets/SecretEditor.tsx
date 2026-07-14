@@ -12,6 +12,11 @@ import { Button } from '../ui/Button'
 import { EmptyState } from '../ui/EmptyState'
 import { Sheet } from '../ui/Sheet'
 import { SecretTable } from './SecretTable'
+import { SelectionBar } from './SelectionBar'
+import { useRowSelection } from './useRowSelection'
+import { sortRows } from './sortRows'
+import type { SortKey, SortState } from './sortRows'
+import { rowState } from './rowState'
 import { EditorToolbar } from './EditorToolbar'
 import { DirtyBar } from './DirtyBar'
 import { ReviewDiffDialog } from './ReviewDiffDialog'
@@ -37,6 +42,15 @@ export function SecretEditor() {
   const [showHistory, setShowHistory] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [sort, setSort] = useState<SortState>(null)
+  const selection = useRowSelection()
+  function cycleSort(key: SortKey) {
+    setSort((s) => {
+      if (!s || s.key !== key) return { key, dir: 'asc' }
+      if (s.dir === 'asc') return { key, dir: 'desc' }
+      return null
+    })
+  }
 
   // The config version from the value-free versions list — no mount reveal.
   // Robust to ordering: take the max present, 0 for a config with no versions yet.
@@ -170,6 +184,32 @@ export function SecretEditor() {
     setOriginal((o) => { const { [key]: _drop, ...rest } = o; return rest })
   }
 
+  const maskedRows = masked.data ?? {}
+  // Ordered key list: existing masked keys, then keys added only in the buffer.
+  const addedKeys = Object.keys(buffer).filter((k) => !(k in maskedRows) && buffer[k].value !== null)
+  const rows = [...Object.keys(maskedRows), ...addedKeys]
+  // Visible pipeline: sort, then filter to the search query.
+  const ordered = sortRows(rows, maskedRows, sort)
+  const q = filter.trim().toLowerCase()
+  const visible = q ? ordered.filter((k) => k.toLowerCase().includes(q)) : ordered
+
+  // Prune selection to what's currently visible (filtered out / saved keys drop).
+  // `prune` returns the same Set ref when nothing changes, so this won't loop.
+  useEffect(() => { selection.prune(visible) }, [visible, selection])
+
+  function bulkDelete() {
+    const keys = [...selection.selected]
+    let deleted = 0, skipped = 0
+    keys.forEach((key) => {
+      const st = rowState(key, maskedRows, buffer, original)
+      if (st.change === 'added') { undo(key); deleted++ }
+      else if (st.existing && st.origin !== 'inherited') { remove(key); deleted++ }
+      else skipped++
+    })
+    selection.clear()
+    toast({ title: `Deleted ${deleted}${skipped ? ` · skipped ${skipped} inherited` : ''}` })
+  }
+
   if (masked.isLoading || versions.isLoading)
     return (
       <div aria-hidden className="flex flex-col gap-2">
@@ -178,10 +218,6 @@ export function SecretEditor() {
       </div>
     )
   if (masked.isError) return <p role="alert">Could not load secrets.</p>
-  const maskedRows = masked.data ?? {}
-  // Ordered key list: existing masked keys, then keys added only in the buffer.
-  const addedKeys = Object.keys(buffer).filter((k) => !(k in maskedRows) && buffer[k].value !== null)
-  const rows = [...Object.keys(maskedRows), ...addedKeys]
   // Latest config version metadata — the API returns versions oldest-first
   // (store ListVersions ORDER BY version ASC), so take the max, not [0].
   const latest = (versions.data ?? []).reduce<VersionMeta | null>(
@@ -224,19 +260,29 @@ export function SecretEditor() {
           }
         />
       ) : (
+        <>
+        {selection.count > 0 && (
+          <SelectionBar
+            count={selection.count}
+            onReveal={() => {}}   /* Task 8 */
+            onCopy={() => {}}     /* Task 8 */
+            onDownload={() => {}} /* Task 8 */
+            onDelete={bulkDelete}
+            onClear={selection.clear}
+          />
+        )}
         <SecretTable
-          rows={rows}
+          rows={visible}
           masked={maskedRows}
           buffer={buffer}
           original={original}
           editing={editing}
           revealed={revealed}
-          filter={filter}
-          sort={null}
-          onSort={() => {}}
-          selected={new Set()}
-          onToggleSelect={() => {}}
-          onSelectAll={() => {}}
+          sort={sort}
+          onSort={cycleSort}
+          selected={selection.selected}
+          onToggleSelect={selection.toggle}
+          onSelectAll={selection.setAll}
           active={null}
           onReveal={(key) => void reveal(key)}
           onCopy={(key) => void copy(key)}
@@ -245,6 +291,7 @@ export function SecretEditor() {
           onRemove={remove}
           onRevert={undo}
         />
+        </>
       )}
       {dirty && (
         <DirtyBar

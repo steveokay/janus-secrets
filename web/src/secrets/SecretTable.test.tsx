@@ -10,7 +10,7 @@ const masked: Record<string, MaskedSecret> = {
 }
 function props(over = {}) {
   return {
-    rows: ['A', 'B'], masked, buffer: {}, original: {}, editing: {}, revealed: {}, filter: '',
+    rows: ['A', 'B'], masked, buffer: {}, original: {}, editing: {}, revealed: {},
     sort: null, onSort: vi.fn(),
     selected: new Set<string>(), onToggleSelect: vi.fn(), onSelectAll: vi.fn(), active: null,
     onReveal: vi.fn(), onCopy: vi.fn(), onEdit: vi.fn(), onChangeValue: vi.fn(), onRemove: vi.fn(), onRevert: vi.fn(),

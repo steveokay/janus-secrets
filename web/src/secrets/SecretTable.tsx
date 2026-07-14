@@ -67,7 +67,7 @@ function HeaderCell({ label, sortKey, sort, onSort }: {
 }
 
 export function SecretTable({
-  rows, masked, buffer, original, editing, revealed, filter,
+  rows, masked, buffer, original, editing, revealed,
   sort, onSort, selected, onToggleSelect, onSelectAll, active,
   onReveal, onCopy, onEdit, onChangeValue, onRemove, onRevert,
 }: {
@@ -77,7 +77,6 @@ export function SecretTable({
   original: Record<string, string>
   editing: Record<string, boolean>
   revealed: Record<string, string>
-  filter: string
   sort: SortState
   onSort: (key: SortKey) => void
   selected: Set<string>
@@ -91,9 +90,6 @@ export function SecretTable({
   onRemove: (key: string) => void
   onRevert: (key: string) => void
 }) {
-  const q = filter.trim().toLowerCase()
-  const visible = q ? rows.filter((k) => k.toLowerCase().includes(q)) : rows
-
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[820px] rounded-card border border-line bg-card shadow-elev-1 overflow-hidden">
@@ -103,9 +99,9 @@ export function SecretTable({
             type="checkbox"
             aria-label="select all"
             className="h-3.5 w-3.5 accent-brand"
-            ref={(el) => { if (el) el.indeterminate = selected.size > 0 && !visible.every((k) => selected.has(k)) }}
-            checked={visible.length > 0 && visible.every((k) => selected.has(k))}
-            onChange={() => onSelectAll(visible)}
+            ref={(el) => { if (el) el.indeterminate = selected.size > 0 && !rows.every((k) => selected.has(k)) }}
+            checked={rows.length > 0 && rows.every((k) => selected.has(k))}
+            onChange={() => onSelectAll(rows)}
           />
         </span>
         <HeaderCell label="Key" sortKey="key" sort={sort} onSort={onSort} />
@@ -115,7 +111,7 @@ export function SecretTable({
         <HeaderCell label="Version" sortKey="version" sort={sort} onSort={onSort} />
         <span className="text-right text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-faint">Actions</span>
       </div>
-      {visible.map((key) => {
+      {rows.map((key) => {
         const st = rowState(key, masked, buffer, original)
         const isEditing = !!editing[key]
         const isRemoved = st.change === 'removed'
