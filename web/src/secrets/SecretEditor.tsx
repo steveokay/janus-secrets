@@ -232,6 +232,12 @@ export function SecretEditor() {
           editing={editing}
           revealed={revealed}
           filter={filter}
+          sort={null}
+          onSort={() => {}}
+          selected={new Set()}
+          onToggleSelect={() => {}}
+          onSelectAll={() => {}}
+          active={null}
           onReveal={(key) => void reveal(key)}
           onCopy={(key) => void copy(key)}
           onEdit={(key) => void edit(key)}
