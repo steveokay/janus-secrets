@@ -84,16 +84,20 @@ test('locked.list returns keys; lock POSTs {key}; unlock DELETEs', async () => {
   expect(lockBody).toEqual({ key: 'API_KEY' })
   expect(locked).toEqual({ key: 'API_KEY', locked: true })
 
-  let unlockMethod = '', unlockPath = ''
+  let unlockMethod = '', unlockUrl = '', unlockParam = ''
   server.use(
     http.delete('/v1/configs/c1/locked-keys/:key', ({ request, params }) => {
       unlockMethod = request.method
-      unlockPath = String(params.key)
+      unlockUrl = request.url // raw, still percent-encoded
+      unlockParam = String(params.key) // msw decodes the path param
       return HttpResponse.json({ key: 'API KEY', locked: false })
     }),
   )
   const unlocked = await promotion.locked.unlock('c1', 'API KEY')
   expect(unlockMethod).toBe('DELETE')
-  expect(unlockPath).toBe('API%20KEY')
+  // The client must percent-encode the key in the URL (space → %20)...
+  expect(unlockUrl).toContain('API%20KEY')
+  // ...which msw decodes back when it matches the :key param.
+  expect(unlockParam).toBe('API KEY')
   expect(unlocked.locked).toBe(false)
 })
