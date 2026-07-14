@@ -85,3 +85,73 @@ func TestRotationRuns(t *testing.T) {
 		}
 	}
 }
+
+// TestRotationRunsPrunePolicyIsolation locks in that the per-policy prune only
+// deletes the target policy's rows. A regression here (prune losing its
+// policy_id scope) is a cross-policy data-loss class the suite must catch.
+func TestRotationRunsPrunePolicyIsolation(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	r := NewRotationRepo(s)
+
+	projectID, _, configID := mkConfig(t, s, "prod")
+
+	// Two policies on the same config, distinct secret keys (the unique
+	// constraint is on (config_id, secret_key)).
+	polA, err := r.Create(ctx, newPolicy(t, s, projectID, configID, "A_PASSWORD"))
+	if err != nil {
+		t.Fatalf("Create policy A: %v", err)
+	}
+	polB, err := r.Create(ctx, newPolicy(t, s, projectID, configID, "B_PASSWORD"))
+	if err != nil {
+		t.Fatalf("Create policy B: %v", err)
+	}
+
+	base := time.Now().UTC().Truncate(time.Second)
+	insert := func(policyID string, n int) {
+		t.Helper()
+		for i := range n {
+			if err := r.InsertRun(ctx, RotationRunInput{
+				PolicyID:   policyID,
+				StartedAt:  base.Add(time.Duration(i) * time.Second),
+				EndedAt:    base.Add(time.Duration(i)*time.Second + time.Second),
+				Status:     "success",
+				AttemptNum: 1,
+			}); err != nil {
+				t.Fatalf("InsertRun policy=%s #%d: %v", policyID, i, err)
+			}
+		}
+	}
+
+	// B gets 3 runs (well under the cap); then A's 105 inserts trigger A's prune.
+	insert(polB.ID, 3)
+	insert(polA.ID, 105)
+
+	countFor := func(policyID string) int {
+		t.Helper()
+		var c int
+		if err := s.pool.QueryRow(ctx,
+			`SELECT count(*) FROM rotation_runs WHERE policy_id = $1::uuid`, policyID).Scan(&c); err != nil {
+			t.Fatalf("count policy=%s: %v", policyID, err)
+		}
+		return c
+	}
+
+	// Policy B's rows must be untouched by policy A's prune.
+	if got := countFor(polB.ID); got != 3 {
+		t.Fatalf("policy B: want 3 rows to survive A's prune, got %d", got)
+	}
+	bRuns, err := r.ListRuns(ctx, polB.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("ListRuns B: %v", err)
+	}
+	if len(bRuns) != 3 {
+		t.Fatalf("ListRuns B: want 3, got %d", len(bRuns))
+	}
+
+	// Policy A is capped at RunHistoryCap.
+	if got := countFor(polA.ID); got != RunHistoryCap {
+		t.Fatalf("policy A: want %d rows after cap, got %d", RunHistoryCap, got)
+	}
+}
