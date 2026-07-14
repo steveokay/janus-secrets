@@ -81,7 +81,10 @@ export function RunHistorySheet({ open, onOpenChange, title, load }: {
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-ink-mute">{fmtDuration(r.started_at, r.ended_at)}</td>
-                    <td className="px-2 py-1.5 text-ink-mute">{r.config_version != null ? `v${r.config_version}` : '—'}</td>
+                    <td className="px-2 py-1.5 text-ink-mute">
+                      {r.config_version != null ? `v${r.config_version}` : '—'}
+                      {r.keys_count != null && <span className="text-ink-faint"> · {r.keys_count} keys</span>}
+                    </td>
                     <td className="px-2 py-1.5 text-ink-mute">{r.attempt_num}</td>
                   </tr>
                 ))}
@@ -102,7 +105,9 @@ export function RunHistorySheet({ open, onOpenChange, title, load }: {
 // Milliseconds between two ISO timestamps, rendered compactly. NaN → "—".
 function fmtDuration(start: string, end: string): string {
   const ms = new Date(end).getTime() - new Date(start).getTime()
-  if (Number.isNaN(ms)) return '—'
+  // NaN (bad timestamp) or a negative delta (clock skew between the two write
+  // points) is not a meaningful duration → render a dash.
+  if (Number.isNaN(ms) || ms < 0) return '—'
   if (ms < 1000) return `${ms}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.round(ms / 60_000)}m`
