@@ -20,7 +20,7 @@ The SPA covers the core loop (projects → envs → configs → secret editing) 
 | 1.6 | **No backup/restore UI.** `GET /v1/sys/backup` / `POST /v1/sys/restore` are CLI/API-only; no download-backup button, no seal control in UI (`POST /v1/sys/seal` also unexposed). | `internal/api/backup_handlers.go`, no UI caller | MED |
 | 1.7 | **No error boundary.** A render crash anywhere leaves a blank screen; mutations get toasts but rendering has no safety net. | `web/src/App.tsx` — no ErrorBoundary | MED |
 | 1.8 | **No 404 page.** Unknown routes silently `Navigate to="/"` with zero feedback. | `web/src/App.tsx` catch-all route | MED |
-| 1.9 | **No export-config button.** Backend supports raw reveal and the CLI has `janus secrets download --format env\|json\|yaml`, but the editor has no "Export as .env" (would need the same audit treatment as bulk reveal). | editor pages vs `secrets_handlers.go` | MED |
+| 1.9 | ~~**No export-config button.**~~ **[DONE 2026-07-14, editor-depth]** — delivered via selection-bar bulk **Copy .env** / **Download .env** (audited per-key raw reveal, confirm dialog before writing plaintext to disk). | editor pages vs `secrets_handlers.go` | ~~MED~~ |
 | 1.10 | **Soft-delete restore is invisible.** `POST /v1/{projects,environments,configs}/{id}/restore` endpoints exist; UI never calls them — a deleted config is gone as far as the UI knows, despite the spec's "soft delete with undelete". | routes vs `web/src/lib/endpoints.ts` | MED |
 | 1.11 | **Per-key value history not surfaced.** `GET /v1/configs/{cid}/secrets/{key}/history` (two-level versioning's per-key trace) is never called; VersionHistory only shows config-level versions. | endpoint unused in `web/src` | MED |
 | 1.12 | **No session management.** Logout only; no active-session list / logout-all. | `web/src/shell/UserMenu.tsx` | LOW |
@@ -34,12 +34,15 @@ _Corrected during verification: user create/disable **does** exist in the UI (`w
 These exist and work but are shallow versions of what the mockup/product implies. Grouped by page, most impactful first.
 
 ### 2.1 Secret editor (`web/src/secrets/SecretEditor.tsx`, `SecretTable.tsx`) — flagship, MED-HIGH
-- No column sorting, no multi-row select, no bulk operations (bulk delete / bulk reveal already has an audited backend path).
-- No keyboard row navigation (↑/↓/Enter/Del) — only ⌘S and Esc shipped (known P2).
-- No "show only changed/overridden rows" toggle; filter is plain substring (no zero-match empty state — known P2).
-- Import .env has no preview step (which keys add/update/conflict) before commit.
-- No per-row revert — Discard is all-or-nothing; no undo after discard.
-- Review-diff is value-free by design but shows no old→new for *non-secret* metadata either (e.g. key renames read as delete+add).
+
+**Update 2026-07-14 (editor-depth):** shipped the behavioral-depth batch — sortable columns (key/origin/updated/version), multi-row select + selection bar, bulk delete / reveal / copy-.env / download-.env (audited, inherited-skip), keyboard row nav (↑/↓/e/`/`/x), Import .env preview (value-free add/update badges), "Changed only" toggle, and a zero-match empty state. Remaining open items kept below.
+
+- ~~No column sorting, no multi-row select, no bulk operations~~ **[DONE]** — sortable headers + row checkboxes + selection bar (bulk delete/reveal/copy/download, all audited per-key; bulk delete skips inherited keys).
+- ~~No keyboard row navigation (↑/↓/Enter/Del)~~ **[DONE]** — `useRowNav` (↑/↓ move, `e` edit, backtick reveal, `x` remove, `/` focuses filter).
+- ~~No "show only changed/overridden rows" toggle; ... no zero-match empty state~~ **[DONE]** — "Changed only" toggle + distinct zero-match / no-changed-keys empty states.
+- ~~Import .env has no preview step~~ **[DONE]** — value-free preview classifies each key as add/update before commit.
+- No per-row revert — Discard is all-or-nothing; no undo after discard. _(per-row revert exists; **still open:** no undo after a full discard.)_
+- Review-diff is value-free by design but shows no old→new for *non-secret* metadata either (e.g. key renames read as delete+add). _(still open — no run-history / key-rename diff.)_
 
 ### 2.2 Operations console (`web/src/operations/`) — MED
 - No create flows (see 1.5) — biggest single item.

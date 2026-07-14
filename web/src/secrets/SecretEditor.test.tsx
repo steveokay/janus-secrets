@@ -384,6 +384,31 @@ test('bulk download shows a confirm, then reveals (audited) on confirm', async (
   }
 })
 
+test('clicking the Key header sorts the rows and toggles direction', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/:key', () => HttpResponse.json({ key: 'x', value: 'v' })))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  const keyHeader = screen.getByRole('button', { name: /sort by key/i })
+  await userEvent.click(keyHeader) // asc
+  // Anchor the regex to the whole cell so change-chips (none here) can't match.
+  let keys = screen.getAllByText(/^(DB_URL|SENTRY_DSN)$/).map((n) => n.textContent)
+  expect(keys).toEqual(['DB_URL', 'SENTRY_DSN'])
+  await userEvent.click(keyHeader) // desc
+  keys = screen.getAllByText(/^(DB_URL|SENTRY_DSN)$/).map((n) => n.textContent)
+  expect(keys).toEqual(['SENTRY_DSN', 'DB_URL'])
+})
+
+test('bulk delete skips inherited keys with a toast', async () => {
+  seed()
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('SENTRY_DSN')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select sentry_dsn/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+  // bulkDelete emits `Deleted 0 · skipped 1 inherited` for an inherited-only selection.
+  expect(await screen.findByText(/skipped 1 inherited/i)).toBeInTheDocument()
+})
+
 test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {
   seed()
   server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
