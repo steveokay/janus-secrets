@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -23,6 +23,50 @@ test('lists roles and issues creds, showing the password once', async () => {
   expect(await screen.findByText('ONE-TIME-PW')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /done/i }))
   expect(screen.queryByText('ONE-TIME-PW')).toBeNull()
+})
+
+test('bulk delete: select 2 roles, confirm gates the DELETEs, then fires exactly one per id', async () => {
+  topo()
+  const ROLE_A = { ...ROLE, id: 'roleA', name: 'alpha', config_id: 'c1' }
+  const ROLE_B = { ...ROLE, id: 'roleB', name: 'bravo', config_id: 'c1' }
+  server.use(http.get('/v1/dynamic/roles', () => HttpResponse.json({ roles: [ROLE_A, ROLE_B] })))
+  const deleted: string[] = []
+  server.use(http.delete('/v1/dynamic/roles/:id', ({ params }) => { deleted.push(params.id as string); return HttpResponse.json({}, { status: 204 }) }))
+  renderApp(<DynamicPanel filter="all" />, { route: '/operations', withAuth: false })
+
+  await userEvent.click(await screen.findByLabelText('select alpha'))
+  await userEvent.click(screen.getByLabelText('select bravo'))
+  await userEvent.click(screen.getByRole('button', { name: /delete role/i }))
+
+  // ConfirmDialog gates: no DELETE until confirm.
+  expect(await screen.findByRole('heading', { name: /delete 2 dynamic roles\?/i })).toBeInTheDocument()
+  expect(deleted).toEqual([])
+
+  const dialog = screen.getByRole('alertdialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+  await waitFor(() => expect(deleted.length).toBe(2))
+  expect(new Set(deleted)).toEqual(new Set(['roleA', 'roleB']))
+})
+
+test('a sortable header click reorders the rows', async () => {
+  topo()
+  const ROLE_A = { ...ROLE, id: 'roleA', name: 'zeta', config_id: 'c1' }
+  const ROLE_B = { ...ROLE, id: 'roleB', name: 'alpha', config_id: 'c1' }
+  server.use(http.get('/v1/dynamic/roles', () => HttpResponse.json({ roles: [ROLE_A, ROLE_B] })))
+  renderApp(<DynamicPanel filter="all" />, { route: '/operations', withAuth: false })
+
+  // Default order = project then role name → alpha before zeta.
+  await screen.findByText('alpha')
+  let cells = screen.getAllByText(/alpha|zeta/).map((el) => el.textContent)
+  expect(cells).toEqual(['alpha', 'zeta'])
+
+  // Click Role header → asc keeps alpha,zeta; click again → desc flips to zeta,alpha.
+  await userEvent.click(screen.getByRole('button', { name: /sort by role/i }))
+  await userEvent.click(screen.getByRole('button', { name: /sort by role/i }))
+  await waitFor(() => {
+    cells = screen.getAllByText(/alpha|zeta/).map((el) => el.textContent)
+    expect(cells).toEqual(['zeta', 'alpha'])
+  })
 })
 
 test('view leases opens the sheet', async () => {

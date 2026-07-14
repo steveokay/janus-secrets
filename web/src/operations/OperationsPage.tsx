@@ -7,6 +7,7 @@ import { cn } from '../ui/cn'
 import { RotationPanel } from './RotationPanel'
 import { SyncPanel } from './SyncPanel'
 import { DynamicPanel } from './DynamicPanel'
+import { HealthStrip } from './HealthStrip'
 import type { ProjectFilter } from './useAggregated'
 
 const TABS = [
@@ -30,6 +31,8 @@ export function OperationsPage() {
         <h1 className="text-lg font-semibold text-ink">Operations</h1>
         <p className="text-[12.5px] text-ink-mute">Rotation, sync, and dynamic credentials across your projects.</p>
       </header>
+
+      <HealthStrip filter={filter} onGo={(t) => setParams((p) => { p.set('tab', t); return p }, { replace: true })} />
 
       <div className="mb-3 flex items-center justify-between gap-3">
         <div role="tablist" aria-label="Operations engines" className="flex gap-1">

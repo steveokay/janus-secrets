@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { Button } from '../ui/Button'
@@ -10,14 +10,101 @@ import { Select } from '../ui/Select'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { apiErrorTitle, errorMessage } from '../lib/api'
+import { useRowSelection } from '../lib/useRowSelection'
 import { opsEndpoints, type RotationView, type RotationCreateInput } from './endpoints'
 import { useRotation, type EngineRow, type ProjectFilter } from './useAggregated'
 import { ConfigPicker } from './ConfigPicker'
-import { OpsTable, StatusPill, RelTime, LastError } from './ops-ui'
+import { OpsTable, StatusPill, RelTime, LastError, type OpsColumn, type OpsSort } from './ops-ui'
+import { OpsSelectionBar } from './OpsSelectionBar'
+import { RunHistorySheet } from './RunHistorySheet'
+
+const COLUMNS: OpsColumn[] = [
+  { label: 'Project', key: 'project' },
+  { label: 'Config', key: 'config' },
+  { label: 'Secret key', key: 'secret_key' },
+  { label: 'Type', key: 'type' },
+  { label: 'Status', key: 'status' },
+  { label: 'Next', key: 'next' },
+  { label: 'Last', key: 'last' },
+  { label: 'Fails', key: 'fails' },
+]
+
+// Next-cycle sort idiom (mirror the editor): none → asc → desc → none.
+function cycleSort(prev: OpsSort, key: string): OpsSort {
+  if (prev?.key !== key) return { key, dir: 'asc' }
+  if (prev.dir === 'asc') return { key, dir: 'desc' }
+  return null
+}
+
+function cfgLabel(r: EngineRow<RotationView>): string {
+  return r.cfg ? `${r.cfg.envName}/${r.cfg.configName}` : ''
+}
+
+function compare(a: EngineRow<RotationView>, b: EngineRow<RotationView>, key: string): number {
+  const s = (x: string, y: string) => x.localeCompare(y)
+  switch (key) {
+    case 'project': return s(a.projectName, b.projectName)
+    case 'config': return s(cfgLabel(a), cfgLabel(b))
+    case 'secret_key': return s(a.data.secret_key, b.data.secret_key)
+    case 'type': return s(a.data.type, b.data.type)
+    case 'status': return s(a.data.status, b.data.status)
+    case 'next': return s(a.data.next_rotation_at, b.data.next_rotation_at)
+    case 'last': return nullableTime(a.data.last_rotated_at, b.data.last_rotated_at)
+    case 'fails': return a.data.failure_count - b.data.failure_count
+    default: return 0
+  }
+}
+
+// Nulls sort last regardless of direction (applied before the dir multiplier).
+function nullableTime(a?: string | null, b?: string | null): number {
+  if (!a && !b) return 0
+  if (!a) return 1
+  if (!b) return -1
+  return a.localeCompare(b)
+}
 
 export function RotationPanel({ filter }: { filter: ProjectFilter }) {
   const { rows, isLoading, isError, someForbidden } = useRotation(filter)
   const [creating, setCreating] = useState(false)
+  const [sort, setSort] = useState<OpsSort>(null)
+  const sel = useRowSelection()
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [confirmBulkDel, setConfirmBulkDel] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  const sorted = useMemo(() => {
+    const list = [...rows]
+    if (sort === null) {
+      // Default: failing first, then soonest next-rotation.
+      return list.sort((a, b) => {
+        const af = a.data.status === 'failed' ? 0 : 1
+        const bf = b.data.status === 'failed' ? 0 : 1
+        if (af !== bf) return af - bf
+        return a.data.next_rotation_at.localeCompare(b.data.next_rotation_at)
+      })
+    }
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return list.sort((a, b) => compare(a, b, sort.key) * dir)
+  }, [rows, sort])
+
+  const ids = sorted.map((r) => r.data.id)
+  useEffect(() => { sel.prune(ids) }, [sorted]) // eslint-disable-line react-hooks/exhaustive-deps
+  const allSelected = sorted.length > 0 && sorted.every((r) => sel.isSelected(r.data.id))
+
+  async function runBulk(label: string, fn: (id: string) => Promise<unknown>) {
+    const targets = ids.filter((id) => sel.isSelected(id))
+    if (targets.length === 0) return
+    setBulkBusy(true)
+    const results = await Promise.allSettled(targets.map((id) => fn(id)))
+    setBulkBusy(false)
+    const failed = results.filter((r) => r.status === 'rejected').length
+    const ok = results.length - failed
+    qc.invalidateQueries({ queryKey: ['ops', 'rotation'] })
+    sel.clear()
+    toast({ title: failed ? `${label} ${ok} · ${failed} failed` : `${label} ${ok}`, tone: failed ? 'danger' : 'success' })
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-end">
@@ -25,8 +112,20 @@ export function RotationPanel({ filter }: { filter: ProjectFilter }) {
           <Plus size={13} strokeWidth={1.8} /> New policy
         </Button>
       </div>
+      {sel.count > 0 && (
+        <OpsSelectionBar
+          count={sel.count}
+          onClear={sel.clear}
+          actions={[
+            { label: 'Pause', onClick: () => runBulk('Paused', (id) => opsEndpoints.rotation.setStatus(id, 'paused')), loading: bulkBusy },
+            { label: 'Resume', onClick: () => runBulk('Resumed', (id) => opsEndpoints.rotation.setStatus(id, 'active')), loading: bulkBusy },
+            { label: 'Rotate now', onClick: () => runBulk('Rotated', (id) => opsEndpoints.rotation.rotateNow(id)), loading: bulkBusy },
+            { label: 'Delete', tone: 'danger', onClick: () => setConfirmBulkDel(true), loading: bulkBusy },
+          ]}
+        />
+      )}
       <OpsTable
-        columns={['Project', 'Config', 'Secret key', 'Type', 'Status', 'Next', 'Last', 'Fails', '']}
+        columns={[...COLUMNS, '']}
         isLoading={isLoading}
         isError={isError}
         allForbidden={someForbidden && rows.length === 0}
@@ -34,12 +133,26 @@ export function RotationPanel({ filter }: { filter: ProjectFilter }) {
         someForbidden={someForbidden}
         forbiddenHint="Ask a project admin for the rotation role."
         emptyHint="No rotation policies yet."
+        sort={sort}
+        onSort={(key) => setSort((prev) => cycleSort(prev, key))}
+        selectable
+        allSelected={allSelected}
+        onToggleAll={() => sel.setAll(ids)}
       >
-        {rows.map((r) => (
-          <RotationRow key={r.data.id} row={r} />
+        {sorted.map((r) => (
+          <RotationRow key={r.data.id} row={r} selected={sel.isSelected(r.data.id)} onToggle={() => sel.toggle(r.data.id)} />
         ))}
       </OpsTable>
       <CreateRotationSheet open={creating} onOpenChange={setCreating} filter={filter} />
+      <ConfirmDialog
+        open={confirmBulkDel}
+        onOpenChange={setConfirmBulkDel}
+        title={`Delete ${sel.count} rotation ${sel.count === 1 ? 'policy' : 'policies'}?`}
+        body={<span>This stops scheduled rotation for the selected policies. Current secret values are unchanged.</span>}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={() => runBulk('Deleted', (id) => opsEndpoints.rotation.remove(id))}
+      />
     </div>
   )
 }
@@ -227,12 +340,13 @@ function CreateRotationSheet({ open, onOpenChange, filter }: {
   )
 }
 
-function RotationRow({ row }: { row: EngineRow<RotationView> }) {
+function RotationRow({ row, selected, onToggle }: { row: EngineRow<RotationView>; selected: boolean; onToggle: () => void }) {
   const qc = useQueryClient()
   const toast = useToast()
   const p = row.data
   const [editing, setEditing] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [showRuns, setShowRuns] = useState(false)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['ops', 'rotation'] })
   const onErr = (e: unknown) => toast({ title: apiErrorTitle(e), tone: 'danger' })
@@ -255,6 +369,15 @@ function RotationRow({ row }: { row: EngineRow<RotationView> }) {
 
   return (
     <tr className="border-b border-line-soft hover:bg-row-hover transition-nocturne">
+      <td className="px-2 py-1.5">
+        <input
+          type="checkbox"
+          aria-label={`select ${p.secret_key}`}
+          checked={selected}
+          onChange={onToggle}
+          className="accent-brand"
+        />
+      </td>
       <td className="px-2 py-1.5">{row.projectName}</td>
       <td className="px-2 py-1.5">{row.cfg ? `${row.cfg.envName}/${row.cfg.configName}` : short(p.config_id)}</td>
       <td className="px-2 py-1.5 font-mono">{p.secret_key}</td>
@@ -268,6 +391,7 @@ function RotationRow({ row }: { row: EngineRow<RotationView> }) {
           <Button size="sm" variant="secondary" loading={rotate.isPending} onClick={() => rotate.mutate()}>Rotate now</Button>
           <Button size="sm" variant="ghost" loading={toggle.isPending} onClick={() => toggle.mutate()}>{p.status === 'paused' ? 'Resume' : 'Pause'}</Button>
           <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Interval</Button>
+          <Button size="sm" variant="ghost" onClick={() => setShowRuns(true)}>Runs</Button>
           <Button size="sm" variant="danger" onClick={() => setConfirmDel(true)}>Delete</Button>
         </div>
       </td>
@@ -287,6 +411,12 @@ function RotationRow({ row }: { row: EngineRow<RotationView> }) {
         confirmLabel="Delete"
         tone="danger"
         onConfirm={() => del.mutate()}
+      />
+      <RunHistorySheet
+        open={showRuns}
+        onOpenChange={setShowRuns}
+        title={`Runs · ${p.secret_key}`}
+        load={(c) => opsEndpoints.rotation.runs(p.id, c)}
       />
     </tr>
   )

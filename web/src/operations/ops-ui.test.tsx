@@ -44,3 +44,24 @@ test('OpsTable renders forbidden EmptyState when allForbidden', () => {
   )
   expect(screen.getByText(/access required/i)).toBeInTheDocument()
 })
+
+test('OpsTable sortable header calls onSort and shows the active caret', async () => {
+  const onSort = vi.fn()
+  render(
+    <OpsTable
+      columns={[{ label: 'Status', key: 'status' }, 'Next']}
+      sort={{ key: 'status', dir: 'asc' }}
+      onSort={onSort}
+      isLoading={false} isError={false} allForbidden={false} isEmpty={false}
+    >
+      <tr><td>row</td></tr>
+    </OpsTable>,
+  )
+  const btn = screen.getByRole('button', { name: /sort by status/i })
+  await userEvent.click(btn)
+  expect(onSort).toHaveBeenCalledWith('status')
+  // a plain string column still renders as text, not a button
+  const next = screen.getByText('Next')
+  expect(next).toBeInTheDocument()
+  expect(next.tagName).not.toBe('BUTTON')
+})

@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -27,4 +27,37 @@ test('renew posts to /renew', async () => {
   renderApp(<LeasesSheet roleId="role1" roleName="readonly" onClose={() => {}} />, { route: '/operations', withAuth: false })
   await userEvent.click(await screen.findByRole('button', { name: /renew/i }))
   expect(hit).toBe(true)
+})
+
+test('bulk revoke: select 2 active leases, confirm gates the revokes, then fires exactly one per id', async () => {
+  const A = { ...LEASE, id: 'la', db_username: 'janus_a' }
+  const B = { ...LEASE, id: 'lb', db_username: 'janus_b' }
+  server.use(http.get('/v1/dynamic/leases', () => HttpResponse.json({ leases: [A, B] })))
+  const revoked: string[] = []
+  server.use(http.post('/v1/dynamic/leases/:id/revoke', ({ params }) => { revoked.push(params.id as string); return HttpResponse.json({ revoked: true }) }))
+  renderApp(<LeasesSheet roleId="role1" roleName="readonly" onClose={() => {}} />, { route: '/operations', withAuth: false })
+
+  await userEvent.click(await screen.findByLabelText('select janus_a'))
+  await userEvent.click(screen.getByLabelText('select janus_b'))
+  // The bulk bar's Revoke button (not a per-card one).
+  await userEvent.click(within(screen.getByRole('toolbar', { name: /bulk actions/i })).getByRole('button', { name: /revoke/i }))
+
+  // ConfirmDialog gates: no revoke until confirm.
+  expect(await screen.findByRole('heading', { name: /revoke 2 leases\?/i })).toBeInTheDocument()
+  expect(revoked).toEqual([])
+
+  const dialog = screen.getByRole('alertdialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: /^revoke$/i }))
+  await waitFor(() => expect(revoked.length).toBe(2))
+  expect(new Set(revoked)).toEqual(new Set(['la', 'lb']))
+})
+
+test('a terminal lease cannot be bulk-selected (checkbox disabled)', async () => {
+  const active = { ...LEASE, id: 'la', db_username: 'janus_active' }
+  const gone = { ...LEASE, id: 'lg', status: 'revoked', db_username: 'janus_revoked' }
+  server.use(http.get('/v1/dynamic/leases', () => HttpResponse.json({ leases: [active, gone] })))
+  renderApp(<LeasesSheet roleId="role1" roleName="readonly" onClose={() => {}} />, { route: '/operations', withAuth: false })
+
+  expect(await screen.findByLabelText('select janus_active')).toBeEnabled()
+  expect(screen.getByLabelText('select janus_revoked')).toBeDisabled()
 })

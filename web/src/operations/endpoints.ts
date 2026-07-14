@@ -43,6 +43,20 @@ export interface SyncView {
   created_at: string
 }
 
+// Run history (value-free): timing, status, sanitized error category, and the
+// resulting config version. NEVER carries a secret/DSN/key value.
+export interface RunView {
+  id: number
+  started_at: string
+  ended_at: string
+  status: 'success' | 'failure'
+  error?: string
+  config_version?: number
+  attempt_num: number
+  keys_count?: number   // sync only
+}
+export interface RunsPage { runs: RunView[]; next_cursor: number | null }
+
 export interface DynamicRoleView {
   id: string
   project_id: string
@@ -117,6 +131,8 @@ export const opsEndpoints = {
     setStatus: (id: string, status: 'active' | 'paused') => api.patch<RotationView>(`/v1/rotation/policies/${id}`, { status }),
     setInterval: (id: string, interval_seconds: number) => api.patch<RotationView>(`/v1/rotation/policies/${id}`, { interval_seconds }),
     remove: (id: string) => api.del<void>(`/v1/rotation/policies/${id}`),
+    runs: (policyId: string, cursor?: number) =>
+      api.get<RunsPage>(`/v1/rotation/policies/${policyId}/runs${cursor ? `?cursor=${cursor}` : ''}`),
   },
   sync: {
     list: (pid: string) =>
@@ -126,6 +142,8 @@ export const opsEndpoints = {
     setStatus: (id: string, status: 'active' | 'paused') => api.patch<SyncView>(`/v1/sync/targets/${id}`, { status }),
     setInterval: (id: string, interval_seconds: number) => api.patch<SyncView>(`/v1/sync/targets/${id}`, { interval_seconds }),
     remove: (id: string) => api.del<void>(`/v1/sync/targets/${id}`),
+    runs: (targetId: string, cursor?: number) =>
+      api.get<RunsPage>(`/v1/sync/targets/${targetId}/runs${cursor ? `?cursor=${cursor}` : ''}`),
   },
   dynamic: {
     listRoles: (cid: string) =>

@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -11,6 +11,7 @@ function topo() {
   server.use(http.get('/v1/projects/:pid/environments/:eid/configs', () => HttpResponse.json({ configs: [{ id: 'c1', environment_id: 'e1', name: 'prod', inherits_from: null, created_at: 'x' }] })))
 }
 const GH = { id: 's1', project_id: 'p1', config_id: 'c1', provider: 'github', prune: true, interval_seconds: 3600, addr: { owner: 'acme', repo: 'widgets', environment: 'production' }, status: 'failed', failure_count: 3, last_error: 'apply failed', next_sync_at: new Date().toISOString(), last_synced_at: null, managed_keys: ['A'], created_at: 'x' }
+const K8S = { ...GH, id: 's2', provider: 'k8s', status: 'active', failure_count: 0, last_error: null, addr: { namespace: 'apps', secret_name: 'app-secrets' }, next_sync_at: new Date(Date.now() + 7200_000).toISOString() }
 
 test('renders provider + destination + failed status with last-error marker', async () => {
   topo()
@@ -160,4 +161,72 @@ test('a create error keeps the Sheet open and shows the inline curated message',
   // "Please check your input." (raw server text is NOT echoed).
   expect(await screen.findByText(/please check your input/i)).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: /new sync target/i })).toBeInTheDocument()
+})
+
+// ── Depth: sort + bulk + run-history ─────────────────────────────────────────
+
+test('bulk sync-now fans out one POST per selected id + summary toast', async () => {
+  topo()
+  server.use(http.get('/v1/sync/targets', () => HttpResponse.json({ targets: [GH, K8S] })))
+  const hits: string[] = []
+  server.use(http.post('/v1/sync/targets/:id/sync', ({ params }) => { hits.push(params.id as string); return HttpResponse.json({ synced: true }) }))
+  renderApp(<SyncPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('acme/widgets:production')
+  await userEvent.click(screen.getByLabelText('select acme/widgets:production'))
+  await userEvent.click(screen.getByLabelText('select apps/app-secrets'))
+  const bar = screen.getByRole('toolbar', { name: /bulk actions/i })
+  await userEvent.click(within(bar).getByRole('button', { name: /sync now/i }))
+  await waitFor(() => expect(hits.sort()).toEqual(['s1', 's2']))
+  // selection clears after the fan-out settles → the bulk bar goes away
+  await waitFor(() => expect(screen.queryByRole('toolbar', { name: /bulk actions/i })).not.toBeInTheDocument())
+})
+
+test('bulk delete only fans out after ConfirmDialog confirm', async () => {
+  topo()
+  server.use(http.get('/v1/sync/targets', () => HttpResponse.json({ targets: [GH, K8S] })))
+  const hits: string[] = []
+  server.use(http.delete('/v1/sync/targets/:id', ({ params }) => { hits.push(params.id as string); return new HttpResponse(null, { status: 204 }) }))
+  renderApp(<SyncPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('acme/widgets:production')
+  await userEvent.click(screen.getByLabelText('select acme/widgets:production'))
+  await userEvent.click(screen.getByLabelText('select apps/app-secrets'))
+  const bar = screen.getByRole('toolbar', { name: /bulk actions/i })
+  await userEvent.click(within(bar).getByRole('button', { name: /^delete$/i }))
+  expect(hits).toHaveLength(0)
+  const dialog = await screen.findByRole('alertdialog')
+  await userEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }))
+  await waitFor(() => expect(hits.sort()).toEqual(['s1', 's2']))
+})
+
+test('clicking a sortable header reorders rows', async () => {
+  topo()
+  server.use(http.get('/v1/sync/targets', () => HttpResponse.json({ targets: [GH, K8S] })))
+  renderApp(<SyncPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('acme/widgets:production')
+  // default = failing first → GH (failed) before K8S (active)
+  const cells = () => screen.getAllByText(/acme\/widgets:production|apps\/app-secrets/).map((n) => n.textContent)
+  expect(cells()[0]).toBe('acme/widgets:production')
+  // sort by provider asc → github before k8s (still GH first)
+  await userEvent.click(screen.getByRole('button', { name: /sort by provider/i }))
+  expect(cells()[0]).toBe('acme/widgets:production')
+  // desc → k8s first
+  await userEvent.click(screen.getByRole('button', { name: /sort by provider/i }))
+  expect(cells()[0]).toBe('apps/app-secrets')
+})
+
+test('per-row Runs button opens the sheet and renders mocked runs', async () => {
+  topo()
+  server.use(http.get('/v1/sync/targets', () => HttpResponse.json({ targets: [GH] })))
+  server.use(http.get('/v1/sync/targets/s1/runs', () => HttpResponse.json({
+    runs: [
+      { id: 1, started_at: new Date(Date.now() - 60_000).toISOString(), ended_at: new Date(Date.now() - 59_000).toISOString(), status: 'success', config_version: 3, attempt_num: 1, keys_count: 4 },
+      { id: 2, started_at: new Date(Date.now() - 120_000).toISOString(), ended_at: new Date(Date.now() - 119_000).toISOString(), status: 'failure', error: 'apply failed', attempt_num: 2 },
+    ],
+    next_cursor: null,
+  })))
+  renderApp(<SyncPanel filter="all" />, { route: '/operations', withAuth: false })
+  await screen.findByText('acme/widgets:production')
+  await userEvent.click(screen.getByRole('button', { name: /^runs$/i }))
+  expect(await screen.findByText('success')).toBeInTheDocument()
+  expect(screen.getByText('failure')).toBeInTheDocument()
 })

@@ -1,10 +1,13 @@
 import { useState, type ReactNode } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react'
 import { Pill, type Tone } from '../ui/Pill'
 import { Tooltip } from '../ui/Tooltip'
 import { Skeleton } from '../ui/Skeleton'
 import { EmptyState } from '../ui/EmptyState'
 import { cn } from '../ui/cn'
+
+export type OpsColumn = { label: string; key: string }
+export type OpsSort = { key: string; dir: 'asc' | 'desc' } | null
 
 const STATUS_TONE: Record<string, Tone> = {
   active: 'success',
@@ -14,6 +17,9 @@ const STATUS_TONE: Record<string, Tone> = {
   expired: 'muted',
   revoked: 'muted',
   revoke_failed: 'danger',
+  // run-history statuses (reuses this pill)
+  success: 'success',
+  failure: 'danger',
 }
 
 export function StatusPill({ status }: { status: string }) {
@@ -74,9 +80,14 @@ export function OpsTable({
   someForbidden,
   emptyTitle = 'Nothing here yet',
   emptyHint,
+  sort,
+  onSort,
+  selectable = false,
+  allSelected = false,
+  onToggleAll,
   children,
 }: {
-  columns: string[]
+  columns: Array<string | OpsColumn>
   isLoading: boolean
   isError: boolean
   allForbidden: boolean
@@ -85,6 +96,11 @@ export function OpsTable({
   someForbidden?: boolean
   emptyTitle?: string
   emptyHint?: string
+  sort?: OpsSort
+  onSort?: (key: string) => void
+  selectable?: boolean
+  allSelected?: boolean
+  onToggleAll?: () => void
   children: ReactNode
 }) {
   if (isLoading) {
@@ -104,9 +120,40 @@ export function OpsTable({
       <table className="w-full min-w-[720px] text-[12.5px]">
         <thead>
           <tr className="border-b border-line bg-surface-1 text-left text-ink-faint">
-            {columns.map((c) => (
-              <th key={c} className="px-2 py-1.5 font-medium">{c}</th>
-            ))}
+            {selectable && (
+              <th className="px-2 py-1.5 w-8">
+                <input
+                  type="checkbox"
+                  aria-label="select all"
+                  checked={!!allSelected}
+                  onChange={onToggleAll}
+                  className="accent-brand"
+                />
+              </th>
+            )}
+            {columns.map((c) => {
+              if (typeof c === 'string') {
+                return <th key={c} className="px-2 py-1.5 font-medium">{c}</th>
+              }
+              if (!onSort) {
+                return <th key={c.key} className="px-2 py-1.5 font-medium">{c.label}</th>
+              }
+              const active = sort?.key === c.key
+              return (
+                <th key={c.key} className="px-2 py-1.5 font-medium">
+                  <button
+                    type="button"
+                    aria-label={`sort by ${c.label.toLowerCase()}`}
+                    onClick={() => onSort(c.key)}
+                    className={cn('inline-flex items-center gap-1 font-medium transition-nocturne',
+                      active ? 'text-brand-text' : 'text-ink-faint hover:text-ink-mute')}
+                  >
+                    {c.label}
+                    {active && (sort!.dir === 'asc' ? <ChevronUp size={12} strokeWidth={2} /> : <ChevronDown size={12} strokeWidth={2} />)}
+                  </button>
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>{children}</tbody>
