@@ -331,7 +331,7 @@ export function SecretEditor() {
         <EmptyState
           className="mt-8"
           title={changedOnly && !filter ? 'No changed keys' : `No keys match “${filter}”`}
-          hint="Adjust the filter or clear ‘Changed only’."
+          hint={changedOnly ? 'Adjust the filter or clear ‘Changed only’.' : 'Adjust the filter to find keys.'}
         />
       ) : (
         <>
