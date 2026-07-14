@@ -415,7 +415,7 @@ func TestRotateNowClearsFailedStatus(t *testing.T) {
 	// status to 'failed' (mirrors real backoff exhaustion).
 	past := time.Now().Add(-time.Hour)
 	for i := 0; i < failureThreshold; i++ {
-		if err := svc.repo.MarkFailure(ctx, created.ID, "apply failed", past, failureThreshold); err != nil {
+		if err := svc.repo.MarkFailure(ctx, created.ID, "apply failed", past, failureThreshold, time.Now(), i+1); err != nil {
 			t.Fatalf("MarkFailure %d: %v", i, err)
 		}
 	}

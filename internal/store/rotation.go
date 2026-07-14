@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // RotationPolicy is one rotation binding: a rotator over a single secret key.
@@ -178,26 +180,52 @@ func (r *RotationRepo) SetPending(ctx context.Context, id string, ct, nonce, wra
 
 // MarkRotated records a successful rotation: clears pending, resets failure
 // state, advances next_rotation_at, and stores the produced config version.
-func (r *RotationRepo) MarkRotated(ctx context.Context, id string, configVersion int, next time.Time) error {
-	return r.s.execAffectingOne(ctx,
-		`UPDATE rotation_policies SET
-		   pending_ct=NULL, pending_nonce=NULL, pending_wrapped_dek=NULL, pending_state=NULL,
-		   failure_count=0, status='active', last_error=NULL,
-		   last_rotated_at=now(), last_config_version=$2, next_rotation_at=$3, updated_at=now()
-		 WHERE id=$1::uuid`, id, configVersion, next)
+func (r *RotationRepo) MarkRotated(ctx context.Context, id string, configVersion int, next, startedAt time.Time, attemptNum int) error {
+	return r.s.withTx(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx,
+			`UPDATE rotation_policies SET
+			   pending_ct=NULL, pending_nonce=NULL, pending_wrapped_dek=NULL, pending_state=NULL,
+			   failure_count=0, status='active', last_error=NULL,
+			   last_rotated_at=now(), last_config_version=$2, next_rotation_at=$3, updated_at=now()
+			 WHERE id=$1::uuid`, id, configVersion, next)
+		if err != nil {
+			return mapError(err)
+		}
+		if ct.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		cv := configVersion
+		return insertRotationRunTx(ctx, tx, RotationRunInput{
+			PolicyID: id, StartedAt: startedAt, EndedAt: time.Now(),
+			Status: "success", ConfigVersion: &cv, AttemptNum: attemptNum,
+		})
+	})
 }
 
 // MarkFailure records a failed attempt: bumps failure_count, stores a sanitized
 // error, sets the backoff retry time, and flips to 'failed' at the threshold.
-func (r *RotationRepo) MarkFailure(ctx context.Context, id, sanitizedErr string, next time.Time, threshold int) error {
-	return r.s.execAffectingOne(ctx,
-		`UPDATE rotation_policies SET
-		   failure_count = failure_count + 1,
-		   last_error    = $2,
-		   next_rotation_at = $3,
-		   status = CASE WHEN failure_count + 1 >= $4 THEN 'failed' ELSE status END,
-		   updated_at = now()
-		 WHERE id=$1::uuid`, id, sanitizedErr, next, threshold)
+func (r *RotationRepo) MarkFailure(ctx context.Context, id, sanitizedErr string, next time.Time, threshold int, startedAt time.Time, attemptNum int) error {
+	return r.s.withTx(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx,
+			`UPDATE rotation_policies SET
+			   failure_count = failure_count + 1,
+			   last_error    = $2,
+			   next_rotation_at = $3,
+			   status = CASE WHEN failure_count + 1 >= $4 THEN 'failed' ELSE status END,
+			   updated_at = now()
+			 WHERE id=$1::uuid`, id, sanitizedErr, next, threshold)
+		if err != nil {
+			return mapError(err)
+		}
+		if ct.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		e := sanitizedErr
+		return insertRotationRunTx(ctx, tx, RotationRunInput{
+			PolicyID: id, StartedAt: startedAt, EndedAt: time.Now(),
+			Status: "failure", Error: &e, ConfigVersion: nil, AttemptNum: attemptNum,
+		})
+	})
 }
 
 // PrepareRotateNow readies a policy for a manual rotate: it makes the policy

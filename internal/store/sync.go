@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // SyncTarget is one sync binding: a config pushed to an external destination
@@ -153,27 +155,53 @@ func (r *SyncTargetRepo) ClaimDue(ctx context.Context, now time.Time, limit int)
 // MarkSynced records a successful sync: resets failure state, advances
 // next_sync_at, and stores the managed-key set, content fingerprint, and
 // synced config version.
-func (r *SyncTargetRepo) MarkSynced(ctx context.Context, id string, managedKeys []string, fingerprint []byte, configVersion int, next time.Time) error {
-	return r.s.execAffectingOne(ctx,
-		`UPDATE sync_targets SET
-		   managed_keys = $2, synced_fingerprint = $3, synced_config_version = $4,
-		   last_synced_at = now(), failure_count = 0, status = 'active', last_error = NULL,
-		   next_sync_at = $5, updated_at = now()
-		 WHERE id = $1::uuid`, id, managedKeys, fingerprint, configVersion, next)
+func (r *SyncTargetRepo) MarkSynced(ctx context.Context, id string, managedKeys []string, fingerprint []byte, configVersion int, next, startedAt time.Time, attemptNum int) error {
+	return r.s.withTx(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx,
+			`UPDATE sync_targets SET
+			   managed_keys = $2, synced_fingerprint = $3, synced_config_version = $4,
+			   last_synced_at = now(), failure_count = 0, status = 'active', last_error = NULL,
+			   next_sync_at = $5, updated_at = now()
+			 WHERE id = $1::uuid`, id, managedKeys, fingerprint, configVersion, next)
+		if err != nil {
+			return mapError(err)
+		}
+		if ct.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		cv := configVersion
+		return insertSyncRunTx(ctx, tx, SyncRunInput{
+			TargetID: id, StartedAt: startedAt, EndedAt: time.Now(),
+			Status: "success", ConfigVersion: &cv, KeysCount: len(managedKeys), AttemptNum: attemptNum,
+		})
+	})
 }
 
 // MarkFailure records a failed attempt: bumps failure_count, stores a
 // sanitized error, sets the backoff retry time, and flips to 'failed' at the
 // threshold. Mirrors RotationRepo.MarkFailure exactly.
-func (r *SyncTargetRepo) MarkFailure(ctx context.Context, id, sanitizedErr string, next time.Time, threshold int) error {
-	return r.s.execAffectingOne(ctx,
-		`UPDATE sync_targets SET
-		   failure_count = failure_count + 1,
-		   last_error    = $2,
-		   next_sync_at  = $3,
-		   status = CASE WHEN failure_count + 1 >= $4 THEN 'failed' ELSE status END,
-		   updated_at = now()
-		 WHERE id=$1::uuid`, id, sanitizedErr, next, threshold)
+func (r *SyncTargetRepo) MarkFailure(ctx context.Context, id, sanitizedErr string, next time.Time, threshold int, startedAt time.Time, attemptNum int) error {
+	return r.s.withTx(ctx, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx,
+			`UPDATE sync_targets SET
+			   failure_count = failure_count + 1,
+			   last_error    = $2,
+			   next_sync_at  = $3,
+			   status = CASE WHEN failure_count + 1 >= $4 THEN 'failed' ELSE status END,
+			   updated_at = now()
+			 WHERE id=$1::uuid`, id, sanitizedErr, next, threshold)
+		if err != nil {
+			return mapError(err)
+		}
+		if ct.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		e := sanitizedErr
+		return insertSyncRunTx(ctx, tx, SyncRunInput{
+			TargetID: id, StartedAt: startedAt, EndedAt: time.Now(),
+			Status: "failure", Error: &e, ConfigVersion: nil, KeysCount: 0, AttemptNum: attemptNum,
+		})
+	})
 }
 
 // PrepareSyncNow readies a target for a manual sync: it makes the target
