@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { Button } from '../ui/Button'
@@ -9,18 +9,88 @@ import { Textarea } from '../ui/Textarea'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { apiErrorTitle, errorMessage } from '../lib/api'
+import { useRowSelection } from '../lib/useRowSelection'
 import { opsEndpoints, type DynamicRoleView, type DynamicRoleCreateInput, type IssuedCreds } from './endpoints'
 import { useDynamicRoles, type EngineRow, type ProjectFilter } from './useAggregated'
 import { ConfigPicker } from './ConfigPicker'
-import { OpsTable } from './ops-ui'
+import { OpsTable, type OpsColumn, type OpsSort } from './ops-ui'
+import { OpsSelectionBar } from './OpsSelectionBar'
 import { IssuedCredsModal } from './IssuedCredsModal'
 import { LeasesSheet } from './LeasesSheet'
+
+const COLUMNS: OpsColumn[] = [
+  { label: 'Project', key: 'project' },
+  { label: 'Config', key: 'config' },
+  { label: 'Role', key: 'role' },
+  { label: 'Default TTL', key: 'default_ttl' },
+  { label: 'Max TTL', key: 'max_ttl' },
+]
+
+// Next-cycle sort idiom (mirror the editor): none → asc → desc → none.
+function cycleSort(prev: OpsSort, key: string): OpsSort {
+  if (prev?.key !== key) return { key, dir: 'asc' }
+  if (prev.dir === 'asc') return { key, dir: 'desc' }
+  return null
+}
+
+function cfgLabel(r: EngineRow<DynamicRoleView>): string {
+  return r.cfg ? `${r.cfg.envName}/${r.cfg.configName}` : ''
+}
+
+function compare(a: EngineRow<DynamicRoleView>, b: EngineRow<DynamicRoleView>, key: string): number {
+  const s = (x: string, y: string) => x.localeCompare(y)
+  switch (key) {
+    case 'project': return s(a.projectName, b.projectName)
+    case 'config': return s(cfgLabel(a), cfgLabel(b))
+    case 'role': return s(a.data.name, b.data.name)
+    case 'default_ttl': return a.data.default_ttl_seconds - b.data.default_ttl_seconds
+    case 'max_ttl': return a.data.max_ttl_seconds - b.data.max_ttl_seconds
+    default: return 0
+  }
+}
 
 export function DynamicPanel({ filter }: { filter: ProjectFilter }) {
   const { rows, isLoading, isError, someForbidden } = useDynamicRoles(filter)
   const [issued, setIssued] = useState<IssuedCreds | null>(null)
   const [leasesFor, setLeasesFor] = useState<{ id: string; name: string } | null>(null)
   const [creating, setCreating] = useState(false)
+  const [sort, setSort] = useState<OpsSort>(null)
+  const sel = useRowSelection()
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [confirmBulkDel, setConfirmBulkDel] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  const sorted = useMemo(() => {
+    const list = [...rows]
+    if (sort === null) {
+      // Roles are stateless (no status) — default by project then role name.
+      return list.sort((a, b) => {
+        const p = a.projectName.localeCompare(b.projectName)
+        if (p !== 0) return p
+        return a.data.name.localeCompare(b.data.name)
+      })
+    }
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return list.sort((a, b) => compare(a, b, sort.key) * dir)
+  }, [rows, sort])
+
+  const ids = sorted.map((r) => r.data.id)
+  useEffect(() => { sel.prune(ids) }, [sorted]) // eslint-disable-line react-hooks/exhaustive-deps
+  const allSelected = sorted.length > 0 && sorted.every((r) => sel.isSelected(r.data.id))
+
+  async function runBulk(label: string, fn: (id: string) => Promise<unknown>) {
+    const targets = ids.filter((id) => sel.isSelected(id))
+    if (targets.length === 0) return
+    setBulkBusy(true)
+    const results = await Promise.allSettled(targets.map((id) => fn(id)))
+    setBulkBusy(false)
+    const failed = results.filter((r) => r.status === 'rejected').length
+    const ok = results.length - failed
+    qc.invalidateQueries({ queryKey: ['ops', 'dynamic'] })
+    sel.clear()
+    toast({ title: failed ? `${label} ${ok} · ${failed} failed` : `${label} ${ok}`, tone: failed ? 'danger' : 'success' })
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -29,8 +99,17 @@ export function DynamicPanel({ filter }: { filter: ProjectFilter }) {
           <Plus size={13} strokeWidth={1.8} /> New role
         </Button>
       </div>
+      {sel.count > 0 && (
+        <OpsSelectionBar
+          count={sel.count}
+          onClear={sel.clear}
+          actions={[
+            { label: 'Delete role', tone: 'danger', loading: bulkBusy, onClick: () => setConfirmBulkDel(true) },
+          ]}
+        />
+      )}
       <OpsTable
-        columns={['Project', 'Config', 'Role', 'Default TTL', 'Max TTL', '']}
+        columns={[...COLUMNS, '']}
         isLoading={isLoading}
         isError={isError}
         allForbidden={someForbidden && rows.length === 0}
@@ -38,14 +117,35 @@ export function DynamicPanel({ filter }: { filter: ProjectFilter }) {
         someForbidden={someForbidden}
         forbiddenHint="Listing dynamic roles needs the dynamic:manage role (admin/owner)."
         emptyHint="No dynamic roles yet."
+        sort={sort}
+        onSort={(key) => setSort((prev) => cycleSort(prev, key))}
+        selectable
+        allSelected={allSelected}
+        onToggleAll={() => sel.setAll(ids)}
       >
-        {rows.map((r) => (
-          <DynamicRow key={r.data.id} row={r} onIssued={setIssued} onViewLeases={(id, name) => setLeasesFor({ id, name })} />
+        {sorted.map((r) => (
+          <DynamicRow
+            key={r.data.id}
+            row={r}
+            selected={sel.isSelected(r.data.id)}
+            onToggle={() => sel.toggle(r.data.id)}
+            onIssued={setIssued}
+            onViewLeases={(id, name) => setLeasesFor({ id, name })}
+          />
         ))}
       </OpsTable>
       <CreateRoleSheet open={creating} onOpenChange={setCreating} filter={filter} />
       <IssuedCredsModal creds={issued} onClose={() => setIssued(null)} />
       <LeasesSheet roleId={leasesFor?.id ?? null} roleName={leasesFor?.name ?? ''} onClose={() => setLeasesFor(null)} />
+      <ConfirmDialog
+        open={confirmBulkDel}
+        onOpenChange={setConfirmBulkDel}
+        title={`Delete ${sel.count} dynamic role${sel.count === 1 ? '' : 's'}?`}
+        body={<span>This revokes each role's live leases first, then removes the role.</span>}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={() => runBulk('Deleted', (id) => opsEndpoints.dynamic.deleteRole(id))}
+      />
     </div>
   )
 }
@@ -218,9 +318,11 @@ function CreateRoleSheet({ open, onOpenChange, filter }: {
 }
 
 function DynamicRow({
-  row, onIssued, onViewLeases,
+  row, selected, onToggle, onIssued, onViewLeases,
 }: {
   row: EngineRow<DynamicRoleView>
+  selected: boolean
+  onToggle: () => void
   onIssued: (c: IssuedCreds) => void
   onViewLeases: (id: string, name: string) => void
 }) {
@@ -247,6 +349,15 @@ function DynamicRow({
 
   return (
     <tr className="border-b border-line-soft hover:bg-row-hover transition-nocturne">
+      <td className="px-2 py-1.5">
+        <input
+          type="checkbox"
+          aria-label={`select ${r.name}`}
+          checked={selected}
+          onChange={onToggle}
+          className="accent-brand"
+        />
+      </td>
       <td className="px-2 py-1.5">{row.projectName}</td>
       <td className="px-2 py-1.5">{row.cfg ? `${row.cfg.envName}/${row.cfg.configName}` : '—'}</td>
       <td className="px-2 py-1.5 font-mono">{r.name}</td>
