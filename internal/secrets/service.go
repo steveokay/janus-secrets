@@ -19,6 +19,7 @@ type Service struct {
 	envs     *store.EnvironmentRepo
 	configs  *store.ConfigRepo
 	secrets  *store.SecretRepo
+	kekVers  *store.ProjectKEKVersionRepo
 	keyring  *crypto.Keyring
 }
 
@@ -31,6 +32,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		envs:     store.NewEnvironmentRepo(st),
 		configs:  store.NewConfigRepo(st),
 		secrets:  store.NewSecretRepo(st),
+		kekVers:  store.NewProjectKEKVersionRepo(st),
 		keyring:  kr,
 	}
 }
