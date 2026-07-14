@@ -21,6 +21,12 @@ var (
 	// an integrity signal (tampered/relocated ciphertext), never a missing key.
 	// Its message carries no plaintext or key material.
 	ErrDecrypt = errors.New("secrets: decryption failed")
+
+	// errKEKVersionRetired is an internal signal (never surfaced to callers) that
+	// a value row referenced a superseded KEK version that a concurrent rewrap
+	// retired between the state snapshot and KEK resolution. The read path re-reads
+	// fresh state and retries once; a persistent occurrence collapses to ErrDecrypt.
+	errKEKVersionRetired = errors.New("secrets: kek version retired")
 )
 
 // mapCryptoErr translates crypto sentinels into service sentinels.
