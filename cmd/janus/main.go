@@ -36,6 +36,7 @@ func newRootCmd() *cobra.Command {
 		newSetupCmd(),
 		newSecretsCmd(),
 		newRunCmd(),
+		newProjectCmd(),
 		newRotationCmd(),
 		newSyncCmd(),
 		newDynamicCmd(),

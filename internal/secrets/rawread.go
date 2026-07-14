@@ -55,13 +55,10 @@ func (s *Service) rawFor(ctx context.Context, proj *store.Project, env *store.En
 	}
 	values := make(map[string][]byte, len(state))
 	if len(state) > 0 {
-		kek, err := s.unwrapProjectKEK(proj)
-		if err != nil {
-			return resolve.RawConfig{}, err
-		}
-		defer zeroize(kek)
+		res := s.newKEKResolver(proj)
+		defer res.zero()
 		for key, sv := range state {
-			pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
+			pt, err := s.decryptValue(ctx, proj, cfg.ID, sv, res)
 			if err != nil {
 				for _, v := range values {
 					zeroize(v)

@@ -31,6 +31,7 @@ const (
 	SyncManage     Action = "sync:manage"     // project-scoped
 	DynamicManage  Action = "dynamic:manage"  // project-scoped (create/update/delete roles)
 	DynamicIssue   Action = "dynamic:issue"   // project-scoped (issue/renew/revoke leases)
+	KEKManage      Action = "kek:manage"      // project-scoped, owner-only (rotate/rewrap/status project KEK)
 )
 
 // Role is a named bundle of actions.
@@ -68,7 +69,7 @@ var (
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
 		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage))
-	ownerActions = union(adminActions, setOf(ProjectDelete))
+	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage))
 
 	roleActions = map[Role]map[Action]bool{
 		RoleViewer:    viewerActions,

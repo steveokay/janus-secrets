@@ -112,12 +112,9 @@ func (s *Service) GetSecret(ctx context.Context, configID, key string) (Secret, 
 	if !ok {
 		return Secret{}, ErrNotFound
 	}
-	kek, err := s.unwrapProjectKEK(proj)
-	if err != nil {
-		return Secret{}, err
-	}
-	defer zeroize(kek)
-	pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
+	res := s.newKEKResolver(proj)
+	defer res.zero()
+	pt, err := s.decryptValue(ctx, proj, cfg.ID, sv, res)
 	if err != nil {
 		return Secret{}, err
 	}
@@ -134,14 +131,11 @@ func (s *Service) RevealConfig(ctx context.Context, configID string) (store.Conf
 	if err != nil {
 		return store.ConfigVersion{}, nil, mapStoreErr(err)
 	}
-	kek, err := s.unwrapProjectKEK(proj)
-	if err != nil {
-		return store.ConfigVersion{}, nil, err
-	}
-	defer zeroize(kek)
+	res := s.newKEKResolver(proj)
+	defer res.zero()
 	out := make(map[string]Secret, len(state))
 	for key, sv := range state {
-		pt, err := s.decryptValue(proj, cfg.ID, sv, kek)
+		pt, err := s.decryptValue(ctx, proj, cfg.ID, sv, res)
 		if err != nil {
 			// Failing partway through: wipe the plaintexts already decrypted
 			// into out before abandoning it, keeping the package's zeroization
@@ -179,12 +173,9 @@ func (s *Service) GetSecretVersion(ctx context.Context, configID, key string, va
 	if found == nil {
 		return Secret{}, ErrNotFound
 	}
-	kek, err := s.unwrapProjectKEK(proj)
-	if err != nil {
-		return Secret{}, err
-	}
-	defer zeroize(kek)
-	pt, err := s.decryptValue(proj, cfg.ID, *found, kek)
+	res := s.newKEKResolver(proj)
+	defer res.zero()
+	pt, err := s.decryptValue(ctx, proj, cfg.ID, *found, res)
 	if err != nil {
 		return Secret{}, err
 	}
@@ -208,8 +199,10 @@ func (s *Service) resolveProject(ctx context.Context, configID string) (*store.C
 	return cfg, proj, nil
 }
 
-// unwrapProjectKEK parses and unwraps proj's stored KEK. The caller must
-// zeroize the returned key.
+// unwrapProjectKEK parses and unwraps proj's LATEST stored KEK. The caller must
+// zeroize the returned key. Used by the write path, which always encrypts under
+// the current project KEK version. Read paths use kekResolver instead, so they
+// can unwrap DEKs still wrapped under a superseded KEK after a rotation.
 func (s *Service) unwrapProjectKEK(proj *store.Project) ([]byte, error) {
 	ct, err := crypto.ParseCiphertext(proj.WrappedKEK)
 	if err != nil {
@@ -222,9 +215,67 @@ func (s *Service) unwrapProjectKEK(proj *store.Project) ([]byte, error) {
 	return kek, nil
 }
 
-// decryptValue decrypts one stored SecretValue using an already-unwrapped kek.
-func (s *Service) decryptValue(proj *store.Project, configID string, sv store.SecretValue, kek []byte) ([]byte, error) {
+// kekResolver unwraps and caches a project's KEKs by version for the lifetime of
+// one read. After a project-KEK rotation, different secret_values rows may be
+// wrapped under different KEK versions (dek_key_version), so a single read may
+// need more than one KEK: the latest comes from proj.WrappedKEK, older ones from
+// project_kek_versions. Cached KEK bytes are zeroized on zero().
+type kekResolver struct {
+	s     *Service
+	proj  *store.Project
+	cache map[int][]byte
+}
+
+func (s *Service) newKEKResolver(proj *store.Project) *kekResolver {
+	return &kekResolver{s: s, proj: proj, cache: map[int][]byte{}}
+}
+
+// forVersion returns the (cached) unwrapped project KEK for the given version.
+// The returned slice is owned by the resolver; the caller must NOT zeroize it —
+// zero() wipes every cached KEK when the read completes.
+func (kr *kekResolver) forVersion(ctx context.Context, version int) ([]byte, error) {
+	if k, ok := kr.cache[version]; ok {
+		return k, nil
+	}
+	var wrapped []byte
+	if version == kr.proj.KEKVersion {
+		wrapped = kr.proj.WrappedKEK
+	} else {
+		b, err := kr.s.kekVers.GetWrapped(ctx, kr.proj.ID, version)
+		if err != nil {
+			return nil, mapStoreErr(err)
+		}
+		wrapped = b
+	}
+	ct, err := crypto.ParseCiphertext(wrapped)
+	if err != nil {
+		return nil, ErrDecrypt
+	}
+	kek, err := kr.s.keyring.UnwrapProjectKEK(ct, kr.proj.ID)
+	if err != nil {
+		return nil, mapCryptoErr(err)
+	}
+	kr.cache[version] = kek
+	return kek, nil
+}
+
+// zero wipes every cached KEK. Call on defer once the read completes.
+func (kr *kekResolver) zero() {
+	for _, k := range kr.cache {
+		zeroize(k)
+	}
+}
+
+// decryptValue decrypts one stored SecretValue, resolving the project KEK for
+// the value's own DEKKeyVersion via res (rotation-aware). Only the KEK source
+// differs from the write path; AAD derivation, DEK unwrap, and Decrypt are
+// unchanged.
+func (s *Service) decryptValue(ctx context.Context, proj *store.Project, configID string, sv store.SecretValue, res *kekResolver) ([]byte, error) {
 	aad, err := dekAAD(proj.ID, configID+"/"+sv.Key, sv.ValueVersion)
+	if err != nil {
+		return nil, err
+	}
+	kek, err := res.forVersion(ctx, sv.DEKKeyVersion)
 	if err != nil {
 		return nil, err
 	}

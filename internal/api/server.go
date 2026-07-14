@@ -13,6 +13,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
+	"github.com/steveokay/janus-secrets/internal/projectkeys"
 	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/secretsync"
@@ -44,12 +45,16 @@ type Server struct {
 	rotation *rotation.Service   // nil in unit-test servers that exercise no rotation path
 	sync     *secretsync.Service // nil in unit-test servers that exercise no sync path
 	dynamic  *dynamic.Service    // nil in unit-test servers that exercise no dynamic path
-	auth     *auth.Service       // nil only in unit tests that exercise no auth path
-	authz    *authz.Engine       // nil only in unit-test servers that exercise no authz path
-	st       *store.Store        // for scope-chain resolution + membership/user handlers
-	audit    *audit.Recorder     // nil in unit-test servers; Boot always wires a real one
-	logger   *slog.Logger
-	router   chi.Router
+	// projectKeys drives owner-only project-KEK rotate/rewrap/status. Constructed
+	// in New from the keyring + store (both always present in production); nil in
+	// unit-test servers built without a real store.
+	projectKeys *projectkeys.Service
+	auth        *auth.Service   // nil only in unit tests that exercise no auth path
+	authz       *authz.Engine   // nil only in unit-test servers that exercise no authz path
+	st          *store.Store    // for scope-chain resolution + membership/user handlers
+	audit       *audit.Recorder // nil in unit-test servers; Boot always wires a real one
+	logger      *slog.Logger
+	router      chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
 	// get-then-put, so unserialized concurrent inits could both report
 	// success while only one share set matches the stored seal.
@@ -68,6 +73,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	}
 	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr, rotation: rot,
 		sync: syncSvc, dynamic: dyn, auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
+	// Project-KEK rotation service: available whenever a real keyring and store
+	// are wired (production and full e2e). Unit-test servers built with a nil
+	// store leave it nil and simply don't mount the /kek routes.
+	if kr != nil && st != nil {
+		s.projectKeys = projectkeys.New(kr, store.NewProjectRepo(st), store.NewProjectKEKVersionRepo(st), store.NewSecretRepo(st))
+	}
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
@@ -186,6 +197,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Delete("/v1/projects/{pid}", s.handleProjectDelete)
 			r.Post("/v1/projects/{pid}/restore", s.handleProjectRestore)
 		})
+		if s.projectKeys != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/projects/{pid}/kek/rotate", s.handleKEKRotate)
+				r.Post("/v1/projects/{pid}/kek/rewrap", s.handleKEKRewrap)
+				r.Get("/v1/projects/{pid}/kek", s.handleKEKStatus)
+			})
+		}
 		r.Group(func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
 			r.Post("/v1/projects/{pid}/environments", s.handleEnvCreate)
