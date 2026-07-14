@@ -1,0 +1,171 @@
+package api
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+	"testing"
+
+	"github.com/steveokay/janus-secrets/internal/secrets"
+	"github.com/steveokay/janus-secrets/internal/store"
+)
+
+// TestPromoteApplyE2E exercises the promote preview + apply endpoints against a
+// dev->staging->prod pipeline. It asserts: owner can preview (diff with statuses)
+// and apply selected keys forward (value verified promoted); a developer lacking
+// secret:promote on the target is forbidden; an illegal pipeline step is 409; and
+// a locked target key blocks apply with 409.
+func TestPromoteApplyE2E(t *testing.T) {
+	ts, srv, ownerEmail, ownerPassword, _ := authStackFull(t)
+	ctx := context.Background()
+	ownerCookie := login(t, ts.URL, ownerEmail, ownerPassword)
+
+	// A dedicated project with a dev->staging->prod pipeline.
+	p, err := srv.service.CreateProject(ctx, "promoapply", "Promote Apply Project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := srv.service.CreateEnvironment(ctx, p.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stg, err := srv.service.CreateEnvironment(ctx, p.ID, "staging", "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod, err := srv.service.CreateEnvironment(ctx, p.ID, "prod", "Prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.NewPipelineRepo(srv.st).Set(ctx, p.ID, []string{dev.ID, stg.ID, prod.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same-named "root" configs in each env.
+	devCfg, err := srv.service.CreateConfig(ctx, dev.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stgCfg, err := srv.service.CreateConfig(ctx, stg.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prodCfg, err := srv.service.CreateConfig(ctx, prod.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed dev's config: A and B.
+	cv, err := srv.service.SetSecrets(ctx, devCfg.ID, []secrets.SecretChange{
+		{Key: "A", Value: []byte("aval")},
+		{Key: "B", Value: []byte("bval")},
+	}, "seed", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srcVersion := cv.Version
+
+	// --- Preview (owner) ---
+	var prev struct {
+		SourceVersion int `json:"source_version"`
+		TargetExists  bool `json:"target_exists"`
+		Entries       []struct {
+			Key    string `json:"key"`
+			Status string `json:"status"`
+		} `json:"entries"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/preview?from="+devCfg.ID+"&to="+stgCfg.ID, ownerCookie, "", "", &prev); code != 200 {
+		t.Fatalf("owner preview: want 200, got %d", code)
+	}
+	if len(prev.Entries) == 0 {
+		t.Fatalf("preview: want at least one entry, got %+v", prev)
+	}
+	foundStatus := false
+	for _, e := range prev.Entries {
+		if e.Status != "" {
+			foundStatus = true
+		}
+	}
+	if !foundStatus {
+		t.Fatalf("preview: want an entry with a status, got %+v", prev.Entries)
+	}
+
+	// --- Illegal step (dev -> prod) on preview -> 409 ---
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/preview?from="+devCfg.ID+"&to="+prodCfg.ID, ownerCookie, "", "", nil); code != http.StatusConflict {
+		t.Fatalf("illegal-step preview: want 409, got %d", code)
+	}
+
+	// --- Developer lacking secret:promote on the target -> 403 on apply ---
+	// Grant developer on the SOURCE (dev) env only, so they have secret:read on
+	// the source but no secret:promote on the staging target.
+	devUserID, devUserPassword, err := srv.auth.CreateUser(ctx, "promo-applier@corp.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: devUserID, ScopeLevel: "environment", EnvironmentID: &dev.ID, Role: "developer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Grant viewer on staging so config resolution/read passes but promote is denied.
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: devUserID, ScopeLevel: "environment", EnvironmentID: &stg.ID, Role: "viewer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	devUserCookie := login(t, ts.URL, "promo-applier@corp.io", devUserPassword)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/promote", devUserCookie, "",
+		`{"from_config":"`+devCfg.ID+`","to_config":"`+stgCfg.ID+`","source_version":`+strconv.Itoa(srcVersion)+`,"selections":[{"key":"B","action":"set"}]}`, nil); code != http.StatusForbidden {
+		t.Fatalf("developer apply (no secret:promote on target): want 403, got %d", code)
+	}
+
+	// --- Illegal step on apply (dev -> prod) -> 409 ---
+	if code := doAuthed(t, "POST", ts.URL+"/v1/promote", ownerCookie, "",
+		`{"from_config":"`+devCfg.ID+`","to_config":"`+prodCfg.ID+`","source_version":`+strconv.Itoa(srcVersion)+`,"selections":[{"key":"B","action":"set"}]}`, nil); code != http.StatusConflict {
+		t.Fatalf("illegal-step apply: want 409, got %d", code)
+	}
+
+	// --- Owner apply promoting B -> 200, B appears in staging ---
+	var applyResp struct {
+		TargetVersion int      `json:"target_version"`
+		Applied       []string `json:"applied"`
+		Skipped       []string `json:"skipped"`
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/promote", ownerCookie, "",
+		`{"from_config":"`+devCfg.ID+`","to_config":"`+stgCfg.ID+`","source_version":`+strconv.Itoa(srcVersion)+`,"selections":[{"key":"B","action":"set"}]}`, &applyResp); code != 200 {
+		t.Fatalf("owner apply: want 200, got %d", code)
+	}
+	if len(applyResp.Applied) != 1 || applyResp.Applied[0] != "B" {
+		t.Fatalf("owner apply: want applied [B], got %+v", applyResp.Applied)
+	}
+	// Verify B was promoted to staging.
+	var reveal struct {
+		Value string `json:"value"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+stgCfg.ID+"/secrets/B", ownerCookie, "", "", &reveal); code != 200 {
+		t.Fatalf("staging reveal B: want 200, got %d", code)
+	}
+	if reveal.Value != "bval" {
+		t.Fatalf("staging reveal B: want bval, got %q", reveal.Value)
+	}
+	// A must NOT have been promoted (only B selected).
+	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+stgCfg.ID+"/secrets/A", ownerCookie, "", "", nil); code == 200 {
+		t.Fatalf("staging reveal A: want non-200 (A not promoted), got 200")
+	}
+
+	// --- Locked key: lock B on staging, then apply selecting B -> 409 ---
+	if err := store.NewLockedKeyRepo(srv.st).Lock(ctx, stgCfg.ID, "B", ""); err != nil {
+		t.Fatal(err)
+	}
+	// Re-seed dev B with a new value + bump version so there is something to promote.
+	cv2, err := srv.service.SetSecrets(ctx, devCfg.ID, []secrets.SecretChange{
+		{Key: "B", Value: []byte("bval2")},
+	}, "reseed", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/promote", ownerCookie, "",
+		`{"from_config":"`+devCfg.ID+`","to_config":"`+stgCfg.ID+`","source_version":`+strconv.Itoa(cv2.Version)+`,"selections":[{"key":"B","action":"set"}]}`, nil); code != http.StatusConflict {
+		t.Fatalf("locked-key apply: want 409, got %d", code)
+	}
+}

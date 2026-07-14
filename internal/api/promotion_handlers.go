@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
+	"github.com/steveokay/janus-secrets/internal/promote"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
 
@@ -126,4 +130,149 @@ func (s *Server) handleLockedKeyDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"key": key, "locked": false})
+}
+
+// configResourceByID resolves a config's scope chain from an explicit id.
+func (s *Server) configResourceByID(ctx context.Context, cid string) (authz.Resource, error) {
+	return s.resolveScopeResource(ctx, "config", cid)
+}
+
+// promoteDiffView maps a promote.Diff to its JSON wire shape.
+func promoteDiffView(d promote.Diff) map[string]any {
+	entries := make([]map[string]any, 0, len(d.Entries))
+	for _, e := range d.Entries {
+		entries = append(entries, map[string]any{
+			"key":          e.Key,
+			"status":       string(e.Status),
+			"source_value": e.SourceValue,
+			"target_value": e.TargetValue,
+			"locked":       e.Locked,
+		})
+	}
+	return map[string]any{
+		"source_version": d.SourceVersion,
+		"target_exists":  d.TargetExists,
+		"entries":        entries,
+	}
+}
+
+// writePromoteError maps promote sentinels to HTTP; else delegates.
+func (s *Server) writePromoteError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, promote.ErrIllegalStep), errors.Is(err, promote.ErrNoPipeline):
+		writeError(w, http.StatusConflict, "pipeline_step_not_allowed", "not the next pipeline step")
+	case errors.Is(err, promote.ErrLockedKey):
+		writeError(w, http.StatusConflict, "key_locked", "a selected key is locked on the target")
+	default:
+		s.writeServiceError(w, err)
+	}
+}
+
+func (s *Server) handlePromotePreview(w http.ResponseWriter, r *http.Request) {
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from == "" || to == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "from and to config ids are required")
+		return
+	}
+	srcRes, err := s.configResourceByID(r.Context(), from)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	dstRes, err := s.configResourceByID(r.Context(), to)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	// Preview reveals both sides → secret:read on both, audited.
+	if !s.authorize(w, r, authz.SecretRead, srcRes, "secret.reveal", "configs/"+from+"/secrets") {
+		return
+	}
+	if err := s.can(r, authz.SecretRead, dstRes); err != nil {
+		s.writeAuthzError(w, err)
+		return
+	}
+	diff, err := s.promote.Preview(r.Context(), from, to, promoteActorUser(r))
+	if err != nil {
+		s.writePromoteError(w, err)
+		return
+	}
+	if err := s.record(r, "secret.reveal", "configs/"+to+"/secrets", "success", "", "promote-preview"); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, promoteDiffView(diff))
+}
+
+func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From          string `json:"from_config"`
+		To            string `json:"to_config"`
+		ToEnv         string `json:"to_env"`
+		ToName        string `json:"to_name"`
+		Create        bool   `json:"create"`
+		SourceVersion int    `json:"source_version"`
+		Selections    []struct {
+			Key    string `json:"key"`
+			Action string `json:"action"`
+		} `json:"selections"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	if body.From == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "from_config is required")
+		return
+	}
+	srcRes, err := s.configResourceByID(r.Context(), body.From)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.can(r, authz.SecretRead, srcRes); err != nil {
+		s.writeAuthzError(w, err)
+		return
+	}
+	// Target authz: promote on the target. If creating, resolve by env + require config:create.
+	var dstRes authz.Resource
+	if body.To != "" {
+		if dstRes, err = s.configResourceByID(r.Context(), body.To); err != nil {
+			s.writeServiceError(w, err)
+			return
+		}
+	} else {
+		dstRes = authz.Resource{EnvID: body.ToEnv}
+		if err := s.can(r, authz.ConfigCreate, dstRes); err != nil {
+			s.writeAuthzError(w, err)
+			return
+		}
+	}
+	if !s.authorize(w, r, authz.SecretPromote, dstRes, "secret.promote", "configs/"+body.To) {
+		return
+	}
+	sels := make([]promote.Selection, 0, len(body.Selections))
+	for _, sel := range body.Selections {
+		sels = append(sels, promote.Selection{Key: sel.Key, Action: promote.Action(sel.Action)})
+	}
+	res, err := s.promote.Apply(r.Context(), promote.ApplyRequest{
+		SourceConfigID: body.From, TargetConfigID: body.To, TargetEnvID: body.ToEnv, TargetName: body.ToName,
+		CreateTarget: body.Create, SourceVersion: body.SourceVersion, Selections: sels, Actor: promoteActorUser(r),
+	})
+	if err != nil {
+		s.writePromoteError(w, err)
+		return
+	}
+	appliedKeys := make([]string, 0, len(res.Applied))
+	for _, a := range res.Applied {
+		appliedKeys = append(appliedKeys, a.Key)
+	}
+	if err := s.record(r, "secret.promote", "configs/"+body.To, "success", "", strings.Join(appliedKeys, ",")); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"target_version": res.TargetVersion, "applied": appliedKeys, "skipped": res.Skipped,
+	})
 }

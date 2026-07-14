@@ -224,6 +224,8 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/v1/configs/{cid}/locked-keys", s.handleLockedKeysList)
 				r.Post("/v1/configs/{cid}/locked-keys", s.handleLockedKeyCreate)
 				r.Delete("/v1/configs/{cid}/locked-keys/{key}", s.handleLockedKeyDelete)
+				r.Get("/v1/promote/preview", s.handlePromotePreview)
+				r.Post("/v1/promote", s.handlePromoteApply)
 			})
 		}
 		r.Group(func(r chi.Router) {
