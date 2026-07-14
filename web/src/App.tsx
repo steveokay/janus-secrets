@@ -13,6 +13,7 @@ import { SecretEditor } from './secrets/SecretEditor'
 import { HomePage } from './home/HomePage'
 import { ProjectsList } from './home/ProjectsList'
 import { ProjectBoard } from './home/ProjectBoard'
+import { PipelineSettings } from './promotion/PipelineSettings'
 import { AuditPage } from './audit/AuditPage'
 import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
@@ -57,6 +58,7 @@ function Gate() {
             <Route path="/" element={<HomePage />} />
             <Route path="/projects" element={<ProjectsList />} />
             <Route path="/projects/:projectId" element={<ProjectBoard />} />
+            <Route path="/projects/:projectId/pipeline" element={<PipelineSettings />} />
             <Route path="/projects/:projectId/configs/:configId" element={<SecretEditor />} />
             <Route path="/projects/:projectId/audit" element={<AuditPage />} />
             <Route path="/audit" element={<AuditPage />} />

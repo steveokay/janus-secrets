@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Eye, Copy, Pencil, X, Undo2, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react'
+import { Eye, Copy, Pencil, X, Undo2, RotateCcw, ChevronUp, ChevronDown, Lock, LockOpen } from 'lucide-react'
 import type { MaskedSecret } from '../lib/endpoints'
 import type { Buffer } from './dirty'
 import { Pill } from '../ui/Pill'
@@ -9,7 +9,7 @@ import { relativeTime } from '../lib/relativeTime'
 import type { SortKey, SortState } from './sortRows'
 import { cn } from '../ui/cn'
 
-const GRID = 'grid grid-cols-[24px_1.2fr_1.4fr_104px_92px_56px_72px] items-center gap-3 px-4'
+const GRID = 'grid grid-cols-[24px_1.2fr_1.4fr_104px_92px_56px_96px] items-center gap-3 px-4'
 
 const railTone: Record<'added' | 'edited' | 'removed', string> = {
   added: 'bg-success',
@@ -70,6 +70,7 @@ export function SecretTable({
   rows, masked, buffer, original, editing, revealed,
   sort, onSort, selected, onToggleSelect, onSelectAll, active,
   onReveal, onCopy, onEdit, onChangeValue, onRemove, onRevert,
+  lockedKeys, onToggleLock,
 }: {
   rows: string[]
   masked: Record<string, MaskedSecret>
@@ -89,10 +90,12 @@ export function SecretTable({
   onChangeValue: (key: string, value: string) => void
   onRemove: (key: string) => void
   onRevert: (key: string) => void
+  lockedKeys: Set<string>
+  onToggleLock: (key: string) => void
 }) {
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-[820px] rounded-card border border-line bg-card shadow-elev-1 overflow-hidden">
+      <div className="min-w-[844px] rounded-card border border-line bg-card shadow-elev-1 overflow-hidden">
       <div className={cn(GRID, 'bg-surface-1 py-2.5')}>
         <span className="flex items-center">
           <input
@@ -132,10 +135,13 @@ export function SecretTable({
             </span>
 
             {/* Key */}
-            <span className={cn('font-mono text-[12.5px] font-semibold text-ink truncate', strike)}>
-              {key}
+            <span className={cn('font-mono text-[12.5px] font-semibold text-ink truncate flex items-center gap-1', strike)}>
+              <span className="truncate">{key}</span>
+              {lockedKeys.has(key) && (
+                <Lock size={11} strokeWidth={1.9} className="shrink-0 text-warning" aria-label={`${key} is promotion-locked`} />
+              )}
               {st.change && (
-                <span className={cn('ml-1.5 text-[10px] font-bold uppercase tracking-[.06em]', chipTone[st.change])}>
+                <span className={cn('ml-0.5 text-[10px] font-bold uppercase tracking-[.06em]', chipTone[st.change])}>
                   {st.change}
                 </span>
               )}
@@ -183,6 +189,13 @@ export function SecretTable({
 
             {/* Actions */}
             <span className="flex justify-end gap-1">
+              {st.existing && (
+                lockedKeys.has(key) ? (
+                  <IconButton label={`unlock ${key}`} onClick={() => onToggleLock(key)}><Lock {...ICON} /></IconButton>
+                ) : (
+                  <IconButton label={`lock ${key}`} onClick={() => onToggleLock(key)}><LockOpen {...ICON} /></IconButton>
+                )
+              )}
               {isEditing ? (
                 <IconButton label={`cancel edit ${key}`} onClick={() => onRevert(key)}><X {...ICON} /></IconButton>
               ) : st.change === 'added' ? (

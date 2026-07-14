@@ -14,6 +14,7 @@ function props(over = {}) {
     sort: null, onSort: vi.fn(),
     selected: new Set<string>(), onToggleSelect: vi.fn(), onSelectAll: vi.fn(), active: null,
     onReveal: vi.fn(), onCopy: vi.fn(), onEdit: vi.fn(), onChangeValue: vi.fn(), onRemove: vi.fn(), onRevert: vi.fn(),
+    lockedKeys: new Set<string>(), onToggleLock: vi.fn(),
     ...over,
   }
 }

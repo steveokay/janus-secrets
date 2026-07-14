@@ -26,6 +26,7 @@ import { Skeleton } from '../ui/Skeleton'
 import { toEnvText } from './exportEnv'
 import { useRowNav } from './useRowNav'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { promotion } from '../promotion/endpoints'
 
 export function SecretEditor() {
   useTitle('Secrets')
@@ -35,6 +36,10 @@ export function SecretEditor() {
   const toast = useToast()
   const masked = useQuery({ queryKey: ['config', cid, 'masked'], queryFn: () => endpoints.maskedSecrets(cid) })
   const versions = useQuery({ queryKey: ['config', cid, 'versions'], queryFn: () => endpoints.listVersions(cid) })
+  // Promotion-locked keys — value-free (key names only). 403 (promotion off /
+  // not admin) is tolerated as "no locks", never an error surface.
+  const lockedQ = useQuery({ queryKey: ['config', cid, 'locked'], queryFn: () => promotion.locked.list(cid), retry: false })
+  const lockedKeys = new Set(lockedQ.data?.keys ?? [])
   const [buffer, setBuffer] = useState<Buffer>(emptyBuffer())
   const [editing, setEditing] = useState<Record<string, boolean>>({})
   // Viewing reveal — re-maskable, RAW. Ephemeral component state only, never cached.
@@ -87,6 +92,21 @@ export function SecretEditor() {
     // so there is a single, transient failure surface.
     onError: (e) => toast({ title: errorMessage(e, 'Save failed.'), tone: 'danger' }),
   })
+
+  // Promotion lock toggle — admin-gated server-side (no client role signal), so
+  // the UI just fires and lets a 403 surface a danger toast. Value-free: only a
+  // key name crosses the wire.
+  const lockMut = useMutation({
+    mutationFn: (key: string) => promotion.locked.lock(cid, key),
+    onSuccess: (_r, key) => { void qc.invalidateQueries({ queryKey: ['config', cid, 'locked'] }); toast({ title: `Locked ${key}` }) },
+    onError: (e) => toast({ title: errorMessage(e), tone: 'danger' }),
+  })
+  const unlockMut = useMutation({
+    mutationFn: (key: string) => promotion.locked.unlock(cid, key),
+    onSuccess: (_r, key) => { void qc.invalidateQueries({ queryKey: ['config', cid, 'locked'] }); toast({ title: `Unlocked ${key}` }) },
+    onError: (e) => toast({ title: errorMessage(e), tone: 'danger' }),
+  })
+  const onToggleLock = (key: string) => (lockedKeys.has(key) ? unlockMut : lockMut).mutate(key)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -364,6 +384,8 @@ export function SecretEditor() {
           onChangeValue={changeValue}
           onRemove={remove}
           onRevert={undo}
+          lockedKeys={lockedKeys}
+          onToggleLock={onToggleLock}
         />
         </>
       )}

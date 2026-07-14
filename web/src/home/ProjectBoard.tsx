@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Lock, Plus, Layers, ArrowRight } from 'lucide-react'
+import { Lock, Plus, Layers, ArrowRight, GitBranch } from 'lucide-react'
 import { endpoints, Config, Environment } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
@@ -297,6 +297,12 @@ export function ProjectBoard() {
         <Link to="/projects" className="text-ink-mute hover:text-ink">Projects</Link>
         <span className="text-ink-faint">/</span>
         <span className="font-semibold text-ink">{project?.name ?? '…'}</span>
+        <Link
+          to={`/projects/${pid}/pipeline`}
+          className="ml-auto inline-flex items-center gap-1.5 text-ink-mute hover:text-ink"
+        >
+          <GitBranch size={13} strokeWidth={1.8} aria-hidden /> Pipeline
+        </Link>
       </div>
       <p className="mb-5 text-[12.5px] text-ink-faint">
         Inject secrets with the Janus CLI — <code className="rounded bg-brand-soft px-1.5 py-0.5 font-mono text-[11.5px] text-brand-text">janus run</code>
