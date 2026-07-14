@@ -95,7 +95,8 @@ func appendField(b []byte, f string) []byte {
 }
 
 // reconcile syncs one target. force skips change-detection (manual sync-now).
-func (s *Service) reconcile(ctx context.Context, t *store.SyncTarget, force bool) error {
+// startedAt marks the attempt's wall-clock start, recorded on the run row.
+func (s *Service) reconcile(ctx context.Context, t *store.SyncTarget, force bool, startedAt time.Time) error {
 	proj, err := s.projects.Get(ctx, t.ProjectID)
 	if err != nil {
 		return mapStoreErr(err)
@@ -135,7 +136,7 @@ func (s *Service) reconcile(ctx context.Context, t *store.SyncTarget, force bool
 	if err != nil {
 		return err
 	}
-	if err := s.repo.MarkSynced(ctx, t.ID, res.Applied, fp, cv, next); err != nil {
+	if err := s.repo.MarkSynced(ctx, t.ID, res.Applied, fp, cv, next, startedAt, t.FailureCount); err != nil {
 		return mapStoreErr(err)
 	}
 	if len(res.Skipped) > 0 {
@@ -147,14 +148,15 @@ func (s *Service) reconcile(ctx context.Context, t *store.SyncTarget, force bool
 // attempt reconciles and records audit + failure bookkeeping. Single entry point
 // for scheduler and manual sync-now. Sealed is not a failure.
 func (s *Service) attempt(ctx context.Context, t *store.SyncTarget, force bool) error {
-	err := s.reconcile(ctx, t, force)
+	startedAt := s.now()
+	err := s.reconcile(ctx, t, force, startedAt)
 	if err != nil {
 		if errors.Is(err, ErrSealed) {
 			s.logger.Debug("sync skipped: server sealed", "target", t.ID)
 			return err
 		}
 		next := s.now().Add(backoff(t.FailureCount + 1))
-		if merr := s.repo.MarkFailure(ctx, t.ID, sanitize(err), next, failureThreshold); merr != nil {
+		if merr := s.repo.MarkFailure(ctx, t.ID, sanitize(err), next, failureThreshold, startedAt, t.FailureCount+1); merr != nil {
 			s.logger.Warn("sync mark-failure failed", "target", t.ID, "err", merr)
 		}
 		s.recordSync(ctx, t, "failure", sanitize(err))
