@@ -19,8 +19,12 @@ type RotationRun struct {
 	Status        string // success | failure
 	Error         *string
 	ConfigVersion *int
-	AttemptNum    int
-	CreatedAt     time.Time
+	// AttemptNum is the policy's failure_count this run corresponds to, NOT a
+	// monotonic attempt counter: a success records the prior consecutive-failure
+	// streak (0 for a first-ever success), a failure records the post-increment
+	// count (1 for a first-ever failure). Display as context, not "attempt N of M".
+	AttemptNum int
+	CreatedAt  time.Time
 }
 
 // RotationRunInput is the value recorded for one attempt.
