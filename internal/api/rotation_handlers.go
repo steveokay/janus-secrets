@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -223,6 +224,77 @@ func (s *Server) handleRotationDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+type rotationRunsResponse struct {
+	Runs       []rotationRunDTO `json:"runs"`
+	NextCursor *int64           `json:"next_cursor"`
+}
+type rotationRunDTO struct {
+	ID            int64   `json:"id"`
+	StartedAt     string  `json:"started_at"`
+	EndedAt       string  `json:"ended_at"`
+	Status        string  `json:"status"`
+	Error         *string `json:"error,omitempty"`
+	ConfigVersion *int    `json:"config_version,omitempty"`
+	AttemptNum    int     `json:"attempt_num"`
+}
+
+func (s *Server) handleRotationRuns(w http.ResponseWriter, r *http.Request) {
+	res, v, err := s.rotationResource(r)
+	if err != nil {
+		s.writeRotationErr(w, err)
+		return
+	}
+	if err := s.can(r, authz.RotationManage, res); err != nil {
+		s.writeAuthzError(w, err)
+		return
+	}
+	limit, cursor, ok := parseRunsPaging(w, r)
+	if !ok {
+		return
+	}
+	runs, err := s.rotation.ListRuns(r.Context(), v.ID, cursor, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	out := make([]rotationRunDTO, 0, len(runs))
+	for _, x := range runs {
+		out = append(out, rotationRunDTO{
+			ID: x.ID, StartedAt: x.StartedAt.UTC().Format(time.RFC3339), EndedAt: x.EndedAt.UTC().Format(time.RFC3339),
+			Status: x.Status, Error: x.Error, ConfigVersion: x.ConfigVersion, AttemptNum: x.AttemptNum,
+		})
+	}
+	var next *int64
+	if len(runs) == limit && limit > 0 {
+		last := runs[len(runs)-1].ID
+		next = &last
+	}
+	writeJSON(w, http.StatusOK, rotationRunsResponse{Runs: out, NextCursor: next})
+}
+
+// parseRunsPaging reads limit (default 50, 1-100) and cursor (int64 >= 0, default 0),
+// writing a 400 and returning ok=false on bad input. Shared by both runs handlers.
+func parseRunsPaging(w http.ResponseWriter, r *http.Request) (limit int, cursor int64, ok bool) {
+	limit = 50
+	if val := r.URL.Query().Get("limit"); val != "" {
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 || n > 100 {
+			writeError(w, http.StatusBadRequest, CodeValidation, "limit must be 1-100")
+			return 0, 0, false
+		}
+		limit = n
+	}
+	if val := r.URL.Query().Get("cursor"); val != "" {
+		n, err := strconv.ParseInt(val, 10, 64)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, CodeValidation, "cursor must be a non-negative integer")
+			return 0, 0, false
+		}
+		cursor = n
+	}
+	return limit, cursor, true
 }
 
 func (s *Server) handleRotationRotateNow(w http.ResponseWriter, r *http.Request) {

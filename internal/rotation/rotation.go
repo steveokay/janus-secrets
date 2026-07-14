@@ -284,6 +284,12 @@ func (s *Service) Get(ctx context.Context, id string) (PolicyView, error) {
 	return view(p), nil
 }
 
+// ListRuns returns recorded run history for a policy, newest-first,
+// keyset-paginated (cursor=0 starts at the newest; pass the last id to page older).
+func (s *Service) ListRuns(ctx context.Context, policyID string, cursor int64, limit int) ([]store.RotationRun, error) {
+	return s.repo.ListRuns(ctx, policyID, cursor, limit)
+}
+
 func (s *Service) ListByProject(ctx context.Context, projectID string) ([]PolicyView, error) {
 	ps, err := s.repo.ListByProject(ctx, projectID)
 	if err != nil {

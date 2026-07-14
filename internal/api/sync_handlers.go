@@ -247,6 +247,55 @@ func (s *Server) handleSyncDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
+type syncRunsResponse struct {
+	Runs       []syncRunDTO `json:"runs"`
+	NextCursor *int64       `json:"next_cursor"`
+}
+type syncRunDTO struct {
+	ID            int64   `json:"id"`
+	StartedAt     string  `json:"started_at"`
+	EndedAt       string  `json:"ended_at"`
+	Status        string  `json:"status"`
+	Error         *string `json:"error,omitempty"`
+	ConfigVersion *int    `json:"config_version,omitempty"`
+	KeysCount     int     `json:"keys_count"`
+	AttemptNum    int     `json:"attempt_num"`
+}
+
+func (s *Server) handleSyncRuns(w http.ResponseWriter, r *http.Request) {
+	res, v, err := s.syncResource(r)
+	if err != nil {
+		s.writeSyncErr(w, err)
+		return
+	}
+	if err := s.can(r, authz.SyncManage, res); err != nil {
+		s.writeAuthzError(w, err)
+		return
+	}
+	limit, cursor, ok := parseRunsPaging(w, r)
+	if !ok {
+		return
+	}
+	runs, err := s.sync.ListRuns(r.Context(), v.ID, cursor, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	out := make([]syncRunDTO, 0, len(runs))
+	for _, x := range runs {
+		out = append(out, syncRunDTO{
+			ID: x.ID, StartedAt: x.StartedAt.UTC().Format(time.RFC3339), EndedAt: x.EndedAt.UTC().Format(time.RFC3339),
+			Status: x.Status, Error: x.Error, ConfigVersion: x.ConfigVersion, KeysCount: x.KeysCount, AttemptNum: x.AttemptNum,
+		})
+	}
+	var next *int64
+	if len(runs) == limit && limit > 0 {
+		last := runs[len(runs)-1].ID
+		next = &last
+	}
+	writeJSON(w, http.StatusOK, syncRunsResponse{Runs: out, NextCursor: next})
+}
+
 func (s *Server) handleSyncNow(w http.ResponseWriter, r *http.Request) {
 	res, v, err := s.syncResource(r)
 	if err != nil {

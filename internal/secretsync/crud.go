@@ -139,6 +139,11 @@ func (s *Service) Get(ctx context.Context, id string) (TargetView, error) {
 	return view(t), nil
 }
 
+// ListRuns returns recorded run history for a target, newest-first, keyset-paginated.
+func (s *Service) ListRuns(ctx context.Context, targetID string, cursor int64, limit int) ([]store.SyncRun, error) {
+	return s.repo.ListRuns(ctx, targetID, cursor, limit)
+}
+
 func (s *Service) ListByProject(ctx context.Context, projectID string) ([]TargetView, error) {
 	ts, err := s.repo.ListByProject(ctx, projectID)
 	if err != nil {
