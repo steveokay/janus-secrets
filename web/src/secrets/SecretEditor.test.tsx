@@ -1,5 +1,6 @@
+import { vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -261,6 +262,44 @@ test('the empty state offers an Add secret CTA that focuses the new-key input', 
   expect(document.activeElement).toBe(screen.getByLabelText('new key'))
 })
 
+test('Import preview classifies keys value-free (names + add/update badge only)', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /import \.env/i }))
+  const textarea = await screen.findByLabelText('paste .env contents')
+  // DB_URL exists (update); NEW is new (add). Distinct values that won't collide.
+  await userEvent.type(textarea, 'DB_URL=zzz1\nNEW=zzz2')
+  const dialog = screen.getByRole('dialog')
+  // key names + add/update badges show inside the preview
+  expect(await within(dialog).findByText('add')).toBeInTheDocument()
+  expect(within(dialog).getByText('update')).toBeInTheDocument()
+  expect(within(dialog).getByText('NEW')).toBeInTheDocument()
+  expect(within(dialog).getByText('DB_URL')).toBeInTheDocument()
+  // values NEVER rendered in the preview
+  expect(within(dialog).queryByText('zzz1')).toBeNull()
+  expect(within(dialog).queryByText('zzz2')).toBeNull()
+})
+
+test('a filter that matches nothing shows the zero-match empty state', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByRole('searchbox', { name: /filter keys/i }), 'ZZZZ')
+  expect(await screen.findByText(/no keys match/i)).toBeInTheDocument()
+  expect(screen.queryByText('DB_URL')).toBeNull()
+  expect(screen.queryByText('SENTRY_DSN')).toBeNull()
+})
+
+test('Changed only with no pending edits shows the no-changed-keys empty state', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /changed only/i }))
+  expect(await screen.findByText(/no changed keys/i)).toBeInTheDocument()
+  expect(screen.queryByText('DB_URL')).toBeNull()
+})
+
 test('History button opens the version sheet', async () => {
   seed()
   server.use(
@@ -272,4 +311,118 @@ test('History button opens the version sheet', async () => {
   await userEvent.click(await screen.findByRole('button', { name: /history/i }))
   expect(await screen.findByText('Version history')).toBeInTheDocument()
   expect(await screen.findByText('first')).toBeInTheDocument()
+})
+
+test('selecting a row shows the selection bar and bulk delete stages a removal', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+  expect(screen.getByText(/1 selected/i)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+  expect(await screen.findByText(/deleted 1/i)).toBeInTheDocument()
+})
+
+test('bulk reveal fires one audited reveal per selected existing key', async () => {
+  seed()
+  const hits: string[] = []
+  server.use(http.get('/v1/configs/c1/secrets/:key', ({ params }) => {
+    hits.push(String(params.key)); return HttpResponse.json({ key: String(params.key), value: 'v' })
+  }))
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^reveal$/i }))
+  await waitFor(() => expect(hits).toEqual(['DB_URL']))
+})
+
+test('bulk copy reveals then writes .env text to clipboard', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  const orig = navigator.clipboard
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  try {
+    renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+    await screen.findByText('DB_URL')
+    await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+    await userEvent.click(screen.getByRole('button', { name: /copy \.env/i }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('DB_URL=postgres://a')))
+  } finally {
+    Object.defineProperty(navigator, 'clipboard', { value: orig, configurable: true })
+  }
+})
+
+test('bulk download shows a confirm, then reveals (audited) on confirm', async () => {
+  seed()
+  const hits: string[] = []
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => {
+    hits.push('DB_URL'); return HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })
+  }))
+  // jsdom lacks object-URL APIs — stub so the download path doesn't throw.
+  // Restore in finally so the shared global isn't permanently mutated.
+  const origCreate = URL.createObjectURL
+  const origRevoke = URL.revokeObjectURL
+  const revoke = vi.fn()
+  URL.createObjectURL = vi.fn(() => 'blob:x')
+  URL.revokeObjectURL = revoke
+  try {
+    renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+    await screen.findByText('DB_URL')
+    await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+    await userEvent.click(screen.getByRole('button', { name: /download \.env/i }))
+    // ConfirmDialog appears; no reveal yet
+    expect(await screen.findByText('Download secrets as .env?')).toBeInTheDocument()
+    expect(hits).toEqual([])
+    await userEvent.click(screen.getByRole('button', { name: /^download$/i }))
+    await waitFor(() => expect(hits).toEqual(['DB_URL']))
+    await waitFor(() => expect(revoke).toHaveBeenCalled())
+  } finally {
+    URL.createObjectURL = origCreate
+    URL.revokeObjectURL = origRevoke
+  }
+})
+
+test('clicking the Key header sorts the rows and toggles direction', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/:key', () => HttpResponse.json({ key: 'x', value: 'v' })))
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  const keyHeader = screen.getByRole('button', { name: /sort by key/i })
+  await userEvent.click(keyHeader) // asc
+  // Anchor the regex to the whole cell so change-chips (none here) can't match.
+  let keys = screen.getAllByText(/^(DB_URL|SENTRY_DSN)$/).map((n) => n.textContent)
+  expect(keys).toEqual(['DB_URL', 'SENTRY_DSN'])
+  await userEvent.click(keyHeader) // desc
+  keys = screen.getAllByText(/^(DB_URL|SENTRY_DSN)$/).map((n) => n.textContent)
+  expect(keys).toEqual(['SENTRY_DSN', 'DB_URL'])
+})
+
+test('bulk delete skips inherited keys with a toast', async () => {
+  seed()
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('SENTRY_DSN')
+  await userEvent.click(screen.getByRole('checkbox', { name: /select sentry_dsn/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+  // bulkDelete emits `Deleted 0 · skipped 1 inherited` for an inherited-only selection.
+  expect(await screen.findByText(/skipped 1 inherited/i)).toBeInTheDocument()
+})
+
+test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {
+  seed()
+  server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  // ensure no input is focused so the window keydown nav is live
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  document.body.focus()
+  await userEvent.keyboard('{ArrowDown}e')
+  expect(await screen.findByRole('textbox', { name: /value for db_url/i })).toBeInTheDocument()
+  // Escape out of the edit field first (focus returns to body), then '/'
+  await userEvent.keyboard('{Escape}')
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  document.body.focus()
+  await userEvent.keyboard('/')
+  expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: /filter keys/i }))
 })
