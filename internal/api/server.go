@@ -14,6 +14,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/projectkeys"
+	"github.com/steveokay/janus-secrets/internal/promote"
 	"github.com/steveokay/janus-secrets/internal/rotation"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/secretsync"
@@ -49,12 +50,16 @@ type Server struct {
 	// in New from the keyring + store (both always present in production); nil in
 	// unit-test servers built without a real store.
 	projectKeys *projectkeys.Service
-	auth        *auth.Service   // nil only in unit tests that exercise no auth path
-	authz       *authz.Engine   // nil only in unit-test servers that exercise no authz path
-	st          *store.Store    // for scope-chain resolution + membership/user handlers
-	audit       *audit.Recorder // nil in unit-test servers; Boot always wires a real one
-	logger      *slog.Logger
-	router      chi.Router
+	// promote drives the promotion pipeline (env ids) + config locked-keys (key
+	// names). Value-free. nil in unit-test servers built without a real store /
+	// secrets service.
+	promote *promote.Service
+	auth    *auth.Service   // nil only in unit tests that exercise no auth path
+	authz   *authz.Engine   // nil only in unit-test servers that exercise no authz path
+	st      *store.Store    // for scope-chain resolution + membership/user handlers
+	audit   *audit.Recorder // nil in unit-test servers; Boot always wires a real one
+	logger  *slog.Logger
+	router  chi.Router
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
 	// get-then-put, so unserialized concurrent inits could both report
 	// success while only one share set matches the stored seal.
@@ -78,6 +83,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// store leave it nil and simply don't mount the /kek routes.
 	if kr != nil && st != nil {
 		s.projectKeys = projectkeys.New(kr, store.NewProjectRepo(st), store.NewProjectKEKVersionRepo(st), store.NewSecretRepo(st))
+	}
+	// Promotion service: available whenever a real keyring, store, and secrets
+	// service are wired (production and full e2e). Used by the pipeline +
+	// locked-keys routes (and the next task's preview/apply routes).
+	if kr != nil && st != nil && svc != nil {
+		s.promote = promote.New(svc, st)
 	}
 
 	r := chi.NewRouter()
@@ -203,6 +214,16 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/v1/projects/{pid}/kek/rotate", s.handleKEKRotate)
 				r.Post("/v1/projects/{pid}/kek/rewrap", s.handleKEKRewrap)
 				r.Get("/v1/projects/{pid}/kek", s.handleKEKStatus)
+			})
+		}
+		if s.promote != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Get("/v1/projects/{pid}/pipeline", s.handlePipelineGet)
+				r.Put("/v1/projects/{pid}/pipeline", s.handlePipelinePut)
+				r.Get("/v1/configs/{cid}/locked-keys", s.handleLockedKeysList)
+				r.Post("/v1/configs/{cid}/locked-keys", s.handleLockedKeyCreate)
+				r.Delete("/v1/configs/{cid}/locked-keys/{key}", s.handleLockedKeyDelete)
 			})
 		}
 		r.Group(func(r chi.Router) {
