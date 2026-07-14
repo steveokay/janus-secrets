@@ -3,7 +3,7 @@ import { Search, Upload, History, Eye, EyeOff } from 'lucide-react'
 import { Button } from '../ui/Button'
 
 // Editor toolbar (mockup §06): key filter + Import .env + History + reveal-all.
-export function EditorToolbar({ filter, onFilter, filterRef, onImport, onHistory, anyRevealed, onToggleRevealAll }: {
+export function EditorToolbar({ filter, onFilter, filterRef, onImport, onHistory, anyRevealed, onToggleRevealAll, changedOnly, onChangedOnly }: {
   filter: string
   onFilter: (v: string) => void
   filterRef?: Ref<HTMLInputElement>
@@ -11,6 +11,8 @@ export function EditorToolbar({ filter, onFilter, filterRef, onImport, onHistory
   onHistory: () => void
   anyRevealed: boolean
   onToggleRevealAll: () => void
+  changedOnly: boolean
+  onChangedOnly: (v: boolean) => void
 }) {
   return (
     <div className="mb-3.5 flex flex-wrap items-center gap-2.5">
@@ -27,6 +29,10 @@ export function EditorToolbar({ filter, onFilter, filterRef, onImport, onHistory
           className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-faint"
         />
       </div>
+      <label className="flex items-center gap-1.5 text-[12.5px] text-ink-mute">
+        <input type="checkbox" className="h-3.5 w-3.5 accent-brand" checked={changedOnly} onChange={(e) => onChangedOnly(e.target.checked)} />
+        Changed only
+      </label>
       <Button variant="secondary" size="sm" onClick={onImport}>
         <Upload size={14} strokeWidth={1.7} /> Import .env
       </Button>

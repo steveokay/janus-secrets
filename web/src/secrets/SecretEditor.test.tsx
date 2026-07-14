@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -260,6 +260,44 @@ test('the empty state offers an Add secret CTA that focuses the new-key input', 
   await screen.findByText('No secrets yet')
   await userEvent.click(screen.getByRole('button', { name: /add secret/i }))
   expect(document.activeElement).toBe(screen.getByLabelText('new key'))
+})
+
+test('Import preview classifies keys value-free (names + add/update badge only)', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('button', { name: /import \.env/i }))
+  const textarea = await screen.findByLabelText('paste .env contents')
+  // DB_URL exists (update); NEW is new (add). Distinct values that won't collide.
+  await userEvent.type(textarea, 'DB_URL=zzz1\nNEW=zzz2')
+  const dialog = screen.getByRole('dialog')
+  // key names + add/update badges show inside the preview
+  expect(await within(dialog).findByText('add')).toBeInTheDocument()
+  expect(within(dialog).getByText('update')).toBeInTheDocument()
+  expect(within(dialog).getByText('NEW')).toBeInTheDocument()
+  expect(within(dialog).getByText('DB_URL')).toBeInTheDocument()
+  // values NEVER rendered in the preview
+  expect(within(dialog).queryByText('zzz1')).toBeNull()
+  expect(within(dialog).queryByText('zzz2')).toBeNull()
+})
+
+test('a filter that matches nothing shows the zero-match empty state', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByRole('searchbox', { name: /filter keys/i }), 'ZZZZ')
+  expect(await screen.findByText(/no keys match/i)).toBeInTheDocument()
+  expect(screen.queryByText('DB_URL')).toBeNull()
+  expect(screen.queryByText('SENTRY_DSN')).toBeNull()
+})
+
+test('Changed only with no pending edits shows the no-changed-keys empty state', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(screen.getByRole('checkbox', { name: /changed only/i }))
+  expect(await screen.findByText(/no changed keys/i)).toBeInTheDocument()
+  expect(screen.queryByText('DB_URL')).toBeNull()
 })
 
 test('History button opens the version sheet', async () => {

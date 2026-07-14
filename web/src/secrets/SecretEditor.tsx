@@ -42,6 +42,7 @@ export function SecretEditor() {
   // Edit originals — persist while a key stays dirty (across auto-re-mask), RAW.
   const [original, setOriginal] = useState<Record<string, string>>({})
   const [filter, setFilter] = useState('')
+  const [changedOnly, setChangedOnly] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -193,10 +194,13 @@ export function SecretEditor() {
   // Ordered key list: existing masked keys, then keys added only in the buffer.
   const addedKeys = Object.keys(buffer).filter((k) => !(k in maskedRows) && buffer[k].value !== null)
   const rows = [...Object.keys(maskedRows), ...addedKeys]
-  // Visible pipeline: sort, then filter to the search query.
+  // Visible pipeline: sort → substring filter → changed-only filter.
   const ordered = sortRows(rows, maskedRows, sort)
   const q = filter.trim().toLowerCase()
-  const visible = q ? ordered.filter((k) => k.toLowerCase().includes(q)) : ordered
+  const filtered = q ? ordered.filter((k) => k.toLowerCase().includes(q)) : ordered
+  const visible = changedOnly
+    ? filtered.filter((k) => rowState(k, maskedRows, buffer, original).change !== null)
+    : filtered
 
   // Prune selection to what's currently visible (filtered out / saved keys drop).
   // `prune` returns the same Set ref when nothing changes, so this won't loop.
@@ -301,6 +305,8 @@ export function SecretEditor() {
         onHistory={() => setShowHistory(true)}
         anyRevealed={anyRevealed}
         onToggleRevealAll={() => (anyRevealed ? hideAll() : void revealAll())}
+        changedOnly={changedOnly}
+        onChangedOnly={setChangedOnly}
       />
       {rows.length === 0 ? (
         <EmptyState
@@ -320,6 +326,12 @@ export function SecretEditor() {
               Add secret
             </Button>
           }
+        />
+      ) : visible.length === 0 ? (
+        <EmptyState
+          className="mt-8"
+          title={changedOnly && !filter ? 'No changed keys' : `No keys match “${filter}”`}
+          hint="Adjust the filter or clear ‘Changed only’."
         />
       ) : (
         <>
@@ -379,7 +391,7 @@ export function SecretEditor() {
         saving={save.isPending}
         onSave={() => save.mutate()}
       />
-      <ImportEnvDialog open={importOpen} onClose={() => setImportOpen(false)} onApply={applyImport} />
+      <ImportEnvDialog open={importOpen} onClose={() => setImportOpen(false)} onApply={applyImport} masked={maskedRows} />
       <ConfirmDialog
         open={confirmDownload}
         onOpenChange={setConfirmDownload}
