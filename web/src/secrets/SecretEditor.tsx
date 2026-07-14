@@ -237,23 +237,26 @@ export function SecretEditor() {
   }
   async function bulkCopy(keys: string[]) {
     try {
-      const text = toEnvText(await revealPairs(keys)) // local only
-      await navigator.clipboard?.writeText(text)
-      toast({ title: `Copied ${keys.length} key${keys.length === 1 ? '' : 's'} as .env` })
+      const pairs = await revealPairs(keys) // local only
+      if (pairs.length === 0) { toast({ title: 'Nothing to copy — selected keys have no stored value' }); return }
+      await navigator.clipboard?.writeText(toEnvText(pairs))
+      toast({ title: `Copied ${pairs.length} key${pairs.length === 1 ? '' : 's'} as .env` })
     } catch {
       toast({ title: 'Copy failed', tone: 'danger' })
     }
   }
   async function bulkDownload(keys: string[]) {
     try {
-      const text = toEnvText(await revealPairs(keys)) // local only
+      const pairs = await revealPairs(keys) // local only
+      if (pairs.length === 0) { toast({ title: 'Nothing to download — selected keys have no stored value' }); return }
+      const text = toEnvText(pairs) // local only
       const blob = new Blob([text], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url; a.download = 'secrets.env'
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url) // do not cache the plaintext blob
-      toast({ title: `Downloaded ${keys.length} key${keys.length === 1 ? '' : 's'}` })
+      toast({ title: `Downloaded ${pairs.length} key${pairs.length === 1 ? '' : 's'}` })
     } catch {
       toast({ title: 'Download failed', tone: 'danger' })
     }
@@ -262,7 +265,7 @@ export function SecretEditor() {
   const nav = useRowNav({
     visible,
     onEdit: (k) => void edit(k),
-    onReveal: (k) => void reveal(k),
+    onReveal: (k) => { if (rowState(k, maskedRows, buffer, original).existing) void reveal(k) },
     onRemove: (k) => remove(k),
     onToggleSelect: (k) => selection.toggle(k),
     onFocusFilter: () => filterRef.current?.focus(),

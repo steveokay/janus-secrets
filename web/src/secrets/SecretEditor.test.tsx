@@ -323,17 +323,27 @@ test('bulk download shows a confirm, then reveals (audited) on confirm', async (
     hits.push('DB_URL'); return HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })
   }))
   // jsdom lacks object-URL APIs — stub so the download path doesn't throw.
-  Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() })
-  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
-  await screen.findByText('DB_URL')
-  await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
-  await userEvent.click(screen.getByRole('button', { name: /download \.env/i }))
-  // ConfirmDialog appears; no reveal yet
-  expect(await screen.findByText('Download secrets as .env?')).toBeInTheDocument()
-  expect(hits).toEqual([])
-  await userEvent.click(screen.getByRole('button', { name: /^download$/i }))
-  await waitFor(() => expect(hits).toEqual(['DB_URL']))
-  await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalled())
+  // Restore in finally so the shared global isn't permanently mutated.
+  const origCreate = URL.createObjectURL
+  const origRevoke = URL.revokeObjectURL
+  const revoke = vi.fn()
+  URL.createObjectURL = vi.fn(() => 'blob:x')
+  URL.revokeObjectURL = revoke
+  try {
+    renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+    await screen.findByText('DB_URL')
+    await userEvent.click(screen.getByRole('checkbox', { name: /select db_url/i }))
+    await userEvent.click(screen.getByRole('button', { name: /download \.env/i }))
+    // ConfirmDialog appears; no reveal yet
+    expect(await screen.findByText('Download secrets as .env?')).toBeInTheDocument()
+    expect(hits).toEqual([])
+    await userEvent.click(screen.getByRole('button', { name: /^download$/i }))
+    await waitFor(() => expect(hits).toEqual(['DB_URL']))
+    await waitFor(() => expect(revoke).toHaveBeenCalled())
+  } finally {
+    URL.createObjectURL = origCreate
+    URL.revokeObjectURL = origRevoke
+  }
 })
 
 test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {
