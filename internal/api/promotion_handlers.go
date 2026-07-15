@@ -300,11 +300,18 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusConflict, "idempotency_in_progress", "a request with this Idempotency-Key is still in progress")
 				return
 			}
-			// Replay the stored response verbatim.
-			w.Header().Set("Content-Type", "application/json")
+			// Replay the stored response. Re-encode through writeJSON (json.Encoder)
+			// rather than writing the raw stored bytes: it emits a consistent
+			// application/json body and avoids handing an untrusted-looking byte
+			// slice straight to w.Write (the row holds only our own marshaled
+			// {target_version, applied, skipped} — key names, never values).
+			var replay map[string]any
+			if uerr := json.Unmarshal(existing.Response, &replay); uerr != nil {
+				s.writeServiceError(w, uerr)
+				return
+			}
 			w.Header().Set("Idempotency-Replayed", "true")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(existing.Response)
+			writeJSON(w, http.StatusOK, replay)
 			return
 		}
 		// Claim won: on any early return below (apply error) we release the claim
