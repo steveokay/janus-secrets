@@ -134,6 +134,77 @@ test('confirm posts exactly the selected {key,action} set and fires success toas
   expect(onClose).toHaveBeenCalled()
 })
 
+// Create-mode: no diff endpoint — the modal lists the source config's keys as
+// adds (names only, never values) and applies with create:true.
+function mockCreateSource() {
+  server.use(
+    http.get('/v1/configs/c-dev/secrets', () =>
+      HttpResponse.json({
+        secrets: {
+          FEATURE_WALLET: { value_version: 1, created_at: 'x', origin: 'own' },
+          LOG_LEVEL: { value_version: 2, created_at: 'x', origin: 'own' },
+        },
+      }),
+    ),
+    http.get('/v1/configs/c-dev/versions', () =>
+      HttpResponse.json({
+        versions: [
+          { version: 7, message: '', created_by: 'steve', created_at: 'x' },
+          { version: 6, message: '', created_by: 'steve', created_at: 'x' },
+        ],
+      }),
+    ),
+  )
+}
+
+test('create mode lists source keys as Add rows with a copy note and NO reveal button', async () => {
+  mockCreateSource()
+  renderModal({ to: undefined, createName: 'default' })
+  // "will create" banner is always shown in create mode
+  expect(await screen.findByText(/has no/i)).toBeInTheDocument()
+  expect(await screen.findByText('FEATURE_WALLET')).toBeInTheDocument()
+  expect(screen.getByText('LOG_LEVEL')).toBeInTheDocument()
+  // all rows are adds
+  expect(screen.getAllByText('Add')).toHaveLength(2)
+  // both default-checked → 2 of 2
+  expectCount(2, 2)
+  // create rows carry the static copy note and no reveal affordance / no values
+  expect(screen.getAllByText(/value copied from source on promote/i)).toHaveLength(2)
+  expect(screen.queryByRole('button', { name: /reveal/i })).not.toBeInTheDocument()
+})
+
+test('create mode confirm posts create:true with to_env/to_name/source_version and fires the created toast', async () => {
+  mockCreateSource()
+  let body: any
+  server.use(
+    http.post('/v1/promote', async ({ request }) => {
+      body = await request.json()
+      return HttpResponse.json({ target_version: 1, applied: ['FEATURE_WALLET', 'LOG_LEVEL'], skipped: [] })
+    }),
+  )
+  const onDone = vi.fn()
+  const onClose = vi.fn()
+  renderModal({ to: undefined, createName: 'default', onDone, onClose })
+  await screen.findByText('FEATURE_WALLET')
+  await userEvent.click(screen.getByRole('button', { name: /create 2 keys/i }))
+
+  await waitFor(() => expect(body).toBeTruthy())
+  expect(body.from_config).toBe('c-dev')
+  expect(body.create).toBe(true)
+  expect(body.to_env).toBe('env-staging')
+  expect(body.to_name).toBe('default')
+  expect(body.to_config).toBeUndefined()
+  expect(body.source_version).toBe(7) // latest source version
+  const sels = (body.selections as { key: string; action: string }[]).sort((a, b) => a.key.localeCompare(b.key))
+  expect(sels).toEqual([
+    { key: 'FEATURE_WALLET', action: 'set' },
+    { key: 'LOG_LEVEL', action: 'set' },
+  ])
+  expect(await screen.findByText(/created default in staging with 2 keys/i)).toBeInTheDocument()
+  await waitFor(() => expect(onDone).toHaveBeenCalled())
+  expect(onClose).toHaveBeenCalled()
+})
+
 test('an apply error keeps the modal open and shows a danger toast', async () => {
   mockPreview()
   server.use(
