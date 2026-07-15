@@ -66,10 +66,23 @@ func (r *UserRepo) SetDisabled(ctx context.Context, id string, disabled bool) er
 		`UPDATE users SET disabled_at = NULL, updated_at = now() WHERE id = $1::uuid`, id)
 }
 
-// List returns all users ordered by creation time (ascending).
-func (r *UserRepo) List(ctx context.Context) ([]*User, error) {
-	rows, err := r.s.pool.Query(ctx,
-		`SELECT `+userCols+` FROM users ORDER BY created_at ASC`)
+// ListPage returns users in (created_at DESC, id DESC) order. limit<=0 is
+// unbounded; after==nil is the first page. There is no base WHERE filter (no
+// soft-delete on users), so the keyset predicate opens with WHERE rather than
+// AND.
+func (r *UserRepo) ListPage(ctx context.Context, limit int, after *Cursor) ([]*User, error) {
+	q := `SELECT ` + userCols + ` FROM users`
+	var args []any
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " WHERE " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -83,6 +96,11 @@ func (r *UserRepo) List(ctx context.Context) ([]*User, error) {
 		out = append(out, u)
 	}
 	return out, mapError(rows.Err())
+}
+
+// List returns all users, newest first (unbounded; kept for existing callers).
+func (r *UserRepo) List(ctx context.Context) ([]*User, error) {
+	return r.ListPage(ctx, 0, nil)
 }
 
 // Oldest returns the earliest-created user (bootstrap reconciliation).

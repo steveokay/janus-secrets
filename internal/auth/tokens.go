@@ -167,17 +167,32 @@ func (s *Service) VerifyServiceToken(ctx context.Context, raw string) (Principal
 	return Principal{Kind: KindServiceToken, ID: tok.ID, Name: tok.Name}, scope, nil
 }
 
-// ListTokens returns metadata for all tokens (raw values are unrecoverable).
-func (s *Service) ListTokens(ctx context.Context) ([]TokenMeta, error) {
-	list, err := s.tokens.List(ctx)
+// ListTokensPage returns a raw page of token metadata plus the keyset cursor for
+// the next page (nil on the last page). Callers apply their own per-scope
+// visibility filter; the cursor tracks the RAW scan position, not the filtered
+// count, so a page may yield fewer visible tokens than limit — callers keep
+// paging until next is nil. Values remain unrecoverable (metadata only).
+func (s *Service) ListTokensPage(ctx context.Context, limit int, after *store.Cursor) ([]TokenMeta, *store.Cursor, error) {
+	rows, err := s.tokens.ListPage(ctx, limit, after)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := make([]TokenMeta, 0, len(list))
-	for _, t := range list {
+	out := make([]TokenMeta, 0, len(rows))
+	for _, t := range rows {
 		out = append(out, metaOf(t))
 	}
-	return out, nil
+	var next *store.Cursor
+	if limit > 0 && len(rows) == limit {
+		last := rows[len(rows)-1]
+		next = &store.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return out, next, nil
+}
+
+// ListTokens returns metadata for all tokens (raw values are unrecoverable).
+func (s *Service) ListTokens(ctx context.Context) ([]TokenMeta, error) {
+	metas, _, err := s.ListTokensPage(ctx, 0, nil)
+	return metas, err
 }
 
 // RevokeToken revokes by id. ErrNotFound if absent or already revoked.
