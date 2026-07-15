@@ -345,6 +345,34 @@ func TestRotateMasterSealed(t *testing.T) {
 	}
 }
 
+func TestRotateMasterRewrapErrorKeepsOldMaster(t *testing.T) {
+	kr := NewKeyring()
+	m1, _ := GenerateKey()
+	_ = kr.Unseal(m1)
+	kek, _ := GenerateKey()
+	wrapped, _ := kr.WrapProjectKEK(kek, "p1")
+
+	m2, _ := GenerateKey()
+	wantErr := errors.New("rewrap boom")
+	persisted := false
+	err := kr.RotateMaster(m2,
+		func(unwrap func([]byte, []byte) ([]byte, error), wrap func([]byte, []byte) ([]byte, error)) error {
+			return wantErr
+		},
+		func() error { persisted = true; return nil },
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want rewrap error, got %v", err)
+	}
+	if persisted {
+		t.Fatal("persist must NOT run after a rewrap error")
+	}
+	// Old master retained: original blob still unwraps.
+	if _, err := kr.UnwrapProjectKEK(wrapped, "p1"); err != nil {
+		t.Fatalf("old master lost after failed rewrap: %v", err)
+	}
+}
+
 func mustParse(t *testing.T, b []byte) Ciphertext {
 	t.Helper()
 	ct, err := ParseCiphertext(b)

@@ -145,6 +145,7 @@ func (k *Keyring) NewDEK(projectKEK, aad []byte) ([]byte, Ciphertext, error) {
 // unwrap/wrap use Encrypt/Decrypt directly so they handle both 32-byte keys and
 // arbitrary-length blobs (e.g. OIDC client secrets). AAD must be byte-identical
 // to each blob's read path.
+// unwrap returns owned plaintext key material; the rewrap implementer must zero it after wrapping.
 func (k *Keyring) RotateMaster(
 	newMaster []byte,
 	rewrap func(unwrap func(oldCT, aad []byte) (plain []byte, err error),
