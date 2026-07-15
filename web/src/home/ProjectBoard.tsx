@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Lock, Plus, Layers, ArrowRight, GitBranch } from 'lucide-react'
+import { Lock, Plus, Layers, ArrowRight, GitBranch, CornerUpRight } from 'lucide-react'
 import { endpoints, Config, Environment } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
@@ -95,6 +95,15 @@ function ConfigCard({ pid, config, depth, ops, promote }: {
         {depth > 0 && <span className="text-[11px] text-info">↳</span>}
         <Lock size={12} strokeWidth={1.7} className="text-ink-faint" />
         <span className="font-mono text-[12.5px] text-ink">{config.name}</span>
+        {config.promoted_from_env && (
+          <span
+            className="inline-flex text-info"
+            title={`Promoted from ${config.promoted_from_env} v${config.promoted_from_version}`}
+            aria-label={`Promoted from ${config.promoted_from_env} v${config.promoted_from_version}`}
+          >
+            <CornerUpRight size={12} strokeWidth={1.8} aria-hidden />
+          </span>
+        )}
         {canPromote && (
           <button
             type="button"

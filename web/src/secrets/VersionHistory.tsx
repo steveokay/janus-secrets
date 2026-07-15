@@ -8,6 +8,7 @@ import { relativeTime } from '../lib/relativeTime'
 import { cn } from '../ui/cn'
 import { Skeleton } from '../ui/Skeleton'
 import { Button } from '../ui/Button'
+import { CornerUpRight } from 'lucide-react'
 
 function DiffView({ cid, version }: { cid: string; version: number }) {
   // Key NAMES only — the server never returns values on this surface.
@@ -85,7 +86,15 @@ export function VersionHistory({ cid, dirty }: { cid: string; dirty: boolean }) 
               </span>
             </button>
             <div className="flex items-center justify-between px-3 pb-2 text-[11.5px] text-ink-faint">
-              <span>{v.created_by} · {relativeTime(v.created_at)}</span>
+              <span className="flex items-center gap-1.5">
+                {v.created_by} · {relativeTime(v.created_at)}
+                {v.promoted_from_env && (
+                  <span className="inline-flex items-center gap-1 text-info">
+                    · <CornerUpRight size={11} strokeWidth={1.8} aria-hidden />
+                    promoted from {v.promoted_from_env} v{v.promoted_from_version}
+                  </span>
+                )}
+              </span>
               {v.version === latest ? (
                 <span className="text-[10.5px] font-bold uppercase tracking-[.1em]">current</span>
               ) : (
