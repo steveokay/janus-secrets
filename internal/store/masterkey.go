@@ -41,9 +41,10 @@ func (r *MasterKeyRepo) RewrapAllUnderNewMaster(
 	reseal func() (*crypto.SealConfig, error),
 ) error {
 	return r.s.withTx(ctx, func(tx pgx.Tx) error {
-		// 1. projects.wrapped_kek (live projects only).
+		// 1. projects.wrapped_kek (ALL projects, including soft-deleted: undelete
+		//    is reversible, so a stranded KEK would mean permanent data loss).
 		if err := rewrapByID(ctx, tx, rewrap,
-			`SELECT id::text, wrapped_kek FROM projects WHERE deleted_at IS NULL FOR UPDATE`,
+			`SELECT id::text, wrapped_kek FROM projects FOR UPDATE`,
 			func(id string) []byte { return crypto.ProjectKEKAAD(id) },
 			`UPDATE projects SET wrapped_kek=$2 WHERE id=$1::uuid`); err != nil {
 			return err

@@ -20,6 +20,11 @@ func testKey(b byte) []byte {
 // seededProjectID is captured by seedMasterWrapped so assertions can address the row.
 var seededProjectID string
 
+// seededDeletedProjectID is a SOFT-DELETED project captured by seedMasterWrapped;
+// its wrapped_kek must still be re-wrapped by a master-key rotation (soft delete
+// is reversible via Undelete, so stranding its KEK would cause data loss).
+var seededDeletedProjectID string
+
 // seededTransitName is the transit key name captured by seedMasterWrapped.
 const seededTransitName = "test-transit"
 
@@ -104,6 +109,20 @@ func seedMasterWrapped(t *testing.T, st *Store, m1 []byte) {
 		t.Fatalf("seed projects: %v", err)
 	}
 
+	// A SOFT-DELETED project (deleted_at set). Undelete is reversible, so its
+	// wrapped_kek must be re-wrapped by rotation too — otherwise undelete strands it.
+	pid2, err := st.NewID(ctx)
+	if err != nil {
+		t.Fatalf("seed newid (deleted): %v", err)
+	}
+	seededDeletedProjectID = pid2
+	delKEK := mustMarshal(crypto.WrapKey(m1, testKey(0xAD), crypto.ProjectKEKAAD(pid2)))
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO projects (id, slug, name, wrapped_kek, kek_version, deleted_at)
+		 VALUES ($1::uuid, 'seed-proj-del', 'Seed Proj Deleted', $2, 1, now())`, pid2, delKEK); err != nil {
+		t.Fatalf("seed deleted project: %v", err)
+	}
+
 	// project_kek_versions: a superseded v1, same AAD (project-bound).
 	pkv := mustMarshal(crypto.WrapKey(m1, testKey(0xAB), crypto.ProjectKEKAAD(pid)))
 	if _, err := st.pool.Exec(ctx,
@@ -165,9 +184,16 @@ func unwrapAt(t *testing.T, st *Store, sql string, key, aad []byte, args ...any)
 
 func assertProjectKEKUnwraps(t *testing.T, st *Store, key []byte) {
 	t.Helper()
-	aad := crypto.ProjectKEKAAD(seededProjectID)
+	assertNamedProjectKEKUnwraps(t, st, seededProjectID, key)
+}
+
+// assertNamedProjectKEKUnwraps asserts the wrapped_kek of the given project (and
+// its v1 project_kek_versions row) unwraps under key and NOT under the other key.
+func assertNamedProjectKEKUnwraps(t *testing.T, st *Store, projectID string, key []byte) {
+	t.Helper()
+	aad := crypto.ProjectKEKAAD(projectID)
 	pt, err := unwrapAt(t, st,
-		`SELECT wrapped_kek FROM projects WHERE id=$1::uuid`, key, aad, seededProjectID)
+		`SELECT wrapped_kek FROM projects WHERE id=$1::uuid`, key, aad, projectID)
 	if err != nil {
 		t.Fatalf("project KEK did not unwrap under expected key: %v", err)
 	}
@@ -180,13 +206,13 @@ func assertProjectKEKUnwraps(t *testing.T, st *Store, key []byte) {
 		other = testKey(0x22)
 	}
 	if _, err := crypto.Decrypt(other, mustParse(t, st,
-		`SELECT wrapped_kek FROM projects WHERE id=$1::uuid`, seededProjectID), aad); err == nil {
+		`SELECT wrapped_kek FROM projects WHERE id=$1::uuid`, projectID), aad); err == nil {
 		t.Fatalf("project KEK unexpectedly unwrapped under the wrong master key")
 	}
 	// project_kek_versions row too.
 	if _, err := unwrapAt(t, st,
 		`SELECT wrapped_kek FROM project_kek_versions WHERE project_id=$1::uuid AND version=1`,
-		key, aad, seededProjectID); err != nil {
+		key, aad, projectID); err != nil {
 		t.Fatalf("project_kek_versions did not unwrap under expected key: %v", err)
 	}
 }
@@ -243,9 +269,22 @@ func TestRewrapAllUnderNewMasterRoundTrip(t *testing.T) {
 		t.Fatalf("rewrap: %v", err)
 	}
 	assertProjectKEKUnwraps(t, st, m2)
+	// The soft-deleted project's wrapped_kek must be re-wrapped under M2 too.
+	if _, err := unwrapAt(t, st,
+		`SELECT wrapped_kek FROM projects WHERE id=$1::uuid`,
+		m2, crypto.ProjectKEKAAD(seededDeletedProjectID), seededDeletedProjectID); err != nil {
+		t.Fatalf("soft-deleted project KEK did not unwrap under M2: %v", err)
+	}
 	assertAuthUnwraps(t, st, m2)
 	assertOIDCUnwraps(t, st, m2)
 	assertTransitUnwraps(t, st, m2)
+
+	// Defense-in-depth: a non-projects blob must NOT decrypt under the old master.
+	if _, err := crypto.Decrypt(m1, mustParse(t, st,
+		`SELECT wrapped_client_secret FROM oidc_providers WHERE name='seed-oidc'`),
+		crypto.OIDCClientSecretAAD()); err == nil {
+		t.Fatalf("oidc client secret unexpectedly decrypted under the old master")
+	}
 
 	meta, err := repo.GetMasterKeyMeta(ctx)
 	if err != nil {
