@@ -148,6 +148,55 @@ func TestPromoteApplyE2E(t *testing.T) {
 	if reveal.Value != "bval" {
 		t.Fatalf("staging reveal B: want bval, got %q", reveal.Value)
 	}
+
+	// --- Provenance: staging's latest version + config both report the source ---
+	var vlist struct {
+		Versions []struct {
+			Version             int    `json:"version"`
+			PromotedFromEnv     string `json:"promoted_from_env"`
+			PromotedFromVersion int    `json:"promoted_from_version"`
+		} `json:"versions"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+stgCfg.ID+"/versions", ownerCookie, "", "", &vlist); code != 200 {
+		t.Fatalf("staging versions: want 200, got %d", code)
+	}
+	if len(vlist.Versions) == 0 {
+		t.Fatalf("staging versions: want at least one, got none")
+	}
+	latest := vlist.Versions[len(vlist.Versions)-1]
+	if latest.PromotedFromEnv != dev.Name {
+		t.Fatalf("latest version promoted_from_env: want %q, got %q", dev.Name, latest.PromotedFromEnv)
+	}
+	if latest.PromotedFromVersion != srcVersion {
+		t.Fatalf("latest version promoted_from_version: want %d, got %d", srcVersion, latest.PromotedFromVersion)
+	}
+
+	// Config-list for the staging env surfaces the same provenance on stgCfg.
+	var clist struct {
+		Configs []struct {
+			ID                  string `json:"id"`
+			PromotedFromEnv     string `json:"promoted_from_env"`
+			PromotedFromVersion int    `json:"promoted_from_version"`
+		} `json:"configs"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/projects/"+p.ID+"/environments/"+stg.ID+"/configs", ownerCookie, "", "", &clist); code != 200 {
+		t.Fatalf("staging config list: want 200, got %d", code)
+	}
+	foundProv := false
+	for _, c := range clist.Configs {
+		if c.ID == stgCfg.ID {
+			foundProv = true
+			if c.PromotedFromEnv != dev.Name {
+				t.Fatalf("config-list promoted_from_env: want %q, got %q", dev.Name, c.PromotedFromEnv)
+			}
+			if c.PromotedFromVersion != srcVersion {
+				t.Fatalf("config-list promoted_from_version: want %d, got %d", srcVersion, c.PromotedFromVersion)
+			}
+		}
+	}
+	if !foundProv {
+		t.Fatalf("config-list: staging config %s not found", stgCfg.ID)
+	}
 	// A must NOT have been promoted (only B selected).
 	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+stgCfg.ID+"/secrets/A", ownerCookie, "", "", nil); code == 200 {
 		t.Fatalf("staging reveal A: want non-200 (A not promoted), got 200")

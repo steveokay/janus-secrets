@@ -72,20 +72,22 @@ type ApplyResult struct {
 }
 
 type Service struct {
-	secrets  *secrets.Service
-	configs  *store.ConfigRepo
-	envs     *store.EnvironmentRepo
-	pipeline *store.PipelineRepo
-	locked   *store.LockedKeyRepo
+	secrets    *secrets.Service
+	secretRepo *store.SecretRepo
+	configs    *store.ConfigRepo
+	envs       *store.EnvironmentRepo
+	pipeline   *store.PipelineRepo
+	locked     *store.LockedKeyRepo
 }
 
 func New(sec *secrets.Service, st *store.Store) *Service {
 	return &Service{
-		secrets:  sec,
-		configs:  store.NewConfigRepo(st),
-		envs:     store.NewEnvironmentRepo(st),
-		pipeline: store.NewPipelineRepo(st),
-		locked:   store.NewLockedKeyRepo(st),
+		secrets:    sec,
+		secretRepo: store.NewSecretRepo(st),
+		configs:    store.NewConfigRepo(st),
+		envs:       store.NewEnvironmentRepo(st),
+		pipeline:   store.NewPipelineRepo(st),
+		locked:     store.NewLockedKeyRepo(st),
 	}
 }
 
@@ -278,5 +280,10 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, err
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	// Record promotion provenance for the UI "promoted from <env> v<n>" indicator.
+	// Best-effort / non-fatal: the version is already committed, so a failed
+	// provenance UPDATE must not fail or roll back the promotion. Value-free
+	// (only the source env id + version).
+	_ = s.secretRepo.MarkPromoted(ctx, cv.ID, srcEnv, req.SourceVersion)
 	return ApplyResult{TargetVersion: cv.Version, Applied: applied, Skipped: skipped}, nil
 }
