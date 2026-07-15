@@ -79,6 +79,12 @@ export function MasterKeySection() {
       if (r.complete) {
         setSubmitted(r.required ?? required)
         setNewShares(r.new_shares ?? [])
+        // Clear the ceremony nonce BEFORE closing the modal: closeRekey only
+        // fires the best-effort rekeyCancel() when a live ceremony (nonce) is
+        // present, so dropping it here makes the completion path skip the
+        // needless DELETE against an already-completed ceremony. A mid-ceremony
+        // operator cancel still has a live nonce and cancels as before.
+        setNonce('')
         setRekeyOpen(false)
         qc.invalidateQueries({ queryKey: ['master-key'] })
       } else {
@@ -232,7 +238,15 @@ export function MasterKeySection() {
       {/* Fresh shares shown ONCE. Cleared from state when the reveal closes. */}
       <RevealOnce
         open={newShares !== null}
-        onClose={() => setNewShares(null)}
+        onClose={() => {
+          setNewShares(null)
+          // Drop the plaintext shares cached in the mutation result object
+          // (submit.data.new_shares) too — otherwise a full copy of every fresh
+          // share survives in memory for the component's lifetime after the
+          // reveal is dismissed. This is the residual-plaintext class fixed in
+          // 1ca8787; RevealOnce close is the point both copies must die.
+          submit.reset()
+        }}
         title="New key shares"
         secret={(newShares ?? []).join('\n')}
         hint="Distribute these to your key holders now. They will never be shown again."
