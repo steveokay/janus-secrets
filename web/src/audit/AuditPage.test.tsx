@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen, within } from '@testing-library/react'
+import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -171,4 +171,16 @@ test('renders date-group headers', async () => {
   })
   mount()
   expect(await screen.findByText('2026-07-01')).toBeInTheDocument()
+})
+
+test('keyboard toggles row expand (Enter) and closes it (Esc)', async () => {
+  mockVerify({ valid: true, count: 1, head_seq: 1 })
+  mockEvents({ events: [EV(1, { prev_hash: 'PREVHASH', hash: 'THISHASH' })], next_cursor: null })
+  mount()
+  const row = (await screen.findByText('secret.write')).closest('tr')!
+  row.focus()
+  await userEvent.keyboard('{Enter}')
+  expect(await screen.findByText(/THISHASH/)).toBeInTheDocument()
+  await userEvent.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByText(/THISHASH/)).not.toBeInTheDocument())
 })
