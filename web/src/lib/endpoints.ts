@@ -14,6 +14,19 @@ export interface User { kind: 'user' | 'service_token'; id: string; name: string
 export interface Project { id: string; slug: string; name: string }
 export interface Environment { id: string; slug: string; name: string }
 export interface Config { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string; promoted_from_env?: string; promoted_from_version?: number }
+// Trash (§1.10) — grouped soft-deleted entities. Value-free metadata only:
+// names/slugs/ownership + when it was deleted; never any secret material.
+export interface TrashProject { id: string; slug: string; name: string; deleted_at: string }
+export interface TrashEnvironment {
+  id: string; slug: string; name: string
+  project_id: string; project_name: string; deleted_at: string
+}
+export interface TrashConfig {
+  id: string; name: string
+  environment_id: string; environment_name: string
+  project_id: string; project_name: string; deleted_at: string
+}
+export interface Trash { projects: TrashProject[]; environments: TrashEnvironment[]; configs: TrashConfig[] }
 export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden' }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionResult { version: number; id: string; created_at: string }
@@ -180,6 +193,21 @@ export const endpoints = {
     api.get<{ configs: Config[] }>(`/v1/projects/${pid}/environments/${eid}/configs`).then((r) => r.configs),
   createConfig: (pid: string, eid: string, name: string, inherits_from?: string) =>
     api.post<Config>(`/v1/projects/${pid}/environments/${eid}/configs`, { name, inherits_from }),
+
+  // trash & lifecycle (§1.10). Soft-delete moves to Trash; restore undeletes;
+  // destroy is a permanent, cascading (project) hard delete. All value-free.
+  listTrash: () => api.get<Trash>('/v1/trash'),
+  deleteProject: (pid: string) => api.del<void>(`/v1/projects/${pid}`),
+  restoreProject: (pid: string) => api.post<Project>(`/v1/projects/${pid}/restore`, {}),
+  destroyProject: (pid: string) => api.del<void>(`/v1/projects/${pid}?destroy=true`),
+  deleteEnvironment: (pid: string, eid: string) => api.del<void>(`/v1/projects/${pid}/environments/${eid}`),
+  restoreEnvironment: (pid: string, eid: string) =>
+    api.post<Environment>(`/v1/projects/${pid}/environments/${eid}/restore`, {}),
+  destroyEnvironment: (pid: string, eid: string) =>
+    api.del<void>(`/v1/projects/${pid}/environments/${eid}?destroy=true`),
+  deleteConfig: (cid: string) => api.del<void>(`/v1/configs/${cid}`),
+  restoreConfig: (cid: string) => api.post<Config>(`/v1/configs/${cid}/restore`, {}),
+  destroyConfig: (cid: string) => api.del<void>(`/v1/configs/${cid}?destroy=true`),
 
   // secrets
   maskedSecrets: (cid: string) =>

@@ -131,3 +131,56 @@ test('putMember sends role to the scoped path', async () => {
   expect(hit).toBe(true)
   expect(body).toEqual({ role: 'developer' })
 })
+
+test('listTrash returns grouped soft-deleted entities', async () => {
+  server.use(
+    http.get('/v1/trash', () =>
+      HttpResponse.json({
+        projects: [{ id: 'p1', slug: 'web', name: 'Web', deleted_at: '2026-07-14T10:00:00Z' }],
+        environments: [{ id: 'e1', slug: 'prod', name: 'Prod', project_id: 'p1', project_name: 'Web', deleted_at: '2026-07-14T10:00:00Z' }],
+        configs: [{ id: 'c1', name: 'root', environment_id: 'e1', environment_name: 'Prod', project_id: 'p1', project_name: 'Web', deleted_at: '2026-07-14T10:00:00Z' }],
+      }),
+    ),
+  )
+  const t = await endpoints.listTrash()
+  expect(t.projects[0].name).toBe('Web')
+  expect(t.configs[0].environment_name).toBe('Prod')
+})
+
+test('restoreConfig POSTs to the restore route', async () => {
+  let hit = ''
+  server.use(
+    http.post('/v1/configs/:cid/restore', ({ params }) => {
+      hit = String(params.cid)
+      return HttpResponse.json({ id: 'c1', environment_id: 'e1', name: 'root', inherits_from: null, created_at: '2026-07-14T10:00:00Z' })
+    }),
+  )
+  await endpoints.restoreConfig('c1')
+  expect(hit).toBe('c1')
+})
+
+test('destroyConfig DELETEs with destroy=true', async () => {
+  let url = ''
+  server.use(
+    http.delete('/v1/configs/:cid', ({ request }) => {
+      url = new URL(request.url).search
+      return new HttpResponse(null, { status: 204 })
+    }),
+  )
+  await endpoints.destroyConfig('c1')
+  expect(url).toContain('destroy=true')
+})
+
+test('deleteEnvironment and destroyEnvironment hit the env routes', async () => {
+  let delUrl = ''
+  server.use(
+    http.delete('/v1/projects/:pid/environments/:eid', ({ request }) => {
+      delUrl = new URL(request.url).pathname + new URL(request.url).search
+      return new HttpResponse(null, { status: 204 })
+    }),
+  )
+  await endpoints.deleteEnvironment('p1', 'e1')
+  expect(delUrl).toBe('/v1/projects/p1/environments/e1')
+  await endpoints.destroyEnvironment('p1', 'e1')
+  expect(delUrl).toContain('destroy=true')
+})
