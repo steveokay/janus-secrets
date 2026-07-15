@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -96,5 +97,56 @@ func TestConfigRepoCRUD(t *testing.T) {
 	}
 	if err := repo.Destroy(ctx, branch.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConfigRepo_ListByEnvironmentPage(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewConfigRepo(s)
+
+	pid, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := NewProjectRepo(s).Create(ctx, pid, "acme", "Acme", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEnvironmentRepo(s).Create(ctx, p.ID, "prod", "Production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if _, err := repo.Create(ctx, e.ID, fmt.Sprintf("cfg-%d", i), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := repo.ListByEnvironmentPage(ctx, e.ID, 0, nil)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("unbounded: len=%d err=%v", len(all), err)
+	}
+	seen := map[string]bool{}
+	var after *Cursor
+	for {
+		page, err := repo.ListByEnvironmentPage(ctx, e.ID, 2, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range page {
+			if seen[c.ID] {
+				t.Fatalf("duplicate id %s", c.ID)
+			}
+			seen[c.ID] = true
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		after = &Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("covered %d of 5", len(seen))
 	}
 }
