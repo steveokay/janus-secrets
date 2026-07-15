@@ -32,7 +32,7 @@ type Service struct {
 	unsealer Unsealer
 	repo     *store.MasterKeyRepo
 	seals    crypto.SealConfigStore
-	rekey    rekeyState // placeholder; filled by the ceremony task
+	rekey    rekeyState // Shamir rekey ceremony state (see RekeyInit/RekeySubmit).
 }
 
 func NewService(kr *crypto.Keyring, u Unsealer, repo *store.MasterKeyRepo, seals crypto.SealConfigStore) *Service {

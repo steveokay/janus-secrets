@@ -108,17 +108,23 @@ func (s *Server) handleMasterKeyRekeySubmit(w http.ResponseWriter, r *http.Reque
 		s.writeMasterKeyErr(w, err)
 		return
 	}
-	action := "sys.master-key.rekey.submit"
-	if complete {
-		action = "sys.master-key.rekey.complete"
-	}
-	if err := s.record(r, action, "sys/master-key", "success", "", ""); err != nil {
-		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
-		return
-	}
 	if !complete {
+		// Not yet committed: a failed audit write may safely 500, as no
+		// unrecoverable secret has been produced.
+		if err := s.record(r, "sys.master-key.rekey.submit", "sys/master-key", "success", "", ""); err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"complete": false, "submitted": submitted, "required": required})
 		return
+	}
+	// Completing submit: the rotation is already committed and swapped, and
+	// `shares` is the operator's ONLY copy of the new unseal shares. A failed
+	// audit write must NOT drop them — failing the request cannot un-rotate, it
+	// only locks the operator out. Record best-effort; log a degradation on
+	// failure (never the shares themselves); always return the shares.
+	if err := s.record(r, "sys.master-key.rekey.complete", "sys/master-key", "success", "", ""); err != nil {
+		s.logger.Error("audit write failed after master-key rotation completed; returning new shares anyway", "err", err)
 	}
 	encoded := make([]string, len(shares))
 	for i, sh := range shares {
