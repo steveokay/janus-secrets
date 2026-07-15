@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQueries } from '@tanstack/react-query'
-import { LayoutGrid, List, Plus, FolderGit2 } from 'lucide-react'
+import { useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
+import { LayoutGrid, List, Plus, FolderGit2, Trash2 } from 'lucide-react'
 import { endpoints, Project } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
@@ -10,12 +10,17 @@ import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
 import { useTitle } from '../lib/title'
 import { CreateProjectForm } from '../structure/CreateForms'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { useToast } from '../ui/Toast'
 import { InstanceReadsStrip } from '../metrics/ReadsStrip'
 
 type Sort = 'name-asc' | 'name-desc'
 
 function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list' }) {
   const envs = useEnvironments(project.id)
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [confirming, setConfirming] = useState(false)
   const configQueries = useQueries({
     queries: (envs.data ?? []).map((e) => ({
       queryKey: ['configs', project.id, e.id],
@@ -29,31 +34,56 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
       : undefined
   const countLabel = totalConfigs !== undefined ? `${totalConfigs} configs` : anyConfigError ? '— configs' : '… configs'
 
+  const del = useMutation({
+    mutationFn: () => endpoints.deleteProject(project.id),
+    onSuccess: () => { toast({ title: `Moved ${project.name} to Trash` }); void qc.invalidateQueries({ queryKey: ['projects'] }) },
+    onError: () => toast({ title: 'Delete failed', tone: 'danger' }),
+  })
+
   return (
-    <Link
-      to={`/projects/${project.id}`}
-      className={cn(
-        'group rounded-card border border-line bg-card p-4 shadow-elev-1 hover:border-brand-line',
-        view === 'list' && 'flex items-center gap-4',
-      )}
-    >
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
-        {project.slug !== project.name && (
-          <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
+    <div className="group relative">
+      <Link
+        to={`/projects/${project.id}`}
+        className={cn(
+          'block rounded-card border border-line bg-card p-4 shadow-elev-1 hover:border-brand-line',
+          view === 'list' && 'flex items-center gap-4',
         )}
-      </div>
-      <div className={cn('flex items-center gap-2', view === 'grid' && 'mt-3')}>
-        {envs.data && envs.data.length > 0 && (
-          <span className="flex items-center gap-1">
-            {envs.data.map((e) => (
-              <span key={e.id} className={cn('h-[7px] w-[7px] rounded-[2px]', envDotClass[envTone(e.name)])} />
-            ))}
-          </span>
-        )}
-        <Pill tone="muted">{countLabel}</Pill>
-      </div>
-    </Link>
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
+          {project.slug !== project.name && (
+            <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
+          )}
+        </div>
+        <div className={cn('flex items-center gap-2', view === 'grid' && 'mt-3')}>
+          {envs.data && envs.data.length > 0 && (
+            <span className="flex items-center gap-1">
+              {envs.data.map((e) => (
+                <span key={e.id} className={cn('h-[7px] w-[7px] rounded-[2px]', envDotClass[envTone(e.name)])} />
+              ))}
+            </span>
+          )}
+          <Pill tone="muted">{countLabel}</Pill>
+        </div>
+      </Link>
+      <button
+        type="button"
+        aria-label={`delete ${project.name}`}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirming(true) }}
+        className="absolute right-2 top-2 hidden h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-danger-soft hover:text-danger group-hover:flex"
+      >
+        <Trash2 size={13} strokeWidth={1.8} />
+      </button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Delete ${project.name}?`}
+        body="This moves the project to Trash. You can restore it, or permanently destroy it from Trash."
+        confirmLabel="Move to Trash"
+        tone="danger"
+        onConfirm={() => { setConfirming(false); del.mutate() }}
+      />
+    </div>
   )
 }
 

@@ -188,6 +188,10 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/", s.handleUserList)
 			r.Post("/{id}/disable", s.handleUserDisable)
 		})
+		r.Route("/v1/trash", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Get("/", s.handleTrashList)
+		})
 		r.Route("/v1/instance/members", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.instanceScope()) })

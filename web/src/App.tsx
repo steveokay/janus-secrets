@@ -20,6 +20,7 @@ import { MembersPage } from './members/MembersPage'
 import { TransitPage } from './transit/TransitPage'
 import { OperationsPage } from './operations/OperationsPage'
 import { SettingsPage } from './settings/SettingsPage'
+import { TrashPage } from './trash/TrashPage'
 import { PaletteProvider } from './palette/PaletteProvider'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { NotFound } from './shell/NotFound'
@@ -67,6 +68,7 @@ function Gate() {
             <Route path="/transit" element={<TransitPage />} />
             <Route path="/operations" element={<OperationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/trash" element={<TrashPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </ErrorBoundary>

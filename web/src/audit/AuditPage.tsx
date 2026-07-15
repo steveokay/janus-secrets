@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { endpoints, AuditEvent, AuditEventFilters } from '../lib/endpoints'
 import { ApiError } from '../lib/api'
@@ -8,6 +9,7 @@ import { EmptyState } from '../ui/EmptyState'
 import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
 import { resultTone } from './resultTone'
+import { dayLabel } from './dayLabel'
 
 // Draft (inputs) vs applied (committed on Apply) — the events query only
 // refetches when applied changes, not on every keystroke.
@@ -28,6 +30,14 @@ export function AuditPage() {
   useTitle('Audit log')
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [applied, setApplied] = useState<AuditEventFilters>({})
+  const [expandedSeq, setExpandedSeq] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (expandedSeq === null) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpandedSeq(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expandedSeq])
 
   const verify = useQuery({ queryKey: ['audit', 'verify'], queryFn: endpoints.verifyAudit })
 
@@ -182,26 +192,22 @@ export function AuditPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((e) => (
-                <tr key={e.seq} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
-                  <td className="py-1"><span title={e.occurred_at}>{relativeTime(e.occurred_at)}</span></td>
-                  <td className="py-1">
-                    <div>{e.actor_name}</div>
-                    <div className="text-[10.5px] text-ink-faint">{e.actor_kind}</div>
-                  </td>
-                  <td className="py-1 font-mono text-[12px]">{e.action}</td>
-                  <td className="max-w-[220px] truncate py-1 font-mono text-[12px]" title={e.resource}>
-                    {e.resource}
-                  </td>
-                  <td className="py-1"><Pill tone={resultTone[e.result]}>{e.result}</Pill></td>
-                  <td
-                    className="max-w-[240px] truncate py-1 text-[12px] text-ink-faint"
-                    title={e.detail ?? undefined}
-                  >
-                    {e.detail}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((e, i) => {
+                const label = dayLabel(e.occurred_at)
+                const prevLabel = i > 0 ? dayLabel(rows[i - 1].occurred_at) : null
+                const showHeader = label !== prevLabel
+                const open = expandedSeq === e.seq
+                return (
+                  <FragmentRow
+                    key={e.seq}
+                    e={e}
+                    open={open}
+                    showHeader={showHeader}
+                    label={label}
+                    onToggle={() => setExpandedSeq((s) => (s === e.seq ? null : e.seq))}
+                  />
+                )
+              })}
             </tbody>
           </table>
           {events.hasNextPage && (
@@ -219,5 +225,71 @@ export function AuditPage() {
         </>
       )}
     </div>
+  )
+}
+
+function Field({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] font-bold uppercase tracking-[.1em] text-ink-faint">{label}</span>
+      <span className={mono ? 'break-all font-mono text-[11.5px] text-ink' : 'text-[12px] text-ink'}>{value}</span>
+    </div>
+  )
+}
+
+function FragmentRow({ e, open, showHeader, label, onToggle }: {
+  e: AuditEvent; open: boolean; showHeader: boolean; label: string; onToggle: () => void
+}) {
+  return (
+    <Fragment>
+      {showHeader && (
+        <tr className="bg-surface-1">
+          <td colSpan={6} className="py-1 text-[10.5px] font-bold uppercase tracking-[.1em] text-ink-faint">
+            {label}
+          </td>
+        </tr>
+      )}
+      <tr
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={onToggle}
+        onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onToggle() } }}
+        className="cursor-pointer border-t border-line-soft hover:bg-row-hover transition-nocturne"
+      >
+        <td className="py-1"><span title={e.occurred_at}>{relativeTime(e.occurred_at)}</span></td>
+        <td className="py-1">
+          <div>{e.actor_name}</div>
+          <div className="text-[10.5px] text-ink-faint">{e.actor_kind}</div>
+        </td>
+        <td className="py-1 font-mono text-[12px]">{e.action}</td>
+        <td className="max-w-[220px] truncate py-1 font-mono text-[12px]" title={e.resource}>
+          {e.resource}
+        </td>
+        <td className="py-1"><Pill tone={resultTone[e.result]}>{e.result}</Pill></td>
+        <td
+          className="max-w-[240px] truncate py-1 text-[12px] text-ink-faint"
+          title={e.detail ?? undefined}
+        >
+          {e.detail}
+        </td>
+      </tr>
+      {open && (
+        <tr className="border-t border-line-soft bg-surface-1">
+          <td colSpan={6} className="px-3 py-3">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+              <Field label="Seq" value={e.seq} />
+              <Field label="Actor" value={`${e.actor_kind}${e.actor_id ? ` · ${e.actor_id}` : ''}`} />
+              <Field label="IP" value={e.ip} />
+              <Field label="Result" value={`${e.result}${e.result_code ? ` · ${e.result_code}` : ''}`} />
+              <Field label="Resource" value={e.resource} mono />
+              <Field label="Detail" value={e.detail ?? '—'} />
+              <Field label="Prev hash" value={e.prev_hash} mono />
+              <Field label="Hash" value={e.hash} mono />
+            </div>
+          </td>
+        </tr>
+      )}
+    </Fragment>
   )
 }

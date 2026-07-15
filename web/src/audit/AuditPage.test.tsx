@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen, within } from '@testing-library/react'
+import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
@@ -145,4 +145,42 @@ test('zero events shows the "no events match" empty state', async () => {
   mount()
   await screen.findByText(/Chain verified/)
   expect(await screen.findByText('No events match these filters.')).toBeInTheDocument()
+})
+
+test('clicking a row expands full detail incl. hash chain', async () => {
+  mockVerify({ valid: true, count: 1, head_seq: 1 })
+  mockEvents({
+    events: [EV(1, { resource: 'configs/c1/secrets/API_KEY', detail: 'raw', result_code: 'ok', prev_hash: 'PREVHASH', hash: 'THISHASH' })],
+    next_cursor: null,
+  })
+  mount()
+  const actionCell = await screen.findByText('secret.write')
+  await userEvent.click(actionCell.closest('tr')!)
+  expect(await screen.findByText(/THISHASH/)).toBeInTheDocument()
+  expect(screen.getByText(/PREVHASH/)).toBeInTheDocument()
+})
+
+test('renders date-group headers', async () => {
+  mockVerify({ valid: true, count: 2, head_seq: 2 })
+  mockEvents({
+    events: [
+      EV(2, { occurred_at: '2026-07-15T10:00:00Z' }),
+      EV(1, { occurred_at: '2026-07-01T10:00:00Z' }),
+    ],
+    next_cursor: null,
+  })
+  mount()
+  expect(await screen.findByText('2026-07-01')).toBeInTheDocument()
+})
+
+test('keyboard toggles row expand (Enter) and closes it (Esc)', async () => {
+  mockVerify({ valid: true, count: 1, head_seq: 1 })
+  mockEvents({ events: [EV(1, { prev_hash: 'PREVHASH', hash: 'THISHASH' })], next_cursor: null })
+  mount()
+  const row = (await screen.findByText('secret.write')).closest('tr')!
+  row.focus()
+  await userEvent.keyboard('{Enter}')
+  expect(await screen.findByText(/THISHASH/)).toBeInTheDocument()
+  await userEvent.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByText(/THISHASH/)).not.toBeInTheDocument())
 })

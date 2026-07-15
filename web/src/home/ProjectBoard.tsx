@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { Lock, Plus, Layers, ArrowRight, GitBranch, CornerUpRight } from 'lucide-react'
+import { useQueries, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Lock, Plus, Layers, ArrowRight, GitBranch, CornerUpRight, Trash2 } from 'lucide-react'
 import { endpoints, Config, Environment } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
 import { EmptyState } from '../ui/EmptyState'
 import { Pill } from '../ui/Pill'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { useToast } from '../ui/Toast'
 import { cn } from '../ui/cn'
 import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
@@ -69,10 +71,19 @@ function OpsChips({ configId, ops }: { configId: string; ops: OpsHealth }) {
 function ConfigCard({ pid, config, depth, ops, promote }: {
   pid: string; config: Config; depth: number; ops: OpsHealth; promote: PromoteWiring
 }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [confirmCfg, setConfirmCfg] = useState(false)
+  const delCfg = useMutation({
+    mutationFn: () => endpoints.deleteConfig(config.id),
+    onSuccess: () => { toast({ title: `Moved ${config.name} to Trash` }); void qc.invalidateQueries({ queryKey: ['configs', pid] }) },
+    onError: () => toast({ title: 'Delete failed', tone: 'danger' }),
+  })
   // Draggable + Promote button only when a pipeline exists AND this env has a
   // next env to promote into.
   const canPromote = promote.on && promote.hasNext
   return (
+    <div className="group/card relative">
     <Link
       to={`/projects/${pid}/configs/${config.id}`}
       data-inherited={config.inherits_from ? 'true' : undefined}
@@ -123,6 +134,24 @@ function ConfigCard({ pid, config, depth, ops, promote }: {
         <span className="text-[10px] text-ink-faint">created {relativeTime(config.created_at)}</span>
       </div>
     </Link>
+      <button
+        type="button"
+        aria-label={`delete config ${config.name}`}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirmCfg(true) }}
+        className="absolute right-1.5 top-1.5 hidden h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-danger-soft hover:text-danger group-hover/card:flex"
+      >
+        <Trash2 size={12} strokeWidth={1.8} />
+      </button>
+      <ConfirmDialog
+        open={confirmCfg}
+        onOpenChange={setConfirmCfg}
+        title={`Delete ${config.name}?`}
+        body="This moves the config to Trash. You can restore it from Trash."
+        confirmLabel="Move to Trash"
+        tone="danger"
+        onConfirm={() => { setConfirmCfg(false); delCfg.mutate() }}
+      />
+    </div>
   )
 }
 
@@ -162,6 +191,14 @@ function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarg
   onDropHere: () => void
   onAddConfig: (env: Environment, bases: Config[]) => void
 }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [confirmEnv, setConfirmEnv] = useState(false)
+  const delEnv = useMutation({
+    mutationFn: () => endpoints.deleteEnvironment(pid, env.id),
+    onSuccess: () => { toast({ title: `Moved ${env.name} to Trash` }); void qc.invalidateQueries({ queryKey: ['envs', pid] }) },
+    onError: () => toast({ title: 'Delete failed', tone: 'danger' }),
+  })
   const tone = envTone(env.name)
   const roots = configs.filter((c) => !c.inherits_from || !configs.some((x) => x.id === c.inherits_from))
   const count = loading ? '…' : error ? '—' : `${configs.length} config${configs.length === 1 ? '' : 's'}`
@@ -178,8 +215,27 @@ function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarg
     >
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-[13px] font-semibold text-ink">{env.name}</h3>
-        <Pill tone="muted">{count}</Pill>
+        <div className="flex items-center gap-1.5">
+          <Pill tone="muted">{count}</Pill>
+          <button
+            type="button"
+            aria-label={`delete environment ${env.name}`}
+            onClick={() => setConfirmEnv(true)}
+            className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-danger-soft hover:text-danger"
+          >
+            <Trash2 size={12} strokeWidth={1.8} />
+          </button>
+        </div>
       </div>
+      <ConfirmDialog
+        open={confirmEnv}
+        onOpenChange={setConfirmEnv}
+        title={`Delete ${env.name}?`}
+        body="This moves the environment and its configs to Trash. You can restore them from Trash."
+        confirmLabel="Move to Trash"
+        tone="danger"
+        onConfirm={() => { setConfirmEnv(false); delEnv.mutate() }}
+      />
       <div className={cn('mb-3 h-[3px] w-10 rounded-full', envDotClass[tone])} />
       <button
         type="button"
