@@ -91,10 +91,11 @@ func (fakeKMS) Decrypt(_ context.Context, ciphertext []byte) ([]byte, error) {
 // the same unsealed keyring and store) so a test can write/read secrets through
 // the real read path and rotate the master key.
 type harness struct {
-	svc   *Service
-	sec   *secrets.Service
-	kr    *crypto.Keyring
-	seals crypto.SealConfigStore
+	svc    *Service
+	sec    *secrets.Service
+	kr     *crypto.Keyring
+	seals  crypto.SealConfigStore
+	shares [][]byte // current Shamir shares (nil for KMS/1-of-1 harnesses)
 }
 
 // resetSeal truncates seal_config plus every master-wrapped/secret table so each
@@ -172,6 +173,45 @@ func newShamirHarness(t *testing.T) *harness {
 
 	svc := NewService(kr, unsealer, store.NewMasterKeyRepo(testStore), seals)
 	return &harness{svc: svc, sec: secrets.NewService(testStore, kr), kr: kr, seals: seals}
+}
+
+// newShamirCeremonyHarness builds a rotation Service over a real 3-of-5
+// Shamir-unsealed keyring and returns all five current shares so a rekey
+// ceremony test can submit them. It unseals with the threshold count.
+func newShamirCeremonyHarness(t *testing.T) *harness {
+	t.Helper()
+	if testStore == nil {
+		t.Skip("postgres/docker not available")
+	}
+	resetSeal(t)
+	ctx := context.Background()
+
+	seals := store.NewSealConfigStore(testStore)
+	unsealer := crypto.NewShamirUnsealer(seals, 5, 3) // 3-of-5
+	res, err := unsealer.Init(ctx)
+	if err != nil {
+		t.Fatalf("Shamir Init: %v", err)
+	}
+	shares := make([][]byte, len(res.Shares))
+	for i, sh := range res.Shares {
+		shares[i] = append([]byte(nil), sh...)
+	}
+	for i := 0; i < 3; i++ { // submit threshold shares to unseal
+		if _, err := unsealer.SubmitShare(ctx, res.Shares[i]); err != nil {
+			t.Fatalf("SubmitShare %d: %v", i, err)
+		}
+	}
+	master, err := unsealer.Unseal(ctx)
+	if err != nil {
+		t.Fatalf("Shamir Unseal: %v", err)
+	}
+	kr := crypto.NewKeyring()
+	if err := kr.Unseal(master); err != nil {
+		t.Fatalf("keyring Unseal: %v", err)
+	}
+
+	svc := NewService(kr, unsealer, store.NewMasterKeyRepo(testStore), seals)
+	return &harness{svc: svc, sec: secrets.NewService(testStore, kr), kr: kr, seals: seals, shares: shares}
 }
 
 // mkChain creates a fresh project→env→config chain with a unique project slug,
