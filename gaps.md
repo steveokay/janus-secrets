@@ -101,14 +101,14 @@ These exist and work but are shallow versions of what the mockup/product implies
 
 | # | Gap | Evidence | Sev |
 |---|-----|----------|-----|
-| 4.1 | **No master-key or project-KEK rotation surface.** Spec: "rotating a project KEK re-wraps DEKs lazily; rotating the master key re-wraps all project KEKs (online operation)". No endpoint, no CLI; design TODO still open. | `internal/crypto/keyring.go:50` TODO(rotation); no route in `server.go` | HIGH |
+| 4.1 | ~~**No master-key or project-KEK rotation surface.**~~ **[DONE]** — project-KEK rotation (PR #71/#72) + master-key rotation (PR #77, `8f89232`, 2026-07-15): eager-atomic 5-table re-wrap + Shamir rekey ceremony vs KMS single-call, owner-only `sys:master-key`, value-free, migration 000019. The `keyring.go` `TODO(rotation)` is removed. | ~~`internal/crypto/keyring.go:50` TODO(rotation)~~ → `internal/masterkeys`, `internal/projectkeys` | ~~HIGH~~ |
 | 4.2 | **Cursor pagination missing on most list endpoints.** Spec: "List endpoints: cursor pagination." Only audit events/export paginate; projects, environments, configs, secrets, tokens, users, transit keys return everything. | `internal/api/projects_handlers.go` et al. | HIGH |
 | 4.3 | **No `Idempotency-Key` support.** Spec: "Mutations: idempotency via client-supplied Idempotency-Key where destructive." Not parsed anywhere. | grep across `internal/api` | MED |
 | 4.4 | **HTTP server hardening:** only `ReadHeaderTimeout` set — no `ReadTimeout`/`WriteTimeout`, no `MaxBytesReader` body limits (restore/import paths accept unbounded bodies). | `internal/api/server.go` (ListenAndServe) | MED |
 | 4.5 | No account lockout / progressive backoff beyond per-IP rate limit (10/min). Admin disable exists. | `internal/api/ratelimit.go` | LOW |
 | 4.6 | DB pool uses pgx defaults (no max-conns/lifetime tuning); shutdown grace fixed at 10s. | `internal/store/store.go` | LOW |
 
-What **passed** (worth stating): route surface is complete for all shipped features (~90 endpoints); error envelope consistent; leak tests, gosec+govulncheck, 100% crypto coverage, `-race`, and testcontainers integration tests are all in place; only one TODO exists in production code (4.1).
+What **passed** (worth stating): route surface is complete for all shipped features (~90 endpoints); error envelope consistent; leak tests, gosec+govulncheck, 100% crypto coverage, `-race`, and testcontainers integration tests are all in place; the sole production TODO (4.1 `keyring.go` rotation) is now resolved and removed.
 
 ## 5. Backend — smaller functional gaps
 
@@ -147,12 +147,19 @@ What **passed** (worth stating): route surface is complete for all shipped featu
 
 ## Suggested priority order
 
-1. **CI: add web tests + smoke** (7.1) — cheap, protects everything else.
-2. **UI: Settings surface** (1.1) hosting **OIDC provider + federation admin** (1.3, 1.4) and **seal/backup controls** (1.6) — turns three API-only features into product.
-3. **UI: OIDC login button** (1.2) — SSO is currently unusable from the browser.
-4. **UI: Operations create flows** (1.5) + matching CLI verb completion (§6 row 3) — finish both halves.
-5. **Backend: KEK/master-key rotation** (4.1) — last unimplemented crypto-spec promise.
-6. **Backend: pagination + idempotency + server timeouts** (4.2–4.4) — spec debt, mechanical.
-7. **Editor depth pass** (2.1): sorting, bulk ops, keyboard nav, import preview — the single page users live in.
-8. **Error boundary + 404 + restore/undelete UI + per-key history** (1.7, 1.8, 1.10, 1.11).
-9. **Release hygiene**: LICENSE, OpenAPI, goreleaser, deployment guide (7.2–7.5).
+_Updated 2026-07-15: items 1–5, plus editor depth (2.1) and ops-console depth (2.2), env→env promotion, and modal-solidify are all shipped. Remaining, re-ranked:_
+
+1. ~~**CI: web tests + smoke** (7.1)~~ **[DONE]** PR #60.
+2. ~~**UI: Settings surface** (1.1/1.3/1.4/1.6)~~ **[DONE]** Nocturne N5, PR #65.
+3. ~~**UI: OIDC login button** (1.2)~~ **[DONE]** N5, PR #65.
+4. ~~**UI: Operations create flows** (1.5)~~ **[DONE]** N6, PR #66.
+5. ~~**Backend: KEK/master-key rotation** (4.1)~~ **[DONE]** PR #71/#72 (KEK) + PR #77 (master). Crypto-spec promises complete.
+6. ~~**Editor depth pass** (2.1)~~ **[DONE]** PR #68. ~~**Ops-console depth** (2.2)~~ **[DONE]** PR #69/#70.
+
+**Next up (nothing crypto/spec-critical left; these are the top remaining):**
+
+7. **Backend: pagination + idempotency + server hardening** (4.2–4.4) — spec debt, mostly mechanical; the largest remaining CLAUDE.md-promise gap. Idempotency-Key already exists for promotion (PR #74); generalize + add cursor pagination to the ~7 unpaginated list endpoints + `ReadTimeout`/`WriteTimeout`/`MaxBytesReader`.
+8. **UI depth: restore/undelete** (1.10) + **per-key value history** (1.11) + **audit viewer expand/timeline** (2.3) — surfaces backend features the UI can't reach today (soft-delete undelete, two-level per-key versioning).
+9. **CLI control plane** (§6) — `janus projects/env/config create`, token mint/list/revoke, and the missing rotation/dynamic verbs; makes the CLI self-sufficient for bootstrap + ops.
+10. **Release hygiene** (7.2–7.5): LICENSE, OpenAPI spec, goreleaser/CHANGELOG, production deployment guide — needed before any tagged release.
+11. **Phase B: promotion approval workflow** — a separate future spec (request→review→approve for users without `secret:promote`); noted in [[env-promotion-progress]].
