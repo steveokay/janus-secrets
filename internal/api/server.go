@@ -106,6 +106,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
 	r.Use(RequireUnsealed(kr))
+	if st != nil && authSvc != nil {
+		r.Use(idempotencyMiddleware(idemRepoAdapter{repo: store.NewIdempotencyRepo(st)}, authSvc))
+	}
 	r.Route("/v1/sys", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
 		r.Get("/live", s.handleLive)
