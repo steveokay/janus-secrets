@@ -33,3 +33,22 @@ func TestGracefulShutdown(t *testing.T) {
 		t.Fatal("server did not shut down within 5s")
 	}
 }
+
+func TestBuildHTTPServer_Timeouts(t *testing.T) {
+	s := &Server{cfg: Config{
+		ListenAddr:       ":9999",
+		HTTPReadTimeout:  15 * time.Second,
+		HTTPWriteTimeout: 0,
+		HTTPIdleTimeout:  90 * time.Second,
+	}}
+	srv := s.buildHTTPServer()
+	if srv.ReadTimeout != 15*time.Second || srv.IdleTimeout != 90*time.Second || srv.WriteTimeout != 0 {
+		t.Fatalf("timeouts: read=%v write=%v idle=%v", srv.ReadTimeout, srv.WriteTimeout, srv.IdleTimeout)
+	}
+	if srv.ReadHeaderTimeout != 10*time.Second {
+		t.Fatalf("ReadHeaderTimeout should stay 10s, got %v", srv.ReadHeaderTimeout)
+	}
+	if srv.Addr != ":9999" {
+		t.Fatalf("addr = %q", srv.Addr)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -70,6 +71,39 @@ func runServer(ctx context.Context) error {
 		dynamicTick = d
 	}
 
+	httpRead := 30 * time.Second
+	if v := os.Getenv("JANUS_HTTP_READ_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_HTTP_READ_TIMEOUT %q: use a Go duration like 30s, or 0 to disable", v)
+		}
+		httpRead = d
+	}
+	httpIdle := 120 * time.Second
+	if v := os.Getenv("JANUS_HTTP_IDLE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_HTTP_IDLE_TIMEOUT %q: use a Go duration like 2m, or 0 to disable", v)
+		}
+		httpIdle = d
+	}
+	httpWrite := time.Duration(0) // disabled by default: audit export streams
+	if v := os.Getenv("JANUS_HTTP_WRITE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_HTTP_WRITE_TIMEOUT %q: use a Go duration like 60s, or 0 to disable", v)
+		}
+		httpWrite = d
+	}
+	var httpMaxBody int64 = 10 << 20 // 10 MiB default
+	if v := os.Getenv("JANUS_HTTP_MAX_BODY_BYTES"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid JANUS_HTTP_MAX_BODY_BYTES %q: use a non-negative byte count, or 0 to disable", v)
+		}
+		httpMaxBody = n
+	}
+
 	bc := api.BootConfig{
 		DatabaseURL:        dsn,
 		ListenAddr:         os.Getenv("JANUS_LISTEN_ADDR"), // "" → :8200 default
@@ -80,6 +114,10 @@ func runServer(ctx context.Context) error {
 		SyncTick:           syncTick,
 		DynamicTick:        dynamicTick,
 		Version:            version,
+		HTTPReadTimeout:    httpRead,
+		HTTPWriteTimeout:   httpWrite,
+		HTTPIdleTimeout:    httpIdle,
+		HTTPMaxBodyBytes:   httpMaxBody,
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
 			if arn == "" {
