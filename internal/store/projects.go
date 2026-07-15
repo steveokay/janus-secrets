@@ -42,6 +42,34 @@ func (r *ProjectRepo) Get(ctx context.Context, id string) (*Project, error) {
 	return scanProject(row)
 }
 
+// GetIncludingDeleted returns a project by id regardless of soft-delete state.
+// Used to resolve parent-name labels for the Trash view, where a project may
+// itself be soft-deleted. ErrNotFound only if the row does not exist at all.
+func (r *ProjectRepo) GetIncludingDeleted(ctx context.Context, id string) (*Project, error) {
+	row := r.s.pool.QueryRow(ctx,
+		`SELECT `+projectCols+` FROM projects WHERE id = $1::uuid`, id)
+	return scanProject(row)
+}
+
+// ListDeleted returns soft-deleted projects, most-recently-deleted first.
+func (r *ProjectRepo) ListDeleted(ctx context.Context) ([]*Project, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT `+projectCols+` FROM projects WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, mapError(rows.Err())
+}
+
 // GetBySlug returns a non-deleted project by slug.
 func (r *ProjectRepo) GetBySlug(ctx context.Context, slug string) (*Project, error) {
 	row := r.s.pool.QueryRow(ctx,

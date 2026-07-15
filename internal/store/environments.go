@@ -44,6 +44,25 @@ func (r *EnvironmentRepo) GetIncludingDeleted(ctx context.Context, id string) (*
 	return scanEnv(row)
 }
 
+// ListDeleted returns soft-deleted environments, most-recently-deleted first.
+func (r *EnvironmentRepo) ListDeleted(ctx context.Context) ([]*Environment, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT `+envCols+` FROM environments WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*Environment
+	for rows.Next() {
+		e, err := scanEnv(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, mapError(rows.Err())
+}
+
 // GetBySlug returns a non-deleted environment by (project, slug).
 func (r *EnvironmentRepo) GetBySlug(ctx context.Context, projectID, slug string) (*Environment, error) {
 	row := r.s.pool.QueryRow(ctx,

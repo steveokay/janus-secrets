@@ -45,6 +45,25 @@ func (r *ConfigRepo) GetIncludingDeleted(ctx context.Context, id string) (*Confi
 	return scanConfig(row)
 }
 
+// ListDeleted returns soft-deleted configs, most-recently-deleted first.
+func (r *ConfigRepo) ListDeleted(ctx context.Context) ([]*Config, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT `+configCols+` FROM configs WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*Config
+	for rows.Next() {
+		c, err := scanConfig(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, mapError(rows.Err())
+}
+
 // GetByName returns a non-deleted config by (environment, name).
 func (r *ConfigRepo) GetByName(ctx context.Context, environmentID, name string) (*Config, error) {
 	row := r.s.pool.QueryRow(ctx,
