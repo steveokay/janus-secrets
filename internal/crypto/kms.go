@@ -67,6 +67,26 @@ func (u *KMSUnsealer) Init(ctx context.Context) (*InitResult, error) {
 	return &InitResult{}, nil
 }
 
+// Reseal wraps newMaster under KMS and builds a new KCV. No operator shares.
+func (u *KMSUnsealer) Reseal(ctx context.Context, newMaster []byte) (*SealConfig, [][]byte, error) {
+	if len(newMaster) != KeySize {
+		return nil, nil, ErrInvalidKeySize
+	}
+	wrapped, err := u.client.Encrypt(ctx, newMaster)
+	if err != nil {
+		return nil, nil, err
+	}
+	kcv, err := makeKCV(newMaster)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &SealConfig{
+		Type:             SealTypeAWSKMS,
+		KeyCheckValue:    kcv,
+		WrappedMasterKey: wrapped,
+	}, nil, nil
+}
+
 func (u *KMSUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	cfg, err := u.store.Get(ctx)
 	if err != nil {

@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -342,6 +343,62 @@ func TestShamirSubmittedSharesAccessor(t *testing.T) {
 	}
 	if got := u.SubmittedShares(); got != 1 {
 		t.Fatalf("SubmittedShares after one submit = %d, want 1", got)
+	}
+}
+
+func TestShamirReconstructAndVerify(t *testing.T) {
+	st := fileStore(t)
+	u := NewShamirUnsealer(st, 5, 3)
+	res, err := u.Init(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := st.Get(context.Background())
+
+	master, err := ReconstructAndVerifyShamir(cfg, res.Shares[:3])
+	if err != nil {
+		t.Fatalf("verify with 3 shares: %v", err)
+	}
+	if len(master) != KeySize {
+		t.Fatal("bad master length")
+	}
+	zero(master)
+
+	if _, err := ReconstructAndVerifyShamir(cfg, res.Shares[:2]); !errors.Is(err, ErrNotEnoughShares) {
+		t.Fatalf("want ErrNotEnoughShares, got %v", err)
+	}
+	bad := [][]byte{res.Shares[0], res.Shares[1]}
+	junk := append([]byte(nil), res.Shares[2]...)
+	junk[len(junk)-1] ^= 0xFF
+	bad = append(bad, junk)
+	if _, err := ReconstructAndVerifyShamir(cfg, bad); err == nil {
+		t.Fatal("wrong share passed verification")
+	}
+}
+
+func TestShamirReseal(t *testing.T) {
+	st := fileStore(t)
+	u := NewShamirUnsealer(st, 5, 3)
+	if _, err := u.Init(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m2, _ := GenerateKey()
+	cfg, shares, err := u.Reseal(context.Background(), m2)
+	if err != nil {
+		t.Fatalf("Reseal: %v", err)
+	}
+	if cfg.Type != SealTypeShamir || cfg.Threshold != 3 || cfg.Shares != 5 {
+		t.Fatalf("shape not preserved: %+v", cfg)
+	}
+	if len(shares) != 5 {
+		t.Fatalf("want 5 new shares, got %d", len(shares))
+	}
+	got, err := ReconstructAndVerifyShamir(cfg, shares[:3])
+	if err != nil {
+		t.Fatalf("verify new shares: %v", err)
+	}
+	if !bytes.Equal(got, m2) {
+		t.Fatal("resealed shares do not reconstruct M2")
 	}
 }
 

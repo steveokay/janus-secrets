@@ -169,6 +169,36 @@ func TestKMSUnsealFailures(t *testing.T) {
 	})
 }
 
+func TestKMSReseal(t *testing.T) {
+	st := fileStore(t)
+	client := &fakeKMS{}
+	u := NewKMSUnsealer(st, client)
+	if _, err := u.Init(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	m2, _ := GenerateKey()
+	cfg, shares, err := u.Reseal(context.Background(), m2)
+	if err != nil {
+		t.Fatalf("Reseal: %v", err)
+	}
+	if shares != nil {
+		t.Fatal("KMS reseal must not return shares")
+	}
+	if cfg.Type != SealTypeAWSKMS || len(cfg.WrappedMasterKey) == 0 {
+		t.Fatalf("bad KMS cfg: %+v", cfg)
+	}
+	pt, err := client.Decrypt(context.Background(), cfg.WrappedMasterKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(pt, m2) {
+		t.Fatal("KMS reseal wrapped wrong key")
+	}
+	if err := verifyKCV(m2, cfg.KeyCheckValue); err != nil {
+		t.Fatalf("KCV: %v", err)
+	}
+}
+
 // fakeAWSAPI implements AWSKMSAPI for adapter tests.
 type fakeAWSAPI struct {
 	encOut *awskms.EncryptOutput

@@ -192,6 +192,38 @@ func (s *ShamirUnsealer) Reset() {
 	s.submitted = nil
 }
 
+// Reseal splits newMaster into fresh shares using the CURRENTLY STORED shape
+// (threshold/shares from seal_config, not the constructor defaults) and builds
+// a new KCV. It does not persist; the caller writes the returned config.
+func (s *ShamirUnsealer) Reseal(ctx context.Context, newMaster []byte) (*SealConfig, [][]byte, error) {
+	cfg, err := s.loadConfig(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(newMaster) != KeySize {
+		return nil, nil, ErrInvalidKeySize
+	}
+	var parts [][]byte
+	if cfg.Shares == 1 && cfg.Threshold == 1 {
+		parts = [][]byte{append([]byte(nil), newMaster...)}
+	} else {
+		parts, err = shamir.Split(newMaster, cfg.Shares, cfg.Threshold)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	kcv, err := makeKCV(newMaster)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &SealConfig{
+		Type:          SealTypeShamir,
+		Threshold:     cfg.Threshold,
+		Shares:        cfg.Shares,
+		KeyCheckValue: kcv,
+	}, parts, nil
+}
+
 func (s *ShamirUnsealer) loadConfig(ctx context.Context) (*SealConfig, error) {
 	cfg, err := s.store.Get(ctx)
 	if err != nil {
