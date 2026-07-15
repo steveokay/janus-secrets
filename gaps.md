@@ -158,7 +158,7 @@ _Updated 2026-07-15: items 1–5, plus editor depth (2.1) and ops-console depth 
 
 **Next up (nothing crypto/spec-critical left; these are the top remaining):**
 
-7. **Backend: pagination + idempotency + server hardening** (4.2–4.4) — spec debt, mostly mechanical; the largest remaining CLAUDE.md-promise gap. Idempotency-Key already exists for promotion (PR #74); generalize + add cursor pagination to the ~7 unpaginated list endpoints + `ReadTimeout`/`WriteTimeout`/`MaxBytesReader`.
+7. ~~**Backend: pagination + idempotency + server hardening** (4.2–4.4)~~ **[DONE 2026-07-15, PR #79]** — opt-in cursor pagination on 7 table-backed list endpoints (keyset `created_at DESC, id DESC`, backward-compatible), generic status-only `Idempotency-Key` middleware over all mutating verbs (replaces the promotion-specific one; value-safe by construction), and `JANUS_HTTP_*` read/idle/write timeouts + `MaxBytesReader` body cap (restore exempt). Migration 000020. (Also fixed the pre-existing `internal/crypto` 100%-coverage CI gate red since #77 — PR #80.)
 8. **UI depth: restore/undelete** (1.10) + **per-key value history** (1.11) + **audit viewer expand/timeline** (2.3) — surfaces backend features the UI can't reach today (soft-delete undelete, two-level per-key versioning).
 9. **CLI control plane** (§6) — `janus projects/env/config create`, token mint/list/revoke, and the missing rotation/dynamic verbs; makes the CLI self-sufficient for bootstrap + ops.
 10. **Release hygiene** (7.2–7.5): LICENSE, OpenAPI spec, goreleaser/CHANGELOG, production deployment guide — needed before any tagged release.
