@@ -263,6 +263,97 @@ func TestKeyringDoubleSeal(t *testing.T) {
 	}
 }
 
+func TestRotateMasterRewrapsAndSwaps(t *testing.T) {
+	kr := NewKeyring()
+	m1, _ := GenerateKey()
+	if err := kr.Unseal(m1); err != nil {
+		t.Fatal(err)
+	}
+	kek, _ := GenerateKey()
+	wrapped, err := kr.WrapProjectKEK(kek, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := wrapped.Marshal()
+
+	m2, _ := GenerateKey()
+	var newBlob []byte
+	persisted := false
+	err = kr.RotateMaster(m2,
+		func(unwrap func([]byte, []byte) ([]byte, error), wrap func([]byte, []byte) ([]byte, error)) error {
+			pt, uerr := unwrap(old, ProjectKEKAAD("p1"))
+			if uerr != nil {
+				return uerr
+			}
+			defer zero(pt)
+			nb, werr := wrap(pt, ProjectKEKAAD("p1"))
+			newBlob = nb
+			return werr
+		},
+		func() error { persisted = true; return nil },
+	)
+	if err != nil {
+		t.Fatalf("RotateMaster: %v", err)
+	}
+	if !persisted {
+		t.Fatal("persist not called")
+	}
+	ct, _ := ParseCiphertext(newBlob)
+	got, err := kr.UnwrapProjectKEK(ct, "p1")
+	if err != nil {
+		t.Fatalf("unwrap after rotate: %v", err)
+	}
+	if !bytes.Equal(got, kek) {
+		t.Fatal("re-wrapped KEK mismatch")
+	}
+	if _, err := kr.UnwrapProjectKEK(mustParse(t, old), "p1"); err == nil {
+		t.Fatal("old blob still unwraps after rotation — master not swapped")
+	}
+}
+
+func TestRotateMasterPersistFailureKeepsOldMaster(t *testing.T) {
+	kr := NewKeyring()
+	m1, _ := GenerateKey()
+	_ = kr.Unseal(m1)
+	kek, _ := GenerateKey()
+	wrapped, _ := kr.WrapProjectKEK(kek, "p1")
+
+	m2, _ := GenerateKey()
+	wantErr := errors.New("db down")
+	err := kr.RotateMaster(m2,
+		func(unwrap func([]byte, []byte) ([]byte, error), wrap func([]byte, []byte) ([]byte, error)) error {
+			return nil
+		},
+		func() error { return wantErr },
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("want persist error, got %v", err)
+	}
+	if _, err := kr.UnwrapProjectKEK(wrapped, "p1"); err != nil {
+		t.Fatalf("old master lost after failed persist: %v", err)
+	}
+}
+
+func TestRotateMasterSealed(t *testing.T) {
+	kr := NewKeyring()
+	m2, _ := GenerateKey()
+	err := kr.RotateMaster(m2,
+		func(_ func([]byte, []byte) ([]byte, error), _ func([]byte, []byte) ([]byte, error)) error { return nil },
+		func() error { return nil })
+	if !errors.Is(err, ErrSealed) {
+		t.Fatalf("want ErrSealed, got %v", err)
+	}
+}
+
+func mustParse(t *testing.T, b []byte) Ciphertext {
+	t.Helper()
+	ct, err := ParseCiphertext(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ct
+}
+
 func TestSyncFingerprint(t *testing.T) {
 	k := NewKeyring()
 	master := make([]byte, KeySize)

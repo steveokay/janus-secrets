@@ -46,10 +46,8 @@ func (k *Keyring) Sealed() bool {
 }
 
 // WrapProjectKEK wraps a project KEK under the master key, bound to projectID.
-//
-// TODO(rotation): stamp the master-key version into the returned Ciphertext
-// so master-key rotation can identify which version wrapped each KEK for
-// lazy re-wrap. Encrypt currently leaves KeyVersion == 0.
+// Master-key rotation (see Keyring.RotateMaster) re-wraps eagerly and
+// atomically, so ciphertext carries no master-key version (KeyVersion == 0).
 func (k *Keyring) WrapProjectKEK(kek []byte, projectID string) (Ciphertext, error) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
@@ -131,6 +129,63 @@ func (k *Keyring) NewDEK(projectKEK, aad []byte) ([]byte, Ciphertext, error) {
 		return nil, Ciphertext{}, err
 	}
 	return dek, wrapped, nil
+}
+
+// RotateMaster swaps the master key to newMaster, re-wrapping caller-supplied
+// blobs from the old key to the new one. It holds the write lock for the whole
+// operation so no concurrent unwrap observes a half-rotated master.
+//
+// rewrap receives two closures bound to the old (unwrap) and new (wrap) master:
+// it must re-encrypt every master-wrapped blob and stage the new ciphertext for
+// persist. persist then commits those new ciphertexts plus the re-seal metadata
+// in a single DB transaction. Only if BOTH succeed is the in-memory master
+// swapped and the old key zeroized; if either fails the old master is retained
+// unchanged. newMaster is copied; the caller zeroes its copy.
+//
+// unwrap/wrap use Encrypt/Decrypt directly so they handle both 32-byte keys and
+// arbitrary-length blobs (e.g. OIDC client secrets). AAD must be byte-identical
+// to each blob's read path.
+func (k *Keyring) RotateMaster(
+	newMaster []byte,
+	rewrap func(unwrap func(oldCT, aad []byte) (plain []byte, err error),
+		wrap func(plain, aad []byte) (newCT []byte, err error)) error,
+	persist func() error,
+) error {
+	if len(newMaster) != KeySize {
+		return ErrInvalidKeySize
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.master == nil {
+		return ErrSealed
+	}
+	nm := append([]byte(nil), newMaster...)
+
+	unwrap := func(oldCT, aad []byte) ([]byte, error) {
+		ct, err := ParseCiphertext(oldCT)
+		if err != nil {
+			return nil, ErrDecryptFailed
+		}
+		return Decrypt(k.master, ct, aad)
+	}
+	wrap := func(plain, aad []byte) ([]byte, error) {
+		ct, err := Encrypt(nm, plain, aad)
+		if err != nil {
+			return nil, err
+		}
+		return ct.Marshal(), nil
+	}
+	if err := rewrap(unwrap, wrap); err != nil {
+		zero(nm)
+		return err
+	}
+	if err := persist(); err != nil {
+		zero(nm)
+		return err
+	}
+	zero(k.master)
+	k.master = nm
+	return nil
 }
 
 // SyncFingerprint returns HMAC-SHA256 over data, keyed by a subkey derived from
