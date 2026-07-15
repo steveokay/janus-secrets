@@ -1,6 +1,10 @@
 package transit
 
-import "context"
+import (
+	"context"
+
+	"github.com/steveokay/janus-secrets/internal/store"
+)
 
 // Rotate appends a new version and makes it latest.
 func (s *Service) Rotate(ctx context.Context, name string) (KeyMeta, error) {
@@ -74,17 +78,31 @@ func (s *Service) Get(ctx context.Context, name string) (KeyMeta, error) {
 	return s.readMeta(ctx, name)
 }
 
-// List returns metadata for all transit keys, ordered by name.
+// List returns metadata for all transit keys. It is the unbounded delegate of
+// ListPage.
 func (s *Service) List(ctx context.Context) ([]KeyMeta, error) {
-	ks, err := s.repo.List(ctx)
+	metas, _, err := s.ListPage(ctx, 0, nil)
+	return metas, err
+}
+
+// ListPage returns a page of transit-key metadata plus the keyset cursor for the
+// next page (nil on the last page). limit<=0 is unbounded (the legacy List
+// path). KeyMeta carries only non-secret metadata — never key material.
+func (s *Service) ListPage(ctx context.Context, limit int, after *store.Cursor) ([]KeyMeta, *store.Cursor, error) {
+	ks, err := s.repo.ListPage(ctx, limit, after)
 	if err != nil {
-		return nil, mapStoreErr(err)
+		return nil, nil, mapStoreErr(err)
 	}
 	out := make([]KeyMeta, 0, len(ks))
 	for _, k := range ks {
 		out = append(out, metaOf(k))
 	}
-	return out, nil
+	var next *store.Cursor
+	if limit > 0 && len(ks) == limit {
+		last := ks[len(ks)-1]
+		next = &store.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return out, next, nil
 }
 
 // Delete permanently removes a key (and its versions). It refuses unless the

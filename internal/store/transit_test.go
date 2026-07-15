@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -109,6 +110,68 @@ func TestTransitRepoLifecycle(t *testing.T) {
 	}
 	if _, err := r.GetByID(ctx, newID()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing by id: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestTransitRepo_ListPage(t *testing.T) {
+	s := requireStore(t)
+	ctx := context.Background()
+	if _, err := s.pool.Exec(ctx, `TRUNCATE transit_keys RESTART IDENTITY CASCADE`); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	r := NewTransitRepo(s)
+
+	for i := 0; i < 5; i++ {
+		id, err := s.NewID(ctx)
+		if err != nil {
+			t.Fatalf("NewID: %v", err)
+		}
+		vid, err := s.NewID(ctx)
+		if err != nil {
+			t.Fatalf("NewID: %v", err)
+		}
+		if _, err := r.Create(ctx, id, fmt.Sprintf("key-%d", i), "aes256-gcm",
+			&TransitKeyVersion{ID: vid, Version: 1, WrappedMaterial: []byte("wrapped")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := r.ListPage(ctx, 0, nil)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("unbounded: len=%d err=%v", len(all), err)
+	}
+	// DESC order: created_at descending (with id tiebreak).
+	for i := 1; i < len(all); i++ {
+		prev, cur := all[i-1], all[i]
+		if cur.CreatedAt.After(prev.CreatedAt) {
+			t.Fatalf("not DESC by created_at at %d", i)
+		}
+		if cur.CreatedAt.Equal(prev.CreatedAt) && cur.ID > prev.ID {
+			t.Fatalf("not DESC by id tiebreak at %d", i)
+		}
+	}
+
+	seen := map[string]bool{}
+	var after *Cursor
+	for {
+		page, err := r.ListPage(ctx, 2, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range page {
+			if seen[k.ID] {
+				t.Fatalf("duplicate id %s", k.ID)
+			}
+			seen[k.ID] = true
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		after = &Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("covered %d of 5", len(seen))
 	}
 }
 

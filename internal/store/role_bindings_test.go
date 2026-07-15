@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -45,6 +46,62 @@ func TestRoleBindingUpsertAndList(t *testing.T) {
 
 	if n, err := repo.CountInstanceOwners(ctx); err != nil || n != 0 {
 		t.Fatalf("owners after downgrade: %d (err %v)", n, err)
+	}
+}
+
+func TestRoleBindingRepo_ListForScopePage(t *testing.T) {
+	if testStore == nil {
+		t.Skip("postgres/docker not available")
+	}
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewRoleBindingRepo(testStore)
+
+	// Seed 5 instance-scope bindings (one per distinct user; the unique index
+	// forbids two bindings for the same subject at the same scope).
+	for i := 0; i < 5; i++ {
+		uid := mkUser(t, fmt.Sprintf("rbp%d@example.com", i))
+		if _, err := repo.Create(ctx, RoleBindingInput{SubjectUserID: uid, ScopeLevel: "instance", Role: "developer"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := repo.ListForScopePage(ctx, "instance", "", 0, nil)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("unbounded: len=%d err=%v", len(all), err)
+	}
+	// DESC order: created_at descending (with id tiebreak).
+	for i := 1; i < len(all); i++ {
+		prev, cur := all[i-1], all[i]
+		if cur.CreatedAt.After(prev.CreatedAt) {
+			t.Fatalf("not DESC by created_at at %d", i)
+		}
+		if cur.CreatedAt.Equal(prev.CreatedAt) && cur.ID > prev.ID {
+			t.Fatalf("not DESC by id tiebreak at %d", i)
+		}
+	}
+
+	seen := map[string]bool{}
+	var after *Cursor
+	for {
+		page, err := repo.ListForScopePage(ctx, "instance", "", 2, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range page {
+			if seen[b.ID] {
+				t.Fatalf("duplicate id %s", b.ID)
+			}
+			seen[b.ID] = true
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		after = &Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("covered %d of 5", len(seen))
 	}
 }
 

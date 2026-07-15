@@ -11,6 +11,7 @@ import (
 type BindingStore interface {
 	ListForUser(ctx context.Context, userID string) ([]*store.RoleBinding, error)
 	ListForScope(ctx context.Context, level, scopeID string) ([]*store.RoleBinding, error)
+	ListForScopePage(ctx context.Context, level, scopeID string, limit int, after *store.Cursor) ([]*store.RoleBinding, error)
 	Create(ctx context.Context, in store.RoleBindingInput) (*store.RoleBinding, error)
 	DeleteForSubjectScope(ctx context.Context, subjectUserID, level string, projectID, environmentID *string) error
 	CountInstanceOwners(ctx context.Context) (int, error)

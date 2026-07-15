@@ -23,17 +23,31 @@ func (e *Engine) Revoke(ctx context.Context, subjectUserID, level string, projec
 	return e.bindings.DeleteForSubjectScope(ctx, subjectUserID, level, projectID, environmentID)
 }
 
-// ListMembers returns the bindings at a scope.
+// ListMembers returns the bindings at a scope. It is the unbounded delegate of
+// ListMembersPage.
 func (e *Engine) ListMembers(ctx context.Context, level, scopeID string) ([]Member, error) {
-	bs, err := e.bindings.ListForScope(ctx, level, scopeID)
+	members, _, err := e.ListMembersPage(ctx, level, scopeID, 0, nil)
+	return members, err
+}
+
+// ListMembersPage returns a page of members at a scope plus the keyset cursor
+// for the next page (nil on the last page). limit<=0 is unbounded (the legacy
+// ListMembers path). Members carry only user_id + role — never secret material.
+func (e *Engine) ListMembersPage(ctx context.Context, level, scopeID string, limit int, after *store.Cursor) ([]Member, *store.Cursor, error) {
+	bs, err := e.bindings.ListForScopePage(ctx, level, scopeID, limit, after)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]Member, 0, len(bs))
 	for _, b := range bs {
 		out = append(out, Member{UserID: b.SubjectUserID, Role: b.Role})
 	}
-	return out, nil
+	var next *store.Cursor
+	if limit > 0 && len(bs) == limit {
+		last := bs[len(bs)-1]
+		next = &store.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return out, next, nil
 }
 
 // CountInstanceOwners exposes the never-lock-out counter.
