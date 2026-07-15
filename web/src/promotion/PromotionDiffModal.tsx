@@ -8,7 +8,7 @@ import { useToast } from '../ui/Toast'
 import { cn } from '../ui/cn'
 import { envTone, envDotClass } from '../ui/env'
 import { errorMessage } from '../lib/api'
-import { endpoints, type Config, type Environment } from '../lib/endpoints'
+import { type Config, type Environment } from '../lib/endpoints'
 import { promotion, type DiffEntry, type PromoteStatus, type Selection } from './endpoints'
 
 // Status → chip presentation. `same` rows carry nothing to promote.
@@ -64,7 +64,7 @@ function ValueCell({ value, revealed, side }: { value: string; revealed: boolean
   )
 }
 
-function DiffRow({ entry, checked, onToggle, createMode }: { entry: DiffEntry; checked: boolean; onToggle: () => void; createMode?: boolean }) {
+function DiffRow({ entry, checked, onToggle }: { entry: DiffEntry; checked: boolean; onToggle: () => void }) {
   const [revealed, setRevealed] = useState(false)
   const chip = CHIP[entry.status]
   const disabled = isDisabled(entry)
@@ -102,29 +102,23 @@ function DiffRow({ entry, checked, onToggle, createMode }: { entry: DiffEntry; c
           <Pill tone={chip.tone}>{chip.label}</Pill>
         </div>
       </div>
-      {createMode ? (
-        <div className="min-w-0">
-          <span className="font-sans text-[11.5px] text-ink-faint">value copied from source on promote</span>
+      <div className="grid min-w-0 grid-cols-[1fr_28px_1fr] items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {entry.source_value !== '' && (
+            <button
+              type="button"
+              onClick={() => setRevealed((v) => !v)}
+              aria-label={revealed ? `Hide ${entry.key}` : `Reveal ${entry.key} (audited)`}
+              className="grid h-5 w-[22px] shrink-0 place-items-center rounded border border-line text-ink-faint transition-nocturne hover:border-brand-line hover:text-brand-text"
+            >
+              {revealed ? <EyeOff size={13} strokeWidth={1.7} /> : <Eye size={13} strokeWidth={1.7} />}
+            </button>
+          )}
+          <ValueCell value={entry.source_value} revealed={revealed} side="from" />
         </div>
-      ) : (
-        <div className="grid min-w-0 grid-cols-[1fr_28px_1fr] items-center gap-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {entry.source_value !== '' && (
-              <button
-                type="button"
-                onClick={() => setRevealed((v) => !v)}
-                aria-label={revealed ? `Hide ${entry.key}` : `Reveal ${entry.key} (audited)`}
-                className="grid h-5 w-[22px] shrink-0 place-items-center rounded border border-line text-ink-faint transition-nocturne hover:border-brand-line hover:text-brand-text"
-              >
-                {revealed ? <EyeOff size={13} strokeWidth={1.7} /> : <Eye size={13} strokeWidth={1.7} />}
-              </button>
-            )}
-            <ValueCell value={entry.source_value} revealed={revealed} side="from" />
-          </div>
-          <ArrowRight size={13} strokeWidth={1.7} className="justify-self-center text-ink-faint" aria-hidden />
-          <ValueCell value={entry.target_value} revealed={revealed} side="to" />
-        </div>
-      )}
+        <ArrowRight size={13} strokeWidth={1.7} className="justify-self-center text-ink-faint" aria-hidden />
+        <ValueCell value={entry.target_value} revealed={revealed} side="to" />
+      </div>
     </div>
   )
 }
@@ -159,39 +153,23 @@ export function PromotionDiffModal({
     queryFn: () => promotion.preview(from.id, to!.id),
   })
 
-  // Create-target: no diff endpoint (target doesn't exist). List the source keys —
-  // all become "adds" — from masked metadata (NAMES ONLY, never values) plus the
-  // latest source version. Values are copied + re-encrypted server-side on apply.
-  const createQ = useQuery({
-    queryKey: ['promote-create-src', from.id],
+  // Create-target diff: the backend synthesizes a preview against the not-yet-existing
+  // target (all `add` entries, populated source_value, target_exists:false). Values are
+  // revealable per-row exactly like existing mode (the endpoint is audited server-side).
+  const createPreview = useQuery({
+    queryKey: ['promote-create-preview', from.id, toEnv.id],
     enabled: mode === 'create',
-    queryFn: async () => {
-      const [secrets, versions] = await Promise.all([
-        endpoints.maskedSecrets(from.id),
-        endpoints.listVersions(from.id),
-      ])
-      const keys = Object.keys(secrets).sort()
-      const sourceVersion = versions.length ? Math.max(...versions.map((v) => v.version)) : 0
-      return { keys, sourceVersion }
-    },
+    queryFn: () => promotion.previewCreate(from.id, toEnv.id),
   })
 
   // Unify the two modes into a single (entries, sourceVersion, loading/error) surface
   // so the selection + render code below is shared.
-  const entries: DiffEntry[] =
-    mode === 'existing'
-      ? preview.data?.entries ?? []
-      : (createQ.data?.keys ?? []).map((k) => ({
-          key: k,
-          status: 'add' as const,
-          source_value: '',
-          target_value: '',
-          locked: false,
-        }))
-  const sourceVersion = mode === 'existing' ? preview.data?.source_version : createQ.data?.sourceVersion
-  const isLoading = mode === 'existing' ? preview.isLoading : createQ.isLoading
-  const isError = mode === 'existing' ? preview.isError : createQ.isError
-  const error = mode === 'existing' ? preview.error : createQ.error
+  const src = mode === 'existing' ? preview : createPreview
+  const entries: DiffEntry[] = src.data?.entries ?? []
+  const sourceVersion = src.data?.source_version
+  const isLoading = src.isLoading
+  const isError = src.isError
+  const error = src.error
   const hasData = sourceVersion !== undefined
 
   // Per-key checked state, keyed by entry key. Seeded once from the loaded diff.
@@ -288,7 +266,7 @@ export function PromotionDiffModal({
         )}
         {hasData &&
           entries.map((e) => (
-            <DiffRow key={e.key} entry={e} checked={!!selection[e.key]} onToggle={() => toggle(e)} createMode={mode === 'create'} />
+            <DiffRow key={e.key} entry={e} checked={!!selection[e.key]} onToggle={() => toggle(e)} />
           ))}
       </div>
 

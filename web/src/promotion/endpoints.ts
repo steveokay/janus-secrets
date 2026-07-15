@@ -56,5 +56,7 @@ export const promotion = {
   },
   preview: (from: string, to: string) =>
     api.get<PromoteDiff>(`/v1/promote/preview?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  previewCreate: (from: string, toEnv: string) =>
+    api.get<PromoteDiff>(`/v1/promote/preview?from=${encodeURIComponent(from)}&to_env=${encodeURIComponent(toEnv)}`),
   apply: (body: ApplyBody) => api.post<ApplyResult>(`/v1/promote`, body),
 }

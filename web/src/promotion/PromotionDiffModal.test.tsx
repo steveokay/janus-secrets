@@ -134,30 +134,28 @@ test('confirm posts exactly the selected {key,action} set and fires success toas
   expect(onClose).toHaveBeenCalled()
 })
 
-// Create-mode: no diff endpoint — the modal lists the source config's keys as
-// adds (names only, never values) and applies with create:true.
+// Create-mode: the backend synthesizes a create-target preview (from + to_env, all
+// `add` entries with populated source_value) which the modal renders like existing mode.
 function mockCreateSource() {
   server.use(
-    http.get('/v1/configs/c-dev/secrets', () =>
-      HttpResponse.json({
-        secrets: {
-          FEATURE_WALLET: { value_version: 1, created_at: 'x', origin: 'own' },
-          LOG_LEVEL: { value_version: 2, created_at: 'x', origin: 'own' },
-        },
-      }),
-    ),
-    http.get('/v1/configs/c-dev/versions', () =>
-      HttpResponse.json({
-        versions: [
-          { version: 7, message: '', created_by: 'steve', created_at: 'x' },
-          { version: 6, message: '', created_by: 'steve', created_at: 'x' },
-        ],
-      }),
-    ),
+    http.get('/v1/promote/preview', ({ request }) => {
+      const u = new URL(request.url)
+      if (u.searchParams.get('to_env')) {
+        return HttpResponse.json({
+          source_version: 7,
+          target_exists: false,
+          entries: [
+            { key: 'FEATURE_WALLET', status: 'add', source_value: 'true', target_value: '', locked: false },
+            { key: 'LOG_LEVEL', status: 'add', source_value: 'secret-a', target_value: '', locked: false },
+          ],
+        })
+      }
+      return HttpResponse.json({ source_version: 0, target_exists: false, entries: [] })
+    }),
   )
 }
 
-test('create mode lists source keys as Add rows with a copy note and NO reveal button', async () => {
+test('create mode lists source keys as Add rows with revealable source values', async () => {
   mockCreateSource()
   renderModal({ to: undefined, createName: 'default' })
   // "will create" banner is always shown in create mode
@@ -168,9 +166,11 @@ test('create mode lists source keys as Add rows with a copy note and NO reveal b
   expect(screen.getAllByText('Add')).toHaveLength(2)
   // both default-checked → 2 of 2
   expectCount(2, 2)
-  // create rows carry the static copy note and no reveal affordance / no values
-  expect(screen.getAllByText(/value copied from source on promote/i)).toHaveLength(2)
-  expect(screen.queryByRole('button', { name: /reveal/i })).not.toBeInTheDocument()
+  // create rows now carry the same from→to value UI: masked by default, revealable per-row
+  expect(screen.queryByText('secret-a')).not.toBeInTheDocument()
+  const row = screen.getByText('LOG_LEVEL').closest('[data-row]') as HTMLElement
+  await userEvent.click(within(row).getByRole('button', { name: /reveal/i }))
+  expect(within(row).getByText('secret-a')).toBeInTheDocument()
 })
 
 test('create mode confirm posts create:true with to_env/to_name/source_version and fires the created toast', async () => {
