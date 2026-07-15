@@ -70,7 +70,7 @@ export function SecretTable({
   rows, masked, buffer, original, editing, revealed,
   sort, onSort, selected, onToggleSelect, onSelectAll, active,
   onReveal, onCopy, onEdit, onChangeValue, onRemove, onRevert,
-  lockedKeys, onToggleLock,
+  lockedKeys, onToggleLock, onOpenHistory,
 }: {
   rows: string[]
   masked: Record<string, MaskedSecret>
@@ -92,6 +92,7 @@ export function SecretTable({
   onRevert: (key: string) => void
   lockedKeys: Set<string>
   onToggleLock: (key: string) => void
+  onOpenHistory: (key: string) => void
 }) {
   return (
     <div className="overflow-x-auto">
@@ -184,7 +185,16 @@ export function SecretTable({
 
             {/* Ver */}
             <span className="text-ink-faint text-[12px] tabular-nums">
-              {st.existing ? `v${masked[key].value_version}` : '—'}
+              {st.existing ? (
+                <button
+                  type="button"
+                  aria-label={`history for ${key}`}
+                  onClick={() => onOpenHistory(key)}
+                  className="rounded px-1 tabular-nums text-ink-faint hover:bg-surface-3 hover:text-brand-text"
+                >
+                  v{masked[key].value_version}
+                </button>
+              ) : '—'}
             </span>
 
             {/* Actions */}

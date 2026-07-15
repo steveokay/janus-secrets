@@ -160,7 +160,7 @@ test('toolbar exposes Import .env and History', async () => {
   renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
   await screen.findByText('DB_URL')
   expect(screen.getByRole('button', { name: /import \.env/i })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /history/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /^history$/i })).toBeInTheDocument()
 })
 
 test('Reveal all reveals every row via one bulk request, and Hide all re-masks', async () => {
@@ -308,7 +308,7 @@ test('History button opens the version sheet', async () => {
     ] })),
   )
   renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
-  await userEvent.click(await screen.findByRole('button', { name: /history/i }))
+  await userEvent.click(await screen.findByRole('button', { name: /^history$/i }))
   expect(await screen.findByText('Version history')).toBeInTheDocument()
   expect(await screen.findByText('first')).toBeInTheDocument()
 })
@@ -407,6 +407,26 @@ test('bulk delete skips inherited keys with a toast', async () => {
   await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
   // bulkDelete emits `Deleted 0 · skipped 1 inherited` for an inherited-only selection.
   expect(await screen.findByText(/skipped 1 inherited/i)).toBeInTheDocument()
+})
+
+test('clicking a version chip opens the per-key history sheet', async () => {
+  seed()
+  server.use(
+    http.get('/v1/configs/c1/secrets/DB_URL/history', () =>
+      HttpResponse.json({ key: 'DB_URL', history: [
+        { value_version: 3, created_at: '2026-07-10T00:00:00Z' },
+        { value_version: 2, created_at: '2026-07-09T00:00:00Z' },
+        { value_version: 1, created_at: '2026-07-08T00:00:00Z' },
+      ] }),
+    ),
+  )
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.click(await screen.findByRole('button', { name: /history for DB_URL/i }))
+  expect(await screen.findByText('History · DB_URL')).toBeInTheDocument()
+  const dialog = await screen.findByRole('dialog')
+  // The sheet lists every value version for the key (v1 is the oldest).
+  expect(await within(dialog).findByText('v1')).toBeInTheDocument()
 })
 
 test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {

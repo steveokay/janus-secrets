@@ -22,6 +22,7 @@ import { DirtyBar } from './DirtyBar'
 import { ReviewDiffDialog } from './ReviewDiffDialog'
 import { ImportEnvDialog } from './ImportEnvDialog'
 import { VersionHistory } from './VersionHistory'
+import { KeyHistorySheet } from './KeyHistorySheet'
 import { Skeleton } from '../ui/Skeleton'
 import { toEnvText } from './exportEnv'
 import { useRowNav } from './useRowNav'
@@ -50,6 +51,7 @@ export function SecretEditor() {
   const [filter, setFilter] = useState('')
   const [changedOnly, setChangedOnly] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [historyKey, setHistoryKey] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
   const [sort, setSort] = useState<SortState>(null)
@@ -393,6 +395,7 @@ export function SecretEditor() {
           onRevert={undo}
           lockedKeys={lockedKeys}
           onToggleLock={onToggleLock}
+          onOpenHistory={(key) => setHistoryKey(key)}
         />
         </>
       )}
@@ -410,6 +413,12 @@ export function SecretEditor() {
       <Sheet open={showHistory} onOpenChange={setShowHistory} title="Version history">
         <VersionHistory cid={cid} dirty={dirty} />
       </Sheet>
+      <KeyHistorySheet
+        cid={cid}
+        secretKey={historyKey}
+        open={historyKey !== null}
+        onOpenChange={(o) => { if (!o) setHistoryKey(null) }}
+      />
       <ReviewDiffDialog
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
