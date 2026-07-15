@@ -4,34 +4,36 @@ package authz
 type Action string
 
 const (
-	SecretRead     Action = "secret:read"
-	SecretWrite    Action = "secret:write" // set / delete / rollback
-	ConfigRead     Action = "config:read"
-	ConfigCreate   Action = "config:create"
-	ConfigDelete   Action = "config:delete"
-	EnvCreate      Action = "env:create"
-	EnvDelete      Action = "env:delete"
-	ProjectRead    Action = "project:read"
-	ProjectCreate  Action = "project:create" // instance-scoped
-	ProjectDelete  Action = "project:delete"
-	MemberRead     Action = "member:read"
-	MemberManage   Action = "member:manage"
-	TokenRead      Action = "token:read"
-	TokenMint      Action = "token:mint"
-	TokenRevoke    Action = "token:revoke"
-	UserManage     Action = "user:manage" // instance-scoped
-	AuditRead      Action = "audit:read"
-	SysSeal        Action = "sys:seal"        // instance-scoped
-	SysBackup      Action = "sys:backup"      // instance-scoped
-	TransitRead    Action = "transit:read"    // instance-scoped
-	TransitUse     Action = "transit:use"     // instance-scoped
-	TransitManage  Action = "transit:manage"  // instance-scoped
-	OIDCManage     Action = "oidc:manage"     // instance-scoped
-	RotationManage Action = "rotation:manage" // project-scoped
-	SyncManage     Action = "sync:manage"     // project-scoped
-	DynamicManage  Action = "dynamic:manage"  // project-scoped (create/update/delete roles)
-	DynamicIssue   Action = "dynamic:issue"   // project-scoped (issue/renew/revoke leases)
-	KEKManage      Action = "kek:manage"      // project-scoped, owner-only (rotate/rewrap/status project KEK)
+	SecretRead      Action = "secret:read"
+	SecretWrite     Action = "secret:write" // set / delete / rollback
+	ConfigRead      Action = "config:read"
+	ConfigCreate    Action = "config:create"
+	ConfigDelete    Action = "config:delete"
+	EnvCreate       Action = "env:create"
+	EnvDelete       Action = "env:delete"
+	ProjectRead     Action = "project:read"
+	ProjectCreate   Action = "project:create" // instance-scoped
+	ProjectDelete   Action = "project:delete"
+	MemberRead      Action = "member:read"
+	MemberManage    Action = "member:manage"
+	TokenRead       Action = "token:read"
+	TokenMint       Action = "token:mint"
+	TokenRevoke     Action = "token:revoke"
+	UserManage      Action = "user:manage" // instance-scoped
+	AuditRead       Action = "audit:read"
+	SysSeal         Action = "sys:seal"         // instance-scoped
+	SysBackup       Action = "sys:backup"       // instance-scoped
+	TransitRead     Action = "transit:read"     // instance-scoped
+	TransitUse      Action = "transit:use"      // instance-scoped
+	TransitManage   Action = "transit:manage"   // instance-scoped
+	OIDCManage      Action = "oidc:manage"      // instance-scoped
+	RotationManage  Action = "rotation:manage"  // project-scoped
+	SyncManage      Action = "sync:manage"      // project-scoped
+	DynamicManage   Action = "dynamic:manage"   // project-scoped (create/update/delete roles)
+	DynamicIssue    Action = "dynamic:issue"    // project-scoped (issue/renew/revoke leases)
+	KEKManage       Action = "kek:manage"       // project-scoped, owner-only (rotate/rewrap/status project KEK)
+	SecretPromote   Action = "secret:promote"   // developer+, target-env scoped
+	PromotionManage Action = "promotion:manage" // admin+, project-scoped (pipeline + locked keys)
 )
 
 // Role is a named bundle of actions.
@@ -65,10 +67,10 @@ func union(sets ...map[Action]bool) map[Action]bool {
 // The matrix is built cumulatively: developer ⊇ viewer, admin ⊇ developer, etc.
 var (
 	viewerActions    = setOf(SecretRead, ConfigRead, ProjectRead, MemberRead, TransitRead)
-	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse, DynamicIssue))
+	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse, DynamicIssue, SecretPromote))
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
-		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage))
+		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage))
 	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage))
 
 	roleActions = map[Role]map[Action]bool{

@@ -1,0 +1,482 @@
+<style>
+  /* ---- Nocturne tokens (verbatim from web/src/theme.css) ---- */
+  :root{
+    --canvas:linear-gradient(160deg,#FAFAFC 0%,#F4F2FA 100%);
+    --card:#FFFFFF; --elevated:#FFFFFF; --sidebar:#FFFFFF;
+    --border:rgba(20,17,35,.07); --border-soft:rgba(20,17,35,.05);
+    --ink-hi:#17151F; --ink:#211D35; --ink-body:#3F3F50; --ink-mute:#6E6A85; --ink-faint:#8A86A3;
+    --brand:#6A5CF5; --brand-deep:#5546E0; --brand-text:#5546E0; --brand-soft:#EFECFE; --brand-line:#D8D2FB;
+    --brand-grad:linear-gradient(135deg,#7C3AED,#6D28D9); --on-brand:#fff;
+    --ok:#178A50; --ok-soft:#E4F5EC;
+    --warn:#B45309; --warn-soft:#FCF0DF;
+    --danger:#C92A2A; --danger-soft:#FBE9E9; --danger-line:#E8A8A8;
+    --info:#2563EB; --info-soft:#E7EFFD;
+    --elev-1:0 1px 2px rgba(33,29,53,.05),0 4px 16px rgba(33,29,53,.06);
+    --elev-2:0 4px 10px rgba(33,29,53,.08),0 16px 40px rgba(33,29,53,.12);
+    --glow-brand:0 0 14px rgba(124,58,237,.20);
+    --row-hover:rgba(106,92,245,.04);
+    --added-wash:linear-gradient(90deg,rgba(23,138,80,.07),transparent);
+    --removed-wash:linear-gradient(90deg,rgba(201,42,42,.06),transparent);
+    --changed-wash:linear-gradient(90deg,rgba(180,83,9,.08),transparent);
+  }
+  html.dark{
+    --canvas:linear-gradient(160deg,#0B0A14 0%,#12101F 60%,#150F26 100%);
+    --card:rgba(255,255,255,.03); --elevated:#15121F; --sidebar:rgba(255,255,255,.02);
+    --border:rgba(255,255,255,.07); --border-soft:rgba(255,255,255,.05);
+    --ink-hi:#FFFFFF; --ink:#E9E5FF; --ink-body:#C8C4DE; --ink-mute:#8D87AB; --ink-faint:#6F6A8E;
+    --brand:#8B5CF6; --brand-deep:#6D28D9; --brand-text:#C4B5FD; --brand-soft:rgba(139,92,246,.16); --brand-line:rgba(139,92,246,.30);
+    --brand-grad:linear-gradient(135deg,#8B5CF6,#7C3AED); --on-brand:#fff;
+    --ok:#4ADE80; --ok-soft:rgba(74,222,128,.14);
+    --warn:#FCD34D; --warn-soft:rgba(245,158,11,.16);
+    --danger:#FB7185; --danger-soft:rgba(244,63,94,.16); --danger-line:rgba(244,63,94,.35);
+    --info:#7DB2FF; --info-soft:rgba(56,132,255,.16);
+    --elev-1:0 8px 24px rgba(0,0,0,.40);
+    --elev-2:0 10px 30px rgba(0,0,0,.50);
+    --glow-brand:0 0 14px rgba(139,92,246,.50);
+    --row-hover:rgba(139,92,246,.05);
+    --added-wash:linear-gradient(90deg,rgba(74,222,128,.07),transparent);
+    --removed-wash:linear-gradient(90deg,rgba(251,113,133,.06),transparent);
+    --changed-wash:linear-gradient(90deg,rgba(245,158,11,.09),transparent);
+  }
+
+  *{box-sizing:border-box}
+  :root{
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --r-lg:16px; --r-md:12px; --r-sm:9px;
+  }
+  html,body{margin:0}
+  body{
+    font-family:var(--sans); color:var(--ink-body);
+    background:var(--canvas); background-attachment:fixed; min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px; margin:0 auto; padding:26px 24px 80px}
+
+  /* ---- top bar ---- */
+  .top{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:8px}
+  .brandmark{display:flex; align-items:center; gap:12px}
+  .logo{width:34px;height:34px;border-radius:10px;background:var(--brand-grad);box-shadow:var(--glow-brand);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:16px}
+  h1{font-size:19px;font-weight:640;color:var(--ink-hi);margin:0;letter-spacing:-.01em}
+  .sub{font-size:12.5px;color:var(--ink-mute);margin-top:2px}
+  .toolbar{display:flex;align-items:center;gap:9px}
+  .ghost-btn{font:inherit;font-size:12.5px;color:var(--ink-body);background:var(--card);
+    border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .ghost-btn:hover{border-color:var(--brand-line);color:var(--ink-hi)}
+
+  /* ---- pipeline board ---- */
+  .board-head{display:flex;align-items:baseline;justify-content:space-between;margin:24px 2px 12px}
+  .board-head h2{font-size:14px;font-weight:600;color:var(--ink-hi);margin:0}
+  .hint{font-size:12px;color:var(--ink-faint)}
+  .pipeline{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:0}
+  .col{padding:0}
+  .arrow{align-self:center;color:var(--ink-faint);padding:0 12px;display:grid;place-items:center}
+  .arrow svg{width:26px;height:26px;opacity:.7}
+
+  .env-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;padding-left:2px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .env-name{font-size:13px;font-weight:640;color:var(--ink-hi);letter-spacing:.01em}
+  .env-role{font-size:10.5px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.09em}
+  .env-dev .dot{background:var(--info)} .env-dev .env-name{color:var(--info)}
+  .env-staging .dot{background:var(--warn)} .env-staging .env-name{color:var(--warn)}
+  .env-prod .dot{background:var(--danger)} .env-prod .env-name{color:var(--danger)}
+
+  .drop{border-radius:var(--r-lg);min-height:132px;border:1.5px dashed transparent;transition:background .15s,border-color .15s;padding:3px}
+  .drop.legal{border-color:var(--brand-line);background:var(--brand-soft)}
+  .drop.illegal{opacity:.5}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);
+    box-shadow:var(--elev-1);padding:14px 15px;position:relative;overflow:hidden}
+  .card.grab{cursor:grab}
+  .card.grab:active{cursor:grabbing}
+  .card .cfgname{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink-hi);display:flex;align-items:center;gap:8px}
+  .card .rail{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .env-dev .card .rail{background:var(--info)} .env-staging .card .rail{background:var(--warn)} .env-prod .card .rail{background:var(--danger)}
+  .card .meta{font-size:11.5px;color:var(--ink-mute);margin-top:7px;display:flex;gap:10px;flex-wrap:wrap}
+  .card .meta b{color:var(--ink-body);font-weight:600;font-variant-numeric:tabular-nums}
+  .card-actions{margin-top:12px;display:flex;gap:8px}
+  .promote-btn{font:inherit;font-size:11.5px;font-weight:600;color:var(--on-brand);background:var(--brand-grad);
+    border:none;border-radius:999px;padding:6px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:var(--glow-brand)}
+  .promote-btn.muted{background:transparent;color:var(--ink-faint);box-shadow:none;border:1px solid var(--border);cursor:not-allowed}
+  .lockrow{font-size:11px;color:var(--ink-faint);margin-top:11px;display:flex;align-items:center;gap:6px}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:22px;padding-top:16px;border-top:1px solid var(--border-soft);font-size:11.5px;color:var(--ink-mute)}
+  .legend .k{display:inline-flex;align-items:center;gap:7px}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;letter-spacing:.05em;
+    text-transform:uppercase;padding:2.5px 8px;border-radius:999px;line-height:1.4}
+  .chip.add{color:var(--ok);background:var(--ok-soft)}
+  .chip.change{color:var(--warn);background:var(--warn-soft)}
+  .chip.remove{color:var(--danger);background:var(--danger-soft)}
+  .chip.same{color:var(--ink-mute);background:var(--surface-3,rgba(120,120,140,.09))}
+
+  /* ---- modal ---- */
+  .scrim{position:fixed;inset:0;background:rgba(6,5,12,.55);backdrop-filter:blur(3px);
+    display:none;place-items:center;padding:24px;z-index:40}
+  .scrim.open{display:grid}
+  .modal{width:min(720px,100%);max-height:88vh;display:flex;flex-direction:column;
+    background:var(--elevated);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-2);overflow:hidden}
+  html.dark .modal{border-color:var(--brand-line)}
+  .m-head{padding:18px 20px 14px;border-bottom:1px solid var(--border-soft)}
+  .m-flow{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:640;color:var(--ink-hi)}
+  .m-flow .env-tag{display:inline-flex;align-items:center;gap:7px;font-size:13px}
+  .m-flow .env-tag .dot{width:8px;height:8px}
+  .flow-arrow{color:var(--ink-faint)}
+  .m-sub{font-size:12px;color:var(--ink-mute);margin-top:7px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .m-sub code{font-family:var(--mono);color:var(--ink-body);background:var(--card);border:1px solid var(--border-soft);padding:1px 6px;border-radius:6px;font-size:11.5px}
+  .newbanner{margin-top:11px;font-size:11.5px;color:var(--info);background:var(--info-soft);
+    border:1px solid var(--border-soft);border-radius:var(--r-sm);padding:8px 11px;display:flex;gap:8px;align-items:flex-start}
+
+  .m-body{overflow:auto;padding:6px 8px 8px}
+  .rowhdr{display:grid;grid-template-columns:34px 96px 1fr;gap:10px;padding:8px 12px 6px;
+    font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
+  .rowhdr .vhdr{display:grid;grid-template-columns:1fr 22px 1fr;gap:8px}
+  .rowhdr .vt{display:flex;align-items:center;gap:6px}
+  .rowhdr .vt .dot{width:6px;height:6px}
+
+  .drow{display:grid;grid-template-columns:34px 96px 1fr;gap:10px;align-items:center;
+    padding:9px 12px;border-radius:var(--r-md);position:relative}
+  .drow + .drow{margin-top:1px}
+  .drow:hover{background:var(--row-hover)}
+  .drow.r-add{background:var(--added-wash)}
+  .drow.r-change{background:var(--changed-wash)}
+  .drow.r-remove{background:var(--removed-wash)}
+  .drow.r-same{opacity:.62}
+  .drow.skip{opacity:.5}
+  .keycell{min-width:0}
+  .keyname{font-family:var(--mono);font-size:12.5px;color:var(--ink-hi);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .keytag{font-size:10px;color:var(--warn);margin-top:2px}
+  .vals{display:grid;grid-template-columns:1fr 22px 1fr;gap:8px;align-items:center;min-width:0}
+  .val{font-family:var(--mono);font-size:12px;color:var(--ink-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    display:flex;align-items:center;gap:7px;min-width:0}
+  .val .v{overflow:hidden;text-overflow:ellipsis}
+  .val.absent{color:var(--ink-faint);font-style:italic;font-family:var(--sans);font-size:11.5px}
+  .val.target{color:var(--ink-mute)}
+  .eye{flex:none;width:22px;height:20px;border:1px solid var(--border);border-radius:6px;background:transparent;
+    cursor:pointer;color:var(--ink-faint);display:grid;place-items:center;padding:0}
+  .eye:hover{color:var(--brand-text);border-color:var(--brand-line)}
+  .eye svg{width:13px;height:13px}
+  .vals .to-arrow{color:var(--ink-faint);text-align:center;font-size:13px}
+
+  /* checkbox */
+  .cbx{appearance:none;-webkit-appearance:none;width:18px;height:18px;border-radius:6px;border:1.5px solid var(--border);
+    background:var(--card);cursor:pointer;position:relative;margin:0;flex:none}
+  .cbx:checked{background:var(--brand-grad);border-color:transparent}
+  .cbx:checked::after{content:"";position:absolute;left:5px;top:1.5px;width:5px;height:9px;
+    border:solid #fff;border-width:0 2px 2px 0;transform:rotate(43deg)}
+  .cbx:disabled{opacity:.35;cursor:not-allowed}
+  .cbx:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+  .m-foot{padding:13px 18px;border-top:1px solid var(--border-soft);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .summary{font-size:12px;color:var(--ink-mute);display:flex;gap:12px;flex-wrap:wrap}
+  .summary b{color:var(--ink-body);font-variant-numeric:tabular-nums}
+  .sd{width:5px;height:5px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+  .foot-actions{display:flex;gap:9px;align-items:center}
+  .btn{font:inherit;font-size:12.5px;font-weight:600;border-radius:999px;padding:9px 15px;cursor:pointer;border:1px solid transparent}
+  .btn.secondary{background:transparent;border-color:var(--border);color:var(--ink-body)}
+  .btn.secondary:hover{border-color:var(--brand-line);color:var(--ink-hi)}
+  .btn.primary{background:var(--brand-grad);color:var(--on-brand);box-shadow:var(--glow-brand)}
+  .btn.primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+  .auditnote{font-size:11px;color:var(--ink-faint);display:flex;align-items:center;gap:6px;padding:0 18px 13px}
+
+  /* toast */
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);opacity:0;
+    background:var(--elevated);border:1px solid var(--ok);color:var(--ink-hi);font-size:13px;font-weight:600;
+    padding:11px 18px;border-radius:999px;box-shadow:var(--elev-2);display:flex;align-items:center;gap:9px;
+    pointer-events:none;transition:opacity .25s,transform .25s;z-index:60}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast .tdot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+
+  .callout{margin-top:20px;font-size:12px;color:var(--ink-mute);background:var(--card);border:1px solid var(--border-soft);
+    border-radius:var(--r-md);padding:13px 15px;line-height:1.55}
+  .callout b{color:var(--ink-body)}
+
+  @media (max-width:760px){
+    .pipeline{grid-template-columns:1fr;gap:14px}
+    .arrow{transform:rotate(90deg);padding:2px 0}
+    .drow,.rowhdr{grid-template-columns:28px 84px 1fr}
+    .vals,.rowhdr .vhdr{grid-template-columns:1fr 18px 1fr}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div class="brandmark">
+      <div class="logo">J</div>
+      <div>
+        <h1>Promote secrets</h1>
+        <div class="sub">payments · drag a config downstream, review the diff, promote</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="ghost-btn" id="themeBtn" aria-label="Toggle theme">🌙 <span>Theme</span></button>
+    </div>
+  </div>
+
+  <div class="board-head">
+    <h2>Release pipeline</h2>
+    <span class="hint">Promotion flows forward only: dev → staging → prod</span>
+  </div>
+
+  <div class="pipeline">
+    <!-- DEV -->
+    <div class="col env-dev">
+      <div class="env-head"><span class="dot"></span><span class="env-name">dev</span><span class="env-role">source</span></div>
+      <div class="drop">
+        <div class="card grab" id="devCard" draggable="true">
+          <span class="rail"></span>
+          <div class="cfgname">default</div>
+          <div class="meta"><span><b>18</b> keys</span><span>v12 · 2h ago</span></div>
+          <div class="card-actions">
+            <button class="promote-btn" id="promoteBtn">Promote →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h15M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+    <!-- STAGING -->
+    <div class="col env-staging">
+      <div class="env-head"><span class="dot"></span><span class="env-name">staging</span><span class="env-role">next step</span></div>
+      <div class="drop" id="stagingDrop">
+        <div class="card">
+          <span class="rail"></span>
+          <div class="cfgname">default</div>
+          <div class="meta"><span><b>16</b> keys</span><span>v7 · 1d ago</span></div>
+          <div class="lockrow">Drop dev here to promote</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h15M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+
+    <!-- PROD -->
+    <div class="col env-prod">
+      <div class="env-head"><span class="dot"></span><span class="env-name">prod</span><span class="env-role">downstream</span></div>
+      <div class="drop" id="prodDrop">
+        <div class="card">
+          <span class="rail"></span>
+          <div class="cfgname">default</div>
+          <div class="meta"><span><b>16</b> keys</span><span>v5 · 6d ago</span></div>
+          <div class="lockrow" id="prodLock">🔒 Promote through staging first</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="k"><span class="chip add">Add</span> new in target</span>
+    <span class="k"><span class="chip change">Change</span> value differs</span>
+    <span class="k"><span class="chip remove">Remove</span> target-only</span>
+    <span class="k"><span class="chip same">Same</span> unchanged</span>
+  </div>
+
+  <div class="callout">
+    <b>How this behaves.</b> Dragging <code style="font-family:var(--mono)">dev/default</code> onto <b>staging</b> opens the diff below.
+    Promotion applies your checked keys as one new staging config version (audited, rollback-able) — it never
+    auto-overwrites env-specific values and never deletes unless you check <span class="chip remove" style="font-size:9.5px">Remove</span>.
+    Prod is downstream and can't be a direct target from dev.
+  </div>
+</div>
+
+<!-- ===== DIFF MODAL ===== -->
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-label="Promote dev to staging">
+  <div class="modal">
+    <div class="m-head">
+      <div class="m-flow">
+        <span class="env-tag env-dev"><span class="dot" style="background:var(--info)"></span>dev</span>
+        <span class="flow-arrow">→</span>
+        <span class="env-tag env-staging"><span class="dot" style="background:var(--warn)"></span>staging</span>
+        <span style="font-weight:500;color:var(--ink-mute);font-size:13px">· config <code style="font-family:var(--mono)">default</code></span>
+      </div>
+      <div class="m-sub">
+        Applies checked keys to <b style="color:var(--ink-body)">staging</b> as a new version, using each value from
+        <code>dev v12</code>. Unchecked keys keep staging as-is.
+      </div>
+      <div class="newbanner" id="newBanner" style="display:none">
+        <span>✨</span><span><b>staging</b> has no <code style="font-family:var(--mono)">default</code> config yet — promoting will create it.</span>
+      </div>
+    </div>
+
+    <div class="m-body">
+      <div class="rowhdr">
+        <span></span><span>Change</span>
+        <span class="vhdr">
+          <span class="vt env-dev"><span class="dot" style="background:var(--info)"></span>from dev</span>
+          <span></span>
+          <span class="vt env-staging"><span class="dot" style="background:var(--warn)"></span>staging now</span>
+        </span>
+      </div>
+      <div id="rows"></div>
+    </div>
+
+    <div class="auditnote">🔎 Revealing a value writes an audit event — names &amp; counts are always logged, values never.</div>
+
+    <div class="m-foot">
+      <div class="summary" id="summary"></div>
+      <div class="foot-actions">
+        <button class="btn secondary" id="cancelBtn">Cancel</button>
+        <button class="btn primary" id="confirmBtn">Promote</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="tdot"></span><span id="toastMsg"></span></div>
+
+<script>
+(function(){
+  var root=document.documentElement;
+  root.classList.add('dark'); // dark-first per Nocturne
+
+  // ---- theme toggle ----
+  document.getElementById('themeBtn').addEventListener('click',function(){
+    var dark=root.classList.toggle('dark');
+    this.firstChild.textContent=dark?'🌙 ':'☀️ ';
+  });
+
+  // ---- diff data (payments service, dev v12 → staging) ----
+  var DATA=[
+    {key:'FEATURE_WALLET',      st:'add',    from:'true',                       fromSecret:false, to:null,                     apply:true},
+    {key:'PAYOUT_BATCH_SIZE',   st:'add',    from:'500',                        fromSecret:false, to:null,                     apply:true},
+    {key:'RETRY_BACKOFF_MS',    st:'add',    from:'250',                        fromSecret:false, to:null,                     apply:true},
+    {key:'LOG_LEVEL',           st:'change', from:'debug',                      fromSecret:false, to:'info',      toSecret:false, apply:false, envlock:true},
+    {key:'DATABASE_URL',        st:'change', from:'postgres://dev-db/app',      fromSecret:true,  to:'postgres://stg-db/app', toSecret:true, apply:false, envlock:true},
+    {key:'STRIPE_SECRET_KEY',   st:'change', from:'sk_dev_9Fk2…',               fromSecret:true,  to:'sk_stg_4Qp7…', toSecret:true, apply:false, envlock:true},
+    {key:'API_TIMEOUT_MS',      st:'same',   from:'30000',                      fromSecret:false, to:'30000',     toSecret:false, apply:false},
+    {key:'LEGACY_PAYMENT_MODE', st:'remove', from:null,                         to:'on',          toSecret:false, apply:false}
+  ];
+
+  var eyeSVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="2.6"/></svg>';
+  function mask(){return '••••••••';}
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+
+  function valCell(val,secret,side){
+    if(val===null) return '<span class="val absent">— absent —</span>';
+    var cls='val'+(side==='to'?' target':'');
+    if(secret){
+      return '<span class="'+cls+'" data-secret="1" data-real="'+esc(val)+'" data-shown="0">'
+        +'<button class="eye" title="Reveal (audited)" aria-label="Reveal value">'+eyeSVG+'</button>'
+        +'<span class="v">'+mask()+'</span></span>';
+    }
+    return '<span class="'+cls+'"><span class="v">'+esc(val)+'</span></span>';
+  }
+
+  var rowsEl=document.getElementById('rows');
+  function render(){
+    rowsEl.innerHTML='';
+    DATA.forEach(function(d,i){
+      var row=document.createElement('div');
+      var cls='drow r-'+d.st+(d.st==='same'?'':'')+((!d.apply&&d.st!=='same')?' skip':'');
+      row.className=cls;
+      var disabled=d.st==='same';
+      var cb='<input type="checkbox" class="cbx" '+(d.apply?'checked':'')+(disabled?' disabled':'')+' data-i="'+i+'" aria-label="Apply '+d.key+'">';
+      var chip='<span class="chip '+d.st+'">'+d.st+'</span>';
+      var keytag=d.envlock?'<div class="keytag">looks env-specific</div>':'';
+      row.innerHTML=
+        '<div>'+cb+'</div>'+
+        '<div>'+chip+'</div>'+
+        '<div class="vals">'+
+          valCell(d.from,d.fromSecret,'from')+
+          '<span class="to-arrow">→</span>'+
+          valCell(d.to,d.toSecret,'to')+
+        '</div>';
+      // key over the values? put key line above vals in keycell — restructure:
+      row.innerHTML=
+        '<div>'+cb+'</div>'+
+        '<div><div class="keyname" title="'+d.key+'">'+d.key+'</div>'+keytag+'<div style="margin-top:5px">'+chip+'</div></div>'+
+        '<div class="vals">'+
+          valCell(d.from,d.fromSecret,'from')+
+          '<span class="to-arrow">→</span>'+
+          valCell(d.to,d.toSecret,'to')+
+        '</div>';
+      rowsEl.appendChild(row);
+    });
+    bindEyes(); bindChecks(); updateSummary();
+  }
+  // widen the key column now that key lives in col 2
+  var style2=document.createElement('style');
+  style2.textContent='.drow,.rowhdr{grid-template-columns:34px 150px 1fr}'+
+    '@media(max-width:760px){.drow,.rowhdr{grid-template-columns:28px 116px 1fr}}';
+  document.head.appendChild(style2);
+
+  function bindEyes(){
+    rowsEl.querySelectorAll('.eye').forEach(function(btn){
+      btn.addEventListener('click',function(e){
+        e.stopPropagation();
+        var host=btn.parentElement, shown=host.dataset.shown==='1';
+        host.querySelector('.v').textContent=shown?mask():host.dataset.real;
+        host.dataset.shown=shown?'0':'1';
+      });
+    });
+  }
+  function bindChecks(){
+    rowsEl.querySelectorAll('.cbx').forEach(function(cb){
+      cb.addEventListener('change',function(){
+        var d=DATA[+cb.dataset.i]; d.apply=cb.checked;
+        cb.closest('.drow').classList.toggle('skip',!cb.checked && d.st!=='same');
+        updateSummary();
+      });
+    });
+  }
+  function updateSummary(){
+    var add=0,ch=0,rm=0,same=0;
+    DATA.forEach(function(d){
+      if(d.st==='same'){same++;return;}
+      if(!d.apply)return;
+      if(d.st==='add')add++; else if(d.st==='change')ch++; else if(d.st==='remove')rm++;
+    });
+    var applied=add+ch+rm;
+    document.getElementById('summary').innerHTML=
+      '<span><span class="sd" style="background:var(--ok)"></span><b>'+add+'</b> add</span>'+
+      '<span><span class="sd" style="background:var(--warn)"></span><b>'+ch+'</b> change</span>'+
+      '<span><span class="sd" style="background:var(--danger)"></span><b>'+rm+'</b> remove</span>'+
+      '<span style="color:var(--ink-faint)"><b>'+same+'</b> unchanged</span>';
+    var btn=document.getElementById('confirmBtn');
+    btn.textContent=applied? ('Promote '+applied+' key'+(applied>1?'s':'')+' →') : 'Nothing selected';
+    btn.disabled=applied===0;
+  }
+
+  // ---- open / close modal ----
+  var scrim=document.getElementById('scrim');
+  function open(){ render(); scrim.classList.add('open'); }
+  function close(){ scrim.classList.remove('open'); }
+  document.getElementById('promoteBtn').addEventListener('click',open);
+  document.getElementById('cancelBtn').addEventListener('click',close);
+  scrim.addEventListener('click',function(e){ if(e.target===scrim) close(); });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') close(); });
+
+  document.getElementById('confirmBtn').addEventListener('click',function(){
+    var applied=DATA.filter(function(d){return d.apply&&d.st!=='same';}).length;
+    close(); showToast('Promoted '+applied+' key'+(applied>1?'s':'')+' to staging · now v8');
+  });
+
+  var toast=document.getElementById('toast');
+  function showToast(msg){
+    document.getElementById('toastMsg').textContent=msg;
+    toast.classList.add('show'); setTimeout(function(){toast.classList.remove('show');},2600);
+  }
+
+  // ---- drag interaction ----
+  var devCard=document.getElementById('devCard');
+  var stagingDrop=document.getElementById('stagingDrop');
+  var prodDrop=document.getElementById('prodDrop');
+  devCard.addEventListener('dragstart',function(e){
+    e.dataTransfer.effectAllowed='move';
+    stagingDrop.classList.add('legal');   // legal forward step
+    prodDrop.classList.add('illegal');    // must go through staging
+    document.getElementById('prodLock').textContent='🔒 Not a direct target from dev';
+  });
+  devCard.addEventListener('dragend',function(){
+    stagingDrop.classList.remove('legal'); prodDrop.classList.remove('illegal');
+    document.getElementById('prodLock').textContent='🔒 Promote through staging first';
+  });
+  [stagingDrop].forEach(function(z){
+    z.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='move';});
+    z.addEventListener('drop',function(e){e.preventDefault();open();});
+  });
+  prodDrop.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='none';});
+})();
+</script>

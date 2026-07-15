@@ -1,18 +1,40 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Lock, Plus, Layers } from 'lucide-react'
+import { Lock, Plus, Layers, ArrowRight, GitBranch } from 'lucide-react'
 import { endpoints, Config, Environment } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
 import { EmptyState } from '../ui/EmptyState'
 import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
+import { useToast } from '../ui/Toast'
 import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
 import { opsEndpoints, type RotationView, type SyncView } from '../operations/endpoints'
 import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
 import { ProjectReadsStrip } from '../metrics/ReadsStrip'
+import { usePipeline } from '../promotion/usePipeline'
+import { PromotionDiffModal } from '../promotion/PromotionDiffModal'
+
+// Per-env config-list state, keyed by env id so column reorder can never
+// misalign a column with another env's configs (see ProjectBoard).
+interface ConfigListState {
+  data: Config[]
+  isPending: boolean
+  isError: boolean
+}
+
+// Promotion affordances threaded from the board down to each ConfigCard. When
+// `on` is false (no pipeline / 403) every affordance is a no-op and nothing is
+// draggable — promotion is disabled.
+interface PromoteWiring {
+  on: boolean
+  hasNext: boolean
+  onDragStart: (config: Config) => void
+  onDragEnd: () => void
+  onPromote: (config: Config) => void
+}
 
 // Ops health lookups keyed by config_id, threaded down to config cards.
 // Both queries are 403-tolerant (see useOpsHealth): on error the maps are
@@ -45,11 +67,26 @@ function OpsChips({ configId, ops }: { configId: string; ops: OpsHealth }) {
   )
 }
 
-function ConfigCard({ pid, config, depth, ops }: { pid: string; config: Config; depth: number; ops: OpsHealth }) {
+function ConfigCard({ pid, config, depth, ops, promote }: {
+  pid: string; config: Config; depth: number; ops: OpsHealth; promote: PromoteWiring
+}) {
+  // Draggable + Promote button only when a pipeline exists AND this env has a
+  // next env to promote into.
+  const canPromote = promote.on && promote.hasNext
   return (
     <Link
       to={`/projects/${pid}/configs/${config.id}`}
       data-inherited={config.inherits_from ? 'true' : undefined}
+      draggable={canPromote || undefined}
+      onDragStart={
+        canPromote
+          ? (e) => {
+              if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+              promote.onDragStart(config)
+            }
+          : undefined
+      }
+      onDragEnd={canPromote ? () => promote.onDragEnd() : undefined}
       className={cn(
         'flex flex-col gap-1 rounded border border-line bg-card px-3 py-2 hover:border-brand-line',
         depth > 0 && 'ml-4',
@@ -59,6 +96,19 @@ function ConfigCard({ pid, config, depth, ops }: { pid: string; config: Config; 
         {depth > 0 && <span className="text-[11px] text-info">↳</span>}
         <Lock size={12} strokeWidth={1.7} className="text-ink-faint" />
         <span className="font-mono text-[12.5px] text-ink">{config.name}</span>
+        {canPromote && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              promote.onPromote(config)
+            }}
+            className="ml-auto inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-faint hover:border-brand-line hover:text-brand-text"
+          >
+            Promote <ArrowRight size={11} strokeWidth={1.8} aria-hidden />
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <OpsChips configId={config.id} ops={ops} />
@@ -71,8 +121,8 @@ function ConfigCard({ pid, config, depth, ops }: { pid: string; config: Config; 
 // `seen` = the ancestor id path; a child already on the path is dropped so a
 // cyclic `inherits_from` (shouldn't reach the DB, but be defensive) can never
 // recurse forever.
-function ConfigNodes({ pid, roots, all, depth, ops, seen = new Set<string>() }: {
-  pid: string; roots: Config[]; all: Config[]; depth: number; ops: OpsHealth; seen?: Set<string>
+function ConfigNodes({ pid, roots, all, depth, ops, promote, seen = new Set<string>() }: {
+  pid: string; roots: Config[]; all: Config[]; depth: number; ops: OpsHealth; promote: PromoteWiring; seen?: Set<string>
 }) {
   return (
     <>
@@ -82,8 +132,8 @@ function ConfigNodes({ pid, roots, all, depth, ops, seen = new Set<string>() }: 
         const children = all.filter((x) => x.inherits_from === c.id && !next.has(x.id))
         return (
           <div key={c.id} className="flex flex-col gap-1.5">
-            <ConfigCard pid={pid} config={c} depth={depth} ops={ops} />
-            <ConfigNodes pid={pid} roots={children} all={all} depth={depth + 1} ops={ops} seen={next} />
+            <ConfigCard pid={pid} config={c} depth={depth} ops={ops} promote={promote} />
+            <ConfigNodes pid={pid} roots={children} all={all} depth={depth + 1} ops={ops} promote={promote} seen={next} />
           </div>
         )
       })}
@@ -91,13 +141,17 @@ function ConfigNodes({ pid, roots, all, depth, ops, seen = new Set<string>() }: 
   )
 }
 
-function EnvColumn({ pid, env, configs, loading, error, ops, onAddConfig }: {
+function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarget, dimmed, onDropHere, onAddConfig }: {
   pid: string
   env: Environment
   configs: Config[]
   loading: boolean
   error: boolean
   ops: OpsHealth
+  promote: PromoteWiring
+  isDropTarget: boolean
+  dimmed: boolean
+  onDropHere: () => void
   onAddConfig: (env: Environment, bases: Config[]) => void
 }) {
   const tone = envTone(env.name)
@@ -105,9 +159,13 @@ function EnvColumn({ pid, env, configs, loading, error, ops, onAddConfig }: {
   const count = loading ? '…' : error ? '—' : `${configs.length} config${configs.length === 1 ? '' : 's'}`
   return (
     <section
+      onDragOver={isDropTarget ? (e) => e.preventDefault() : undefined}
+      onDrop={isDropTarget ? () => onDropHere() : undefined}
       className={cn(
-        'w-[260px] shrink-0 rounded-card border p-2',
+        'w-[260px] shrink-0 rounded-card border p-2 motion-safe:transition-nocturne',
         tone === 'danger' ? 'border-danger-line' : 'border-transparent',
+        isDropTarget && 'border-brand ring-2 ring-brand',
+        dimmed && 'opacity-50',
       )}
     >
       <div className="mb-2 flex items-center justify-between">
@@ -126,7 +184,7 @@ function EnvColumn({ pid, env, configs, loading, error, ops, onAddConfig }: {
         {loading && <div aria-hidden className="h-9 rounded bg-line-soft" />}
         {error && <p role="alert" className="px-1 text-[12px] text-danger">Couldn't load configs.</p>}
         {!loading && !error && configs.length === 0 && <p className="px-1 text-[12px] text-ink-faint">No configs yet</p>}
-        {!error && <ConfigNodes pid={pid} roots={roots} all={configs} depth={0} ops={ops} />}
+        {!error && <ConfigNodes pid={pid} roots={roots} all={configs} depth={0} ops={ops} promote={promote} />}
       </div>
     </section>
   )
@@ -165,16 +223,68 @@ export function ProjectBoard() {
   const envs = useEnvironments(pid)
   const project = projects.data?.find((p) => p.id === pid)
   useTitle(project?.name)
+  const toast = useToast()
   const [creatingEnv, setCreatingEnv] = useState(false)
   const [addConfig, setAddConfig] = useState<null | { env: Environment; bases: Config[] }>(null)
+  const [dragging, setDragging] = useState<null | { config: Config; fromEnv: Environment }>(null)
+  const [promoting, setPromoting] = useState<null | { from: Config; fromEnv: Environment; to: Config; toEnv: Environment }>(null)
 
+  // Config lists stay keyed by env id (not column index) so reordering columns
+  // for the pipeline can never misalign a column with another env's configs.
+  const envList = envs.data ?? []
   const configLists = useQueries({
-    queries: (envs.data ?? []).map((e) => ({
+    queries: envList.map((e) => ({
       queryKey: ['configs', pid, e.id],
       queryFn: () => endpoints.listConfigs(pid, e.id),
     })),
   })
+  const byEnv = new Map<string, ConfigListState>()
+  envList.forEach((e, i) => {
+    byEnv.set(e.id, {
+      data: configLists[i]?.data ?? [],
+      isPending: configLists[i]?.isPending ?? true,
+      isError: configLists[i]?.isError ?? false,
+    })
+  })
+
   const ops = useOpsHealth(pid)
+
+  // Pipeline: 403/unconfigured → empty list, promotion disabled.
+  const pipeline = usePipeline(pid)
+  const order = pipeline.data?.environment_ids ?? []
+  const promotionOn = order.length > 0
+
+  // Envs in the pipeline first (in pipeline order), then any not in the pipeline
+  // in their original API order.
+  const orderedEnvs = promotionOn
+    ? [
+        ...order.map((id) => envList.find((e) => e.id === id)).filter((e): e is Environment => !!e),
+        ...envList.filter((e) => !order.includes(e.id)),
+      ]
+    : envList
+
+  const nextEnvId = (envId: string): string | undefined => {
+    const i = order.indexOf(envId)
+    return i >= 0 && i + 1 < order.length ? order[i + 1] : undefined
+  }
+
+  // Open the diff modal for a config against the same-named config in the next
+  // pipeline env. No matching target → toast hint (creating the target is out of
+  // scope here; the CLI's --create-target covers it).
+  function beginPromote(from: Config, fromEnv: Environment) {
+    const nid = nextEnvId(fromEnv.id)
+    if (!nid) return
+    const toEnv = envList.find((e) => e.id === nid)
+    const targetConfigs = byEnv.get(nid)?.data ?? []
+    const to = targetConfigs.find((c) => c.name === from.name)
+    if (to && toEnv) {
+      setPromoting({ from, fromEnv, to, toEnv })
+    } else {
+      toast({ title: `No "${from.name}" config in ${toEnv?.name ?? 'the next env'} to promote into.`, tone: 'danger' })
+    }
+  }
+
+  const dropTargetEnvId = dragging ? nextEnvId(dragging.fromEnv.id) : undefined
 
   if (envs.isError) {
     return <p role="alert" className="mt-16 text-center text-danger">Could not load environments.</p>
@@ -187,6 +297,12 @@ export function ProjectBoard() {
         <Link to="/projects" className="text-ink-mute hover:text-ink">Projects</Link>
         <span className="text-ink-faint">/</span>
         <span className="font-semibold text-ink">{project?.name ?? '…'}</span>
+        <Link
+          to={`/projects/${pid}/pipeline`}
+          className="ml-auto inline-flex items-center gap-1.5 text-ink-mute hover:text-ink"
+        >
+          <GitBranch size={13} strokeWidth={1.8} aria-hidden /> Pipeline
+        </Link>
       </div>
       <p className="mb-5 text-[12.5px] text-ink-faint">
         Inject secrets with the Janus CLI — <code className="rounded bg-brand-soft px-1.5 py-0.5 font-mono text-[11.5px] text-brand-text">janus run</code>
@@ -212,18 +328,34 @@ export function ProjectBoard() {
         />
       ) : (
         <div className="flex gap-5 overflow-x-auto pb-2">
-          {envs.data?.map((e, i) => (
-            <EnvColumn
-              key={e.id}
-              pid={pid}
-              env={e}
-              configs={configLists[i]?.data ?? []}
-              loading={configLists[i]?.isPending ?? true}
-              error={configLists[i]?.isError ?? false}
-              ops={ops}
-              onAddConfig={(env, bases) => setAddConfig({ env, bases })}
-            />
-          ))}
+          {orderedEnvs.map((e) => {
+            const cl = byEnv.get(e.id) ?? { data: [], isPending: true, isError: false }
+            return (
+              <EnvColumn
+                key={e.id}
+                pid={pid}
+                env={e}
+                configs={cl.data}
+                loading={cl.isPending}
+                error={cl.isError}
+                ops={ops}
+                promote={{
+                  on: promotionOn,
+                  hasNext: !!nextEnvId(e.id),
+                  onDragStart: (config) => setDragging({ config, fromEnv: e }),
+                  onDragEnd: () => setDragging(null),
+                  onPromote: (config) => beginPromote(config, e),
+                }}
+                isDropTarget={!!dragging && dropTargetEnvId === e.id}
+                dimmed={!!dragging && dropTargetEnvId !== e.id && dragging.fromEnv.id !== e.id}
+                onDropHere={() => {
+                  if (dragging) beginPromote(dragging.config, dragging.fromEnv)
+                  setDragging(null)
+                }}
+                onAddConfig={(env, bases) => setAddConfig({ env, bases })}
+              />
+            )
+          })}
           <button
             type="button"
             onClick={() => setCreatingEnv(true)}
@@ -244,6 +376,13 @@ export function ProjectBoard() {
           bases={addConfig.bases}
           onCreated={() => setAddConfig(null)}
           onClose={() => setAddConfig(null)}
+        />
+      )}
+      {promoting && (
+        <PromotionDiffModal
+          {...promoting}
+          onClose={() => setPromoting(null)}
+          onDone={() => {/* target-config invalidation handled inside the modal */}}
         />
       )}
     </div>
