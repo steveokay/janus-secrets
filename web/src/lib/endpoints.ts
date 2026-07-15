@@ -28,6 +28,7 @@ export interface TrashConfig {
 }
 export interface Trash { projects: TrashProject[]; environments: TrashEnvironment[]; configs: TrashConfig[] }
 export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden' }
+export interface KeyVersionMeta { value_version: number; created_at: string }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionResult { version: number; id: string; created_at: string }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string; promoted_from_env?: string; promoted_from_version?: number }
@@ -221,6 +222,13 @@ export const endpoints = {
     api.get<{ version: number; secrets: Record<string, string> }>(`/v1/configs/${cid}/secrets?reveal=true&raw=true`),
   saveSecrets: (cid: string, changes: SecretChange[], message: string) =>
     api.put<VersionResult>(`/v1/configs/${cid}/secrets`, { message, changes }),
+  // per-key value history (§1.11). List is value-free metadata (NOT audited);
+  // revealKeyVersion reveals ONE historical value and IS audited (secret.reveal).
+  keyHistory: (cid: string, key: string) =>
+    api.get<{ key: string; history: KeyVersionMeta[] }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/history`),
+  revealKeyVersion: (cid: string, key: string, version: number) =>
+    api.get<{ key: string; value: string; value_version: number }>(
+      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?version=${version}`),
 
   // versions (B2): reads are config:read and NOT audited; diff is key NAMES only.
   listVersions: (cid: string) =>

@@ -184,3 +184,23 @@ test('deleteEnvironment and destroyEnvironment hit the env routes', async () => 
   await endpoints.destroyEnvironment('p1', 'e1')
   expect(delUrl).toContain('destroy=true')
 })
+
+test('keyHistory returns value-free version metadata', async () => {
+  server.use(http.get('/v1/configs/:cid/secrets/:key/history', () =>
+    HttpResponse.json({ key: 'API_KEY', history: [{ value_version: 2, created_at: 'b' }, { value_version: 1, created_at: 'a' }] }),
+  ))
+  const h = await endpoints.keyHistory('c1', 'API_KEY')
+  expect(h.history).toHaveLength(2)
+  expect(h.history[0]).not.toHaveProperty('value')
+})
+
+test('revealKeyVersion requests a specific version', async () => {
+  let qs = ''
+  server.use(http.get('/v1/configs/:cid/secrets/:key', ({ request }) => {
+    qs = new URL(request.url).search
+    return HttpResponse.json({ key: 'API_KEY', value: 'old-secret', value_version: 1 })
+  }))
+  const r = await endpoints.revealKeyVersion('c1', 'API_KEY', 1)
+  expect(qs).toContain('version=1')
+  expect(r.value).toBe('old-secret')
+})
