@@ -21,8 +21,8 @@ The SPA covers the core loop (projects → envs → configs → secret editing) 
 | 1.7 | **No error boundary.** A render crash anywhere leaves a blank screen; mutations get toasts but rendering has no safety net. | `web/src/App.tsx` — no ErrorBoundary | MED |
 | 1.8 | **No 404 page.** Unknown routes silently `Navigate to="/"` with zero feedback. | `web/src/App.tsx` catch-all route | MED |
 | 1.9 | ~~**No export-config button.**~~ **[DONE 2026-07-14, editor-depth]** — delivered via selection-bar bulk **Copy .env** / **Download .env** (audited per-key raw reveal, confirm dialog before writing plaintext to disk). | editor pages vs `secrets_handlers.go` | ~~MED~~ |
-| 1.10 | **Soft-delete restore is invisible.** `POST /v1/{projects,environments,configs}/{id}/restore` endpoints exist; UI never calls them — a deleted config is gone as far as the UI knows, despite the spec's "soft delete with undelete". | routes vs `web/src/lib/endpoints.ts` | MED |
-| 1.11 | **Per-key value history not surfaced.** `GET /v1/configs/{cid}/secrets/{key}/history` (two-level versioning's per-key trace) is never called; VersionHistory only shows config-level versions. | endpoint unused in `web/src` | MED |
+| 1.10 | ~~**Soft-delete restore is invisible.**~~ **[DONE 2026-07-15, PR #81]** — new `GET /v1/trash` (value-free, per-item authz-filtered) + `/trash` page (restore + typed-confirm destroy) + ConfirmDialog-gated soft-delete on project/env/config views. | ~~routes vs `web/src/lib/endpoints.ts`~~ | ~~MED~~ |
+| 1.11 | ~~**Per-key value history not surfaced.**~~ **[DONE 2026-07-15, PR #81]** — version chip in the secret editor opens `KeyHistorySheet` (value-free list + ephemeral audited historical reveal via `?version=N`). | ~~endpoint unused in `web/src`~~ | ~~MED~~ |
 | 1.12 | **No session management.** Logout only; no active-session list / logout-all. | `web/src/shell/UserMenu.tsx` | LOW |
 | 1.13 | **No onboarding / first-run flow.** Empty instance gives no "create project → add secrets → janus run" checklist (known deferred item; needs a backend first-login signal). | `fe-improvements.md` §2 | LOW |
 | 1.14 | **No notifications center.** Transient toasts only; mockup shows a bell icon that was never built. Fine until rotation/sync failures deserve surfacing in-app. | `web/src/shell/TopBar.tsx` | LOW |
@@ -56,8 +56,8 @@ These exist and work but are shallow versions of what the mockup/product implies
 - Per-role lease-health aggregate on the dynamic health segment deliberately deferred (would be an N-query fan-out per page load). _(open, low priority)_
 
 ### 2.3 Audit viewer (`web/src/audit/AuditPage.tsx`) — MED
-- No click-to-expand event detail (rows are summary-only).
-- No event-count timeline/histogram; no saved filter presets (e.g. "failures, last 7d").
+- ~~No click-to-expand event detail (rows are summary-only).~~ **[DONE 2026-07-15, PR #81]** — click/keyboard row expand shows the full event incl. `prev_hash → hash` chain (one open at a time; Enter/Space/Esc; `aria-expanded`). Client-side date grouping (Today/Yesterday/`YYYY-MM-DD`) added too.
+- No event-count timeline/histogram; no saved filter presets (e.g. "failures, last 7d"). *(date grouping DONE; histogram/presets still open)*
 - Infinite scroll only — no page-size control; header not sticky on long scrolls.
 
 ### 2.4 Projects list / board (`web/src/home/`) — MED
@@ -159,7 +159,7 @@ _Updated 2026-07-15: items 1–5, plus editor depth (2.1) and ops-console depth 
 **Next up (nothing crypto/spec-critical left; these are the top remaining):**
 
 7. ~~**Backend: pagination + idempotency + server hardening** (4.2–4.4)~~ **[DONE 2026-07-15, PR #79]** — opt-in cursor pagination on 7 table-backed list endpoints (keyset `created_at DESC, id DESC`, backward-compatible), generic status-only `Idempotency-Key` middleware over all mutating verbs (replaces the promotion-specific one; value-safe by construction), and `JANUS_HTTP_*` read/idle/write timeouts + `MaxBytesReader` body cap (restore exempt). Migration 000020. (Also fixed the pre-existing `internal/crypto` 100%-coverage CI gate red since #77 — PR #80.)
-8. **UI depth: restore/undelete** (1.10) + **per-key value history** (1.11) + **audit viewer expand/timeline** (2.3) — surfaces backend features the UI can't reach today (soft-delete undelete, two-level per-key versioning).
+8. ~~**UI depth: restore/undelete** (1.10) + **per-key value history** (1.11) + **audit viewer expand/timeline** (2.3)~~ **[DONE 2026-07-15, PR #81]** — Trash surface (value-free per-item-authz `GET /v1/trash` + restore/typed-confirm-destroy + soft-delete on active views), per-key `KeyHistorySheet` with ephemeral audited historical reveal, and audit row-expand (full event + hash chain) with client-side date grouping. Frontend-heavy; one backend endpoint; no migration.
 9. **CLI control plane** (§6) — `janus projects/env/config create`, token mint/list/revoke, and the missing rotation/dynamic verbs; makes the CLI self-sufficient for bootstrap + ops.
 10. **Release hygiene** (7.2–7.5): LICENSE, OpenAPI spec, goreleaser/CHANGELOG, production deployment guide — needed before any tagged release.
 11. **Phase B: promotion approval workflow** — a separate future spec (request→review→approve for users without `secret:promote`); noted in [[env-promotion-progress]].
