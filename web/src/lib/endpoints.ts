@@ -128,6 +128,18 @@ export interface FederationBindingView {
 }
 export type FederationBindingInput = Omit<FederationBindingView, 'id'>
 
+// Master-key rotation (owner-only). Status carries NO key material: only the
+// unseal method, the current master-key version, the last-rotated timestamp, and
+// (during a Shamir rekey) the in-progress share-submission progress.
+export interface MasterKeyStatus {
+  unseal_type: 'shamir' | 'awskms'
+  master_key_version: number
+  rotated_at: string | null
+  rekey_in_progress: boolean
+  submitted: number
+  required: number
+}
+
 // OIDC login status (N5 T5) — unauthenticated, rate-limited probe that gates the
 // "Sign in with SSO" button on the login page. Names-only; carries no secret.
 export interface OIDCLoginStatus { enabled: boolean; name?: string }
@@ -244,6 +256,17 @@ export const endpoints = {
   getOIDCConfig: () => api.get<OIDCProviderView>('/v1/sys/oidc'),
   setOIDCConfig: (cfg: OIDCConfigInput) => api.put<{ ok: boolean }>('/v1/sys/oidc', cfg),
   deleteOIDCConfig: () => api.del<void>('/v1/sys/oidc'),
+
+  // Master-key rotation (owner-only). Status is safe metadata; the rotate/rekey
+  // mutations (wired in a later task) carry no key material in requests, and a
+  // Shamir rekey returns fresh shares ONCE in the submit response.
+  masterKeyStatus: () => api.get<MasterKeyStatus>('/v1/sys/master-key'),
+  rotateMasterKey: () => api.post<{ master_key_version: number }>('/v1/sys/master-key/rotate', {}),
+  rekeyInit: () => api.post<{ nonce: string; required: number; submitted: number }>('/v1/sys/master-key/rekey/init', {}),
+  rekeySubmit: (nonce: string, share: string) =>
+    api.post<{ complete: boolean; submitted?: number; required?: number; master_key_version?: number; new_shares?: string[] }>(
+      '/v1/sys/master-key/rekey/submit', { nonce, share }),
+  rekeyCancel: () => api.del('/v1/sys/master-key/rekey'),
 
   // CI federation (N5 T4). Config mirrors OIDC (200/404/403); no secret in any
   // shape. Server validates: match_claims.repository required; access enum;

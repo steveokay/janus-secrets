@@ -51,4 +51,21 @@ export const promotionHandlers = [
   }),
 ]
 
-export const server = setupServer(...promotionHandlers)
+// Default owner-only master-key status so the Instance settings section (which
+// mounts MasterKeySection) renders without an unhandled-request warning. Shape
+// mirrors the Go GET /v1/sys/master-key handler EXACTLY (snake_case). Tests that
+// exercise MasterKeySection override this via server.use().
+export const masterKeyHandlers = [
+  http.get('/v1/sys/master-key', () =>
+    HttpResponse.json({
+      unseal_type: 'awskms',
+      master_key_version: 1,
+      rotated_at: null,
+      rekey_in_progress: false,
+      submitted: 0,
+      required: 0,
+    }),
+  ),
+]
+
+export const server = setupServer(...promotionHandlers, ...masterKeyHandlers)

@@ -71,3 +71,14 @@ func TestRoleRankAndValidity(t *testing.T) {
 		t.Fatal("ValidRole wrong")
 	}
 }
+
+func TestSysMasterKeyOwnerOnly(t *testing.T) {
+	if !roleAllows(RoleOwner, SysMasterKey) {
+		t.Fatal("owner must have sys:master-key")
+	}
+	for _, role := range []Role{RoleViewer, RoleDeveloper, RoleAdmin} {
+		if roleAllows(role, SysMasterKey) {
+			t.Fatalf("%s must NOT have sys:master-key", role)
+		}
+	}
+}

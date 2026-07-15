@@ -1340,6 +1340,38 @@ unused-import tsc break.
 
 ---
 
+## Phase 3 follow-up · Master-key rotation (gaps.md §4.1 second half) ⏳ in progress
+
+Spec: `docs/superpowers/specs/2026-07-15-master-key-rotation-design.md`
+Plan: `docs/superpowers/plans/2026-07-15-master-key-rotation.md`
+Branch: `master-key-rotation` · Migration `000019`
+
+The second half of gaps.md §4.1 (completes project-KEK rotation's sibling, closes the
+`internal/crypto/keyring.go` `TODO(rotation)`). Master-key rotation re-wraps every
+master-wrapped blob at instance scope in a single **eager-atomic** transaction (one DB
+transaction → fresh M2 → re-wrap all five tables → new seal metadata → swap in-memory
+master; old master destroyed). No lazy versioning, no `master_key_versions` table.
+
+Re-wrap set (five tables): `projects.wrapped_kek` + `project_kek_versions` (superseded
+KEK versions) + `auth_config` (token-HMAC key) + `oidc_providers` (client secrets) +
+`transit_key_versions` (key material). DEKs and rotation/sync/dynamic config blobs are
+wrapped under project KEKs (not the master), so they are untouched by master rotation.
+
+Two flows by unseal type: **Shamir** = proof-of-possession rekey ceremony (init submit
+≥threshold current shares → verify via reconstruct + KCV → mint new M2 + new shares same
+N-of-M shape, shown once); **KMS auto-unseal** = single-call rotate (re-encrypt M2 under
+KMS, no shares). Owner-only (`sys:master-key` RBAC action). Value-free (no secret reads,
+leaks excluded by test). Surface: `internal/masterkeys` service; REST
+`GET/POST /v1/sys/master-key`, `POST /v1/sys/master-key/rotate`, `POST /v1/sys/master-key/rekey/{init,submit}`,
+`DELETE /v1/sys/master-key/rekey`; CLI `janus master-key status|rotate|rekey`; Settings UI
+(rotate button + Shamir share-submission modal + new shares via RevealOnce).
+
+Side-effect note: `SyncFingerprint` is master-derived, so stored sync fingerprints go
+stale after rotation; each sync target re-syncs once on the next reconcile (idempotent,
+safe).
+
+---
+
 ## Backlog — deferred / cross-cutting items on the radar
 
 - [x] **Ops-console follow-ups** (from the PR #55 holistic review; all non-blocking)

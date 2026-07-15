@@ -3,6 +3,8 @@ package crypto
 import (
 	"context"
 	"crypto/subtle"
+
+	"github.com/steveokay/janus-secrets/internal/crypto/shamir"
 )
 
 // Seal types recorded in SealConfig.
@@ -21,6 +23,46 @@ type Unsealer interface {
 	// Unseal recovers and verifies the master key. The caller feeds it to
 	// Keyring.Unseal and then zeroes the returned slice.
 	Unseal(ctx context.Context) ([]byte, error)
+	// Reseal produces seal metadata (fresh KCV) for newMaster without changing
+	// the seal shape. Shamir returns new shares; KMS returns nil shares. It does
+	// NOT persist — the caller writes the returned SealConfig transactionally.
+	Reseal(ctx context.Context, newMaster []byte) (*SealConfig, [][]byte, error)
+}
+
+// ReconstructAndVerifyShamir rebuilds a master key from submitted shares and
+// verifies it against cfg's key check value. Used by the rekey ceremony to
+// prove possession of >= threshold current shares. Returns ErrNotEnoughShares
+// below threshold and ErrKeyCheckFailed / ErrInvalidShare on a wrong share.
+// The returned key is the caller's to zero.
+func ReconstructAndVerifyShamir(cfg *SealConfig, shares [][]byte) ([]byte, error) {
+	if cfg == nil || cfg.Type != SealTypeShamir {
+		return nil, ErrInvalidSealConfig
+	}
+	if len(shares) < cfg.Threshold {
+		return nil, ErrNotEnoughShares
+	}
+	var master []byte
+	if cfg.Threshold == 1 {
+		if len(shares) != 1 {
+			return nil, ErrInvalidShare
+		}
+		master = append([]byte(nil), shares[0]...)
+	} else {
+		m, err := shamir.Combine(shares)
+		if err != nil {
+			return nil, ErrInvalidShare
+		}
+		master = m
+	}
+	if len(master) != KeySize {
+		zero(master)
+		return nil, ErrKeyCheckFailed
+	}
+	if err := verifyKCV(master, cfg.KeyCheckValue); err != nil {
+		zero(master)
+		return nil, err
+	}
+	return master, nil
 }
 
 // InitResult is what Init hands back to the operator exactly once.

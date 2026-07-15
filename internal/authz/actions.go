@@ -32,6 +32,7 @@ const (
 	DynamicManage   Action = "dynamic:manage"   // project-scoped (create/update/delete roles)
 	DynamicIssue    Action = "dynamic:issue"    // project-scoped (issue/renew/revoke leases)
 	KEKManage       Action = "kek:manage"       // project-scoped, owner-only (rotate/rewrap/status project KEK)
+	SysMasterKey    Action = "sys:master-key"   // instance-scoped, owner-only (master-key rotation / rekey)
 	SecretPromote   Action = "secret:promote"   // developer+, target-env scoped
 	PromotionManage Action = "promotion:manage" // admin+, project-scoped (pipeline + locked keys)
 )
@@ -71,7 +72,7 @@ var (
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
 		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage))
-	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage))
+	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey))
 
 	roleActions = map[Role]map[Action]bool{
 		RoleViewer:    viewerActions,

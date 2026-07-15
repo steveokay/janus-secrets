@@ -9,6 +9,7 @@ import { Input } from '../ui/Input'
 import { Pill } from '../ui/Pill'
 import { Modal } from '../ui/Modal'
 import { useToast } from '../ui/Toast'
+import { MasterKeySection } from './MasterKeySection'
 
 // Seal (POST /v1/sys/seal) and backup (GET /v1/sys/backup) have no cheap
 // capability probe — unlike OIDC/federation these caps (SysSeal / SysBackup) are
@@ -91,6 +92,8 @@ export function InstanceSection() {
         <p className="mb-3 text-[12.5px] text-ink-mute">Encrypted snapshot of all data (no plaintext secrets).</p>
         <Button variant="secondary" loading={downloading} onClick={backup}>Download backup</Button>
       </Card>
+
+      <MasterKeySection />
 
       <Card className="p-4">
         <h3 className="text-[15px] font-semibold text-ink">Seal instance</h3>
