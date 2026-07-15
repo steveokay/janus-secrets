@@ -18,6 +18,14 @@ import (
 // returns the httptest server, the *Server, admin email, admin password, and
 // the config id.
 func authStackFull(t *testing.T) (*httptest.Server, *Server, string, string, string) {
+	ts, srv, email, password, cid, _ := authStackFullDSN(t)
+	return ts, srv, email, password, cid
+}
+
+// authStackFullDSN is authStackFull plus the underlying Postgres DSN, so a test
+// can open its own pool for direct-table assertions (e.g. proving a table stores
+// no secret). All other behavior is identical.
+func authStackFullDSN(t *testing.T) (*httptest.Server, *Server, string, string, string, string) {
 	t.Helper()
 	dsn := bootPostgres(t)
 	ctx := context.Background()
@@ -61,7 +69,7 @@ func authStackFull(t *testing.T) (*httptest.Server, *Server, string, string, str
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ts, srv, ir.Admin.Email, ir.Admin.Password, c.ID
+	return ts, srv, ir.Admin.Email, ir.Admin.Password, c.ID, dsn
 }
 
 // authStack is the four-value form used by the existing e2e tests.
