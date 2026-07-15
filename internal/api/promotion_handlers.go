@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -222,7 +225,13 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 			Action string `json:"action"`
 		} `json:"selections"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Read the raw body first so it can be hashed for idempotency, then unmarshal.
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &body); err != nil {
 		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
 		return
 	}
@@ -263,6 +272,45 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 	if !s.authorize(w, r, authz.SecretPromote, dstRes, "secret.promote", "configs/"+body.To) {
 		return
 	}
+
+	// Idempotency: only an authorized caller reaches here, so a claim/replay is
+	// safe. Scope the key by the authenticated principal so one actor's key can
+	// never read another's stored response. The stored response is value-free
+	// (target version + applied key NAMES only) — never a secret value.
+	idemKey := r.Header.Get("Idempotency-Key")
+	var idemActor string
+	var idem *store.PromotionIdempotencyRepo
+	if idemKey != "" {
+		p, _ := PrincipalFrom(r.Context())
+		idemActor = p.ID
+		sum := sha256.Sum256(bodyBytes)
+		reqHash := hex.EncodeToString(sum[:])
+		idem = store.NewPromotionIdempotencyRepo(s.st)
+		claimed, existing, cerr := idem.Claim(r.Context(), idemKey, idemActor, reqHash)
+		if cerr != nil {
+			s.writeServiceError(w, cerr)
+			return
+		}
+		if !claimed {
+			if existing.RequestHash != reqHash {
+				writeError(w, http.StatusConflict, "idempotency_key_conflict", "Idempotency-Key reused with a different request")
+				return
+			}
+			if existing.Response == nil {
+				writeError(w, http.StatusConflict, "idempotency_in_progress", "a request with this Idempotency-Key is still in progress")
+				return
+			}
+			// Replay the stored response verbatim.
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Idempotency-Replayed", "true")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(existing.Response)
+			return
+		}
+		// Claim won: on any early return below (apply error) we release the claim
+		// so a retry with the same key can proceed.
+	}
+
 	sels := make([]promote.Selection, 0, len(body.Selections))
 	for _, sel := range body.Selections {
 		sels = append(sels, promote.Selection{Key: sel.Key, Action: promote.Action(sel.Action)})
@@ -272,6 +320,9 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 		CreateTarget: body.Create, SourceVersion: body.SourceVersion, Selections: sels, Actor: promoteActorUser(r),
 	})
 	if err != nil {
+		if idemKey != "" {
+			_ = idem.Release(r.Context(), idemKey, idemActor) // best-effort; retry may reproceed
+		}
 		s.writePromoteError(w, err)
 		return
 	}
@@ -283,7 +334,13 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	respBytes, _ := json.Marshal(map[string]any{
 		"target_version": res.TargetVersion, "applied": appliedKeys, "skipped": res.Skipped,
 	})
+	if idemKey != "" {
+		_ = idem.Complete(r.Context(), idemKey, idemActor, respBytes) // best-effort; result already applied
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respBytes)
 }
