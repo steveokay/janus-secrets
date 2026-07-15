@@ -13,6 +13,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
+	"github.com/steveokay/janus-secrets/internal/masterkeys"
 	"github.com/steveokay/janus-secrets/internal/projectkeys"
 	"github.com/steveokay/janus-secrets/internal/promote"
 	"github.com/steveokay/janus-secrets/internal/rotation"
@@ -50,6 +51,10 @@ type Server struct {
 	// in New from the keyring + store (both always present in production); nil in
 	// unit-test servers built without a real store.
 	projectKeys *projectkeys.Service
+	// masterKeys drives owner-only master-key rotation + the Shamir rekey
+	// ceremony. Wired in Boot next to projectKeys; nil in unit-test servers
+	// built without a real store.
+	masterKeys *masterkeys.Service
 	// promote drives the promotion pipeline (env ids) + config locked-keys (key
 	// names). Value-free. nil in unit-test servers built without a real store /
 	// secrets service.
@@ -83,6 +88,13 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// store leave it nil and simply don't mount the /kek routes.
 	if kr != nil && st != nil {
 		s.projectKeys = projectkeys.New(kr, store.NewProjectRepo(st), store.NewProjectKEKVersionRepo(st), store.NewSecretRepo(st))
+	}
+	// Master-key rotation + Shamir rekey ceremony (owner-only). Available whenever
+	// a real keyring, unsealer, and store are wired (production and full e2e). The
+	// unsealer satisfies masterkeys.Unsealer via Reseal. Unit-test servers built
+	// with a nil store/unsealer leave it nil and don't mount the /master-key routes.
+	if kr != nil && st != nil && u != nil {
+		s.masterKeys = masterkeys.NewService(kr, u, store.NewMasterKeyRepo(st), seals)
 	}
 	// Promotion service: available whenever a real keyring, store, and secrets
 	// service are wired (production and full e2e). Used by the pipeline +
@@ -119,6 +131,16 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation/bindings", s.handleFederationBindingsList)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Post("/oidc/federation/bindings", s.handleFederationBindingCreate)
 			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/bindings/{id}", s.handleFederationBindingDelete)
+			// Master-key rotation + Shamir rekey ceremony (owner-only). Owner-only
+			// is enforced in-handler via s.authorize/s.can (authz.SysMasterKey), so
+			// only RequireAuth is applied here. Mounted when the service is wired.
+			if s.masterKeys != nil {
+				r.With(RequireAuth(s.auth)).Get("/master-key", s.handleMasterKeyStatus)
+				r.With(RequireAuth(s.auth)).Post("/master-key/rotate", s.handleMasterKeyRotate)
+				r.With(RequireAuth(s.auth)).Post("/master-key/rekey/init", s.handleMasterKeyRekeyInit)
+				r.With(RequireAuth(s.auth)).Post("/master-key/rekey/submit", s.handleMasterKeyRekeySubmit)
+				r.With(RequireAuth(s.auth)).Delete("/master-key/rekey", s.handleMasterKeyRekeyCancel)
+			}
 		} else {
 			r.Post("/seal", s.handleSeal)
 			r.Get("/backup", s.handleBackup)
