@@ -373,6 +373,86 @@ func TestRotateMasterRewrapErrorKeepsOldMaster(t *testing.T) {
 	}
 }
 
+func TestRotateMasterInvalidNewKeySize(t *testing.T) {
+	kr := NewKeyring()
+	m1, _ := GenerateKey()
+	_ = kr.Unseal(m1)
+	kek, _ := GenerateKey()
+	wrapped, _ := kr.WrapProjectKEK(kek, "p1")
+
+	err := kr.RotateMaster([]byte("too-short"),
+		func(_ func([]byte, []byte) ([]byte, error), _ func([]byte, []byte) ([]byte, error)) error { return nil },
+		func() error { return nil },
+	)
+	if !errors.Is(err, ErrInvalidKeySize) {
+		t.Fatalf("got %v, want ErrInvalidKeySize", err)
+	}
+	// Old master untouched: original blob still unwraps.
+	if _, err := kr.UnwrapProjectKEK(wrapped, "p1"); err != nil {
+		t.Fatalf("old master lost after size rejection: %v", err)
+	}
+}
+
+// TestRotateMasterUnwrapParseError exercises the unwrap closure's
+// ParseCiphertext error path: feeding invalid ciphertext bytes to unwrap
+// must return ErrDecryptFailed.
+func TestRotateMasterUnwrapParseError(t *testing.T) {
+	kr := NewKeyring()
+	m1, _ := GenerateKey()
+	_ = kr.Unseal(m1)
+
+	m2, _ := GenerateKey()
+	err := kr.RotateMaster(m2,
+		func(unwrap func([]byte, []byte) ([]byte, error), _ func([]byte, []byte) ([]byte, error)) error {
+			_, uerr := unwrap([]byte("not a ciphertext"), ProjectKEKAAD("p1"))
+			if !errors.Is(uerr, ErrDecryptFailed) {
+				t.Fatalf("unwrap: got %v, want ErrDecryptFailed", uerr)
+			}
+			return uerr
+		},
+		func() error { t.Fatal("persist must not run"); return nil },
+	)
+	if !errors.Is(err, ErrDecryptFailed) {
+		t.Fatalf("RotateMaster: got %v, want ErrDecryptFailed", err)
+	}
+}
+
+// TestRotateMasterWrapEncryptError forces the wrap closure's Encrypt to fail
+// by making the GCM nonce read fail. unwrap's Decrypt reads no randomness, so
+// the failing reader only affects wrap.
+func TestRotateMasterWrapEncryptError(t *testing.T) {
+	kr := NewKeyring()
+	m1, _ := GenerateKey()
+	_ = kr.Unseal(m1)
+	kek, _ := GenerateKey()
+	wrapped, _ := kr.WrapProjectKEK(kek, "p1")
+	old := wrapped.Marshal()
+	m2, _ := GenerateKey() // generate before installing the failing reader
+
+	restore := randReader
+	randReader = failReader{} // Decrypt reads no rand; wrap's Encrypt nonce read fails.
+	defer func() { randReader = restore }()
+
+	err := kr.RotateMaster(m2,
+		func(unwrap func([]byte, []byte) ([]byte, error), wrap func([]byte, []byte) ([]byte, error)) error {
+			pt, uerr := unwrap(old, ProjectKEKAAD("p1"))
+			if uerr != nil {
+				return uerr
+			}
+			defer zero(pt)
+			_, werr := wrap(pt, ProjectKEKAAD("p1"))
+			if werr == nil {
+				t.Fatal("wrap: want Encrypt error, got nil")
+			}
+			return werr
+		},
+		func() error { t.Fatal("persist must not run"); return nil },
+	)
+	if err == nil {
+		t.Fatal("RotateMaster: want wrap Encrypt error, got nil")
+	}
+}
+
 func mustParse(t *testing.T, b []byte) Ciphertext {
 	t.Helper()
 	ct, err := ParseCiphertext(b)

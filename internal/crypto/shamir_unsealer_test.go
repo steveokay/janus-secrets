@@ -376,6 +376,80 @@ func TestShamirReconstructAndVerify(t *testing.T) {
 	}
 }
 
+func TestReconstructAndVerifyShamirBranches(t *testing.T) {
+	master := testKey(0x44)
+	kcv, err := makeKCV(master)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("nil cfg", func(t *testing.T) {
+		if _, err := ReconstructAndVerifyShamir(nil, [][]byte{master}); !errors.Is(err, ErrInvalidSealConfig) {
+			t.Fatalf("got %v, want ErrInvalidSealConfig", err)
+		}
+	})
+
+	t.Run("wrong seal type", func(t *testing.T) {
+		cfg := &SealConfig{Type: SealTypeAWSKMS, Threshold: 1}
+		if _, err := ReconstructAndVerifyShamir(cfg, [][]byte{master}); !errors.Is(err, ErrInvalidSealConfig) {
+			t.Fatalf("got %v, want ErrInvalidSealConfig", err)
+		}
+	})
+
+	t.Run("threshold 1 wrong share count", func(t *testing.T) {
+		cfg := &SealConfig{Type: SealTypeShamir, Threshold: 1, Shares: 1, KeyCheckValue: kcv}
+		two := [][]byte{master, master}
+		if _, err := ReconstructAndVerifyShamir(cfg, two); !errors.Is(err, ErrInvalidShare) {
+			t.Fatalf("got %v, want ErrInvalidShare", err)
+		}
+	})
+
+	t.Run("threshold 1 success", func(t *testing.T) {
+		cfg := &SealConfig{Type: SealTypeShamir, Threshold: 1, Shares: 1, KeyCheckValue: kcv}
+		got, err := ReconstructAndVerifyShamir(cfg, [][]byte{master})
+		if err != nil {
+			t.Fatalf("threshold-1 verify: %v", err)
+		}
+		if !bytes.Equal(got, master) {
+			t.Fatal("threshold-1 reconstruction mismatch")
+		}
+		zero(got)
+	})
+
+	t.Run("threshold 1 wrong-length share fails key check", func(t *testing.T) {
+		cfg := &SealConfig{Type: SealTypeShamir, Threshold: 1, Shares: 1, KeyCheckValue: kcv}
+		short := []byte("not-32-bytes")
+		if _, err := ReconstructAndVerifyShamir(cfg, [][]byte{short}); !errors.Is(err, ErrKeyCheckFailed) {
+			t.Fatalf("got %v, want ErrKeyCheckFailed", err)
+		}
+	})
+
+	t.Run("threshold 1 well-formed wrong share fails KCV", func(t *testing.T) {
+		cfg := &SealConfig{Type: SealTypeShamir, Threshold: 1, Shares: 1, KeyCheckValue: kcv}
+		if _, err := ReconstructAndVerifyShamir(cfg, [][]byte{testKey(0xEE)}); !errors.Is(err, ErrKeyCheckFailed) {
+			t.Fatalf("got %v, want ErrKeyCheckFailed", err)
+		}
+	})
+
+	t.Run("combine error maps to ErrInvalidShare", func(t *testing.T) {
+		// Distinct shares whose x-coordinate (last byte) collides make Combine fail.
+		cfg := &SealConfig{Type: SealTypeShamir, Threshold: 3, Shares: 5, KeyCheckValue: kcv}
+		crafted := [][]byte{{1, 2, 9}, {3, 4, 9}, {5, 6, 7}}
+		if _, err := ReconstructAndVerifyShamir(cfg, crafted); !errors.Is(err, ErrInvalidShare) {
+			t.Fatalf("got %v, want ErrInvalidShare", err)
+		}
+	})
+
+	t.Run("combine wrong-length reconstruction fails key check", func(t *testing.T) {
+		// Valid distinct 3-byte shares combine into a 2-byte secret, not 32 bytes.
+		cfg := &SealConfig{Type: SealTypeShamir, Threshold: 3, Shares: 5, KeyCheckValue: kcv}
+		crafted := [][]byte{{1, 2, 1}, {3, 4, 2}, {5, 6, 3}}
+		if _, err := ReconstructAndVerifyShamir(cfg, crafted); !errors.Is(err, ErrKeyCheckFailed) {
+			t.Fatalf("got %v, want ErrKeyCheckFailed", err)
+		}
+	})
+}
+
 func TestShamirReseal(t *testing.T) {
 	st := fileStore(t)
 	u := NewShamirUnsealer(st, 5, 3)
@@ -399,6 +473,72 @@ func TestShamirReseal(t *testing.T) {
 	}
 	if !bytes.Equal(got, m2) {
 		t.Fatal("resealed shares do not reconstruct M2")
+	}
+}
+
+func TestShamirResealFailures(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("loadConfig error propagates", func(t *testing.T) {
+		u := NewShamirUnsealer(&stubStore{getErr: errors.New("db down")}, 5, 3)
+		if _, _, err := u.Reseal(ctx, testKey(0x22)); err == nil {
+			t.Fatal("want error, got nil")
+		}
+	})
+
+	t.Run("invalid new key size", func(t *testing.T) {
+		st := fileStore(t)
+		if _, err := NewShamirUnsealer(st, 5, 3).Init(ctx); err != nil {
+			t.Fatal(err)
+		}
+		u := NewShamirUnsealer(st, 5, 3)
+		if _, _, err := u.Reseal(ctx, []byte("short")); !errors.Is(err, ErrInvalidKeySize) {
+			t.Fatalf("got %v, want ErrInvalidKeySize", err)
+		}
+	})
+
+	t.Run("split error from bad stored shape", func(t *testing.T) {
+		// A stored config whose threshold exceeds shares (but shares > 1, so the
+		// 1-of-1 fast path is skipped) makes shamir.Split fail.
+		store := &stubStore{cfg: &SealConfig{Type: SealTypeShamir, Shares: 2, Threshold: 3}}
+		u := NewShamirUnsealer(store, 0, 0)
+		if _, _, err := u.Reseal(ctx, testKey(0x22)); err == nil {
+			t.Fatal("want split error, got nil")
+		}
+	})
+
+	t.Run("kcv rand failure on 1-of-1 path", func(t *testing.T) {
+		// The 1-of-1 branch reads no randomness before makeKCV, so makeKCV's
+		// nonce read is the first rand read — fail it outright.
+		store := &stubStore{cfg: &SealConfig{Type: SealTypeShamir, Shares: 1, Threshold: 1}}
+		u := NewShamirUnsealer(store, 0, 0)
+		restore := randReader
+		randReader = failReader{}
+		defer func() { randReader = restore }()
+		if _, _, err := u.Reseal(ctx, testKey(0x22)); err == nil {
+			t.Fatal("want error, got nil")
+		}
+	})
+}
+
+func TestShamirResealOneOfOne(t *testing.T) {
+	ctx := context.Background()
+	store := &stubStore{cfg: &SealConfig{Type: SealTypeShamir, Shares: 1, Threshold: 1}}
+	u := NewShamirUnsealer(store, 0, 0)
+
+	m2 := testKey(0x33)
+	cfg, parts, err := u.Reseal(ctx, m2)
+	if err != nil {
+		t.Fatalf("Reseal 1-of-1: %v", err)
+	}
+	if cfg.Type != SealTypeShamir || cfg.Shares != 1 || cfg.Threshold != 1 {
+		t.Fatalf("shape not preserved: %+v", cfg)
+	}
+	if len(parts) != 1 || !bytes.Equal(parts[0], m2) {
+		t.Fatal("1-of-1 reseal share must be the master key itself")
+	}
+	if err := verifyKCV(m2, cfg.KeyCheckValue); err != nil {
+		t.Fatalf("KCV: %v", err)
 	}
 }
 

@@ -199,6 +199,37 @@ func TestKMSReseal(t *testing.T) {
 	}
 }
 
+func TestKMSResealFailures(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("invalid new key size", func(t *testing.T) {
+		u := NewKMSUnsealer(fileStore(t), &fakeKMS{})
+		if _, _, err := u.Reseal(ctx, []byte("short")); !errors.Is(err, ErrInvalidKeySize) {
+			t.Fatalf("got %v, want ErrInvalidKeySize", err)
+		}
+	})
+
+	t.Run("kms encrypt failure", func(t *testing.T) {
+		u := NewKMSUnsealer(fileStore(t), &fakeKMS{encErr: errors.New("kms down")})
+		m2 := testKey(0x22)
+		if _, _, err := u.Reseal(ctx, m2); err == nil {
+			t.Fatal("want error, got nil")
+		}
+	})
+
+	t.Run("kcv rand failure", func(t *testing.T) {
+		// fakeKMS.Encrypt reads no randomness, so makeKCV's nonce read is the
+		// first (and only) rand read — fail it outright.
+		restore := randReader
+		randReader = failReader{}
+		defer func() { randReader = restore }()
+		u := NewKMSUnsealer(fileStore(t), &fakeKMS{})
+		if _, _, err := u.Reseal(ctx, testKey(0x22)); err == nil {
+			t.Fatal("want error, got nil")
+		}
+	})
+}
+
 // fakeAWSAPI implements AWSKMSAPI for adapter tests.
 type fakeAWSAPI struct {
 	encOut *awskms.EncryptOutput
