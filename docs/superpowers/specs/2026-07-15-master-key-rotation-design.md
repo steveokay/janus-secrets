@@ -14,16 +14,23 @@ Rotate the master key (root KEK) online: mint fresh 256-bit master key material,
 
 The master key (256-bit, in server memory after unseal) directly wraps exactly these blobs. All are key material — never a secret value — and the set is small and bounded (dozens of rows), which is what makes an atomic single-transaction re-wrap viable.
 
-| Wrapped material | Storage | AAD (unchanged across rotation) |
-|---|---|---|
-| Project KEKs (current) | `projects.wrapped_kek` (1 / project) | `janus:kek:project` ‖ projectID |
-| Project KEKs (pending superseded versions) | `project_kek_versions.wrapped_kek` | `janus:kek:project` ‖ projectID |
-| Auth token-HMAC key | `auth_config.wrapped_token_hmac_key` (single row, id=1) | `janus:auth:token-hmac` |
-| Transit key material (all versions) | `transit_key_versions.wrapped_material` | existing transit AAD (binds key id + version) |
-| Key-check value (KCV) | `seal_config.key_check_value` | **regenerated fresh under M2** (not re-wrapped) |
-| Master key itself (KMS unseal only) | `seal_config.wrapped_master_key` | **re-encrypted under KMS** (Shamir: NULL) |
+| Wrapped material | Storage | AAD (unchanged across rotation) | Codec |
+|---|---|---|---|
+| Project KEKs (current) | `projects.wrapped_kek` (1 / project) | `ProjectKEKAAD(projectID)` = `janus:kek:project` ‖ projectID | 32-byte key |
+| Project KEKs (pending superseded versions) | `project_kek_versions.wrapped_kek` (all rows) | `ProjectKEKAAD(projectID)` | 32-byte key |
+| Auth token-HMAC key | `auth_config.wrapped_token_hmac_key` (single row, id=1) | `AuthKeyAAD()` = `janus:auth:token-hmac` | 32-byte key |
+| OIDC client secrets | `oidc_providers.wrapped_client_secret` (all rows) | `OIDCClientSecretAAD()` = `janus:auth:oidc-client-secret` (constant) | **arbitrary length** |
+| Transit key material (all versions) | `transit_key_versions.wrapped_material` (all rows; join `transit_keys` for name) | `TransitKeyAAD(name, version)` | key material |
+| Key-check value (KCV) | `seal_config.key_check_value` | `janus:kcv` | **regenerated fresh under M2** (not re-wrapped) |
+| Master key itself (KMS unseal only) | `seal_config.wrapped_master_key` | — | **re-encrypted under KMS** (Shamir: NULL) |
 
-**Correctness note:** the spec line says "re-wraps all project KEKs", but the auth HMAC key and transit key material are *also* master-wrapped. Rotation MUST re-wrap them too, or auth/transit break after the swap. `project_kek_versions.wrapped_kek` (superseded KEK versions still awaiting a project-KEK rewrap) must be included — they too are wrapped under the master.
+**Correctness note:** the spec line says "re-wraps all project KEKs", but the auth HMAC key, OIDC client secrets, and transit key material are *also* master-wrapped. Rotation MUST re-wrap all of them, or auth/OIDC/transit break after the swap. `project_kek_versions.wrapped_kek` (superseded KEK versions still awaiting a project-KEK rewrap) is included — those are wrapped under the master too.
+
+**Uniform re-wrap codec:** every blob above is re-wrapped generically as `Encrypt(M2, Decrypt(M1, oldCT, aad), aad)` — `Encrypt`/`Decrypt` handle both 32-byte keys and the arbitrary-length OIDC secret, so no per-type branching is needed. The AAD is reconstructed byte-identically to each item's read path.
+
+**Explicitly NOT in the re-wrap set (wrapped under a project KEK, not the master):** all secret-value DEKs, and the rotation-config / rotation-pending / sync-creds / dynamic-config blobs. These engines call `keyring.NewDEK(projectKEK, aad)` — the config DEK is wrapped by the **project KEK**, so rotating the master only changes the project KEK's wrapping; the DEK material and everything under it is untouched. Verified in `internal/{rotation,sync,dynamic}`.
+
+**Accepted side-effect — sync fingerprints:** `Keyring.SyncFingerprint` derives an HMAC key from the master. Fingerprints stored for sync change-detection were computed under M1, so after rotation they no longer match and each sync target re-syncs **once** on its next tick. One-way sync is idempotent, so this is safe. Recomputing them would require reading resolved secret *values*, violating value-free — so we accept the one-time re-sync rather than engineer around it. Documented, not fixed.
 
 ## 3. Approach: eager-atomic (rejecting lazy-versioned)
 
@@ -63,8 +70,8 @@ Mirrors `internal/projectkeys` (service + closure pattern, crypto isolated from 
 - **`internal/crypto/keyring.go`** — new `RotateMaster(newMaster []byte, rewrap func(unwrap func(ct Ciphertext, aad []byte) ([]byte, error), wrap func(plain, aad []byte) (Ciphertext, error)) error, persist func() error) error`. Under the write-lock: exposes M1-unwrap + M2-wrap closures to `rewrap` (which builds the new blobs), calls `persist` (the DB tx), and on success sets `k.master = M2` and zeroes M1. If `persist` errors, the in-memory master is untouched (still M1). No key material in errors. `SwapMaster`/unwrap helpers stay internal.
   - Remove the `TODO(rotation)` comment; `Encrypt` still leaves `KeyVersion == 0`.
 - **`internal/crypto` unseal** — add `Reseal(newMaster []byte) (cfg *SealConfig, shares [][]byte, err error)` to the `Unsealer` interface. Shamir: split M2 into new shares (same threshold/shares), build KCV, return cfg (type/threshold/shares/kcv) + shares. KMS: `client.Encrypt(M2)`, build KCV, return cfg (type/kcv/wrapped_master_key) + nil shares. Single-share (1-of-1) special case preserved (share == master).
-- **`internal/masterkeys/service.go`** — orchestrator. Holds keyring + repos (projects, project_kek_versions, auth, transit, sealconfig). `Rotate(ctx)` for KMS. Ceremony methods `RekeyInit/RekeySubmit/RekeyCancel/RekeyStatus` for Shamir, holding the in-memory ceremony accumulator + possession verification. Zeroizes all key material via `defer`.
-- **`internal/store/masterkey.go`** — `RewrapAllUnderNewMaster(ctx, rewrapRow func(old []byte, aad []byte) (new []byte, err error), reseal func() (*crypto.SealConfig, error)) error`: one `withTx` that `SELECT … FOR UPDATE`s and `UPDATE`s every blob in §2 across the four tables, then writes `seal_config` (new KCV / wrapped_master_key, `master_key_version = master_key_version + 1`, `master_key_rotated_at = now()`). Provides a status read (`GetMasterKeyMeta`). AADs are reconstructed identically to the read path.
+- **`internal/masterkeys/service.go`** — orchestrator. Holds keyring + repos (projects, project_kek_versions, auth, oidc, transit, sealconfig). `Rotate(ctx)` for KMS. Ceremony methods `RekeyInit/RekeySubmit/RekeyCancel/RekeyStatus` for Shamir, holding the in-memory ceremony accumulator + possession verification. Zeroizes all key material via `defer`.
+- **`internal/store/masterkey.go`** — `RewrapAllUnderNewMaster(ctx, rewrapRow func(old []byte, aad []byte) (new []byte, err error), reseal func() (*crypto.SealConfig, error)) error`: one `withTx` that `SELECT … FOR UPDATE`s and `UPDATE`s every blob in §2 across the **five** tables (`projects`, `project_kek_versions`, `auth_config`, `oidc_providers`, and `transit_key_versions` joined to `transit_keys` for the name `TransitKeyAAD` needs), then writes `seal_config` (new KCV / wrapped_master_key, `master_key_version = master_key_version + 1`, `master_key_rotated_at = now()`). Each row is handed to `rewrapRow` with its correct AAD; the returned ciphertext is `UPDATE`d in place. Provides a status read (`GetMasterKeyMeta`). AADs are reconstructed identically to the read path.
 - **`internal/authz/actions.go`** — new action `SysMasterKey Action = "sys:master-key"`, added to `ownerActions` only (owner-only, like `KEKManage`).
 - **`internal/api/masterkey_handlers.go`** — handlers + route registration (guarded by `if s.masterKeys != nil`). Owner-only via `s.authorize(... authz.SysMasterKey, authz.Resource{} ...)` (instance-scoped). Value-free audit.
 - **`cmd/janus/masterkey_commands.go`** — `janus master-key` parent + subcommands.
@@ -125,7 +132,7 @@ Extends the existing instance-seal section (frontend uses tokens only; solid mod
 
 ## 10. Testing
 
-- **crypto/service round-trip:** write a secret under M1 → rotate → secret still readable under M2; transit encrypt/decrypt survives; an auth/session HMAC check still validates. Old shares fail the KCV (can't unseal); freshly minted shares pass.
+- **crypto/service round-trip:** write a secret under M1 → rotate → secret still readable under M2; transit encrypt/decrypt survives; an auth/session HMAC check still validates; an OIDC provider's wrapped client secret still unwraps under M2. Old shares fail the KCV (can't unseal); freshly minted shares pass.
 - **never-decrypts-value:** corrupt a secret value's ciphertext → rotation still succeeds (proves values are never opened).
 - **leak test:** sentinel plaintext never appears in captured logs during rotation.
 - **ceremony:** possession check rejects wrong/insufficient shares; threshold accumulation + dedup; cancel clears state; only one active ceremony (409); KMS vs Shamir endpoint routing (400s).
