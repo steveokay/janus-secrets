@@ -105,13 +105,17 @@ func (s *Service) performRotation(ctx context.Context) ([][]byte, int, error) {
 		},
 	)
 	if err != nil {
+		// RotateMaster failed: rotation rolled back, in-memory master unchanged.
+		// The new shares are meaningless — discard them.
 		zeroShares(newShares)
 		return nil, 0, err
 	}
-	meta, err := s.repo.GetMasterKeyMeta(ctx)
-	if err != nil {
-		zeroShares(newShares)
-		return nil, 0, err
+	// Rotation committed and the in-memory master is swapped. The shares are now
+	// the operator's only way back in, so they MUST survive even if the
+	// display-only version read below fails — never discard them past this point.
+	meta, merr := s.repo.GetMasterKeyMeta(ctx)
+	if merr != nil {
+		return newShares, 0, nil
 	}
 	return newShares, meta.Version, nil
 }
