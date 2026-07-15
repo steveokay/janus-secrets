@@ -49,18 +49,28 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProjectList(w http.ResponseWriter, r *http.Request) {
-	all, err := store.NewProjectRepo(s.st).List(r.Context())
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	ps, err := store.NewProjectRepo(s.st).ListPage(r.Context(), pp.limit, pp.after)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	out := make([]projectResponse, 0, len(all))
-	for _, p := range all {
+	out := make([]projectResponse, 0, len(ps))
+	for _, p := range ps {
 		if s.can(r, authz.ProjectRead, authz.Resource{ProjectID: p.ID}) == nil {
 			out = append(out, projectView(p))
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": out})
+	var next *string
+	if len(ps) > 0 {
+		last := ps[len(ps)-1]
+		next = nextCursor(pp.limit, len(ps), last.CreatedAt, last.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"projects": out, "next_cursor": next})
 }
 
 func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {

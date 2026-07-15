@@ -107,7 +107,12 @@ func (s *Server) handleConfigList(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthzError(w, err)
 		return
 	}
-	cfgs, err := store.NewConfigRepo(s.st).ListByEnvironment(r.Context(), eid)
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	cfgs, err := store.NewConfigRepo(s.st).ListByEnvironmentPage(r.Context(), eid, pp.limit, pp.after)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -117,7 +122,12 @@ func (s *Server) handleConfigList(w http.ResponseWriter, r *http.Request) {
 		out = append(out, configView(c))
 	}
 	s.applyPromotionProvenance(r.Context(), out)
-	writeJSON(w, http.StatusOK, map[string]any{"configs": out})
+	var next *string
+	if len(cfgs) > 0 {
+		last := cfgs[len(cfgs)-1]
+		next = nextCursor(pp.limit, len(cfgs), last.CreatedAt, last.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"configs": out, "next_cursor": next})
 }
 
 // configResource resolves the full project→env→config chain for a {cid} route.

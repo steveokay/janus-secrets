@@ -52,6 +52,13 @@ type BootConfig struct {
 	// DynamicTick is the dynamic lease-manager tick interval. Zero disables the
 	// scheduler (tests).
 	DynamicTick time.Duration
+	// HTTP server hardening. Zero on any field disables that timeout (Go's
+	// default). cmd/janus applies production defaults; tests building BootConfig
+	// directly get zero.
+	HTTPReadTimeout  time.Duration
+	HTTPWriteTimeout time.Duration
+	HTTPIdleTimeout  time.Duration
+	HTTPMaxBodyBytes int64 // 0 = no limit (consumed by the body-limit middleware)
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -142,7 +149,15 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
-	srv := New(Config{ListenAddr: bc.ListenAddr, SealType: sealType, Version: bc.Version}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
+	srv := New(Config{
+		ListenAddr:       bc.ListenAddr,
+		SealType:         sealType,
+		Version:          bc.Version,
+		HTTPReadTimeout:  bc.HTTPReadTimeout,
+		HTTPWriteTimeout: bc.HTTPWriteTimeout,
+		HTTPIdleTimeout:  bc.HTTPIdleTimeout,
+		HTTPMaxBodyBytes: bc.HTTPMaxBodyBytes,
+	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 
 	// Start the rotation scheduler tied to the boot ctx (runServer's shutdown

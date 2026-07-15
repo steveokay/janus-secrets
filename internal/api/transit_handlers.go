@@ -53,7 +53,12 @@ func (s *Server) handleTransitList(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthzError(w, err)
 		return
 	}
-	ms, err := s.transit.List(r.Context())
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	ms, next, err := s.transit.ListPage(r.Context(), pp.limit, pp.after)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -62,7 +67,12 @@ func (s *Server) handleTransitList(w http.ResponseWriter, r *http.Request) {
 	for _, m := range ms {
 		out = append(out, transitMeta(m))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"keys": out})
+	var nextTok *string
+	if next != nil {
+		t := encodeCursor(next.CreatedAt, next.ID)
+		nextTok = &t
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"keys": out, "next_cursor": nextTok})
 }
 
 func (s *Server) handleTransitGet(w http.ResponseWriter, r *http.Request) {

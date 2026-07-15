@@ -73,6 +73,11 @@ func (s *Server) membersList(w http.ResponseWriter, r *http.Request, spec scopeS
 		s.writeAuthzError(w, err)
 		return
 	}
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
 	scopeID := ""
 	if spec.projectID != nil {
 		scopeID = *spec.projectID
@@ -80,12 +85,17 @@ func (s *Server) membersList(w http.ResponseWriter, r *http.Request, spec scopeS
 	if spec.envID != nil {
 		scopeID = *spec.envID
 	}
-	members, err := s.authz.ListMembers(r.Context(), spec.level, scopeID)
+	members, next, err := s.authz.ListMembersPage(r.Context(), spec.level, scopeID, pp.limit, pp.after)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"members": members})
+	var nextTok *string
+	if next != nil {
+		t := encodeCursor(next.CreatedAt, next.ID)
+		nextTok = &t
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"members": members, "next_cursor": nextTok})
 }
 
 type putMemberRequest struct {

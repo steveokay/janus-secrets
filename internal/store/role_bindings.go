@@ -83,23 +83,41 @@ func (r *RoleBindingRepo) ListForUser(ctx context.Context, userID string) ([]*Ro
 }
 
 // ListForScope returns the bindings at a scope (members list). scopeID is the
-// project_id or environment_id; it is ignored for the instance level.
+// project_id or environment_id; it is ignored for the instance level. It is the
+// unbounded delegate of ListForScopePage.
 func (r *RoleBindingRepo) ListForScope(ctx context.Context, level, scopeID string) ([]*RoleBinding, error) {
-	var sql string
+	return r.ListForScopePage(ctx, level, scopeID, 0, nil)
+}
+
+// ListForScopePage returns the bindings at a scope in (created_at DESC, id DESC)
+// order, with keyset continuation from after (nil = first page) and a LIMIT when
+// limit>0 (limit<=0 = unbounded, the legacy ListForScope path). Unknown levels
+// return ErrNotFound, matching ListForScope's original default behavior.
+func (r *RoleBindingRepo) ListForScopePage(ctx context.Context, level, scopeID string, limit int, after *Cursor) ([]*RoleBinding, error) {
+	var q string
 	var args []any
 	switch level {
 	case "instance":
-		sql = `SELECT ` + roleBindingCols + ` FROM role_bindings WHERE scope_level = 'instance'`
+		q = `SELECT ` + roleBindingCols + ` FROM role_bindings WHERE scope_level = 'instance'`
 	case "project":
-		sql = `SELECT ` + roleBindingCols + ` FROM role_bindings WHERE scope_level = 'project' AND project_id = $1::uuid`
+		q = `SELECT ` + roleBindingCols + ` FROM role_bindings WHERE scope_level = 'project' AND project_id = $1::uuid`
 		args = append(args, scopeID)
 	case "environment":
-		sql = `SELECT ` + roleBindingCols + ` FROM role_bindings WHERE scope_level = 'environment' AND environment_id = $1::uuid`
+		q = `SELECT ` + roleBindingCols + ` FROM role_bindings WHERE scope_level = 'environment' AND environment_id = $1::uuid`
 		args = append(args, scopeID)
 	default:
 		return nil, ErrNotFound
 	}
-	rows, err := r.s.pool.Query(ctx, sql, args...)
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " AND " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}

@@ -53,11 +53,21 @@ func (r *ConfigRepo) GetByName(ctx context.Context, environmentID, name string) 
 	return scanConfig(row)
 }
 
-// ListByEnvironment returns all non-deleted configs in an environment.
-func (r *ConfigRepo) ListByEnvironment(ctx context.Context, environmentID string) ([]*Config, error) {
-	rows, err := r.s.pool.Query(ctx,
-		`SELECT `+configCols+` FROM configs
-		 WHERE environment_id = $1::uuid AND deleted_at IS NULL ORDER BY created_at DESC`, environmentID)
+// ListByEnvironmentPage returns non-deleted configs for an environment in
+// (created_at DESC, id DESC) order. limit<=0 unbounded; after==nil first page.
+func (r *ConfigRepo) ListByEnvironmentPage(ctx context.Context, environmentID string, limit int, after *Cursor) ([]*Config, error) {
+	q := `SELECT ` + configCols + ` FROM configs WHERE environment_id = $1::uuid AND deleted_at IS NULL`
+	args := []any{environmentID}
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " AND " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -71,6 +81,12 @@ func (r *ConfigRepo) ListByEnvironment(ctx context.Context, environmentID string
 		out = append(out, c)
 	}
 	return out, mapError(rows.Err())
+}
+
+// ListByEnvironment returns all non-deleted configs in an environment
+// (unbounded; kept for existing internal callers).
+func (r *ConfigRepo) ListByEnvironment(ctx context.Context, environmentID string) ([]*Config, error) {
+	return r.ListByEnvironmentPage(ctx, environmentID, 0, nil)
 }
 
 // SoftDelete marks a config deleted.

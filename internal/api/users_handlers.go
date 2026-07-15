@@ -39,12 +39,22 @@ func (s *Server) handleUserList(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthzError(w, err)
 		return
 	}
-	users, err := s.auth.ListUsers(r.Context())
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	users, next, err := s.auth.ListUsersPage(r.Context(), pp.limit, pp.after)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	var nextTok *string
+	if next != nil {
+		t := encodeCursor(next.CreatedAt, next.ID)
+		nextTok = &t
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users, "next_cursor": nextTok})
 }
 
 func (s *Server) handleUserDisable(w http.ResponseWriter, r *http.Request) {

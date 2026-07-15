@@ -36,6 +36,21 @@ func tokenScopeFrom(ctx context.Context) *auth.TokenScope {
 	return s
 }
 
+// resolvePrincipal authenticates via Bearer service token or session cookie,
+// returning the Principal (and token scope, if any). It does NOT write a
+// response; callers decide how to handle errors. Shared by RequireAuth and the
+// idempotency middleware.
+func resolvePrincipal(v authVerifier, r *http.Request) (auth.Principal, *auth.TokenScope, error) {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return v.VerifyServiceToken(r.Context(), strings.TrimPrefix(h, "Bearer "))
+	}
+	if c, cErr := r.Cookie(sessionCookieName); cErr == nil {
+		p, err := v.VerifySession(r.Context(), c.Value)
+		return p, nil, err
+	}
+	return auth.Principal{}, nil, auth.ErrUnauthenticated
+}
+
 // RequireAuth authenticates via Bearer service token or session cookie and
 // injects the Principal (and, for tokens, the token scope) into the context.
 // 401 on failure; a sealed keyring surfaces as 503 (credentials cannot verify
@@ -43,17 +58,7 @@ func tokenScopeFrom(ctx context.Context) *auth.TokenScope {
 func RequireAuth(v authVerifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var p auth.Principal
-			var scope *auth.TokenScope
-			var err error
-
-			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-				p, scope, err = v.VerifyServiceToken(r.Context(), strings.TrimPrefix(h, "Bearer "))
-			} else if c, cErr := r.Cookie(sessionCookieName); cErr == nil {
-				p, err = v.VerifySession(r.Context(), c.Value)
-			} else {
-				err = auth.ErrUnauthenticated
-			}
+			p, scope, err := resolvePrincipal(v, r)
 
 			switch {
 			case err == nil:

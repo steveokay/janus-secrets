@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -97,5 +98,47 @@ func TestProjectRepoCRUD(t *testing.T) {
 	// Get missing.
 	if _, err := repo.Get(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get missing: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestProjectRepo_ListPage(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	repo := NewProjectRepo(s)
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		id, err := s.NewID(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.Create(ctx, id, fmt.Sprintf("proj-%d", i), fmt.Sprintf("Proj %d", i), []byte("wrapped-kek-000"), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := repo.ListPage(ctx, 0, nil)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("unbounded: len=%d err=%v", len(all), err)
+	}
+	seen := map[string]bool{}
+	var after *Cursor
+	for {
+		page, err := repo.ListPage(ctx, 2, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range page {
+			if seen[p.ID] {
+				t.Fatalf("duplicate id %s", p.ID)
+			}
+			seen[p.ID] = true
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		after = &Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("covered %d of 5", len(seen))
 	}
 }

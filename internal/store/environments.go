@@ -52,11 +52,21 @@ func (r *EnvironmentRepo) GetBySlug(ctx context.Context, projectID, slug string)
 	return scanEnv(row)
 }
 
-// ListByProject returns all non-deleted environments in a project.
-func (r *EnvironmentRepo) ListByProject(ctx context.Context, projectID string) ([]*Environment, error) {
-	rows, err := r.s.pool.Query(ctx,
-		`SELECT `+envCols+` FROM environments
-		 WHERE project_id = $1::uuid AND deleted_at IS NULL ORDER BY created_at DESC`, projectID)
+// ListByProjectPage returns non-deleted environments for a project in
+// (created_at DESC, id DESC) order. limit<=0 unbounded; after==nil first page.
+func (r *EnvironmentRepo) ListByProjectPage(ctx context.Context, projectID string, limit int, after *Cursor) ([]*Environment, error) {
+	q := `SELECT ` + envCols + ` FROM environments WHERE project_id = $1::uuid AND deleted_at IS NULL`
+	args := []any{projectID}
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " AND " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -70,6 +80,12 @@ func (r *EnvironmentRepo) ListByProject(ctx context.Context, projectID string) (
 		out = append(out, e)
 	}
 	return out, mapError(rows.Err())
+}
+
+// ListByProject returns all non-deleted environments in a project (unbounded;
+// kept for existing internal callers).
+func (r *EnvironmentRepo) ListByProject(ctx context.Context, projectID string) ([]*Environment, error) {
+	return r.ListByProjectPage(ctx, projectID, 0, nil)
 }
 
 // SoftDelete marks an environment deleted.

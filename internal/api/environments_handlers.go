@@ -57,7 +57,12 @@ func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthzError(w, err)
 		return
 	}
-	envs, err := store.NewEnvironmentRepo(s.st).ListByProject(r.Context(), pid)
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	envs, err := store.NewEnvironmentRepo(s.st).ListByProjectPage(r.Context(), pid, pp.limit, pp.after)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -66,7 +71,12 @@ func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 	for _, e := range envs {
 		out = append(out, envView(e))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"environments": out})
+	var next *string
+	if len(envs) > 0 {
+		last := envs[len(envs)-1]
+		next = nextCursor(pp.limit, len(envs), last.CreatedAt, last.ID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"environments": out, "next_cursor": next})
 }
 
 func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {

@@ -32,6 +32,13 @@ type Config struct {
 	SealType string
 	// Version is the janus build version, stamped into backup headers.
 	Version string
+	// HTTP server hardening. Zero on any timeout field disables that timeout
+	// (Go's default). cmd/janus applies production defaults; tests building
+	// Config/BootConfig directly get zero.
+	HTTPReadTimeout  time.Duration
+	HTTPWriteTimeout time.Duration
+	HTTPIdleTimeout  time.Duration
+	HTTPMaxBodyBytes int64 // 0 = no limit (consumed by the body-limit middleware)
 }
 
 // Server is Janus's HTTP server. The keyring is the single source of truth
@@ -106,6 +113,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
 	r.Use(RequireUnsealed(kr))
+	if cfg.HTTPMaxBodyBytes > 0 {
+		r.Use(bodyLimit(cfg.HTTPMaxBodyBytes))
+	}
+	if st != nil && authSvc != nil {
+		r.Use(idempotencyMiddleware(idemRepoAdapter{repo: store.NewIdempotencyRepo(st)}, authSvc))
+	}
 	r.Route("/v1/sys", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
 		r.Get("/live", s.handleLive)
@@ -372,13 +385,24 @@ func (s *Server) MountUI(h http.Handler) {
 	s.router.NotFound(h.ServeHTTP)
 }
 
-// ListenAndServe serves until ctx is canceled, then drains for up to 10s.
-func (s *Server) ListenAndServe(ctx context.Context) error {
-	srv := &http.Server{
+// buildHTTPServer constructs the http.Server from s.cfg. ReadHeaderTimeout
+// stays a fixed 10s (slowloris guard); the read/write/idle timeouts flow from
+// config so they're operator-tunable (WriteTimeout defaults to 0 upstream so
+// large streaming audit exports aren't truncated).
+func (s *Server) buildHTTPServer() *http.Server {
+	return &http.Server{
 		Addr:              s.cfg.ListenAddr,
 		Handler:           s.router,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       s.cfg.HTTPReadTimeout,
+		WriteTimeout:      s.cfg.HTTPWriteTimeout,
+		IdleTimeout:       s.cfg.HTTPIdleTimeout,
 	}
+}
+
+// ListenAndServe serves until ctx is canceled, then drains for up to 10s.
+func (s *Server) ListenAndServe(ctx context.Context) error {
+	srv := s.buildHTTPServer()
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	select {

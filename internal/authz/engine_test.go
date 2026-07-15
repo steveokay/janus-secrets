@@ -24,6 +24,9 @@ func (f *fakeBindings) ListForUser(_ context.Context, uid string) ([]*store.Role
 func (f *fakeBindings) ListForScope(context.Context, string, string) ([]*store.RoleBinding, error) {
 	return f.byScope, nil
 }
+func (f *fakeBindings) ListForScopePage(context.Context, string, string, int, *store.Cursor) ([]*store.RoleBinding, error) {
+	return f.byScope, nil
+}
 func (f *fakeBindings) Create(_ context.Context, in store.RoleBindingInput) (*store.RoleBinding, error) {
 	f.created = &in
 	return &store.RoleBinding{SubjectUserID: in.SubjectUserID, Role: in.Role}, nil
@@ -44,6 +47,9 @@ func (errBindings) ListForUser(context.Context, string) ([]*store.RoleBinding, e
 	return nil, errBoom
 }
 func (errBindings) ListForScope(context.Context, string, string) ([]*store.RoleBinding, error) {
+	return nil, errBoom
+}
+func (errBindings) ListForScopePage(context.Context, string, string, int, *store.Cursor) ([]*store.RoleBinding, error) {
 	return nil, errBoom
 }
 func (errBindings) Create(context.Context, store.RoleBindingInput) (*store.RoleBinding, error) {

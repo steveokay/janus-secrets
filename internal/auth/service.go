@@ -196,17 +196,30 @@ type UserInfo struct {
 	Disabled bool   `json:"disabled"`
 }
 
-// ListUsers returns all users (no secrets).
-func (s *Service) ListUsers(ctx context.Context) ([]UserInfo, error) {
-	list, err := s.users.List(ctx)
+// ListUsersPage returns a page of user summaries plus the keyset cursor for the
+// next page (nil on the last page). No secrets are exposed. limit<=0 is
+// unbounded; after==nil is the first page.
+func (s *Service) ListUsersPage(ctx context.Context, limit int, after *store.Cursor) ([]UserInfo, *store.Cursor, error) {
+	rows, err := s.users.ListPage(ctx, limit, after)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	out := make([]UserInfo, 0, len(list))
-	for _, u := range list {
+	out := make([]UserInfo, 0, len(rows))
+	for _, u := range rows {
 		out = append(out, UserInfo{ID: u.ID, Email: u.Email, Disabled: u.DisabledAt != nil})
 	}
-	return out, nil
+	var next *store.Cursor
+	if limit > 0 && len(rows) == limit {
+		last := rows[len(rows)-1]
+		next = &store.Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return out, next, nil
+}
+
+// ListUsers returns all users (no secrets).
+func (s *Service) ListUsers(ctx context.Context) ([]UserInfo, error) {
+	infos, _, err := s.ListUsersPage(ctx, 0, nil)
+	return infos, err
 }
 
 // DisableUser marks a user disabled (sessions/logins stop working).

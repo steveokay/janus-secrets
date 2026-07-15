@@ -70,11 +70,20 @@ func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
-	list, err := s.auth.ListTokens(r.Context())
+	pp, err := parsePageParams(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	list, next, err := s.auth.ListTokensPage(r.Context(), pp.limit, pp.after)
 	if err != nil {
 		s.writeAuthError(w, err)
 		return
 	}
+	// Visibility filter (security boundary): drop tokens whose scope target is
+	// gone or the caller can't read. The next cursor keys on the RAW scan
+	// position, so a page may surface fewer than limit visible tokens — the
+	// client keeps paging until next_cursor is null.
 	out := make([]auth.TokenMeta, 0, len(list))
 	for _, m := range list {
 		res, err := s.resolveScopeResource(r.Context(), m.ScopeKind, m.ScopeID)
@@ -85,7 +94,12 @@ func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
 			out = append(out, m)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tokens": out})
+	var nextTok *string
+	if next != nil {
+		t := encodeCursor(next.CreatedAt, next.ID)
+		nextTok = &t
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tokens": out, "next_cursor": nextTok})
 }
 
 func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {

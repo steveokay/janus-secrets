@@ -142,10 +142,28 @@ func (r *TransitRepo) scanKeyWithVersions(ctx context.Context, row interface{ Sc
 	return &k, mapError(rows.Err())
 }
 
-// List returns key metadata (no versions), ordered by name.
+// List returns key metadata (no versions). It is the unbounded delegate of
+// ListPage.
 func (r *TransitRepo) List(ctx context.Context) ([]*TransitKey, error) {
-	rows, err := r.s.pool.Query(ctx,
-		`SELECT `+transitKeyCols+` FROM transit_keys ORDER BY name ASC`)
+	return r.ListPage(ctx, 0, nil)
+}
+
+// ListPage returns key metadata (no versions) in (created_at DESC, id DESC)
+// order, with keyset continuation from after (nil = first page) and a LIMIT when
+// limit>0 (limit<=0 = unbounded, the legacy List path).
+func (r *TransitRepo) ListPage(ctx context.Context, limit int, after *Cursor) ([]*TransitKey, error) {
+	q := `SELECT ` + transitKeyCols + ` FROM transit_keys`
+	var args []any
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " WHERE " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}

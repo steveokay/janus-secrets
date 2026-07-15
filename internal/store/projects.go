@@ -49,10 +49,21 @@ func (r *ProjectRepo) GetBySlug(ctx context.Context, slug string) (*Project, err
 	return scanProject(row)
 }
 
-// List returns all non-deleted projects, newest first.
-func (r *ProjectRepo) List(ctx context.Context) ([]*Project, error) {
-	rows, err := r.s.pool.Query(ctx,
-		`SELECT `+projectCols+` FROM projects WHERE deleted_at IS NULL ORDER BY created_at DESC`)
+// ListPage returns non-deleted projects in (created_at DESC, id DESC) order.
+// limit<=0 is unbounded; after==nil is the first page.
+func (r *ProjectRepo) ListPage(ctx context.Context, limit int, after *Cursor) ([]*Project, error) {
+	q := `SELECT ` + projectCols + ` FROM projects WHERE deleted_at IS NULL`
+	var args []any
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " AND " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -66,6 +77,12 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*Project, error) {
 		out = append(out, p)
 	}
 	return out, mapError(rows.Err())
+}
+
+// List returns all non-deleted projects, newest first (unbounded; kept for
+// existing internal callers).
+func (r *ProjectRepo) List(ctx context.Context) ([]*Project, error) {
+	return r.ListPage(ctx, 0, nil)
 }
 
 // SoftDelete marks a project deleted. Returns ErrNotFound if it was already

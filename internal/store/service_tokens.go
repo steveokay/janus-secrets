@@ -81,10 +81,23 @@ func (r *ServiceTokenRepo) GetByHMAC(ctx context.Context, tokenHMAC []byte) (*Se
 	return scanServiceToken(row)
 }
 
-// List returns all tokens, newest first (metadata; HMACs are opaque bytes).
-func (r *ServiceTokenRepo) List(ctx context.Context) ([]*ServiceToken, error) {
-	rows, err := r.s.pool.Query(ctx,
-		`SELECT `+svcTokenCols+` FROM service_tokens ORDER BY created_at DESC`)
+// ListPage returns service tokens in (created_at DESC, id DESC) order.
+// limit<=0 is unbounded; after==nil is the first page. There is no base WHERE
+// filter (no soft-delete on service_tokens), so the keyset predicate opens with
+// WHERE rather than AND.
+func (r *ServiceTokenRepo) ListPage(ctx context.Context, limit int, after *Cursor) ([]*ServiceToken, error) {
+	q := `SELECT ` + svcTokenCols + ` FROM service_tokens`
+	var args []any
+	if ks, ksArgs := keyset(after, len(args)+1); ks != "" {
+		q += " WHERE " + ks
+		args = append(args, ksArgs...)
+	}
+	q += " ORDER BY created_at DESC, id DESC"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -98,6 +111,11 @@ func (r *ServiceTokenRepo) List(ctx context.Context) ([]*ServiceToken, error) {
 		out = append(out, t)
 	}
 	return out, mapError(rows.Err())
+}
+
+// List returns all tokens, newest first (metadata; HMACs are opaque bytes).
+func (r *ServiceTokenRepo) List(ctx context.Context) ([]*ServiceToken, error) {
+	return r.ListPage(ctx, 0, nil)
 }
 
 // Revoke marks a token revoked. Returns ErrNotFound if absent or already

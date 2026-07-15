@@ -3,8 +3,61 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 )
+
+func TestUserRepo_ListPage(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewUserRepo(s)
+	hash := "$argon2id$v=19$m=19456,t=2,p=1$c2FsdA$aGFzaA"
+
+	for i := 0; i < 5; i++ {
+		if _, err := repo.Create(ctx, fmt.Sprintf("u%d@example.com", i), &hash); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := repo.ListPage(ctx, 0, nil)
+	if err != nil || len(all) != 5 {
+		t.Fatalf("unbounded: len=%d err=%v", len(all), err)
+	}
+	// DESC order: created_at descending (with id tiebreak).
+	for i := 1; i < len(all); i++ {
+		prev, cur := all[i-1], all[i]
+		if cur.CreatedAt.After(prev.CreatedAt) {
+			t.Fatalf("not DESC by created_at at %d", i)
+		}
+		if cur.CreatedAt.Equal(prev.CreatedAt) && cur.ID > prev.ID {
+			t.Fatalf("not DESC by id tiebreak at %d", i)
+		}
+	}
+
+	seen := map[string]bool{}
+	var after *Cursor
+	for {
+		page, err := repo.ListPage(ctx, 2, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, u := range page {
+			if seen[u.ID] {
+				t.Fatalf("duplicate id %s", u.ID)
+			}
+			seen[u.ID] = true
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		after = &Cursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	if len(seen) != 5 {
+		t.Fatalf("covered %d of 5", len(seen))
+	}
+}
 
 func TestUserRepoCRUD(t *testing.T) {
 	s := requireStore(t)
