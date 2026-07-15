@@ -67,11 +67,12 @@ func (s *Server) handleTransitList(w http.ResponseWriter, r *http.Request) {
 	for _, m := range ms {
 		out = append(out, transitMeta(m))
 	}
-	body := map[string]any{"keys": out}
+	var nextTok *string
 	if next != nil {
-		body["next_cursor"] = encodeCursor(next.CreatedAt, next.ID)
+		t := encodeCursor(next.CreatedAt, next.ID)
+		nextTok = &t
 	}
-	writeJSON(w, http.StatusOK, body)
+	writeJSON(w, http.StatusOK, map[string]any{"keys": out, "next_cursor": nextTok})
 }
 
 func (s *Server) handleTransitGet(w http.ResponseWriter, r *http.Request) {

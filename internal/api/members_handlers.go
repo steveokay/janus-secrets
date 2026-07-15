@@ -90,11 +90,12 @@ func (s *Server) membersList(w http.ResponseWriter, r *http.Request, spec scopeS
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	body := map[string]any{"members": members}
+	var nextTok *string
 	if next != nil {
-		body["next_cursor"] = encodeCursor(next.CreatedAt, next.ID)
+		t := encodeCursor(next.CreatedAt, next.ID)
+		nextTok = &t
 	}
-	writeJSON(w, http.StatusOK, body)
+	writeJSON(w, http.StatusOK, map[string]any{"members": members, "next_cursor": nextTok})
 }
 
 type putMemberRequest struct {
