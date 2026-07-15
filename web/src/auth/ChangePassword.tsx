@@ -17,8 +17,8 @@ export function ChangePasswordForm({ onDone, onClose }: { onDone: () => void; on
     finally { setBusy(false) }
   }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30">
-      <form onSubmit={submit} className="flex w-80 flex-col gap-2 rounded-card border border-line bg-card p-5 shadow-pop">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-[8px]">
+      <form onSubmit={submit} className="flex w-80 flex-col gap-2 rounded-card border border-line bg-elevated p-5 shadow-pop">
         <h2 className="mb-1 text-lg font-semibold">Change password</h2>
         <Input label="Current password" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
         <Input label="New password" type="password" value={next} onChange={(e) => setNext(e.target.value)} required />

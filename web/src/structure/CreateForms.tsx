@@ -9,8 +9,8 @@ import { Button } from '../ui/Button'
 
 function Dialog({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30">
-      <div className="w-80 rounded-card border border-line bg-card p-5 shadow-pop">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-[8px]">
+      <div className="w-80 rounded-card border border-line bg-elevated p-5 shadow-pop">
         <h2 className="mb-3 text-[15px] font-semibold tracking-tight">{title}</h2>
         {children}
       </div>
