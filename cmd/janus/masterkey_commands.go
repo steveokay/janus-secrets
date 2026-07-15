@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"strings"
 
@@ -68,7 +67,12 @@ func newMasterKeyCmd() *cobra.Command {
 			if err := c.call("POST", "/v1/sys/master-key/rotate", nil, &out); err != nil {
 				// The server returns 400 "shamir seal requires a rekey ceremony"
 				// for a Shamir seal; point the operator at the ceremony command.
-				return fmt.Errorf("%w (use `janus master-key rekey`)", err)
+				// Only add the hint for that specific case — a transient/network
+				// error should surface unwrapped.
+				if strings.Contains(err.Error(), "rekey ceremony") {
+					return fmt.Errorf("%w (use `janus master-key rekey`)", err)
+				}
+				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "rotated master key to version %d\n", out.Version)
 			return nil
@@ -105,11 +109,12 @@ func newMasterKeyCmd() *cobra.Command {
 			// Prefer shares supplied via --share; otherwise prompt on stdin for
 			// the required count, one line per share.
 			if len(shares) == 0 {
-				reader := bufio.NewReader(cmd.InOrStdin())
 				for i := 0; i < initOut.Required; i++ {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Share %d of %d: ", i+1, initOut.Required)
-					line, rerr := reader.ReadString('\n')
-					share := strings.TrimSpace(line)
+					fmt.Fprintf(cmd.ErrOrStderr(), "Enter share %d of %d:\n", i+1, initOut.Required)
+					// readShare suppresses terminal echo on a TTY (and falls back
+					// to a plain line read when piped), so shares are not echoed
+					// or left in scrollback.
+					share, rerr := readShare(cmd)
 					if share != "" {
 						shares = append(shares, share)
 					}
