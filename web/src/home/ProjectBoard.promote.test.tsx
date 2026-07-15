@@ -124,16 +124,25 @@ test('dragging a dev card onto the staging column opens the modal', async () => 
   expect(await screen.findByRole('dialog', { name: /promote development to staging/i })).toBeInTheDocument()
 })
 
-test('when staging lacks a matching config, Promote shows a toast and does NOT open the modal', async () => {
+test('when staging lacks a matching config, Promote opens the modal in CREATE mode', async () => {
   base({ stagingHasDefault: false })
   pipeline(['e-dev', 'e-staging', 'e-prod'])
+  // Create mode fetches the source config's keys + versions (names only, no values).
+  server.use(
+    http.get('/v1/configs/c-dev/secrets', () =>
+      HttpResponse.json({ secrets: { API_KEY: { value_version: 1, created_at: 'x', origin: 'own' } } })),
+    http.get('/v1/configs/c-dev/versions', () =>
+      HttpResponse.json({ versions: [{ version: 3, message: '', created_by: 's', created_at: 'x' }] })),
+  )
   render()
   await screen.findByRole('heading', { name: 'Development' })
   const devCard = within(column('Development')).getByRole('link', { name: /^default\b/i })
   await userEvent.click(within(devCard).getByRole('button', { name: /promote/i }))
 
-  expect(await screen.findByText(/no "default" config in staging to promote into/i)).toBeInTheDocument()
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  const dialog = await screen.findByRole('dialog', { name: /promote development to staging/i })
+  // create-mode banner: the target config doesn't exist yet
+  expect(await within(dialog).findByText(/has no/i)).toBeInTheDocument()
+  expect(await within(dialog).findByText('API_KEY')).toBeInTheDocument()
 })
 
 test('with NO pipeline, cards are not draggable, no Promote button, env order is raw', async () => {

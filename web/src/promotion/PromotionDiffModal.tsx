@@ -8,7 +8,7 @@ import { useToast } from '../ui/Toast'
 import { cn } from '../ui/cn'
 import { envTone, envDotClass } from '../ui/env'
 import { errorMessage } from '../lib/api'
-import type { Config, Environment } from '../lib/endpoints'
+import { endpoints, type Config, type Environment } from '../lib/endpoints'
 import { promotion, type DiffEntry, type PromoteStatus, type Selection } from './endpoints'
 
 // Status → chip presentation. `same` rows carry nothing to promote.
@@ -64,7 +64,7 @@ function ValueCell({ value, revealed, side }: { value: string; revealed: boolean
   )
 }
 
-function DiffRow({ entry, checked, onToggle }: { entry: DiffEntry; checked: boolean; onToggle: () => void }) {
+function DiffRow({ entry, checked, onToggle, createMode }: { entry: DiffEntry; checked: boolean; onToggle: () => void; createMode?: boolean }) {
   const [revealed, setRevealed] = useState(false)
   const chip = CHIP[entry.status]
   const disabled = isDisabled(entry)
@@ -102,23 +102,29 @@ function DiffRow({ entry, checked, onToggle }: { entry: DiffEntry; checked: bool
           <Pill tone={chip.tone}>{chip.label}</Pill>
         </div>
       </div>
-      <div className="grid min-w-0 grid-cols-[1fr_28px_1fr] items-center gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {entry.source_value !== '' && (
-            <button
-              type="button"
-              onClick={() => setRevealed((v) => !v)}
-              aria-label={revealed ? `Hide ${entry.key}` : `Reveal ${entry.key} (audited)`}
-              className="grid h-5 w-[22px] shrink-0 place-items-center rounded border border-line text-ink-faint transition-nocturne hover:border-brand-line hover:text-brand-text"
-            >
-              {revealed ? <EyeOff size={13} strokeWidth={1.7} /> : <Eye size={13} strokeWidth={1.7} />}
-            </button>
-          )}
-          <ValueCell value={entry.source_value} revealed={revealed} side="from" />
+      {createMode ? (
+        <div className="min-w-0">
+          <span className="font-sans text-[11.5px] text-ink-faint">value copied from source on promote</span>
         </div>
-        <ArrowRight size={13} strokeWidth={1.7} className="justify-self-center text-ink-faint" aria-hidden />
-        <ValueCell value={entry.target_value} revealed={revealed} side="to" />
-      </div>
+      ) : (
+        <div className="grid min-w-0 grid-cols-[1fr_28px_1fr] items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {entry.source_value !== '' && (
+              <button
+                type="button"
+                onClick={() => setRevealed((v) => !v)}
+                aria-label={revealed ? `Hide ${entry.key}` : `Reveal ${entry.key} (audited)`}
+                className="grid h-5 w-[22px] shrink-0 place-items-center rounded border border-line text-ink-faint transition-nocturne hover:border-brand-line hover:text-brand-text"
+              >
+                {revealed ? <EyeOff size={13} strokeWidth={1.7} /> : <Eye size={13} strokeWidth={1.7} />}
+              </button>
+            )}
+            <ValueCell value={entry.source_value} revealed={revealed} side="from" />
+          </div>
+          <ArrowRight size={13} strokeWidth={1.7} className="justify-self-center text-ink-faint" aria-hidden />
+          <ValueCell value={entry.target_value} revealed={revealed} side="to" />
+        </div>
+      )}
     </div>
   )
 }
@@ -126,13 +132,15 @@ function DiffRow({ entry, checked, onToggle }: { entry: DiffEntry; checked: bool
 export function PromotionDiffModal({
   from,
   to,
+  createName,
   fromEnv,
   toEnv,
   onClose,
   onDone,
 }: {
   from: Config
-  to: Config
+  to?: Config // existing-target mode (as today) when provided
+  createName?: string // create-target mode when `to` is undefined (the config name to create)
   fromEnv: Environment
   toEnv: Environment
   onClose: () => void
@@ -140,15 +148,54 @@ export function PromotionDiffModal({
 }) {
   const qc = useQueryClient()
   const toast = useToast()
+  const mode: 'existing' | 'create' = to ? 'existing' : 'create'
+  // The config code shown in the header — the real target name, or the name we'll create.
+  const targetName = to ? to.name : createName ?? ''
 
+  // Existing-target diff: source→target, values revealable (audited server-side).
   const preview = useQuery({
-    queryKey: ['promote-preview', from.id, to.id],
-    queryFn: () => promotion.preview(from.id, to.id),
+    queryKey: ['promote-preview', from.id, to?.id],
+    enabled: mode === 'existing',
+    queryFn: () => promotion.preview(from.id, to!.id),
   })
+
+  // Create-target: no diff endpoint (target doesn't exist). List the source keys —
+  // all become "adds" — from masked metadata (NAMES ONLY, never values) plus the
+  // latest source version. Values are copied + re-encrypted server-side on apply.
+  const createQ = useQuery({
+    queryKey: ['promote-create-src', from.id],
+    enabled: mode === 'create',
+    queryFn: async () => {
+      const [secrets, versions] = await Promise.all([
+        endpoints.maskedSecrets(from.id),
+        endpoints.listVersions(from.id),
+      ])
+      const keys = Object.keys(secrets).sort()
+      const sourceVersion = versions.length ? Math.max(...versions.map((v) => v.version)) : 0
+      return { keys, sourceVersion }
+    },
+  })
+
+  // Unify the two modes into a single (entries, sourceVersion, loading/error) surface
+  // so the selection + render code below is shared.
+  const entries: DiffEntry[] =
+    mode === 'existing'
+      ? preview.data?.entries ?? []
+      : (createQ.data?.keys ?? []).map((k) => ({
+          key: k,
+          status: 'add' as const,
+          source_value: '',
+          target_value: '',
+          locked: false,
+        }))
+  const sourceVersion = mode === 'existing' ? preview.data?.source_version : createQ.data?.sourceVersion
+  const isLoading = mode === 'existing' ? preview.isLoading : createQ.isLoading
+  const isError = mode === 'existing' ? preview.isError : createQ.isError
+  const error = mode === 'existing' ? preview.error : createQ.error
+  const hasData = sourceVersion !== undefined
 
   // Per-key checked state, keyed by entry key. Seeded once from the loaded diff.
   const [checked, setChecked] = useState<Record<string, boolean> | null>(null)
-  const entries = preview.data?.entries ?? []
   const selection = useMemo<Record<string, boolean>>(() => {
     if (checked) return checked
     const seed: Record<string, boolean> = {}
@@ -172,17 +219,34 @@ export function PromotionDiffModal({
       const selections: Selection[] = entries
         .filter((e) => selection[e.key] && !isDisabled(e))
         .map((e) => ({ key: e.key, action: e.status === 'remove' ? 'remove' : 'set' }))
-      return promotion.apply({
-        from_config: from.id,
-        to_config: to.id,
-        source_version: preview.data!.source_version,
-        selections,
-      })
+      return promotion.apply(
+        mode === 'existing'
+          ? {
+              from_config: from.id,
+              to_config: to!.id,
+              source_version: sourceVersion!,
+              selections,
+            }
+          : {
+              from_config: from.id,
+              to_env: toEnv.id,
+              to_name: createName!,
+              create: true,
+              source_version: sourceVersion!,
+              selections,
+            },
+      )
     },
     onSuccess: (res) => {
-      toast({ title: `Promoted ${res.applied.length} key${res.applied.length === 1 ? '' : 's'} to ${toEnv.name}`, tone: 'success' })
-      // The secret editor keys the target config on ['config', <configId>].
-      void qc.invalidateQueries({ queryKey: ['config', to.id] })
+      if (mode === 'existing') {
+        toast({ title: `Promoted ${res.applied.length} key${res.applied.length === 1 ? '' : 's'} to ${toEnv.name}`, tone: 'success' })
+        // The secret editor keys the target config on ['config', <configId>].
+        void qc.invalidateQueries({ queryKey: ['config', to!.id] })
+      } else {
+        toast({ title: `Created ${createName} in ${toEnv.name} with ${res.applied.length} key${res.applied.length === 1 ? '' : 's'}`, tone: 'success' })
+        // Refresh every board config list so the newly-created config appears.
+        void qc.invalidateQueries({ queryKey: ['configs'] })
+      }
       onDone?.()
       onClose()
     },
@@ -197,32 +261,34 @@ export function PromotionDiffModal({
           <ArrowRight size={15} strokeWidth={1.7} className="text-ink-faint" aria-hidden />
           <EnvTag env={toEnv} label="target" />
           <span className="text-[13px] font-medium text-ink-mute">
-            · config <code className="rounded border border-line-soft bg-card px-1.5 font-mono text-[11.5px] text-ink-body">{to.name}</code>
+            · config <code className="rounded border border-line-soft bg-card px-1.5 font-mono text-[11.5px] text-ink-body">{targetName}</code>
           </span>
         </div>
         <p className="mt-2 text-[12px] text-ink-mute">
           Applies checked keys to <b className="text-ink-body">{toEnv.name}</b> as a new version.
           Unchecked keys keep {toEnv.name} as-is.
         </p>
-        {preview.data && !preview.data.target_exists && (
+        {(mode === 'create' || (preview.data && !preview.data.target_exists)) && (
           <div className="mt-2.5 flex items-start gap-2 rounded-sm border border-line-soft bg-info-soft px-2.5 py-2 text-[11.5px] text-info">
             <span aria-hidden>✨</span>
-            <span><b>{toEnv.name}</b> has no <code className="font-mono">{to.name}</code> config yet — promoting will create it.</span>
+            <span><b>{toEnv.name}</b> has no <code className="font-mono">{targetName}</code> config yet — promoting will create it.</span>
           </div>
         )}
       </div>
 
       <div className="overflow-auto px-2 pb-2 pt-1.5">
-        {preview.isLoading && <p className="px-3 py-6 text-[12.5px] text-ink-mute">Loading diff…</p>}
-        {preview.isError && (
-          <p role="alert" className="px-3 py-6 text-[12.5px] text-danger">{errorMessage(preview.error, "Couldn't load the diff.")}</p>
+        {isLoading && <p className="px-3 py-6 text-[12.5px] text-ink-mute">Loading diff…</p>}
+        {isError && (
+          <p role="alert" className="px-3 py-6 text-[12.5px] text-danger">{errorMessage(error, "Couldn't load the diff.")}</p>
         )}
-        {preview.data && entries.length === 0 && (
-          <p className="px-3 py-6 text-[12.5px] text-ink-mute">Nothing to promote — the configs already match.</p>
+        {hasData && entries.length === 0 && (
+          <p className="px-3 py-6 text-[12.5px] text-ink-mute">
+            {mode === 'create' ? 'Nothing to promote — the source config has no keys.' : 'Nothing to promote — the configs already match.'}
+          </p>
         )}
-        {preview.data &&
+        {hasData &&
           entries.map((e) => (
-            <DiffRow key={e.key} entry={e} checked={!!selection[e.key]} onToggle={() => toggle(e)} />
+            <DiffRow key={e.key} entry={e} checked={!!selection[e.key]} onToggle={() => toggle(e)} createMode={mode === 'create'} />
           ))}
       </div>
 
@@ -241,10 +307,10 @@ export function PromotionDiffModal({
           <Button
             size="sm"
             loading={apply.isPending}
-            disabled={selectedCount === 0 || !preview.data}
+            disabled={selectedCount === 0 || !hasData}
             onClick={() => apply.mutate()}
           >
-            Promote {selectedCount} key{selectedCount === 1 ? '' : 's'} →
+            {mode === 'create' ? 'Create' : 'Promote'} {selectedCount} key{selectedCount === 1 ? '' : 's'} →
           </Button>
         </div>
       </div>

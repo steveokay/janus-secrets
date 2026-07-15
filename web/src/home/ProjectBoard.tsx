@@ -8,7 +8,6 @@ import { envTone, envDotClass } from '../ui/env'
 import { EmptyState } from '../ui/EmptyState'
 import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
-import { useToast } from '../ui/Toast'
 import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
 import { opsEndpoints, type RotationView, type SyncView } from '../operations/endpoints'
@@ -223,11 +222,10 @@ export function ProjectBoard() {
   const envs = useEnvironments(pid)
   const project = projects.data?.find((p) => p.id === pid)
   useTitle(project?.name)
-  const toast = useToast()
   const [creatingEnv, setCreatingEnv] = useState(false)
   const [addConfig, setAddConfig] = useState<null | { env: Environment; bases: Config[] }>(null)
   const [dragging, setDragging] = useState<null | { config: Config; fromEnv: Environment }>(null)
-  const [promoting, setPromoting] = useState<null | { from: Config; fromEnv: Environment; to: Config; toEnv: Environment }>(null)
+  const [promoting, setPromoting] = useState<null | { from: Config; fromEnv: Environment; toEnv: Environment; to?: Config }>(null)
 
   // Config lists stay keyed by env id (not column index) so reordering columns
   // for the pipeline can never misalign a column with another env's configs.
@@ -269,19 +267,16 @@ export function ProjectBoard() {
   }
 
   // Open the diff modal for a config against the same-named config in the next
-  // pipeline env. No matching target → toast hint (creating the target is out of
-  // scope here; the CLI's --create-target covers it).
+  // pipeline env. If no matching target exists, open in CREATE mode (the modal
+  // lists the source keys as adds and applies with create:true).
   function beginPromote(from: Config, fromEnv: Environment) {
     const nid = nextEnvId(fromEnv.id)
     if (!nid) return
     const toEnv = envList.find((e) => e.id === nid)
+    if (!toEnv) return
     const targetConfigs = byEnv.get(nid)?.data ?? []
     const to = targetConfigs.find((c) => c.name === from.name)
-    if (to && toEnv) {
-      setPromoting({ from, fromEnv, to, toEnv })
-    } else {
-      toast({ title: `No "${from.name}" config in ${toEnv?.name ?? 'the next env'} to promote into.`, tone: 'danger' })
-    }
+    setPromoting({ from, fromEnv, toEnv, to })
   }
 
   const dropTargetEnvId = dragging ? nextEnvId(dragging.fromEnv.id) : undefined
@@ -380,9 +375,13 @@ export function ProjectBoard() {
       )}
       {promoting && (
         <PromotionDiffModal
-          {...promoting}
+          from={promoting.from}
+          fromEnv={promoting.fromEnv}
+          toEnv={promoting.toEnv}
+          to={promoting.to}
+          createName={promoting.to ? undefined : promoting.from.name}
           onClose={() => setPromoting(null)}
-          onDone={() => {/* target-config invalidation handled inside the modal */}}
+          onDone={() => setPromoting(null)}
         />
       )}
     </div>
