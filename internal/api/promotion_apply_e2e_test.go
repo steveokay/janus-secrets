@@ -254,3 +254,95 @@ func TestPromoteApplyE2E(t *testing.T) {
 		t.Fatalf("create-target apply: want applied [B], got %+v", createResp.Applied)
 	}
 }
+
+// TestPromoteCreatePreviewE2E covers the value-revealing create-target preview:
+// GET /v1/promote/preview?from=<src>&to_env=<env> where the target env has no
+// config yet. Every source key comes back as an "add" with target_exists false.
+// A developer lacking config:create on the target env is forbidden.
+func TestPromoteCreatePreviewE2E(t *testing.T) {
+	ts, srv, ownerEmail, ownerPassword, _ := authStackFull(t)
+	ctx := context.Background()
+	ownerCookie := login(t, ts.URL, ownerEmail, ownerPassword)
+
+	p, err := srv.service.CreateProject(ctx, "promocreatepreview", "Promote Create Preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := srv.service.CreateEnvironment(ctx, p.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stg, err := srv.service.CreateEnvironment(ctx, p.ID, "staging", "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod, err := srv.service.CreateEnvironment(ctx, p.ID, "prod", "Prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.NewPipelineRepo(srv.st).Set(ctx, p.ID, []string{dev.ID, stg.ID, prod.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// Only dev has a config; staging has NO config yet (create-target scenario).
+	devCfg, err := srv.service.CreateConfig(ctx, dev.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.service.SetSecrets(ctx, devCfg.ID, []secrets.SecretChange{
+		{Key: "A", Value: []byte("aval")},
+		{Key: "B", Value: []byte("bval")},
+	}, "seed", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// --- Owner create-preview (dev -> staging env, no config) -> 200, all adds ---
+	var prev struct {
+		SourceVersion int  `json:"source_version"`
+		TargetExists  bool `json:"target_exists"`
+		Entries       []struct {
+			Key         string `json:"key"`
+			Status      string `json:"status"`
+			SourceValue string `json:"source_value"`
+		} `json:"entries"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/preview?from="+devCfg.ID+"&to_env="+stg.ID, ownerCookie, "", "", &prev); code != 200 {
+		t.Fatalf("owner create-preview: want 200, got %d", code)
+	}
+	if prev.TargetExists {
+		t.Fatalf("create-preview: want target_exists=false, got true")
+	}
+	if len(prev.Entries) != 2 {
+		t.Fatalf("create-preview: want 2 entries, got %d (%+v)", len(prev.Entries), prev.Entries)
+	}
+	got := map[string]string{}
+	for _, e := range prev.Entries {
+		if e.Status != "add" {
+			t.Fatalf("create-preview: key %q want status add, got %q", e.Key, e.Status)
+		}
+		got[e.Key] = e.SourceValue
+	}
+	if got["A"] != "aval" || got["B"] != "bval" {
+		t.Fatalf("create-preview: want A=aval,B=bval, got %+v", got)
+	}
+
+	// --- Developer lacking config:create on the target env -> 403 ---
+	// Grant developer on dev (source read) + viewer on staging (no config:create).
+	viewerID, viewerPassword, err := srv.auth.CreateUser(ctx, "promo-createpreview-viewer@corp.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: viewerID, ScopeLevel: "environment", EnvironmentID: &dev.ID, Role: "developer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: viewerID, ScopeLevel: "environment", EnvironmentID: &stg.ID, Role: "viewer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	viewerCookie := login(t, ts.URL, "promo-createpreview-viewer@corp.io", viewerPassword)
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/preview?from="+devCfg.ID+"&to_env="+stg.ID, viewerCookie, "", "", nil); code != http.StatusForbidden {
+		t.Fatalf("viewer create-preview (no config:create): want 403, got %d", code)
+	}
+}

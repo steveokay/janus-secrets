@@ -207,6 +207,37 @@ func (s *Service) Preview(ctx context.Context, sourceConfigID, targetConfigID, a
 	return Diff{SourceVersion: srcVer.Version, TargetExists: true, Entries: entries}, nil
 }
 
+// PreviewCreate builds the diff for promoting into a target ENV that has no
+// config yet: every source key is an "add". Reveals the source (audited by the
+// caller) and re-uses the same pipeline-step check as Preview. target env must
+// be in the same project and the pipeline's next step from the source env.
+func (s *Service) PreviewCreate(ctx context.Context, sourceConfigID, toEnvID, actor string) (Diff, error) {
+	proj, srcEnv, err := s.projectAndEnv(ctx, sourceConfigID)
+	if err != nil {
+		return Diff{}, err
+	}
+	toEnv, err := s.envs.Get(ctx, toEnvID)
+	if err != nil {
+		return Diff{}, err
+	}
+	if toEnv.ProjectID != proj {
+		return Diff{}, ErrIllegalStep // cross-project promotion is never legal
+	}
+	if err := s.validateStep(ctx, proj, srcEnv, toEnvID); err != nil {
+		return Diff{}, err
+	}
+	srcVer, srcVals, err := s.secrets.RevealConfig(ctx, sourceConfigID)
+	if err != nil {
+		return Diff{}, err
+	}
+	defer zeroizeSecrets(srcVals)
+	entries := make([]DiffEntry, 0, len(srcVals))
+	for k, sec := range srcVals {
+		entries = append(entries, DiffEntry{Key: k, Status: StatusAdd, SourceValue: string(sec.Value), Locked: false})
+	}
+	return Diff{SourceVersion: srcVer.Version, TargetExists: false, Entries: entries}, nil
+}
+
 // Apply promotes the selected keys as one new target config version. The caller
 // has authorized secret:promote on target + secret:read on source (+ config
 // create if creating). Locked target keys are rejected. Drifted keys are skipped.
