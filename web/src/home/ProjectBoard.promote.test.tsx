@@ -127,12 +127,19 @@ test('dragging a dev card onto the staging column opens the modal', async () => 
 test('when staging lacks a matching config, Promote opens the modal in CREATE mode', async () => {
   base({ stagingHasDefault: false })
   pipeline(['e-dev', 'e-staging', 'e-prod'])
-  // Create mode fetches the source config's keys + versions (names only, no values).
+  // Create mode fetches a source-only preview (all adds) via ?to_env=<env>.
   server.use(
-    http.get('/v1/configs/c-dev/secrets', () =>
-      HttpResponse.json({ secrets: { API_KEY: { value_version: 1, created_at: 'x', origin: 'own' } } })),
-    http.get('/v1/configs/c-dev/versions', () =>
-      HttpResponse.json({ versions: [{ version: 3, message: '', created_by: 's', created_at: 'x' }] })),
+    http.get('/v1/promote/preview', ({ request }) => {
+      const toEnv = new URL(request.url).searchParams.get('to_env')
+      if (toEnv) {
+        return HttpResponse.json({
+          source_version: 3,
+          target_exists: false,
+          entries: [{ key: 'API_KEY', status: 'add', source_value: 'sekret', target_value: '', locked: false }],
+        })
+      }
+      return HttpResponse.json({ source_version: 1, target_exists: true, entries: [] })
+    }),
   )
   render()
   await screen.findByRole('heading', { name: 'Development' })
