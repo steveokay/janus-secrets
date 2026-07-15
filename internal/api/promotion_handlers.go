@@ -174,8 +174,13 @@ func (s *Server) writePromoteError(w http.ResponseWriter, err error) {
 func (s *Server) handlePromotePreview(w http.ResponseWriter, r *http.Request) {
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
-	if from == "" || to == "" {
-		writeError(w, http.StatusBadRequest, CodeValidation, "from and to config ids are required")
+	toEnv := r.URL.Query().Get("to_env")
+	if from == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "from config id is required")
+		return
+	}
+	if to == "" && toEnv == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "to or to_env is required")
 		return
 	}
 	srcRes, err := s.configResourceByID(r.Context(), from)
@@ -183,13 +188,41 @@ func (s *Server) handlePromotePreview(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err)
 		return
 	}
+	// Preview reveals the source → secret:read on source, audited.
+	if !s.authorize(w, r, authz.SecretRead, srcRes, "secret.reveal", "configs/"+from+"/secrets") {
+		return
+	}
+
+	// Create-mode preview: target env has no config yet. Every source key is an
+	// "add". Gate on config:create for the target env (only someone who could
+	// create the target may preview-create it). Reveals the SOURCE only.
+	if to == "" {
+		dstEnvRes, err := s.resolveScopeResource(r.Context(), "environment", toEnv)
+		if err != nil {
+			s.writeServiceError(w, err)
+			return
+		}
+		if err := s.can(r, authz.ConfigCreate, dstEnvRes); err != nil {
+			s.writeAuthzError(w, err)
+			return
+		}
+		diff, err := s.promote.PreviewCreate(r.Context(), from, toEnv, promoteActorUser(r))
+		if err != nil {
+			s.writePromoteError(w, err)
+			return
+		}
+		if err := s.record(r, "secret.reveal", "configs/"+from+"/secrets", "success", "", "promote-preview-create"); err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		writeJSON(w, http.StatusOK, promoteDiffView(diff))
+		return
+	}
+
+	// Existing-target preview: reveals both sides → secret:read on both, audited.
 	dstRes, err := s.configResourceByID(r.Context(), to)
 	if err != nil {
 		s.writeServiceError(w, err)
-		return
-	}
-	// Preview reveals both sides → secret:read on both, audited.
-	if !s.authorize(w, r, authz.SecretRead, srcRes, "secret.reveal", "configs/"+from+"/secrets") {
 		return
 	}
 	if err := s.can(r, authz.SecretRead, dstRes); err != nil {

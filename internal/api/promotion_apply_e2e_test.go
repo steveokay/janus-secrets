@@ -148,6 +148,55 @@ func TestPromoteApplyE2E(t *testing.T) {
 	if reveal.Value != "bval" {
 		t.Fatalf("staging reveal B: want bval, got %q", reveal.Value)
 	}
+
+	// --- Provenance: staging's latest version + config both report the source ---
+	var vlist struct {
+		Versions []struct {
+			Version             int    `json:"version"`
+			PromotedFromEnv     string `json:"promoted_from_env"`
+			PromotedFromVersion int    `json:"promoted_from_version"`
+		} `json:"versions"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+stgCfg.ID+"/versions", ownerCookie, "", "", &vlist); code != 200 {
+		t.Fatalf("staging versions: want 200, got %d", code)
+	}
+	if len(vlist.Versions) == 0 {
+		t.Fatalf("staging versions: want at least one, got none")
+	}
+	latest := vlist.Versions[len(vlist.Versions)-1]
+	if latest.PromotedFromEnv != dev.Name {
+		t.Fatalf("latest version promoted_from_env: want %q, got %q", dev.Name, latest.PromotedFromEnv)
+	}
+	if latest.PromotedFromVersion != srcVersion {
+		t.Fatalf("latest version promoted_from_version: want %d, got %d", srcVersion, latest.PromotedFromVersion)
+	}
+
+	// Config-list for the staging env surfaces the same provenance on stgCfg.
+	var clist struct {
+		Configs []struct {
+			ID                  string `json:"id"`
+			PromotedFromEnv     string `json:"promoted_from_env"`
+			PromotedFromVersion int    `json:"promoted_from_version"`
+		} `json:"configs"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/projects/"+p.ID+"/environments/"+stg.ID+"/configs", ownerCookie, "", "", &clist); code != 200 {
+		t.Fatalf("staging config list: want 200, got %d", code)
+	}
+	foundProv := false
+	for _, c := range clist.Configs {
+		if c.ID == stgCfg.ID {
+			foundProv = true
+			if c.PromotedFromEnv != dev.Name {
+				t.Fatalf("config-list promoted_from_env: want %q, got %q", dev.Name, c.PromotedFromEnv)
+			}
+			if c.PromotedFromVersion != srcVersion {
+				t.Fatalf("config-list promoted_from_version: want %d, got %d", srcVersion, c.PromotedFromVersion)
+			}
+		}
+	}
+	if !foundProv {
+		t.Fatalf("config-list: staging config %s not found", stgCfg.ID)
+	}
 	// A must NOT have been promoted (only B selected).
 	if code := doAuthed(t, "GET", ts.URL+"/v1/configs/"+stgCfg.ID+"/secrets/A", ownerCookie, "", "", nil); code == 200 {
 		t.Fatalf("staging reveal A: want non-200 (A not promoted), got 200")
@@ -203,5 +252,97 @@ func TestPromoteApplyE2E(t *testing.T) {
 	}
 	if len(createResp.Applied) != 1 || createResp.Applied[0] != "B" {
 		t.Fatalf("create-target apply: want applied [B], got %+v", createResp.Applied)
+	}
+}
+
+// TestPromoteCreatePreviewE2E covers the value-revealing create-target preview:
+// GET /v1/promote/preview?from=<src>&to_env=<env> where the target env has no
+// config yet. Every source key comes back as an "add" with target_exists false.
+// A developer lacking config:create on the target env is forbidden.
+func TestPromoteCreatePreviewE2E(t *testing.T) {
+	ts, srv, ownerEmail, ownerPassword, _ := authStackFull(t)
+	ctx := context.Background()
+	ownerCookie := login(t, ts.URL, ownerEmail, ownerPassword)
+
+	p, err := srv.service.CreateProject(ctx, "promocreatepreview", "Promote Create Preview")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := srv.service.CreateEnvironment(ctx, p.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stg, err := srv.service.CreateEnvironment(ctx, p.ID, "staging", "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod, err := srv.service.CreateEnvironment(ctx, p.ID, "prod", "Prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.NewPipelineRepo(srv.st).Set(ctx, p.ID, []string{dev.ID, stg.ID, prod.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// Only dev has a config; staging has NO config yet (create-target scenario).
+	devCfg, err := srv.service.CreateConfig(ctx, dev.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.service.SetSecrets(ctx, devCfg.ID, []secrets.SecretChange{
+		{Key: "A", Value: []byte("aval")},
+		{Key: "B", Value: []byte("bval")},
+	}, "seed", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// --- Owner create-preview (dev -> staging env, no config) -> 200, all adds ---
+	var prev struct {
+		SourceVersion int  `json:"source_version"`
+		TargetExists  bool `json:"target_exists"`
+		Entries       []struct {
+			Key         string `json:"key"`
+			Status      string `json:"status"`
+			SourceValue string `json:"source_value"`
+		} `json:"entries"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/preview?from="+devCfg.ID+"&to_env="+stg.ID, ownerCookie, "", "", &prev); code != 200 {
+		t.Fatalf("owner create-preview: want 200, got %d", code)
+	}
+	if prev.TargetExists {
+		t.Fatalf("create-preview: want target_exists=false, got true")
+	}
+	if len(prev.Entries) != 2 {
+		t.Fatalf("create-preview: want 2 entries, got %d (%+v)", len(prev.Entries), prev.Entries)
+	}
+	got := map[string]string{}
+	for _, e := range prev.Entries {
+		if e.Status != "add" {
+			t.Fatalf("create-preview: key %q want status add, got %q", e.Key, e.Status)
+		}
+		got[e.Key] = e.SourceValue
+	}
+	if got["A"] != "aval" || got["B"] != "bval" {
+		t.Fatalf("create-preview: want A=aval,B=bval, got %+v", got)
+	}
+
+	// --- Developer lacking config:create on the target env -> 403 ---
+	// Grant developer on dev (source read) + viewer on staging (no config:create).
+	viewerID, viewerPassword, err := srv.auth.CreateUser(ctx, "promo-createpreview-viewer@corp.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: viewerID, ScopeLevel: "environment", EnvironmentID: &dev.ID, Role: "developer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.authz.Grant(ctx, store.RoleBindingInput{
+		SubjectUserID: viewerID, ScopeLevel: "environment", EnvironmentID: &stg.ID, Role: "viewer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	viewerCookie := login(t, ts.URL, "promo-createpreview-viewer@corp.io", viewerPassword)
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/preview?from="+devCfg.ID+"&to_env="+stg.ID, viewerCookie, "", "", nil); code != http.StatusForbidden {
+		t.Fatalf("viewer create-preview (no config:create): want 403, got %d", code)
 	}
 }

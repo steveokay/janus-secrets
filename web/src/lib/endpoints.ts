@@ -13,11 +13,11 @@ export interface SealStatus {
 export interface User { kind: 'user' | 'service_token'; id: string; name: string }
 export interface Project { id: string; slug: string; name: string }
 export interface Environment { id: string; slug: string; name: string }
-export interface Config { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
+export interface Config { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string; promoted_from_env?: string; promoted_from_version?: number }
 export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden' }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionResult { version: number; id: string; created_at: string }
-export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
+export interface VersionMeta { version: number; message: string; created_by: string; created_at: string; promoted_from_env?: string; promoted_from_version?: number }
 export interface VersionDiff { a: number; b: number; added: string[]; changed: string[]; removed: string[] }
 export interface AuditEvent {
   seq: number

@@ -157,9 +157,11 @@ func (r *SecretRepo) GetLatest(ctx context.Context, configID string) (ConfigVers
 func (r *SecretRepo) GetVersion(ctx context.Context, configID string, version int) (ConfigVersion, map[string]SecretValue, error) {
 	var cv ConfigVersion
 	err := r.s.pool.QueryRow(ctx,
-		`SELECT id::text, config_id::text, version, message, COALESCE(created_by,''), created_at
+		`SELECT id::text, config_id::text, version, message, COALESCE(created_by,''), created_at,
+		        promoted_from_env_id::text, promoted_from_version
 		 FROM config_versions WHERE config_id = $1::uuid AND version = $2`, configID, version).
-		Scan(&cv.ID, &cv.ConfigID, &cv.Version, &cv.Message, &cv.CreatedBy, &cv.CreatedAt)
+		Scan(&cv.ID, &cv.ConfigID, &cv.Version, &cv.Message, &cv.CreatedBy, &cv.CreatedAt,
+			&cv.PromotedFromEnvID, &cv.PromotedFromVersion)
 	if err != nil {
 		return ConfigVersion{}, nil, mapError(err)
 	}
@@ -210,7 +212,8 @@ func (r *SecretRepo) GetValueByID(ctx context.Context, id string) (SecretValue, 
 // ListVersions returns a config's version metadata, oldest first.
 func (r *SecretRepo) ListVersions(ctx context.Context, configID string) ([]ConfigVersion, error) {
 	rows, err := r.s.pool.Query(ctx,
-		`SELECT id::text, config_id::text, version, message, COALESCE(created_by,''), created_at
+		`SELECT id::text, config_id::text, version, message, COALESCE(created_by,''), created_at,
+		        promoted_from_env_id::text, promoted_from_version
 		 FROM config_versions WHERE config_id = $1::uuid ORDER BY version ASC`, configID)
 	if err != nil {
 		return nil, mapError(err)
@@ -219,10 +222,55 @@ func (r *SecretRepo) ListVersions(ctx context.Context, configID string) ([]Confi
 	var out []ConfigVersion
 	for rows.Next() {
 		var cv ConfigVersion
-		if err := rows.Scan(&cv.ID, &cv.ConfigID, &cv.Version, &cv.Message, &cv.CreatedBy, &cv.CreatedAt); err != nil {
+		if err := rows.Scan(&cv.ID, &cv.ConfigID, &cv.Version, &cv.Message, &cv.CreatedBy, &cv.CreatedAt,
+			&cv.PromotedFromEnvID, &cv.PromotedFromVersion); err != nil {
 			return nil, mapError(err)
 		}
 		out = append(out, cv)
+	}
+	return out, mapError(rows.Err())
+}
+
+// PromotionRef is a config version's promotion source.
+type PromotionRef struct {
+	SourceEnvID   string
+	SourceVersion int
+}
+
+// MarkPromoted records the promotion source (env id + version) on a config
+// version. Value-free: it writes only ids + an int, never a secret value.
+func (r *SecretRepo) MarkPromoted(ctx context.Context, configVersionID, sourceEnvID string, sourceVersion int) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE config_versions SET promoted_from_env_id=$2::uuid, promoted_from_version=$3 WHERE id=$1::uuid`,
+		configVersionID, sourceEnvID, sourceVersion)
+}
+
+// LatestPromotionByConfig returns, for each config id whose LATEST version was
+// created by promotion, that version's source env id + version. Configs whose
+// latest version was not a promotion are absent from the map.
+func (r *SecretRepo) LatestPromotionByConfig(ctx context.Context, configIDs []string) (map[string]PromotionRef, error) {
+	out := map[string]PromotionRef{}
+	if len(configIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT DISTINCT ON (config_id) config_id::text, promoted_from_env_id::text, promoted_from_version
+		 FROM config_versions WHERE config_id = ANY($1)
+		 ORDER BY config_id, version DESC`, configIDs)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid string
+		var env *string
+		var ver *int
+		if err := rows.Scan(&cid, &env, &ver); err != nil {
+			return nil, mapError(err)
+		}
+		if env != nil && ver != nil {
+			out[cid] = PromotionRef{SourceEnvID: *env, SourceVersion: *ver}
+		}
 	}
 	return out, mapError(rows.Err())
 }

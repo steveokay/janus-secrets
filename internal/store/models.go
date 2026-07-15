@@ -63,6 +63,11 @@ type ConfigVersion struct {
 	// or token id once auth lands). The store does not interpret it.
 	CreatedBy string
 	CreatedAt time.Time
+	// PromotedFromEnvID and PromotedFromVersion record the promotion source when
+	// this version was created by a promote. Both nil for a normal save. Value-free
+	// provenance (ids + an int) for the UI "promoted from" indicator.
+	PromotedFromEnvID   *string
+	PromotedFromVersion *int
 }
 
 // SecretValue is one immutable, append-only value in a key's history.

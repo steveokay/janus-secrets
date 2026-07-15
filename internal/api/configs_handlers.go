@@ -22,11 +22,51 @@ type configResponse struct {
 	Name          string  `json:"name"`
 	InheritsFrom  *string `json:"inherits_from"`
 	CreatedAt     string  `json:"created_at"`
+	// Promotion provenance, present only when the config's latest version was
+	// created by a promote. Value-free (source env NAME + version).
+	PromotedFromEnv     *string `json:"promoted_from_env,omitempty"`
+	PromotedFromVersion *int    `json:"promoted_from_version,omitempty"`
 }
 
 func configView(c *store.Config) configResponse {
 	return configResponse{ID: c.ID, EnvironmentID: c.EnvironmentID, Name: c.Name,
 		InheritsFrom: c.InheritsFrom, CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339)}
+}
+
+// applyPromotionProvenance populates promoted_from_env/promoted_from_version on
+// each config view whose latest version was created by a promote. It resolves
+// each distinct source env id to its NAME once; env-resolution errors just omit
+// the name (version still emitted). Value-free: env NAME + version only.
+func (s *Server) applyPromotionProvenance(ctx context.Context, views []configResponse) {
+	ids := make([]string, 0, len(views))
+	for i := range views {
+		ids = append(ids, views[i].ID)
+	}
+	provByConfig, err := store.NewSecretRepo(s.st).LatestPromotionByConfig(ctx, ids)
+	if err != nil || len(provByConfig) == 0 {
+		return
+	}
+	envRepo := store.NewEnvironmentRepo(s.st)
+	envNames := map[string]string{}
+	for i := range views {
+		ref, ok := provByConfig[views[i].ID]
+		if !ok {
+			continue
+		}
+		ver := ref.SourceVersion
+		views[i].PromotedFromVersion = &ver
+		name, resolved := envNames[ref.SourceEnvID]
+		if !resolved {
+			if env, err := envRepo.Get(ctx, ref.SourceEnvID); err == nil {
+				name = env.Name
+			}
+			envNames[ref.SourceEnvID] = name
+		}
+		if name != "" {
+			n := name
+			views[i].PromotedFromEnv = &n
+		}
+	}
 }
 
 func (s *Server) handleConfigCreate(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +116,7 @@ func (s *Server) handleConfigList(w http.ResponseWriter, r *http.Request) {
 	for _, c := range cfgs {
 		out = append(out, configView(c))
 	}
+	s.applyPromotionProvenance(r.Context(), out)
 	writeJSON(w, http.StatusOK, map[string]any{"configs": out})
 }
 
@@ -101,7 +142,9 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, configView(c))
+	views := []configResponse{configView(c)}
+	s.applyPromotionProvenance(r.Context(), views)
+	writeJSON(w, http.StatusOK, views[0])
 }
 
 func (s *Server) handleConfigDelete(w http.ResponseWriter, r *http.Request) {

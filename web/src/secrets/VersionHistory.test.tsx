@@ -92,3 +92,17 @@ test('dirty state renders a visible rollback hint', async () => {
   mount(true)
   expect(await screen.findByText('Save or discard your changes to enable rollback.')).toBeInTheDocument()
 })
+
+test('a version created by promotion shows a promoted-from marker; others do not', async () => {
+  server.use(
+    http.get('/v1/configs/c1/versions', () => HttpResponse.json({ versions: [
+      { version: 4, message: 'promote staging', created_by: 'steve@acme.dev', created_at: '2026-07-07T10:00:00Z',
+        promoted_from_env: 'staging', promoted_from_version: 3 },
+      { version: 3, message: 'edit', created_by: 'steve@acme.dev', created_at: '2026-07-06T10:00:00Z' },
+    ] })),
+  )
+  mount()
+  expect(await screen.findByText(/promoted from staging v3/i)).toBeInTheDocument()
+  // Only one version carries provenance.
+  expect(screen.getAllByText(/promoted from /i)).toHaveLength(1)
+})

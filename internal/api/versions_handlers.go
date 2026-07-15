@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/authz"
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 func (s *Server) handleVersionList(w http.ResponseWriter, r *http.Request) {
@@ -24,12 +25,28 @@ func (s *Server) handleVersionList(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err)
 		return
 	}
+	envRepo := store.NewEnvironmentRepo(s.st)
+	envNames := map[string]string{} // source env id -> NAME, cached across versions
 	out := make([]map[string]any, 0, len(vs))
 	for _, v := range vs {
-		out = append(out, map[string]any{
+		m := map[string]any{
 			"version": v.Version, "message": v.Message,
 			"created_by": v.CreatedBy, "created_at": v.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		}
+		if v.PromotedFromEnvID != nil && v.PromotedFromVersion != nil {
+			m["promoted_from_version"] = *v.PromotedFromVersion
+			name, resolved := envNames[*v.PromotedFromEnvID]
+			if !resolved {
+				if env, err := envRepo.Get(r.Context(), *v.PromotedFromEnvID); err == nil {
+					name = env.Name
+				}
+				envNames[*v.PromotedFromEnvID] = name
+			}
+			if name != "" {
+				m["promoted_from_env"] = name
+			}
+		}
+		out = append(out, m)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"versions": out})
 }

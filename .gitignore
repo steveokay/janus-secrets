@@ -12,3 +12,6 @@ dist/
 
 # Visual-companion brainstorm scratch (superpowers)
 .superpowers/
+
+# Local CLI reference (generated from cmd/janus)
+janus-cli.md

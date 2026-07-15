@@ -27,6 +27,32 @@ test('preview passes from/to as query params', async () => {
   expect(to).toBe('c/d')
 })
 
+test('previewCreate GETs /v1/promote/preview with from/to_env and returns a create diff', async () => {
+  let from = '', toEnv = ''
+  server.use(
+    http.get('/v1/promote/preview', ({ request }) => {
+      const u = new URL(request.url)
+      from = u.searchParams.get('from') ?? ''
+      toEnv = u.searchParams.get('to_env') ?? ''
+      return HttpResponse.json({
+        source_version: 7,
+        target_exists: false,
+        entries: [
+          { key: 'A', status: 'add', source_value: 'secret-a', target_value: '', locked: false },
+          { key: 'B', status: 'add', source_value: 'secret-b', target_value: '', locked: false },
+        ],
+      })
+    }),
+  )
+  const diff = await promotion.previewCreate('c-src', 'env-stg')
+  expect(from).toBe('c-src')
+  expect(toEnv).toBe('env-stg')
+  expect(diff.source_version).toBe(7)
+  expect(diff.target_exists).toBe(false)
+  expect(diff.entries.map((e) => e.status)).toEqual(['add', 'add'])
+  expect(diff.entries[0].source_value).toBe('secret-a')
+})
+
 test('apply POSTs body and returns {target_version, applied, skipped}', async () => {
   let method = '', body: any
   server.use(

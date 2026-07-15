@@ -27,6 +27,7 @@ import { toEnvText } from './exportEnv'
 import { useRowNav } from './useRowNav'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { promotion } from '../promotion/endpoints'
+import { CornerUpRight } from 'lucide-react'
 
 export function SecretEditor() {
   useTitle('Secrets')
@@ -315,6 +316,12 @@ export function SecretEditor() {
       {latest && (
         <p className="mb-2 text-[11px] text-ink-faint">
           v{latest.version} · {rows.length} key{rows.length === 1 ? '' : 's'} · updated {relativeTime(latest.created_at)} by {latest.created_by}
+        </p>
+      )}
+      {latest?.promoted_from_env && (
+        <p className="mb-2 flex items-center gap-1.5 rounded-sm border border-line-soft bg-info-soft px-2.5 py-1.5 text-[11.5px] text-info">
+          <CornerUpRight size={12} strokeWidth={1.8} aria-hidden />
+          v{latest.version} promoted from {latest.promoted_from_env} v{latest.promoted_from_version}
         </p>
       )}
       <EditorToolbar
