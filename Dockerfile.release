@@ -1,0 +1,8 @@
+# Release image: wraps the goreleaser-built binary. Web assets are embedded in
+# the binary via go:embed at build time. The multi-stage dev Dockerfile (used by
+# `docker compose up --build`) is separate and unchanged.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY janus /usr/local/bin/janus
+EXPOSE 8200
+ENTRYPOINT ["/usr/local/bin/janus"]
+CMD ["server"]
