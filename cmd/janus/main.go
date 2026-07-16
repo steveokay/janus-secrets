@@ -6,9 +6,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/steveokay/janus-secrets/internal/version"
 )
-
-var version = "dev"
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
@@ -58,7 +57,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print the janus version",
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), "janus", version)
+			fmt.Fprintln(cmd.OutOrStdout(), "janus", version.String())
 		},
 	}
 }
