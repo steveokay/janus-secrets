@@ -178,7 +178,7 @@ func newProjectCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pid, err := c.resolveProjectID(args[0])
+			pid, err := c.resolveDeletedProjectID(args[0])
 			if err != nil {
 				return err
 			}

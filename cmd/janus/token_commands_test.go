@@ -73,6 +73,10 @@ func TestTokenListAndRevoke(t *testing.T) {
 	if err != nil || !strings.Contains(out, "tok1") {
 		t.Fatalf("list: %q %v", out, err)
 	}
+	// Scope columns must render (regression: JSON tag mismatch left them blank).
+	if !strings.Contains(out, "config") || !strings.Contains(out, "c1") {
+		t.Fatalf("list output missing scope kind/id: %q", out)
+	}
 	if _, err := runCLI(t, "", append([]string{"token", "revoke", "tok1", "--yes"}, a...)...); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}

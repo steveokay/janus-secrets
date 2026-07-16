@@ -99,8 +99,12 @@ func newTokenCmd() *cobra.Command {
 			}
 			var resp struct {
 				Tokens []struct {
-					ID, Name, ScopeKind, ScopeID, Access string
-					ExpiresAt                            *string `json:"expires_at"`
+					ID        string  `json:"id"`
+					Name      string  `json:"name"`
+					ScopeKind string  `json:"scope_kind"`
+					ScopeID   string  `json:"scope_id"`
+					Access    string  `json:"access"`
+					ExpiresAt *string `json:"expires_at"`
 				} `json:"tokens"`
 			}
 			if err := c.call("GET", "/v1/tokens", nil, &resp); err != nil {

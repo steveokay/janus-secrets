@@ -129,7 +129,7 @@ func newEnvCmd() *cobra.Command {
 			}
 			dir, _ := os.Getwd()
 			p, _, _, _ := bindingValues(dir, project, "", "")
-			pid, eid, err := c.resolveEnvID(p, args[0])
+			pid, eid, err := c.resolveDeletedEnvID(p, args[0])
 			if err != nil {
 				return err
 			}

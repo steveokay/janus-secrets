@@ -44,7 +44,10 @@ func newConfigCmd() *cobra.Command {
 		}
 		return c, pid, eid, nil
 	}
-	resolveCID := func(configName string) (*apiClient, string, error) {
+	// resolveCID resolves a live (non-deleted) config name to its id; deleted
+	// (true) switches to the trash-based resolver so `restore` can find a
+	// soft-deleted config that the live configs list no longer returns.
+	resolveCID := func(configName string, deleted bool) (*apiClient, string, error) {
 		c, err := newAPIClient(address, token)
 		if err != nil {
 			return nil, "", err
@@ -54,7 +57,12 @@ func newConfigCmd() *cobra.Command {
 		if err != nil {
 			return nil, "", err
 		}
-		cid, err := c.resolveConfigID(p, e, configName)
+		var cid string
+		if deleted {
+			cid, err = c.resolveDeletedConfigID(p, e, configName)
+		} else {
+			cid, err = c.resolveConfigID(p, e, configName)
+		}
 		if err != nil {
 			return nil, "", err
 		}
@@ -123,7 +131,7 @@ func newConfigCmd() *cobra.Command {
 	del := &cobra.Command{
 		Use: "delete <name>", Short: "Soft-delete a config", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, cid, err := resolveCID(args[0])
+			c, cid, err := resolveCID(args[0], false)
 			if err != nil {
 				return err
 			}
@@ -148,7 +156,7 @@ func newConfigCmd() *cobra.Command {
 	restore := &cobra.Command{
 		Use: "restore <name>", Short: "Restore a soft-deleted config", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, cid, err := resolveCID(args[0])
+			c, cid, err := resolveCID(args[0], true)
 			if err != nil {
 				return err
 			}

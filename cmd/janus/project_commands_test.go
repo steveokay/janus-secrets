@@ -99,6 +99,9 @@ func TestProjectKEKStatus(t *testing.T) {
 func stubProjectCRUD(t *testing.T) (*httptest.Server, *[]string) {
 	t.Helper()
 	var paths []string
+	// Stateful: a soft-deleted project leaves the live list and appears in
+	// /v1/trash, so `restore` (which resolves via trash) is exercised for real.
+	deleted := false
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, "POST "+r.URL.Path)
@@ -107,14 +110,28 @@ func stubProjectCRUD(t *testing.T) (*httptest.Server, *[]string) {
 	})
 	mux.HandleFunc("GET /v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, "GET "+r.URL.Path)
-		_ = json.NewEncoder(w).Encode(map[string]any{"projects": []map[string]string{{"id": "p1", "slug": "acme", "name": "Acme", "created_at": "t"}}})
+		list := []map[string]string{}
+		if !deleted {
+			list = append(list, map[string]string{"id": "p1", "slug": "acme", "name": "Acme", "created_at": "t"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"projects": list})
+	})
+	mux.HandleFunc("GET /v1/trash", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, "GET "+r.URL.Path)
+		projects := []map[string]string{}
+		if deleted {
+			projects = append(projects, map[string]string{"id": "p1", "slug": "acme", "name": "Acme"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"projects": projects, "environments": []any{}, "configs": []any{}})
 	})
 	mux.HandleFunc("DELETE /v1/projects/p1", func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, "DELETE "+r.URL.Path)
+		deleted = true
 		w.WriteHeader(204)
 	})
 	mux.HandleFunc("POST /v1/projects/p1/restore", func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, "POST "+r.URL.Path)
+		deleted = false
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "p1", "slug": "acme"})
 	})
 	ts := httptest.NewServer(mux)
@@ -139,7 +156,7 @@ func TestProjectCreateListDeleteRestore(t *testing.T) {
 	if _, err = runCLI(t, "", append([]string{"project", "restore", "acme"}, a...)...); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
-	for _, want := range []string{"POST /v1/projects", "GET /v1/projects", "DELETE /v1/projects/p1", "POST /v1/projects/p1/restore"} {
+	for _, want := range []string{"POST /v1/projects", "GET /v1/projects", "DELETE /v1/projects/p1", "GET /v1/trash", "POST /v1/projects/p1/restore"} {
 		found := false
 		for _, p := range *paths {
 			if p == want {
