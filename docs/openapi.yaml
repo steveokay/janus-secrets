@@ -630,6 +630,155 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "409": { description: Not the next allowed pipeline step, or a selected key is locked. }
 
+  /v1/promote/requests:
+    get:
+      tags: [promote]
+      summary: List promotion requests (approval workflow)
+      description: >
+        Value-free. Returns request metadata (key NAMES + status), never secret
+        values. Visible items are the caller's own requests plus those they may
+        approve (secret:promote on the target env).
+      parameters:
+        - { name: project, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [pending, applied, rejected, cancelled] } }
+        - { name: mine, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "200":
+          description: Requests (metadata only).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items: { $ref: '#/components/schemas/PromotionRequest' }
+        "400": { description: Missing project. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [promote]
+      summary: File a promotion request (requires promotion:request on the source env)
+      description: >
+        For users who lack secret:promote on the target env. The request pins the
+        source version and records key NAMES + actions only — never values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_config]
+              properties:
+                from_config: { type: string, format: uuid }
+                to_config: { type: string, format: uuid, description: Existing target config id (target env is derived from it). }
+                to_env: { type: string, format: uuid, description: Target env id, required when creating the target. }
+                to_name: { type: string }
+                create: { type: boolean }
+                source_version: { type: integer }
+                note: { type: string, description: Justification (non-secret metadata). }
+                selections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string }
+                      action: { type: string, enum: [set, remove] }
+      responses:
+        "201":
+          description: Created (pending).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, example: pending }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/promote/requests/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [promote]
+      summary: Get a promotion request (with a value-free diff)
+      responses:
+        "200":
+          description: >
+            Request detail plus a value-free diff (added/changed/removed key
+            NAMES only) when the target config already exists.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromotionRequest' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/promote/requests/{id}/approve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [promote]
+      summary: Approve a request and apply the promotion (requires secret:promote on the target; four-eyes)
+      description: >
+        The approver must differ from the requester. On success the promotion is
+        applied immediately. Value-free result (key NAMES only).
+      responses:
+        "200":
+          description: Applied.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  target_version: { type: integer }
+                  applied: { type: array, items: { type: string } }
+                  skipped: { type: array, items: { type: string } }
+        "403": { description: Not permitted, or the caller is the requester (four-eyes). }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Request is no longer pending. }
+  /v1/promote/requests/{id}/reject:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [promote]
+      summary: Reject a promotion request (requires secret:promote on the target; four-eyes)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string }
+      responses:
+        "200":
+          description: Rejected.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: rejected }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Request is no longer pending. }
+  /v1/promote/requests/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [promote]
+      summary: Cancel your own pending promotion request
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: cancelled }
+        "403": { description: Only the requester may cancel. }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Request is no longer pending. }
+
   # ---------------------------------------------------------------------
   # environments
   # ---------------------------------------------------------------------

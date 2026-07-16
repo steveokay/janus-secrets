@@ -366,3 +366,65 @@ janus project kek-status <project-id>   # show current version + versions still 
 
 The KEK verbs map to `POST /v1/projects/{pid}/kek/rotate`,
 `POST /v1/projects/{pid}/kek/rewrap`, and `GET /v1/projects/{pid}/kek`.
+
+## Promotion & approvals
+
+Promotion copies selected secrets forward along the pipeline
+(`dev → staging → prod`). It re-encrypts the values into the target
+config — it never moves ciphertext verbatim — and records a value-free
+audit event naming only the keys involved.
+
+### Direct promotion
+
+If you hold `secret:promote` on the **target** environment you can promote
+directly. Pick the source config version, choose which keys to carry
+(`set` an updated value, `remove` a deleted one), and apply:
+
+```sh
+janus promote \
+  --from <source-config-id> --to <target-config-id> \
+  --key DB_PASSWORD --key API_URL
+```
+
+This maps to `POST /v1/promote`. Only the next allowed pipeline step is
+accepted, and keys locked in the target are refused (`409`). The web UI
+exposes the same flow as a drag-and-diff modal.
+
+### Approval workflow (for users without `secret:promote`)
+
+Developers who lack `secret:promote` on the target don't get to promote
+directly — but if they hold `promotion:request` on the **source**
+environment (granted to `developer` and above) they can *file a request*
+for someone who can:
+
+```sh
+# File a request (pins the current source version; value-free)
+janus promote request \
+  --from <source-config-id> --to <target-config-id> \
+  --key DB_PASSWORD --note "rotate prod db creds"
+
+# See what's waiting
+janus promote requests --project <project-id> --status pending
+
+# A holder of secret:promote on the target reviews and decides:
+janus promote approve <request-id>          # applies the promotion immediately
+janus promote reject  <request-id> --note "hold for release window"
+
+# The requester can withdraw their own pending request:
+janus promote cancel  <request-id>
+```
+
+The request stores **only** the target, the pinned source version, and the
+key names/actions — never any secret value. Approval is **four-eyes**: the
+approver must be someone other than the requester. On approval the
+promotion is applied in the same step and the request is marked `applied`
+with the resulting target version; if the apply fails the request stays
+`pending` so it can be retried or cancelled.
+
+These map to `POST /v1/promote/requests`, `GET /v1/promote/requests`
+(filter with `?project=`, `?status=`, `?mine=true`),
+`GET /v1/promote/requests/{id}` (returns a value-free diff when the target
+already exists), and `POST /v1/promote/requests/{id}/{approve,reject,cancel}`.
+The web UI surfaces pending items on an **Approvals** page, with a nav badge
+counting requests you're able to approve. Every state change writes a
+`promotion.request.{create,approve,reject,cancel}` audit event.
