@@ -1,0 +1,12 @@
+Janus — self-hosted, single-tenant secrets manager
+Copyright 2026 The Janus Authors
+
+This product includes software developed by The Janus Authors,
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product bundles a vendored copy of a Shamir Secret Sharing
+implementation in internal/crypto/shamir/, which is licensed under the
+Mozilla Public License, Version 2.0 (MPL-2.0). The original license and
+per-file headers are retained in that directory
+(see internal/crypto/shamir/LICENSE). MPL-2.0 is file-level copyleft and
+is compatible with distribution of this project under Apache-2.0.

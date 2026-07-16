@@ -389,5 +389,9 @@ scope.
 
 ## License
 
-Not yet chosen. The vendored `internal/crypto/shamir/` package is under MPL-2.0
-(see its `LICENSE`); its headers are retained.
+Janus is licensed under the **Apache License, Version 2.0** — see
+[`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+The vendored `internal/crypto/shamir/` package is licensed under
+**MPL-2.0** (see its `LICENSE`); its per-file headers are retained. MPL-2.0
+is file-level copyleft and compatible with Apache-2.0 distribution.
