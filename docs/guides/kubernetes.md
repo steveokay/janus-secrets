@@ -106,6 +106,70 @@ TOKEN=$(kubectl -n myapp create token janus-sync --duration=8760h)
 > non-expiring token, provision a legacy Secret-backed ServiceAccount
 > token instead — at the cost of a longer-lived credential.
 
+#### What goes in the `--api-url` field
+
+`--api-url` is the base URL of the cluster's **Kubernetes API server**
+(the control plane). Janus appends the REST path itself, issuing
+`PATCH {api-url}/api/v1/namespaces/{namespace}/secrets/{secret-name}`, so
+you supply **only scheme + host + port** — no path, no trailing slash. It
+is the same value your kubeconfig uses as the cluster `server`
+(the `kubectl config view … {.clusters[0].cluster.server}` command above
+prints exactly this).
+
+Rules that bite people:
+
+- **HTTPS only, and the host must match the cert.** Janus verifies the
+  API server's TLS against `--ca-cert` with no skip-verify, so the host
+  in the URL must be a Subject Alternative Name (SAN) on the API server's
+  serving certificate. Safest path: use the exact `server` string
+  `kubectl` uses together with its matching CA — don't swap a DNS name for
+  an IP (or vice-versa).
+- **No path / no trailing slash.** `https://api.example.com:6443` ✅ —
+  not `.../` and not `.../api/v1`.
+
+Which endpoint to use depends on where **Janus** runs relative to the
+cluster:
+
+| Janus location | `--api-url` value |
+|---|---|
+| Outside the cluster (standalone binary/container) | The cluster's externally reachable endpoint — the kubeconfig `server` (e.g. an EKS/GKE/AKS HTTPS endpoint, or `https://<control-plane>:6443`). Must be network-reachable **from the Janus host**. |
+| Inside the cluster (Janus itself is a pod) | The in-cluster endpoint `https://kubernetes.default.svc`, with the in-cluster CA at `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`. |
+
+##### Docker Desktop's built-in Kubernetes
+
+Docker Desktop's kubeconfig (`docker-desktop` context) has
+`server: https://kubernetes.docker.internal:6443` (older versions:
+`https://127.0.0.1:6443`). Its API-server cert includes SANs for
+`kubernetes.docker.internal`, `localhost`, and `127.0.0.1` — but **not**
+`host.docker.internal`. Pull the CA from that context specifically:
+
+```sh
+CACERT=$(kubectl config view --raw --minify --context docker-desktop \
+  -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)
+```
+
+- **Janus runs on the host** (same machine as Docker Desktop): use
+  `--api-url https://kubernetes.docker.internal:6443` (or
+  `https://127.0.0.1:6443`). Both resolve and both are cert SANs.
+- **Janus runs inside a container** (e.g. this repo's compose stack):
+  `127.0.0.1` would point at the Janus container itself, not the host. The
+  reachable host address is `host.docker.internal` — but that name is
+  **not** a cert SAN, so strict TLS verification fails. Fix it by mapping
+  the SAN hostname to the host gateway and using that name (so the URL
+  host still matches the cert). Add to the `janus` service in
+  `docker-compose.yml`:
+
+  ```yaml
+  extra_hosts:
+    - "kubernetes.docker.internal:host-gateway"
+  ```
+
+  then set `--api-url https://kubernetes.docker.internal:6443`. Now the
+  container resolves `kubernetes.docker.internal` to the host, reaches the
+  API server, **and** the hostname matches a cert SAN so verification
+  passes. (Do **not** use `host.docker.internal` in the URL — it routes
+  correctly but fails cert verification, and Janus has no skip-verify.)
+
 ### 3. Create the sync target in Janus
 
 `--prune` defaults to `true`, which is what you want for a Janus-managed
