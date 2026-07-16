@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,5 +48,35 @@ func TestResolveConfigIDErrorsNameTheLevel(t *testing.T) {
 	}
 	if _, err := c.resolveConfigID("acme", "dev", "nope"); err == nil || !strings.Contains(err.Error(), "config") {
 		t.Fatalf("want config error, got %v", err)
+	}
+}
+
+func TestResolveProjectAndEnvID(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/projects", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"projects": []map[string]string{{"id": "p1", "slug": "acme"}}})
+	})
+	mux.HandleFunc("GET /v1/projects/p1/environments", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"environments": []map[string]string{{"id": "e1", "slug": "prod"}}})
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	c, err := newAPIClient(ts.URL, "janus_svc_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := c.resolveProjectID("acme")
+	if err != nil || pid != "p1" {
+		t.Fatalf("resolveProjectID = %q, %v", pid, err)
+	}
+	if _, err := c.resolveProjectID("nope"); err == nil {
+		t.Fatal("expected error for unknown project")
+	}
+	gotP, eid, err := c.resolveEnvID("acme", "prod")
+	if err != nil || gotP != "p1" || eid != "e1" {
+		t.Fatalf("resolveEnvID = %q %q %v", gotP, eid, err)
+	}
+	if _, _, err := c.resolveEnvID("acme", "staging"); err == nil {
+		t.Fatal("expected error for unknown env")
 	}
 }

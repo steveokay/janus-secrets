@@ -44,9 +44,9 @@ func writeBinding(dir string, b *bindingFile) error {
 	return os.WriteFile(bindingPath(dir), out, 0o644) // #nosec G306 -- non-secret binding, meant to be committed
 }
 
-// resolveBinding applies, per field: flag > JANUS_* env > .janus.yaml. All three
-// fields must resolve to non-empty or it errors (pointing at `janus setup`).
-func resolveBinding(dir, flagProject, flagEnv, flagConfig string) (project, env, config string, err error) {
+// bindingValues applies, per field: flag > JANUS_* env > .janus.yaml, WITHOUT
+// requiring any field to be non-empty.
+func bindingValues(dir, flagProject, flagEnv, flagConfig string) (project, env, config string, err error) {
 	bf, err := readBinding(dir)
 	if err != nil {
 		return "", "", "", err
@@ -64,9 +64,18 @@ func resolveBinding(dir, flagProject, flagEnv, flagConfig string) (project, env,
 	if bf != nil {
 		fp, fe, fc = bf.Project, bf.Environment, bf.Config
 	}
-	project = pick(flagProject, "JANUS_PROJECT", fp)
-	env = pick(flagEnv, "JANUS_ENV", fe)
-	config = pick(flagConfig, "JANUS_CONFIG", fc)
+	return pick(flagProject, "JANUS_PROJECT", fp),
+		pick(flagEnv, "JANUS_ENV", fe),
+		pick(flagConfig, "JANUS_CONFIG", fc), nil
+}
+
+// resolveBinding applies, per field: flag > JANUS_* env > .janus.yaml. All three
+// fields must resolve to non-empty or it errors (pointing at `janus setup`).
+func resolveBinding(dir, flagProject, flagEnv, flagConfig string) (project, env, config string, err error) {
+	project, env, config, err = bindingValues(dir, flagProject, flagEnv, flagConfig)
+	if err != nil {
+		return "", "", "", err
+	}
 	if project == "" || env == "" || config == "" {
 		return "", "", "", fmt.Errorf("no project/environment/config configured — run `janus setup` or pass --project/--env/--config")
 	}
