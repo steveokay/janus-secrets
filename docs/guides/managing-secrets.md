@@ -34,17 +34,53 @@ it. See [../data-model.md](../data-model.md) for the full model.
 
 ## Creating projects, environments, and configs
 
-Creating the containers is **not** a CLI operation. There is no
-`janus project create`-style command. You create projects, environments,
-and configs through the **web UI** or by calling the **REST API**
-directly. The CLI's job begins once those exist: `janus setup` only
-*binds* a working directory to an already-existing config (it writes
-`.janus.yaml`) and `janus secrets …` reads and writes the values inside
-a config.
+You can create projects, environments, and configs three ways: the
+**CLI** (`janus project/env/config create`), the **web UI**, or the
+**REST API** directly. Once a config exists, `janus setup` *binds* a
+working directory to it (writing `.janus.yaml`) and `janus secrets …`
+reads and writes the values inside it.
 
-> Note: `janus project` exists, but it manages the **project KEK
-> lifecycle** (key rotation), not project CRUD. See
-> [The `janus project` command](#the-janus-project-command) below.
+> Note: `janus project` does double duty — it manages both **project
+> CRUD** (`create`/`list`/`delete`/`restore`, below) and the **project
+> KEK lifecycle** (`rotate-kek`/`rewrap`/`kek-status`). See
+> [The `janus project` command](#the-janus-project-command) for the KEK
+> verbs.
+
+### Via the CLI
+
+The CLI is self-sufficient for bootstrap. Every command takes the usual
+`--address`/`--token` (or `JANUS_ADDR`/`JANUS_TOKEN`); `env`/`config`
+resolve their parent from `--project`/`--env` flags, the `JANUS_*`
+environment, or `.janus.yaml` (same precedence as `janus secrets`).
+
+```sh
+# Create a project, an environment under it, and a config under that.
+janus project create --slug acme-web --name "Acme Web"
+janus env create --project acme-web --slug prod --name "Production"
+janus config create --project acme-web --env prod --name prod
+#   optionally inherit from a base config in the same environment:
+#   janus config create --project acme-web --env prod --name prod --inherits-from base
+
+# List / soft-delete / restore (delete confirms on a TTY unless --yes).
+janus project list
+janus env list --project acme-web
+janus config list --project acme-web --env prod
+janus config delete prod --project acme-web --env prod --yes
+janus config restore prod --project acme-web --env prod
+```
+
+Mint a scoped service token for CI (shown once — the raw token prints to
+**stdout** so it is capturable; the summary goes to stderr):
+
+```sh
+TOKEN=$(janus token mint --name ci-deploy --project acme-web --env prod \
+  --config prod --access rw --ttl 24h)
+janus token list                 # metadata only; the raw token is never re-shown
+janus token revoke <id> --yes
+```
+
+Omit `--config` on `token mint` for an environment-scoped token. Add
+`--json` to any `list`/`mint` command for machine-readable output.
 
 ### Via the web UI
 
@@ -317,9 +353,10 @@ carry key names and target paths only — never a secret value.
 
 ## The `janus project` command
 
-For completeness, since it shares the `project` word: the `janus project`
-CLI does **not** create or manage projects as containers. It is the
-owner-only **project KEK (key-encryption-key) lifecycle** tool:
+The `janus project` group does two jobs. Its **CRUD** verbs
+(`create`/`list`/`delete`/`restore`, shown [above](#via-the-cli)) manage
+projects as containers. Its owner-only **project KEK (key-encryption-key)
+lifecycle** verbs manage key rotation:
 
 ```sh
 janus project rotate-kek <project-id>   # mint a new project KEK version
@@ -327,7 +364,5 @@ janus project rewrap <project-id>       # re-wrap DEKs onto the current KEK vers
 janus project kek-status <project-id>   # show current version + versions still holding DEKs
 ```
 
-These map to `POST /v1/projects/{pid}/kek/rotate`,
+The KEK verbs map to `POST /v1/projects/{pid}/kek/rotate`,
 `POST /v1/projects/{pid}/kek/rewrap`, and `GET /v1/projects/{pid}/kek`.
-Project/environment/config CRUD remains web-UI or REST-API only, as
-described above.
