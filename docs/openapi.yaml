@@ -1573,9 +1573,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  verified: { type: boolean }
-                  event_count: { type: integer }
-                  broken_at_seq: { type: integer, nullable: true }
+                  valid: { type: boolean }
+                  count: { type: integer }
+                  head_seq: { type: integer }
+                  head_hash: { type: string, description: Hex-encoded chain head hash. }
+                  broken_at_seq: { type: integer }
+                  reason: { type: string }
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/audit/events:
     get:
