@@ -39,6 +39,7 @@ func newRootCmd() *cobra.Command {
 		newProjectCmd(),
 		newEnvCmd(),
 		newConfigCmd(),
+		newTokenCmd(),
 		newMasterKeyCmd(),
 		newPromoteCmd(),
 		newPipelineCmd(),
