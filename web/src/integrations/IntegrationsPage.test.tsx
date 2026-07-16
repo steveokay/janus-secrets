@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { IntegrationsPage } from './IntegrationsPage'
@@ -43,8 +43,8 @@ test('403-tolerant: all three cards still render with neutral status and working
   renderApp(<IntegrationsPage />, { route: '/integrations', withAuth: false })
 
   // GitHub sync (—), Kubernetes sync (—), CI federation (—) = 3 neutral lines.
-  expect(await screen.findByRole('heading', { name: 'Kubernetes' })).toBeInTheDocument()
-  expect(screen.getAllByText('—')).toHaveLength(3)
+  await waitFor(() => expect(screen.getAllByText('—')).toHaveLength(3))
+  expect(screen.getByRole('heading', { name: 'Kubernetes' })).toBeInTheDocument()
   expect(screen.getByText('disabled')).toBeInTheDocument() // OIDC status endpoint is public
   expect(screen.getByRole('heading', { name: 'GitHub' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: /OIDC/i })).toBeInTheDocument()

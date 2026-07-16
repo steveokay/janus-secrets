@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
-import { ApiError } from '../lib/api'
+import { useQuery } from '@tanstack/react-query'
+import { useSync } from '../operations/useAggregated'
 import { endpoints } from '../lib/endpoints'
-import { opsEndpoints, type SyncView } from '../operations/endpoints'
 
 /**
  * Per-field status for the integrations catalog. Tri-state values:
@@ -16,83 +15,21 @@ export interface IntegrationStatus {
   oidcLogin: boolean | null | undefined
 }
 
-const isForbidden = (e: unknown) => e instanceof ApiError && e.status === 403
-
-/**
- * Deliberately plain fetch (useEffect + useState) rather than
- * @tanstack/react-query: this hook only needs a one-shot fetch-on-mount with
- * no caching/retry/refetch semantics, and going through react-query's
- * notifyManager adds an extra render/commit cycle per hop that this simple
- * status strip doesn't need.
- */
 export function useIntegrationStatus(): IntegrationStatus {
-  const [status, setStatus] = useState<IntegrationStatus>({
-    githubSync: undefined,
-    k8sSync: undefined,
-    federation: undefined,
-    oidcLogin: undefined,
-  })
+  const sync = useSync('all')
+  const fed = useQuery({ queryKey: ['integrations', 'federation'], queryFn: endpoints.getFederationConfig, retry: false })
+  const oidc = useQuery({ queryKey: ['integrations', 'oidc-login'], queryFn: endpoints.oidcLoginStatus, retry: false })
 
-  useEffect(() => {
-    let cancelled = false
+  // Neutralise sync when a non-403 error occurred, or the user is forbidden on
+  // every project (someForbidden with zero visible rows) — showing "0" would be
+  // misleading. A partial view (some rows visible) shows the real count.
+  const syncNeutral = sync.isError || (sync.someForbidden && sync.rows.length === 0)
+  const count = (p: 'github' | 'k8s') => sync.rows.filter((r) => r.data.provider === p).length
 
-    // Cross-project, 403-tolerant fan-out of sync targets: list projects,
-    // then list sync targets per project. A forbidden project contributes no
-    // rows; if EVERY project is forbidden (or the project list itself is
-    // forbidden), the counts go neutral (null) rather than showing "0".
-    endpoints
-      .listProjects()
-      .then(async (projects) => {
-        const results = await Promise.all(
-          projects.map((p) =>
-            opsEndpoints.sync.list(p.id).then(
-              (targets): { ok: true; targets: SyncView[] } => ({ ok: true, targets }),
-              (err): { ok: false; forbidden: boolean } => ({ ok: false, forbidden: isForbidden(err) }),
-            ),
-          ),
-        )
-        if (cancelled) return
-        const unexpectedError = results.some((r) => !r.ok && !r.forbidden)
-        const allForbidden = projects.length > 0 && results.every((r) => !r.ok && r.forbidden)
-        if (unexpectedError || allForbidden) {
-          setStatus((s) => ({ ...s, githubSync: null, k8sSync: null }))
-          return
-        }
-        const rows = results.flatMap((r) => (r.ok ? r.targets : []))
-        setStatus((s) => ({
-          ...s,
-          githubSync: rows.filter((t) => t.provider === 'github').length,
-          k8sSync: rows.filter((t) => t.provider === 'k8s').length,
-        }))
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setStatus((s) => ({ ...s, githubSync: null, k8sSync: null }))
-        void err
-      })
-
-    endpoints
-      .getFederationConfig()
-      .then((cfg) => {
-        if (!cancelled) setStatus((s) => ({ ...s, federation: cfg.enabled }))
-      })
-      .catch(() => {
-        if (!cancelled) setStatus((s) => ({ ...s, federation: null }))
-      })
-
-    endpoints
-      .oidcLoginStatus()
-      .then((st) => {
-        if (!cancelled) setStatus((s) => ({ ...s, oidcLogin: st.enabled }))
-      })
-      .catch(() => {
-        if (!cancelled) setStatus((s) => ({ ...s, oidcLogin: null }))
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  return status
+  return {
+    githubSync: sync.isLoading ? undefined : syncNeutral ? null : count('github'),
+    k8sSync: sync.isLoading ? undefined : syncNeutral ? null : count('k8s'),
+    federation: fed.isLoading ? undefined : fed.data ? fed.data.enabled : null,
+    oidcLogin: oidc.isLoading ? undefined : oidc.data ? oidc.data.enabled : null,
+  }
 }
