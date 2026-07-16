@@ -40,7 +40,7 @@ Create `web/src/integrations/ConnectorCard.test.tsx`:
 
 ```tsx
 import { screen } from '@testing-library/react'
-import { Github } from 'lucide-react'
+import { GitBranch } from 'lucide-react'
 import { renderApp } from '../test/render'
 import { ConnectorCard, StatusLine } from './ConnectorCard'
 
@@ -72,7 +72,7 @@ test('StatusLine shows neither dash nor value while loading (undefined)', () => 
 test('ConnectorCard renders title, description and action links with hrefs', () => {
   renderApp(
     <ConnectorCard
-      icon={<Github size={18} />}
+      icon={<GitBranch size={18} />}
       title="GitHub"
       description="Sync secrets to GitHub Actions."
       statuses={<StatusLine label="Actions sync" value={2} />}
@@ -301,7 +301,7 @@ export function useIntegrationStatus(): IntegrationStatus {
 Create `web/src/integrations/IntegrationsPage.tsx`:
 
 ```tsx
-import { Github, Boxes, KeyRound } from 'lucide-react'
+import { GitBranch, Boxes, KeyRound } from 'lucide-react'
 import { ConnectorCard, StatusLine } from './ConnectorCard'
 import { useIntegrationStatus } from './useIntegrationStatus'
 
@@ -317,7 +317,7 @@ export function IntegrationsPage() {
       </header>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ConnectorCard
-          icon={<Github size={18} />}
+          icon={<GitBranch size={18} />}
           title="GitHub"
           description="Sync secrets to GitHub Actions, and let CI pull secrets keyless via OIDC federation."
           statuses={
