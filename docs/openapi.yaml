@@ -57,6 +57,52 @@ components:
         created_at: { type: string, format: date-time }
         promoted_from_env: { type: string, nullable: true }
         promoted_from_version: { type: integer, nullable: true }
+    PromotionRequest:
+      type: object
+      description: >
+        An approval-gated promotion request. Value-free: carries key NAMES and
+        actions only, never secret values. `diff` is present only on GET of a
+        still-pending request whose target config already exists.
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        source_config_id: { type: string, format: uuid }
+        source_version: { type: integer }
+        target_env_id: { type: string, format: uuid }
+        target_config_id: { type: string, format: uuid, description: Present when promoting into an existing config. }
+        target_name: { type: string }
+        create_target: { type: boolean }
+        keys:
+          type: array
+          items: { type: string }
+          description: Selected key names (convenience projection of selections).
+        selections:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              action: { type: string, enum: [set, remove] }
+        note: { type: string }
+        status: { type: string, enum: [pending, applied, rejected, cancelled] }
+        requested_by: { type: string, format: uuid }
+        decided_by: { type: string, format: uuid, description: Approver/rejecter; absent while pending. }
+        applied_target_version: { type: integer, description: Target config version produced on approval; absent unless applied. }
+        created_at: { type: string, format: date-time }
+        diff:
+          type: object
+          description: Value-free diff (key names only), present only on GET of a pending request with an existing target.
+          properties:
+            source_version: { type: integer }
+            target_exists: { type: boolean }
+            entries:
+              type: array
+              items:
+                type: object
+                properties:
+                  key: { type: string }
+                  status: { type: string, enum: [add, change, remove, same] }
+                  locked: { type: boolean }
     TokenMeta:
       type: object
       description: Token metadata. The raw token is returned only once, at mint.

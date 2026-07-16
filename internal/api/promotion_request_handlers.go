@@ -208,7 +208,11 @@ func (s *Server) handlePromoteRequestGet(w http.ResponseWriter, r *http.Request)
 	}
 
 	view := promoReqView(req)
-	if req.TargetConfigID != nil {
+	// The diff is only meaningful while the request is still actionable. For a
+	// decided (applied/rejected/cancelled) request the diff is skipped: it is
+	// immutable history, and re-running the pipeline check could 409 if the
+	// pipeline was later reconfigured — the metadata must still be viewable.
+	if req.TargetConfigID != nil && req.Status == "pending" {
 		diff, err := s.promote.Preview(r.Context(), req.SourceConfigID, *req.TargetConfigID, actor)
 		if err != nil {
 			s.writePromoteError(w, err)

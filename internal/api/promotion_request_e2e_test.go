@@ -154,6 +154,29 @@ func TestPromoteRequestE2E(t *testing.T) {
 		t.Fatalf("get after approve: applied_target_version mismatch: %d vs %d", afterApprove.AppliedTargetVersion, approveResp.TargetVersion)
 	}
 
+	// A decided request stays viewable even if the pipeline is later
+	// reconfigured: GET must not re-run the pipeline step check (which would
+	// 409) on immutable history. Drop the dev->staging edge, GET the applied
+	// request (expect 200, no diff), then restore the pipeline for later steps.
+	if err := store.NewPipelineRepo(srv.st).Set(ctx, p.ID, []string{stg.ID, dev.ID}); err != nil {
+		t.Fatal(err)
+	}
+	var afterReconfig struct {
+		Status string `json:"status"`
+		Diff   struct {
+			Entries []struct{} `json:"entries"`
+		} `json:"diff"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/promote/requests/"+reqID, ownerCookie, "", "", &afterReconfig); code != 200 {
+		t.Fatalf("get applied request after pipeline reconfig: want 200, got %d", code)
+	}
+	if afterReconfig.Status != "applied" || len(afterReconfig.Diff.Entries) != 0 {
+		t.Fatalf("get applied request after reconfig: want applied+no-diff, got %+v", afterReconfig)
+	}
+	if err := store.NewPipelineRepo(srv.st).Set(ctx, p.ID, []string{dev.ID, stg.ID}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Verify A was actually promoted to staging with the sentinel value.
 	var reveal struct {
 		Value string `json:"value"`
