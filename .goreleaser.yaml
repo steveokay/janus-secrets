@@ -1,0 +1,66 @@
+version: 2
+project_name: janus
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - id: janus
+    main: ./cmd/janus
+    binary: janus
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/steveokay/janus-secrets/internal/version.Version={{.Version}}
+      - -X github.com/steveokay/janus-secrets/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/steveokay/janus-secrets/internal/version.Date={{.Date}}
+archives:
+  - id: janus
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+dockers:
+  - id: janus-amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile.release
+    image_templates:
+      - "ghcr.io/steveokay/janus:{{ .Version }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+  - id: janus-arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile.release
+    image_templates:
+      - "ghcr.io/steveokay/janus:{{ .Version }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+docker_manifests:
+  - name_template: "ghcr.io/steveokay/janus:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/steveokay/janus:{{ .Version }}-amd64"
+      - "ghcr.io/steveokay/janus:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/steveokay/janus:latest"
+    image_templates:
+      - "ghcr.io/steveokay/janus:{{ .Version }}-amd64"
+      - "ghcr.io/steveokay/janus:{{ .Version }}-arm64"
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - { title: Features, regexp: "^feat", order: 0 }
+    - { title: Fixes, regexp: "^fix", order: 1 }
+    - { title: Others, order: 999 }

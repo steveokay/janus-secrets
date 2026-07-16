@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveokay/janus-secrets/internal/api"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/version"
 )
 
 func newServerCmd() *cobra.Command {
@@ -113,7 +114,7 @@ func runServer(ctx context.Context) error {
 		RotationTick:       rotationTick,
 		SyncTick:           syncTick,
 		DynamicTick:        dynamicTick,
-		Version:            version,
+		Version:            version.Version,
 		HTTPReadTimeout:    httpRead,
 		HTTPWriteTimeout:   httpWrite,
 		HTTPIdleTimeout:    httpIdle,

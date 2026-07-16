@@ -154,9 +154,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.With(RequireAuth(s.auth)).Post("/master-key/rekey/submit", s.handleMasterKeyRekeySubmit)
 				r.With(RequireAuth(s.auth)).Delete("/master-key/rekey", s.handleMasterKeyRekeyCancel)
 			}
+			r.With(RequireAuth(s.auth)).Get("/version", s.handleVersion)
 		} else {
 			r.Post("/seal", s.handleSeal)
 			r.Get("/backup", s.handleBackup)
+			r.Get("/version", s.handleVersion)
 		}
 	})
 	if s.auth != nil {
