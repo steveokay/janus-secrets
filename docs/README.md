@@ -3,6 +3,38 @@
 How the system works, feature by feature. These docs describe behavior and
 design intent; they are kept in sync with the code as milestones land.
 
+New here? Start with the [Getting started](guides/getting-started.md) guide,
+which takes you from an empty machine to a secret injected into a real
+process. The **How-to guides** below are task-oriented; the **System
+functionality** and **Operations & integrations** sections are the
+behavior/design references they link into.
+
+## How-to guides
+
+Task-oriented walkthroughs for the common workflows:
+
+- [Getting started](guides/getting-started.md) — bring up the stack, unseal,
+  log in, create your first project, and run a command with its secrets
+  injected.
+- [Injecting secrets into your app](guides/injecting-secrets.md) — `janus run`
+  in depth, env-var precedence, `.janus.yaml` binding, client auth, and the
+  `janus secrets download` file fallback with its `--plain` guardrail.
+- [Managing secrets](guides/managing-secrets.md) — the project → env → config
+  → secret hierarchy, creating containers (UI/API), the `janus secrets` CLI,
+  two-level versioning/rollback, soft-delete vs. destroy, and references/
+  inheritance.
+- [Service tokens](guides/service-tokens.md) — minting scoped `janus_svc_…`
+  tokens via `POST /v1/tokens` or the web UI, the scoping model, and using
+  them from apps/CI.
+- [GitHub Actions integration](guides/github-actions.md) — pushing secrets
+  into Actions (sync) vs. pulling them keyless via OIDC federation, and when
+  to use which.
+- [Running Janus and apps with Docker](guides/docker.md) — running the server
+  container and feeding app containers their secrets.
+- [Kubernetes integration](guides/kubernetes.md) — syncing a config to a
+  namespaced `Secret`, refreshing running pods, and whether you need a
+  controller (you don't, for the sync itself).
+
 ## System functionality
 
 - [Architecture overview](architecture.md) — layering, packages, build phases,
@@ -34,6 +66,27 @@ design intent; they are kept in sync with the code as milestones land.
 - [CLI reference](cli.md) — the `janus` secrets client: `login`/`setup`/
   `secrets`/`run`, the credential/address/binding precedence rules, the
   `.janus.yaml` format, and the `run` / `--plain` semantics. **Implemented.**
+
+## Operations & integrations
+
+Running Janus and connecting it to the outside world:
+
+- [Server & `janus` CLI operations](operations.md) — the operational home
+  page: running the server, the seal lifecycle, sys HTTP API, and config.
+- [Backup & restore](ops/backup-restore.md) — the key-preserving instance
+  dump and restore procedure.
+- [Static rotation](ops/rotation.md) — scheduled secret rotation (Postgres
+  password + generic webhook rotators), the in-process scheduler, and
+  failure/backoff. **Implemented.**
+- [Sync integrations](ops/sync.md) — one-way replication of a config's
+  resolved secrets to GitHub Actions secrets and Kubernetes `Secret`s:
+  providers, prune/full-mirror, change detection, and credential masking.
+  **Implemented.**
+- [Kubernetes integration](guides/kubernetes.md) — the end-to-end k8s how-to
+  (cluster RBAC, consuming the Secret, refreshing pods) built on the sync
+  reference.
+- [Dynamic Postgres credentials](ops/dynamic.md) — Vault-style short-lived
+  database roles with a TTL/renewal/revocation lease manager. **Implemented.**
 
 ## Design specs & plans
 

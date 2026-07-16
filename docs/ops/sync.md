@@ -7,7 +7,9 @@ external store on an interval, or on demand. Two providers ship today:
 - **`github`** — writes GitHub Actions secrets (repo- or
   environment-scoped) via the GitHub REST API.
 - **`k8s`** — writes a Kubernetes `Secret` object via the Kubernetes API
-  server, using server-side apply.
+  server, using server-side apply. For an end-to-end integration guide
+  (cluster RBAC, consuming the Secret, refreshing running pods), see
+  [kubernetes.md](../guides/kubernetes.md).
 
 Sync is **one-way**: Janus → external store. It never reads back from the
 destination except to fetch the GitHub public key needed to encrypt a

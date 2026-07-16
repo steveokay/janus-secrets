@@ -31,13 +31,25 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > CLI, set secrets, and `janus run` injects them into your process. What remains
 > is polish and release hygiene, tracked in [gaps.md](gaps.md).
 >
-> **Docs:** how each subsystem works is documented under [`docs/`](docs/) —
+> **Docs:** full documentation lives under [`docs/`](docs/) (see the
+> [docs index](docs/README.md)). New here? Start with the task-oriented
+> **how-to guides**: [getting started](docs/guides/getting-started.md),
+> [injecting secrets](docs/guides/injecting-secrets.md),
+> [managing secrets](docs/guides/managing-secrets.md),
+> [service tokens](docs/guides/service-tokens.md),
+> [GitHub Actions](docs/guides/github-actions.md),
+> [Docker](docs/guides/docker.md), and
+> [Kubernetes](docs/guides/kubernetes.md).
+> The subsystem **references** cover
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
 > [data model & versioning](docs/data-model.md),
 > [references & inheritance](docs/references.md), [operations](docs/operations.md),
 > the [CLI reference](docs/cli.md), the [transit engine](docs/transit.md),
-> [OIDC login](docs/oidc.md), [CI federation](docs/ci-federation.md), and the
-> [web UI](docs/web.md).
+> [OIDC login](docs/oidc.md), [CI federation](docs/ci-federation.md), the
+> [web UI](docs/web.md), and operations for
+> [rotation](docs/ops/rotation.md), [sync](docs/ops/sync.md),
+> [dynamic secrets](docs/ops/dynamic.md), and
+> [backup & restore](docs/ops/backup-restore.md).
 
 ## Why
 
