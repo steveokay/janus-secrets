@@ -267,6 +267,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Delete("/v1/configs/{cid}/locked-keys/{key}", s.handleLockedKeyDelete)
 				r.Get("/v1/promote/preview", s.handlePromotePreview)
 				r.Post("/v1/promote", s.handlePromoteApply)
+				r.Post("/v1/promote/requests", s.handlePromoteRequestCreate)
+				r.Get("/v1/promote/requests", s.handlePromoteRequestList)
+				r.Get("/v1/promote/requests/{id}", s.handlePromoteRequestGet)
+				r.Post("/v1/promote/requests/{id}/approve", s.handlePromoteRequestApprove)
+				r.Post("/v1/promote/requests/{id}/reject", s.handlePromoteRequestReject)
+				r.Post("/v1/promote/requests/{id}/cancel", s.handlePromoteRequestCancel)
 			})
 		}
 		r.Group(func(r chi.Router) {
