@@ -57,3 +57,14 @@ func TestResolveBindingMissing(t *testing.T) {
 		t.Fatal("expected error when nothing configured")
 	}
 }
+
+func TestBindingValuesNoEmptinessCheck(t *testing.T) {
+	dir := t.TempDir()
+	p, e, c, err := bindingValues(dir, "acme", "", "")
+	if err != nil {
+		t.Fatalf("bindingValues err: %v", err)
+	}
+	if p != "acme" || e != "" || c != "" {
+		t.Fatalf("bindingValues = %q %q %q", p, e, c)
+	}
+}

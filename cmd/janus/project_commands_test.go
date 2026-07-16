@@ -95,3 +95,76 @@ func TestProjectKEKStatus(t *testing.T) {
 		t.Fatalf("wire paths = %v, want [/v1/projects/p1/kek]", *paths)
 	}
 }
+
+func stubProjectCRUD(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	var paths []string
+	// Stateful: a soft-deleted project leaves the live list and appears in
+	// /v1/trash, so `restore` (which resolves via trash) is exercised for real.
+	deleted := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/projects", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, "POST "+r.URL.Path)
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "p1", "slug": "acme", "name": "Acme", "created_at": "t"})
+	})
+	mux.HandleFunc("GET /v1/projects", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, "GET "+r.URL.Path)
+		list := []map[string]string{}
+		if !deleted {
+			list = append(list, map[string]string{"id": "p1", "slug": "acme", "name": "Acme", "created_at": "t"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"projects": list})
+	})
+	mux.HandleFunc("GET /v1/trash", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, "GET "+r.URL.Path)
+		projects := []map[string]string{}
+		if deleted {
+			projects = append(projects, map[string]string{"id": "p1", "slug": "acme", "name": "Acme"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"projects": projects, "environments": []any{}, "configs": []any{}})
+	})
+	mux.HandleFunc("DELETE /v1/projects/p1", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, "DELETE "+r.URL.Path)
+		deleted = true
+		w.WriteHeader(204)
+	})
+	mux.HandleFunc("POST /v1/projects/p1/restore", func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, "POST "+r.URL.Path)
+		deleted = false
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "p1", "slug": "acme"})
+	})
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	return ts, &paths
+}
+
+func TestProjectCreateListDeleteRestore(t *testing.T) {
+	ts, paths := stubProjectCRUD(t)
+	a := []string{"--address", ts.URL, "--token", "janus_svc_test"}
+	out, err := runCLI(t, "", append([]string{"project", "create", "--slug", "acme", "--name", "Acme"}, a...)...)
+	if err != nil || !strings.Contains(out, "acme") {
+		t.Fatalf("create: %q %v", out, err)
+	}
+	out, err = runCLI(t, "", append([]string{"project", "list"}, a...)...)
+	if err != nil || !strings.Contains(out, "acme") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+	if _, err = runCLI(t, "", append([]string{"project", "delete", "acme", "--yes"}, a...)...); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err = runCLI(t, "", append([]string{"project", "restore", "acme"}, a...)...); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	for _, want := range []string{"POST /v1/projects", "GET /v1/projects", "DELETE /v1/projects/p1", "GET /v1/trash", "POST /v1/projects/p1/restore"} {
+		found := false
+		for _, p := range *paths {
+			if p == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing call %q; saw %v", want, *paths)
+		}
+	}
+}

@@ -37,6 +37,9 @@ func newRootCmd() *cobra.Command {
 		newSecretsCmd(),
 		newRunCmd(),
 		newProjectCmd(),
+		newEnvCmd(),
+		newConfigCmd(),
+		newTokenCmd(),
 		newMasterKeyCmd(),
 		newPromoteCmd(),
 		newPipelineCmd(),
@@ -44,6 +47,8 @@ func newRootCmd() *cobra.Command {
 		newSyncCmd(),
 		newDynamicCmd(),
 		newVersionCmd(),
+		newWhoamiCmd(),
+		newCompletionCmd(),
 	)
 	return root
 }

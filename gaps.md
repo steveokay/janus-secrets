@@ -125,11 +125,18 @@ What **passed** (worth stating): route surface is complete for all shipped featu
 
 | Gap | Evidence | Sev |
 |-----|----------|-----|
-| No project/env/config management commands (`janus projects create` etc.) — bootstrap requires UI or curl | `cmd/janus/main.go` command list | MED |
-| No token management commands (mint/list/revoke) | same | MED |
-| Rotation/sync: CLI has create+list but **no** update/pause/rotate-now/sync-now/delete; dynamic: list only — **no** create/issue/renew/revoke (inverse of the UI gap 1.5: each surface got half the verbs) | `cmd/janus/rotation_commands.go`, `sync_commands.go`, `dynamic_commands.go` | MED |
-| No shell completion (`janus completion` — cobra gives this nearly free) | not wired | LOW |
-| No `janus whoami`; no `janus secrets diff` | — | LOW |
+| ~~No project/env/config management commands (`janus projects create` etc.) — bootstrap requires UI or curl~~ **[DONE 2026-07-16]** — `janus project/env/config create/list/delete/restore` (soft-delete; slug addressing, binding-aware parents, `--json`, TTY-confirm) | `cmd/janus/{project,env,config}_commands.go` | MED |
+| ~~No token management commands (mint/list/revoke)~~ **[DONE 2026-07-16]** — `janus token mint/list/revoke`; mint prints the raw token once to stdout (capturable), summary to stderr; list is metadata-only | `cmd/janus/token_commands.go` | MED |
+| ~~Rotation/sync: CLI has create+list but no update/pause/rotate-now/sync-now/delete; dynamic: list only~~ **[STALE — verbs already existed]** — `janus sync` has get/update/delete/sync-now; `janus rotation` has the run/pause verbs; `janus dynamic` has `roles`/`leases` subgroups (issue/renew/revoke). Added during Phase 3 / ops-console work | `cmd/janus/{rotation,sync,dynamic}_commands.go` | — |
+| ~~No shell completion (`janus completion`)~~ **[DONE 2026-07-16]** — `janus completion bash\|zsh\|fish\|powershell` | `cmd/janus/completion.go` | LOW |
+| ~~No `janus whoami`; no `janus secrets diff`~~ **[DONE 2026-07-16]** — `janus whoami` (`GET /v1/auth/me`) and value-free `janus secrets diff <vA> <vB>` (key names only) | `cmd/janus/whoami.go`, `secrets_diff.go` | LOW |
+
+> **§6 CLI control plane — DONE 2026-07-16 (PR pending).** The `janus`
+> CLI is now self-sufficient for bootstrap + identity: stand up a
+> project, add environments/configs, and mint a scoped CI token entirely
+> from the command line, over existing REST endpoints (no server/API/
+> migration changes). See
+> [docs/guides/managing-secrets.md § Via the CLI](docs/guides/managing-secrets.md#via-the-cli).
 
 ## 7. Ops / DX / docs
 
@@ -161,6 +168,6 @@ _Updated 2026-07-15: items 1–5, plus editor depth (2.1) and ops-console depth 
 
 7. ~~**Backend: pagination + idempotency + server hardening** (4.2–4.4)~~ **[DONE 2026-07-15, PR #79]** — opt-in cursor pagination on 7 table-backed list endpoints (keyset `created_at DESC, id DESC`, backward-compatible), generic status-only `Idempotency-Key` middleware over all mutating verbs (replaces the promotion-specific one; value-safe by construction), and `JANUS_HTTP_*` read/idle/write timeouts + `MaxBytesReader` body cap (restore exempt). Migration 000020. (Also fixed the pre-existing `internal/crypto` 100%-coverage CI gate red since #77 — PR #80.)
 8. ~~**UI depth: restore/undelete** (1.10) + **per-key value history** (1.11) + **audit viewer expand/timeline** (2.3)~~ **[DONE 2026-07-15, PR #81]** — Trash surface (value-free per-item-authz `GET /v1/trash` + restore/typed-confirm-destroy + soft-delete on active views), per-key `KeyHistorySheet` with ephemeral audited historical reveal, and audit row-expand (full event + hash chain) with client-side date grouping. Frontend-heavy; one backend endpoint; no migration.
-9. **CLI control plane** (§6) — `janus projects/env/config create`, token mint/list/revoke, and the missing rotation/dynamic verbs; makes the CLI self-sufficient for bootstrap + ops.
+9. ~~**CLI control plane** (§6) — `janus projects/env/config create`, token mint/list/revoke, and the missing rotation/dynamic verbs; makes the CLI self-sufficient for bootstrap + ops.~~ **[DONE 2026-07-16]** — project/env/config CRUD + token mint/list/revoke + `whoami`/`completion`/`secrets diff` shipped (the rotation/sync/dynamic verbs turned out to already exist). CLI-only, over existing endpoints; no migration.
 10. **Release hygiene** (7.2–7.5): LICENSE, OpenAPI spec, goreleaser/CHANGELOG, production deployment guide — needed before any tagged release.
 11. **Phase B: promotion approval workflow** — a separate future spec (request→review→approve for users without `secret:promote`); noted in [[env-promotion-progress]].
