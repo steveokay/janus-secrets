@@ -36,6 +36,7 @@ const NAV_ACTIONS: { label: string; to: string; keywords: string }[] = [
   { label: 'Go to Tokens', to: '/tokens', keywords: 'tokens service api' },
   { label: 'Go to Integrations', to: '/integrations', keywords: 'integrations connect github kubernetes oidc sync federation sso external' },
   { label: 'Go to Operations', to: '/operations', keywords: 'operations ops rotation sync dynamic leases credentials' },
+  { label: 'Go to Approvals', to: '/approvals', keywords: 'approvals promotion requests approve reject review pending' },
   { label: 'Go to Settings', to: '/settings', keywords: 'settings config' },
   { label: 'Go to Trash', to: '/trash', keywords: 'trash deleted restore recover bin' },
 ]

@@ -7,7 +7,7 @@ import { Pill, type Tone } from '../ui/Pill'
 import { useToast } from '../ui/Toast'
 import { cn } from '../ui/cn'
 import { envTone, envDotClass } from '../ui/env'
-import { errorMessage } from '../lib/api'
+import { ApiError, errorMessage } from '../lib/api'
 import { type Config, type Environment } from '../lib/endpoints'
 import { promotion, type DiffEntry, type PromoteStatus, type Selection } from './endpoints'
 
@@ -192,11 +192,19 @@ export function PromotionDiffModal({
     })
   }
 
+  // Forbidden-to-apply lets the UI offer "Request approval instead" with the
+  // exact same selection the user already made, rather than a dead end.
+  const [forbidden, setForbidden] = useState(false)
+
+  function currentSelections(): Selection[] {
+    return entries
+      .filter((e) => selection[e.key] && !isDisabled(e))
+      .map((e) => ({ key: e.key, action: e.status === 'remove' ? 'remove' : 'set' }))
+  }
+
   const apply = useMutation({
     mutationFn: () => {
-      const selections: Selection[] = entries
-        .filter((e) => selection[e.key] && !isDisabled(e))
-        .map((e) => ({ key: e.key, action: e.status === 'remove' ? 'remove' : 'set' }))
+      const selections = currentSelections()
       return promotion.apply(
         mode === 'existing'
           ? {
@@ -225,6 +233,41 @@ export function PromotionDiffModal({
         // Refresh every board config list so the newly-created config appears.
         void qc.invalidateQueries({ queryKey: ['configs'] })
       }
+      onDone?.()
+      onClose()
+    },
+    onError: (e) => {
+      setForbidden(e instanceof ApiError && e.status === 403)
+      toast({ title: errorMessage(e), tone: 'danger' })
+    },
+  })
+
+  const fileRequest = useMutation({
+    mutationFn: () => {
+      const selections = currentSelections()
+      return promotion.requests.create(
+        mode === 'existing'
+          ? {
+              from_config: from.id,
+              to_config: to!.id,
+              source_version: sourceVersion!,
+              note: '',
+              selections,
+            }
+          : {
+              from_config: from.id,
+              to_env: toEnv.id,
+              to_name: createName!,
+              create: true,
+              source_version: sourceVersion!,
+              note: '',
+              selections,
+            },
+      )
+    },
+    onSuccess: () => {
+      toast({ title: 'Request filed — an approver will review it', tone: 'success' })
+      void qc.invalidateQueries({ queryKey: ['promote-requests'] })
       onDone?.()
       onClose()
     },
@@ -282,6 +325,17 @@ export function PromotionDiffModal({
         </span>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          {forbidden && (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={fileRequest.isPending}
+              disabled={selectedCount === 0}
+              onClick={() => fileRequest.mutate()}
+            >
+              Request approval instead
+            </Button>
+          )}
           <Button
             size="sm"
             loading={apply.isPending}

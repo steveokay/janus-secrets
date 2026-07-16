@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate, matchPath } from 'react-router-dom'
-import { Home, LayoutGrid, ScrollText, KeyRound, Users, Shield, Settings, Plus, RefreshCw, Trash2, Blocks } from 'lucide-react'
+import { Home, LayoutGrid, ScrollText, KeyRound, Users, Shield, Settings, Plus, RefreshCw, Trash2, Blocks, CheckCircle2 } from 'lucide-react'
 import { useProjects, useEnvironments, useConfigs } from '../secrets/nav'
 import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
 import { Config } from '../lib/endpoints'
 import { envTone, envDotClass } from '../ui/env'
 import { cn } from '../ui/cn'
 import { Tooltip } from '../ui/Tooltip'
+import { usePendingApprovalCount } from '../promotion/useRequests'
 
 // Sidebar is a sibling of <Routes>, so useParams() is empty here — derive the
 // active ids from the URL via matchPath.
@@ -94,6 +95,7 @@ const PRIMARY = [
   { to: '/transit', label: 'Transit', Icon: Shield, match: (p: string) => p === '/transit' },
   { to: '/integrations', label: 'Integrations', Icon: Blocks, match: (p: string) => p === '/integrations' },
   { to: '/operations', label: 'Operations', Icon: RefreshCw, match: (p: string) => p === '/operations' },
+  { to: '/approvals', label: 'Approvals', Icon: CheckCircle2, match: (p: string) => p === '/approvals' },
   { to: '/settings', label: 'Settings', Icon: Settings, match: (p: string) => p === '/settings' },
   { to: '/trash', label: 'Trash', Icon: Trash2, match: (p: string) => p === '/trash' },
 ]
@@ -103,6 +105,15 @@ const primaryItem =
 const primaryActive =
   'bg-nav-active font-semibold text-ink shadow-[inset_2px_0_0_var(--nav-rail)] hover:bg-nav-active'
 
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span className="ml-auto inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-pill bg-brand-soft px-1 text-[10.5px] font-semibold tabular-nums text-brand-text">
+      {count}
+    </span>
+  )
+}
+
 export function Sidebar() {
   const { projectId, configId } = useActiveIds()
   const location = useLocation()
@@ -111,6 +122,7 @@ export function Sidebar() {
   const envs = useEnvironments(projectId)
   const [open, setOpen] = useState<OpenForm>(null)
   const projectName = projects.data?.find((p) => p.id === projectId)?.name
+  const { count: pendingApprovals } = usePendingApprovalCount()
 
   return (
     <nav className="text-sm">
@@ -125,6 +137,7 @@ export function Sidebar() {
               className={cn(primaryItem, active && primaryActive)}
             >
               <Icon size={15} strokeWidth={1.7} /> {label}
+              {to === '/approvals' && <NavBadge count={pendingApprovals} />}
             </Link>
           )
         })}
