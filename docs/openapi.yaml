@@ -1,0 +1,2899 @@
+openapi: 3.1.0
+info:
+  title: Janus API
+  version: "0.1.0"
+  description: >
+    Self-hosted, single-tenant secrets manager. All routes are under /v1.
+    Authenticate with a service token (Authorization: Bearer janus_svc_…) or a
+    UI session cookie. Secret values are never returned in list/metadata views.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: /
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Service token (janus_svc_… / janus_user_…).
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: janus_session
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: forbidden }
+            message: { type: string, example: insufficient permissions }
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string, example: acme-web }
+        name: { type: string, example: Acme Web }
+        created_at: { type: string, format: date-time }
+    Environment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        slug: { type: string, example: prod }
+        name: { type: string, example: Production }
+        created_at: { type: string, format: date-time }
+    Config:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        environment_id: { type: string, format: uuid }
+        name: { type: string, example: prod }
+        inherits_from: { type: [string, "null"], format: uuid }
+        created_at: { type: string, format: date-time }
+        promoted_from_env: { type: string, nullable: true }
+        promoted_from_version: { type: integer, nullable: true }
+    TokenMeta:
+      type: object
+      description: Token metadata. The raw token is returned only once, at mint.
+      properties:
+        id: { type: string, example: tok_… }
+        name: { type: string, example: ci-deploy }
+        scope_kind: { type: string, enum: [config, environment] }
+        scope_id: { type: string, format: uuid }
+        access: { type: string, enum: [read, readwrite] }
+        expires_at: { type: [string, "null"], format: date-time }
+    VersionResponse:
+      type: object
+      description: Reference to a newly created config version (value-free).
+      properties:
+        version: { type: integer }
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+    Reads24h:
+      type: object
+      description: Names + counts only; never secret values.
+      properties:
+        reads_24h: { type: integer }
+        top_configs:
+          type: array
+          items:
+            type: object
+            properties:
+              config_id: { type: string }
+              config_name: { type: string }
+              project_name: { type: string }
+              reads: { type: integer }
+        top_tokens:
+          type: array
+          items:
+            type: object
+            properties:
+              token_id: { type: string }
+              token_name: { type: string }
+              reads: { type: integer }
+    TransitKeyMeta:
+      type: object
+      description: Non-secret transit key metadata; never key material.
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [aes256-gcm, ed25519] }
+        latest_version: { type: integer }
+        min_decryption_version: { type: integer }
+        deletion_allowed: { type: boolean }
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              version: { type: integer }
+              created_at: { type: string, format: date-time }
+    RotationPolicy:
+      type: object
+      description: Masked projection; never secrets/DSN/keys/value.
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        config_id: { type: string, format: uuid }
+        secret_key: { type: string }
+        type: { type: string, enum: [postgres, webhook] }
+        interval_seconds: { type: integer }
+        status: { type: string, enum: [active, paused, failed] }
+        failure_count: { type: integer }
+        last_error: { type: string, nullable: true }
+        next_rotation_at: { type: string, format: date-time }
+        last_rotated_at: { type: string, format: date-time, nullable: true }
+        last_config_version: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+    RunRecord:
+      type: object
+      description: One scheduled-run history entry (rotation or sync).
+      properties:
+        id: { type: integer }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        status: { type: string, enum: [success, failure] }
+        error: { type: string, nullable: true }
+        config_version: { type: integer, nullable: true }
+        keys_count: { type: integer, description: Sync runs only. }
+        attempt_num: { type: integer }
+    SyncTarget:
+      type: object
+      description: Masked projection; never creds/fingerprint.
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        config_id: { type: string, format: uuid }
+        provider: { type: string, enum: [github, kubernetes] }
+        prune: { type: boolean }
+        interval_seconds: { type: integer }
+        addr:
+          type: object
+          properties:
+            owner: { type: string }
+            repo: { type: string }
+            environment: { type: string }
+            namespace: { type: string }
+            secret_name: { type: string }
+        status: { type: string, enum: [active, paused, failed] }
+        failure_count: { type: integer }
+        last_error: { type: string, nullable: true }
+        next_sync_at: { type: string, format: date-time }
+        last_synced_at: { type: string, format: date-time, nullable: true }
+        managed_keys:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+    DynamicRole:
+      type: object
+      description: Dynamic Postgres role definition (never admin_dsn/statements' embedded secrets in list/get views beyond what the creator configured).
+      properties:
+        id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        config_id: { type: string, format: uuid }
+        name: { type: string }
+        default_ttl_seconds: { type: integer }
+        max_ttl_seconds: { type: integer }
+        created_at: { type: string, format: date-time }
+    DynamicLease:
+      type: object
+      description: Lease metadata; the one-time password is only ever returned by the issue-creds endpoint.
+      properties:
+        id: { type: string, format: uuid }
+        role_id: { type: string, format: uuid }
+        status: { type: string, enum: [active, expired, revoked] }
+        db_username: { type: string }
+        expires_at: { type: string, format: date-time }
+        max_expires_at: { type: string, format: date-time }
+        renewed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    OIDCProviderView:
+      type: object
+      description: OIDC human-login provider config; carries only a secret_set flag, never the client secret.
+      properties:
+        name: { type: string }
+        issuer: { type: string }
+        client_id: { type: string }
+        secret_set: { type: boolean }
+        scopes:
+          type: array
+          items: { type: string }
+        redirect_url: { type: string }
+        enabled: { type: boolean }
+    FederationConfigView:
+      type: object
+      properties:
+        issuer: { type: string }
+        audience: { type: string }
+        enabled: { type: boolean }
+    FederationBinding:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        match_claims:
+          type: object
+          additionalProperties: { type: string }
+        scope_kind: { type: string, enum: [config, environment] }
+        scope_id: { type: string, format: uuid }
+        access: { type: string, enum: [read, readwrite] }
+        ttl_seconds: { type: integer }
+        enabled: { type: boolean }
+    AuditEvent:
+      type: object
+      description: Value-free by construction; audit never records secret values.
+      properties:
+        seq: { type: integer }
+        occurred_at: { type: string, format: date-time }
+        actor_kind: { type: string, enum: [user, service_token, anonymous, system] }
+        actor_id: { type: string, nullable: true }
+        actor_name: { type: string }
+        action: { type: string }
+        resource: { type: string }
+        detail: { type: string, nullable: true }
+        result: { type: string, enum: [success, denied, error] }
+        result_code: { type: string, nullable: true }
+        ip: { type: string }
+        prev_hash: { type: string }
+        hash: { type: string }
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1 }
+      description: Opt-in cursor pagination page size. Omit for the full list.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but not authorized.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+tags:
+  - { name: projects }
+  - { name: environments }
+  - { name: configs }
+  - { name: secrets }
+  - { name: tokens }
+  - { name: auth }
+  - { name: audit }
+  - { name: transit }
+  - { name: rotation }
+  - { name: sync }
+  - { name: dynamic }
+  - { name: sys }
+  - { name: trash }
+  - { name: promote }
+  - { name: pipeline }
+  - { name: kek }
+  - { name: members }
+  - { name: metrics }
+paths:
+  # ---------------------------------------------------------------------
+  # projects
+  # ---------------------------------------------------------------------
+  /v1/projects:
+    get:
+      tags: [projects]
+      summary: List projects
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: Projects (metadata only).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+                  next_cursor: { type: [string, "null"] }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [projects]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug: { type: string, example: acme-web }
+                name: { type: string, example: Acme Web }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        "400": { description: Validation error. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [projects]
+      summary: Get a project
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [projects]
+      summary: Soft-delete (or, with ?destroy=true, hard-destroy) a project
+      parameters:
+        - name: destroy
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: When true, permanently destroys instead of soft-deleting.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/restore:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [projects, trash]
+      summary: Restore a soft-deleted project
+      responses:
+        "200":
+          description: Restored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/members:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [members]
+      summary: List project members
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: Project role bindings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string }
+                        role: { type: string, enum: [viewer, developer, admin, owner] }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/members/{uid}:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: uid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [members]
+      summary: Grant or update a project member's role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [viewer, developer, admin, owner] }
+      responses:
+        "204": { description: Granted. }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [members]
+      summary: Revoke a project member's role binding
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/pipeline:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [pipeline]
+      summary: Get the project's promotion pipeline (ordered environment ids)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  environment_ids:
+                    type: array
+                    items: { type: string, format: uuid }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [pipeline]
+      summary: Set the project's promotion pipeline order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                environment_ids:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  environment_ids:
+                    type: array
+                    items: { type: string, format: uuid }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/kek:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [kek]
+      summary: Get project KEK status (owner-only, value-free)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current_version: { type: integer }
+                  pending:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version: { type: integer }
+                        dek_count: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/kek/rotate:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [kek]
+      summary: Rotate the project KEK to a fresh version (owner-only)
+      responses:
+        "200":
+          description: Rotated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kek_version: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { description: Server is sealed. }
+  /v1/projects/{pid}/kek/rewrap:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [kek]
+      summary: Re-wrap DEKs still under a superseded KEK version (owner-only, value-free sweep)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rewrapped: { type: integer }
+                  retired_versions:
+                    type: array
+                    items: { type: integer }
+                  remaining: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { description: Server is sealed. }
+  /v1/projects/{pid}/metrics/reads-24h:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [metrics]
+      summary: Per-project secret-read counts over the last 24h
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reads24h' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/promote/preview:
+    get:
+      tags: [promote]
+      summary: Preview a promotion diff between a source and target config (or target env for create-mode)
+      description: >
+        Reveals the source (and, for an existing target, the target) secret
+        values so the caller can review before applying. Audited as a
+        secret.reveal event.
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: uuid }, description: Source config id. }
+        - { name: to, in: query, required: false, schema: { type: string, format: uuid }, description: Existing target config id. }
+        - { name: to_env, in: query, required: false, schema: { type: string, format: uuid }, description: Target environment id (create-mode; mutually exclusive with `to`). }
+      responses:
+        "200":
+          description: Diff (value-bearing; see description).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source_version: { type: integer }
+                  target_exists: { type: boolean }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        status: { type: string, enum: [add, change, remove, same] }
+                        source_value: { type: string, writeOnly: true, example: "<secret value>" }
+                        target_value: { type: string, writeOnly: true, example: "<secret value>" }
+                        locked: { type: boolean }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Not the next allowed pipeline step, or a selected key is locked. }
+  /v1/promote:
+    post:
+      tags: [promote]
+      summary: Apply a promotion from a source config to a target config (existing or newly created)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_config]
+              properties:
+                from_config: { type: string, format: uuid }
+                to_config: { type: string, format: uuid, description: Existing target config id. }
+                to_env: { type: string, format: uuid, description: Target environment id, required when creating the target. }
+                to_name: { type: string, description: Name for a newly created target config. }
+                create: { type: boolean }
+                source_version: { type: integer }
+                selections:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string }
+                      action: { type: string, enum: [apply, skip] }
+      responses:
+        "200":
+          description: >
+            Applied. Value-free: only the target version and applied/skipped
+            key NAMES are returned, never values.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  target_version: { type: integer }
+                  applied:
+                    type: array
+                    items: { type: string }
+                  skipped:
+                    type: array
+                    items: { type: string }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Not the next allowed pipeline step, or a selected key is locked. }
+
+  # ---------------------------------------------------------------------
+  # environments
+  # ---------------------------------------------------------------------
+  /v1/projects/{pid}/environments:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [environments]
+      summary: List environments in a project
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  environments:
+                    type: array
+                    items: { $ref: '#/components/schemas/Environment' }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [environments]
+      summary: Create an environment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug: { type: string, example: staging }
+                name: { type: string, example: Staging }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Environment' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/environments/{eid}:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [environments]
+      summary: Get an environment
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Environment' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [environments]
+      summary: Soft-delete (or, with ?destroy=true, hard-destroy) an environment
+      parameters:
+        - name: destroy
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/environments/{eid}/restore:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [environments, trash]
+      summary: Restore a soft-deleted environment
+      responses:
+        "200":
+          description: Restored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Environment' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/environments/{eid}/members:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [members]
+      summary: List environment members
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: Environment role bindings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string }
+                        role: { type: string, enum: [viewer, developer, admin, owner] }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/environments/{eid}/members/{uid}:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: uid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [members]
+      summary: Grant or update an environment member's role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [viewer, developer, admin, owner] }
+      responses:
+        "204": { description: Granted. }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [members]
+      summary: Revoke an environment member's role binding
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/environments/{eid}/configs:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [configs]
+      summary: List configs in an environment
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configs:
+                    type: array
+                    items: { $ref: '#/components/schemas/Config' }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [configs]
+      summary: Create a config
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: prod }
+                inherits_from: { type: [string, "null"], format: uuid }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Config' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------
+  # configs (by cid) + secrets + versions + locked-keys
+  # ---------------------------------------------------------------------
+  /v1/configs/{cid}:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [configs]
+      summary: Get a config
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Config' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [configs]
+      summary: Soft-delete (or, with ?destroy=true, hard-destroy) a config
+      parameters:
+        - name: destroy
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/restore:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [configs, trash]
+      summary: Restore a soft-deleted config
+      responses:
+        "200":
+          description: Restored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Config' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/secrets:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [secrets]
+      summary: List secrets in a config (masked metadata, or full values with ?reveal=true)
+      description: >
+        By default returns masked per-key metadata only (no values, not
+        audited). With `?reveal=true` resolves and returns every value
+        (references resolved; audited as secret.reveal). With
+        `?reveal=true&raw=true` returns raw stored values without reference
+        resolution (also audited).
+      parameters:
+        - name: reveal
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+        - name: raw
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Only applies when reveal=true.
+      responses:
+        "200":
+          description: OK. Masked by default; value-bearing when reveal=true (see description).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    description: Masked (default).
+                    properties:
+                      secrets:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            value_version: { type: integer }
+                            created_at: { type: string, format: date-time }
+                            origin: { type: string, description: Config id the value is inherited from, or own. }
+                  - type: object
+                    description: Revealed (reveal=true).
+                    properties:
+                      version: { type: integer }
+                      secrets:
+                        type: object
+                        additionalProperties:
+                          type: string
+                          writeOnly: true
+                          example: "<secret value>"
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [secrets]
+      summary: Batch-write secrets (create a new config version)
+      description: Applies one or more key changes atomically as a single new config version.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [changes]
+              properties:
+                message: { type: string, example: "rotate DB creds" }
+                changes:
+                  type: array
+                  items:
+                    type: object
+                    required: [key]
+                    properties:
+                      key: { type: string, example: DATABASE_URL }
+                      value: { type: string, writeOnly: true, example: "<secret value>" }
+                      delete: { type: boolean, default: false }
+      responses:
+        "200":
+          description: New config version created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/secrets/{key}:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [secrets]
+      summary: Reveal one secret's value (always audited)
+      description: >
+        Resolves references by default. `?version={n}` reads a specific
+        historical value-version (always raw). `?raw=true` returns the raw
+        stored value without reference resolution.
+      parameters:
+        - name: version
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1 }
+          description: A specific value-version for this key.
+        - name: raw
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK. Value is a placeholder here; real responses carry the actual secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  value: { type: string, writeOnly: true, example: "<secret value>" }
+                  value_version: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [secrets]
+      summary: Write a single secret key (creates a new config version)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string, writeOnly: true, example: "<secret value>" }
+      responses:
+        "200":
+          description: New config version created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [secrets]
+      summary: Delete a single secret key (creates a new config version)
+      responses:
+        "200":
+          description: New config version created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/secrets/{key}/history:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [secrets]
+      summary: List a key's value-version metadata (masked, not audited)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        value_version: { type: integer }
+                        created_at: { type: string, format: date-time }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/locked-keys:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [promote]
+      summary: List keys locked against promotion overwrite on this config
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items: { type: string }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [promote]
+      summary: Lock a key against promotion overwrite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string }
+      responses:
+        "200":
+          description: Locked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  locked: { type: boolean }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/locked-keys/{key}:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [promote]
+      summary: Unlock a key
+      responses:
+        "200":
+          description: Unlocked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  locked: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/versions:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [configs]
+      summary: List config versions (metadata only, no values)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version: { type: integer }
+                        message: { type: string }
+                        created_by: { type: string }
+                        created_at: { type: string, format: date-time }
+                        promoted_from_env: { type: string }
+                        promoted_from_version: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/versions/diff:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [configs]
+      summary: Diff two config versions (key-level add/change/remove; values masked)
+      parameters:
+        - { name: a, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: b, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  a: { type: integer }
+                  b: { type: integer }
+                  added:
+                    type: array
+                    items: { type: string }
+                  changed:
+                    type: array
+                    items: { type: string }
+                  removed:
+                    type: array
+                    items: { type: string }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/rollback:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [configs]
+      summary: Roll back to a prior config version (creates a new version)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_version]
+              properties:
+                target_version: { type: integer, minimum: 1 }
+                message: { type: string }
+      responses:
+        "200":
+          description: New config version created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionResponse' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------
+  # trash
+  # ---------------------------------------------------------------------
+  /v1/trash:
+    get:
+      tags: [trash]
+      summary: List soft-deleted projects/environments/configs restorable by the caller
+      description: Value-free; items are shown only if the caller holds the same delete-authorization needed to restore them.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        slug: { type: string }
+                        name: { type: string }
+                        deleted_at: { type: string, format: date-time }
+                  environments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        slug: { type: string }
+                        name: { type: string }
+                        project_id: { type: string }
+                        project_name: { type: string }
+                        deleted_at: { type: string, format: date-time }
+                  configs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        environment_id: { type: string }
+                        environment_name: { type: string }
+                        project_id: { type: string }
+                        project_name: { type: string }
+                        deleted_at: { type: string, format: date-time }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------------------------------------------------------------
+  # tokens
+  # ---------------------------------------------------------------------
+  /v1/tokens:
+    get:
+      tags: [tokens]
+      summary: List service tokens (metadata; visibility-filtered to what the caller can read)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: '#/components/schemas/TokenMeta' }
+                  next_cursor: { type: [string, "null"] }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [tokens]
+      summary: Mint a service token
+      description: The raw token is returned exactly once, in this response. It cannot be retrieved again — only re-minted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scope, access]
+              properties:
+                name: { type: string, example: ci-deploy }
+                scope:
+                  type: object
+                  required: [kind, id]
+                  properties:
+                    kind: { type: string, enum: [config, environment] }
+                    id: { type: string, format: uuid }
+                access: { type: string, enum: [read, readwrite] }
+                ttl_seconds: { type: integer, nullable: true, minimum: 1 }
+      responses:
+        "200":
+          description: Minted. `token` is the raw secret, shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, writeOnly: true, example: "<secret value>", description: Raw token, shown once. }
+                  id: { type: string }
+                  name: { type: string }
+                  scope:
+                    type: object
+                    properties:
+                      kind: { type: string }
+                      id: { type: string }
+                  access: { type: string }
+                  expires_at: { type: [string, "null"], format: date-time }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/tokens/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [tokens]
+      summary: Revoke a service token
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------
+  # users / instance members
+  # ---------------------------------------------------------------------
+  /v1/users:
+    get:
+      tags: [members]
+      summary: List users (instance-wide, admin-only)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        email: { type: string }
+                        disabled: { type: boolean }
+                        created_at: { type: string, format: date-time }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [members]
+      summary: Create a user
+      description: Returns a one-time generated password; the user should change it after first login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200":
+          description: Created. `password` is a one-time generated credential.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string }
+                  password: { type: string, writeOnly: true, example: "<secret value>" }
+        "400": { description: Validation error (including duplicate email). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/users/{id}/disable:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [members]
+      summary: Disable a user (cannot disable yourself or the last instance owner)
+      responses:
+        "204": { description: Disabled. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Cannot disable yourself or the last instance owner. }
+  /v1/instance/members:
+    get:
+      tags: [members]
+      summary: List instance-scoped role bindings
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string }
+                        role: { type: string, enum: [viewer, developer, admin, owner] }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/instance/members/{uid}:
+    parameters:
+      - { name: uid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [members]
+      summary: Grant or update an instance-scoped member role (never-lock-out guarded)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [viewer, developer, admin, owner] }
+      responses:
+        "204": { description: Granted. }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Would demote the last instance owner. }
+    delete:
+      tags: [members]
+      summary: Revoke an instance-scoped member role (never-lock-out guarded)
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Would remove the last instance owner. }
+
+  # ---------------------------------------------------------------------
+  # auth
+  # ---------------------------------------------------------------------
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with email + password; sets a session cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, writeOnly: true, example: "<secret value>" }
+      responses:
+        "200":
+          description: Logged in.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string }
+        "400": { description: Validation error. }
+        "401": { description: Invalid credentials. }
+  /v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Log out and clear the session cookie
+      responses:
+        "204": { description: Logged out. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/me:
+    get:
+      tags: [auth]
+      summary: Get the current principal
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind: { type: string, enum: [user, service_token] }
+                  id: { type: string }
+                  name: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/password:
+    post:
+      tags: [auth]
+      summary: Change the current user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old, new]
+              properties:
+                old: { type: string, writeOnly: true, example: "<secret value>" }
+                new: { type: string, writeOnly: true, example: "<secret value>", minLength: 12 }
+      responses:
+        "204": { description: Changed. }
+        "400": { description: Validation error. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/oidc/status:
+    get:
+      tags: [auth]
+      summary: Whether OIDC human login is enabled (public, rate-limited)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  name: { type: string }
+  /v1/auth/oidc/login:
+    get:
+      tags: [auth]
+      summary: Start the OIDC Authorization Code + PKCE login flow (redirects to the IdP)
+      responses:
+        "302": { description: Redirect to the identity provider. }
+        "404": { description: OIDC login is not configured. }
+        "503": { description: Server is sealed. }
+  /v1/auth/oidc/callback:
+    get:
+      tags: [auth]
+      summary: OIDC login callback (browser-bound via state cookie); redirects to the app on success
+      parameters:
+        - { name: state, in: query, required: false, schema: { type: string } }
+        - { name: code, in: query, required: false, schema: { type: string } }
+        - { name: error, in: query, required: false, schema: { type: string } }
+      responses:
+        "302": { description: Redirect to the app with a session cookie set. }
+        "400": { description: Provider error or invalid/missing state binding. }
+        "401": { description: Authentication failed. }
+  /v1/auth/oidc/federate:
+    post:
+      tags: [auth]
+      summary: Exchange a CI OIDC identity token (e.g. GitHub Actions JWT) for a short-lived scoped service token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, writeOnly: true, example: "<secret value>", description: CI-issued OIDC identity token (JWT). }
+      responses:
+        "200":
+          description: Federated. `token` is a freshly minted, short-lived service token.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, writeOnly: true, example: "<secret value>" }
+                  scope:
+                    type: object
+                    properties:
+                      kind: { type: string }
+                      id: { type: string }
+                      access: { type: string }
+                  expires_at: { type: string, format: date-time }
+        "401": { description: Federation exchange failed (uniform response for every cause). }
+
+  # ---------------------------------------------------------------------
+  # audit
+  # ---------------------------------------------------------------------
+  /v1/audit/verify:
+    get:
+      tags: [audit]
+      summary: Walk the hash chain and report integrity status + event count
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified: { type: boolean }
+                  event_count: { type: integer }
+                  broken_at_seq: { type: integer, nullable: true }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/audit/events:
+    get:
+      tags: [audit]
+      summary: Paginated, filterable audit event viewer
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: actor, in: query, required: false, schema: { type: string } }
+        - { name: action, in: query, required: false, schema: { type: string } }
+        - { name: result, in: query, required: false, schema: { type: string, enum: [success, denied, error] } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: integer } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEvent' }
+                  next_cursor: { type: [integer, "null"] }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/audit/export:
+    get:
+      tags: [audit]
+      summary: Stream filtered audit events as JSONL or CSV
+      parameters:
+        - { name: format, in: query, required: false, schema: { type: string, enum: [jsonl, csv], default: jsonl } }
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time } }
+        - { name: actor, in: query, required: false, schema: { type: string } }
+        - { name: action, in: query, required: false, schema: { type: string } }
+        - { name: result, in: query, required: false, schema: { type: string, enum: [success, denied, error] } }
+      responses:
+        "200":
+          description: Streamed file (application/x-ndjson or text/csv).
+          content:
+            application/x-ndjson:
+              schema: { type: string }
+            text/csv:
+              schema: { type: string }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------
+  # metrics
+  # ---------------------------------------------------------------------
+  /v1/metrics/reads-24h:
+    get:
+      tags: [metrics]
+      summary: Instance-wide secret-read counts over the last 24h
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reads24h' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------
+  # transit
+  # ---------------------------------------------------------------------
+  /v1/transit/keys:
+    get:
+      tags: [transit]
+      summary: List transit keys (metadata only, never key material)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items: { $ref: '#/components/schemas/TransitKeyMeta' }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [transit]
+      summary: Create a named transit key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string, example: app-signing-key }
+                type: { type: string, enum: [aes256-gcm, ed25519], example: aes256-gcm }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransitKeyMeta' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/keys/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [transit]
+      summary: Get a transit key's metadata
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransitKeyMeta' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [transit]
+      summary: Delete a transit key (only when deletion_allowed is set)
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/transit/keys/{name}/rotate:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Rotate a transit key to a new version
+      responses:
+        "200":
+          description: Rotated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransitKeyMeta' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/transit/keys/{name}/config:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Update a transit key's configuration (min_decryption_version, deletion_allowed)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_decryption_version: { type: integer, nullable: true }
+                deletion_allowed: { type: boolean, nullable: true }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransitKeyMeta' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/keys/{name}/trim:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Trim old key versions below a minimum available version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_available_version: { type: integer }
+      responses:
+        "200":
+          description: Trimmed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransitKeyMeta' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/encrypt/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Encrypt plaintext under a transit key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Plaintext: { type: string, format: byte, writeOnly: true, example: "<base64 secret value>" }
+                AssociatedData: { type: string, format: byte }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ciphertext: { type: string }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/decrypt/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Decrypt ciphertext previously produced by transit encrypt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [Ciphertext]
+              properties:
+                Ciphertext: { type: string }
+                AssociatedData: { type: string, format: byte }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plaintext: { type: string, format: byte, writeOnly: true, example: "<base64 secret value>" }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/sign/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Sign input with an Ed25519 transit key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Input: { type: string, format: byte }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signature: { type: string }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/verify/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Verify an Ed25519 signature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Input: { type: string, format: byte }
+                Signature: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid: { type: boolean }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/rewrap/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Rewrap ciphertext under the key's latest version without exposing plaintext
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [Ciphertext]
+              properties:
+                Ciphertext: { type: string }
+                AssociatedData: { type: string, format: byte }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ciphertext: { type: string }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/datakey/plaintext/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Generate a data encryption key, returning both plaintext and wrapped forms
+      description: The plaintext DEK is deliberately returned once by this explicit endpoint; use the wrapped-only variant when plaintext exposure is not needed.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ciphertext: { type: string }
+                  plaintext: { type: string, format: byte, writeOnly: true, example: "<base64 secret value>" }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/transit/datakey/wrapped/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [transit]
+      summary: Generate a data encryption key, returning only its wrapped form
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ciphertext: { type: string }
+        "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------
+  # rotation
+  # ---------------------------------------------------------------------
+  /v1/rotation/policies:
+    get:
+      tags: [rotation]
+      summary: List rotation policies for a project
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policies:
+                    type: array
+                    items: { $ref: '#/components/schemas/RotationPolicy' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [rotation]
+      summary: Create a rotation policy (Postgres ALTER ROLE or generic webhook)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config_id, secret_key, type]
+              properties:
+                config_id: { type: string, format: uuid }
+                secret_key: { type: string, example: DATABASE_PASSWORD }
+                type: { type: string, enum: [postgres, webhook] }
+                interval_seconds: { type: integer }
+                config:
+                  type: object
+                  description: Rotator-specific config; credential fields are write-only.
+                  properties:
+                    admin_dsn: { type: string, writeOnly: true, example: "<secret value>" }
+                    role: { type: string }
+                    password_len: { type: integer }
+                    url: { type: string }
+                    hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+                    notify_url: { type: string }
+                    notify_hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+      responses:
+        "201":
+          description: Created (masked; no secrets/DSN/keys in the response).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RotationPolicy' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: A policy already exists for this config and key. }
+  /v1/rotation/policies/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [rotation]
+      summary: Get a rotation policy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RotationPolicy' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [rotation]
+      summary: Update a rotation policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                interval_seconds: { type: integer, nullable: true }
+                status: { type: string, nullable: true, enum: [active, paused, failed] }
+                config:
+                  type: object
+                  nullable: true
+                  properties:
+                    admin_dsn: { type: string, writeOnly: true, example: "<secret value>" }
+                    role: { type: string }
+                    password_len: { type: integer }
+                    url: { type: string }
+                    hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+                    notify_url: { type: string }
+                    notify_hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RotationPolicy' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [rotation]
+      summary: Delete a rotation policy
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/rotation/policies/{id}/runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [rotation]
+      summary: List run history for a rotation policy (cursor-paginated)
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: '#/components/schemas/RunRecord' }
+                  next_cursor: { type: [integer, "null"] }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/rotation/policies/{id}/rotate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [rotation]
+      summary: Trigger an immediate rotation for this policy
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rotated: { type: boolean }
+                  config_version: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "503": { description: Server is sealed. }
+
+  # ---------------------------------------------------------------------
+  # sync
+  # ---------------------------------------------------------------------
+  /v1/sync/targets:
+    get:
+      tags: [sync]
+      summary: List sync targets for a project
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  targets:
+                    type: array
+                    items: { $ref: '#/components/schemas/SyncTarget' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [sync]
+      summary: Create a sync target (GitHub Actions secrets or Kubernetes Secrets)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config_id, provider]
+              properties:
+                config_id: { type: string, format: uuid }
+                provider: { type: string, enum: [github, kubernetes] }
+                prune: { type: boolean, nullable: true, description: "Defaults to true when omitted." }
+                interval_seconds: { type: integer }
+                addr:
+                  type: object
+                  properties:
+                    owner: { type: string, description: GitHub owner (github provider). }
+                    repo: { type: string, description: GitHub repo (github provider). }
+                    environment: { type: string, description: GitHub environment name (github provider). }
+                    namespace: { type: string, description: Kubernetes namespace (kubernetes provider). }
+                    secret_name: { type: string, description: Kubernetes Secret name (kubernetes provider). }
+                creds:
+                  type: object
+                  description: Provider credentials; all fields write-only.
+                  properties:
+                    pat: { type: string, writeOnly: true, example: "<secret value>", description: GitHub PAT. }
+                    api_url: { type: string, description: Kubernetes API server URL. }
+                    ca_cert: { type: string, writeOnly: true, example: "<secret value>", description: Kubernetes cluster CA cert. }
+                    token: { type: string, writeOnly: true, example: "<secret value>", description: Kubernetes bearer token. }
+      responses:
+        "201":
+          description: Created (masked; no creds/fingerprint in the response).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncTarget' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: A target already exists for this config, provider, and destination. }
+  /v1/sync/targets/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [sync]
+      summary: Get a sync target
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncTarget' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [sync]
+      summary: Update a sync target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                interval_seconds: { type: integer, nullable: true }
+                prune: { type: boolean, nullable: true }
+                status: { type: string, nullable: true, enum: [active, paused, failed] }
+                addr:
+                  type: object
+                  nullable: true
+                  properties:
+                    owner: { type: string }
+                    repo: { type: string }
+                    environment: { type: string }
+                    namespace: { type: string }
+                    secret_name: { type: string }
+                creds:
+                  type: object
+                  nullable: true
+                  properties:
+                    pat: { type: string, writeOnly: true, example: "<secret value>" }
+                    api_url: { type: string }
+                    ca_cert: { type: string, writeOnly: true, example: "<secret value>" }
+                    token: { type: string, writeOnly: true, example: "<secret value>" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncTarget' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [sync]
+      summary: Delete a sync target
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/sync/targets/{id}/runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [sync]
+      summary: List run history for a sync target (cursor-paginated)
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: '#/components/schemas/RunRecord' }
+                  next_cursor: { type: [integer, "null"] }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/sync/targets/{id}/sync:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [sync]
+      summary: Trigger an immediate sync for this target
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  synced: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "503": { description: Server is sealed. }
+
+  # ---------------------------------------------------------------------
+  # dynamic
+  # ---------------------------------------------------------------------
+  /v1/dynamic/roles:
+    get:
+      tags: [dynamic]
+      summary: List dynamic Postgres roles for a config
+      parameters:
+        - { name: config_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items: { $ref: '#/components/schemas/DynamicRole' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [dynamic]
+      summary: Create a dynamic Postgres role definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config_id, name]
+              properties:
+                config_id: { type: string, format: uuid }
+                name: { type: string, example: readonly-app }
+                default_ttl_seconds: { type: integer }
+                max_ttl_seconds: { type: integer }
+                config:
+                  type: object
+                  description: Admin-authored SQL templates ({{name}}/{{password}}/{{expiration}} interpolated).
+                  properties:
+                    admin_dsn: { type: string, writeOnly: true, example: "<secret value>" }
+                    creation_statements: { type: string, example: "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';" }
+                    revocation_statements: { type: string, example: "DROP ROLE IF EXISTS \"{{name}}\";" }
+                    renew_statements: { type: string, example: "ALTER ROLE \"{{name}}\" VALID UNTIL '{{expiration}}';" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DynamicRole' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: A role already exists for this config and name. }
+  /v1/dynamic/roles/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [dynamic]
+      summary: Get a dynamic role definition
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DynamicRole' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [dynamic]
+      summary: Update a dynamic role definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_ttl_seconds: { type: integer, nullable: true }
+                max_ttl_seconds: { type: integer, nullable: true }
+                config:
+                  type: object
+                  nullable: true
+                  properties:
+                    admin_dsn: { type: string, writeOnly: true, example: "<secret value>" }
+                    creation_statements: { type: string }
+                    revocation_statements: { type: string }
+                    renew_statements: { type: string }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DynamicRole' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [dynamic]
+      summary: Delete a dynamic role definition
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/dynamic/roles/{id}/creds:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [dynamic]
+      summary: Issue a new dynamic credential lease
+      description: The generated password is returned exactly once, in this response; it is never persisted or audited in plaintext.
+      responses:
+        "201":
+          description: Issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lease_id: { type: string }
+                  username: { type: string }
+                  password: { type: string, writeOnly: true, example: "<secret value>", description: Returned once; not persisted. }
+                  expires_at: { type: string, format: date-time }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "503": { description: Server is sealed. }
+  /v1/dynamic/leases:
+    get:
+      tags: [dynamic]
+      summary: List credential leases for a role
+      parameters:
+        - { name: role_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leases:
+                    type: array
+                    items: { $ref: '#/components/schemas/DynamicLease' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/dynamic/leases/{id}/renew:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [dynamic]
+      summary: Renew an active lease (extends expiry, capped at the role's max TTL)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DynamicLease' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Lease is not active. }
+  /v1/dynamic/leases/{id}/revoke:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [dynamic]
+      summary: Revoke a lease immediately (drops the database role)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------
+  # sys
+  # ---------------------------------------------------------------------
+  /v1/sys/health:
+    get:
+      tags: [sys]
+      summary: Basic health/init/seal snapshot (unauthenticated)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  initialized: { type: boolean }
+                  sealed: { type: boolean }
+  /v1/sys/live:
+    get:
+      tags: [sys]
+      summary: Process liveness probe (touches nothing; unauthenticated)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: live }
+  /v1/sys/ready:
+    get:
+      tags: [sys]
+      summary: Readiness probe (DB reachable AND initialized AND unsealed; unauthenticated)
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ready }
+        "503": { description: Not ready (database unreachable, not initialized, or sealed). }
+  /v1/sys/seal-status:
+    get:
+      tags: [sys]
+      summary: Seal type, initialization, and unseal progress (unauthenticated)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  initialized: { type: boolean }
+                  sealed: { type: boolean }
+                  type: { type: string, enum: [shamir, awskms] }
+                  threshold: { type: integer }
+                  shares: { type: integer }
+                  progress:
+                    type: object
+                    nullable: true
+                    properties:
+                      submitted: { type: integer }
+                      required: { type: integer }
+  /v1/sys/init:
+    post:
+      tags: [sys]
+      summary: Initialize the seal (pre-auth bootstrap; only succeeds on an uninitialized instance)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                shares: { type: integer, description: Shamir only; 0 uses library defaults. }
+                threshold: { type: integer, description: Shamir only. }
+                admin_email: { type: string, format: email, default: admin@localhost }
+      responses:
+        "200":
+          description: >
+            Initialized. For a Shamir seal, `shares` is the ONLY copy of the
+            unseal shares, returned once. `admin.password` is a one-time
+            generated credential.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string, enum: [shamir, awskms] }
+                  shares:
+                    type: array
+                    items: { type: string, writeOnly: true, example: "<secret value>" }
+                  admin:
+                    type: object
+                    nullable: true
+                    properties:
+                      email: { type: string }
+                      password: { type: string, writeOnly: true, example: "<secret value>" }
+        "400": { description: Invalid seal parameters. }
+        "409": { description: Seal is already initialized. }
+  /v1/sys/unseal:
+    post:
+      tags: [sys]
+      summary: Submit an unseal share (Shamir) or trigger auto-unseal (KMS)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                share: { type: string, writeOnly: true, example: "<secret value>", description: Hex-encoded Shamir share; omit for a KMS seal. }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sealed: { type: boolean }
+                  progress:
+                    type: object
+                    nullable: true
+                    properties:
+                      submitted: { type: integer }
+                      required: { type: integer }
+        "400": { description: Not initialized, invalid share, or duplicate share. }
+  /v1/sys/unseal/reset:
+    post:
+      tags: [sys]
+      summary: Discard shares submitted so far in the current unseal attempt (Shamir only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sealed: { type: boolean }
+        "400": { description: Not initialized, or seal is not Shamir. }
+  /v1/sys/restore:
+    post:
+      tags: [sys]
+      summary: Restore a full-instance backup (pre-auth bootstrap; only succeeds on an empty instance)
+      requestBody:
+        required: true
+        content:
+          application/x-ndjson:
+            schema:
+              type: string
+              description: A backup header line followed by one JSON record line per row (as produced by GET /v1/sys/backup).
+      responses:
+        "200":
+          description: Restored.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: boolean }
+                  sealed: { type: boolean }
+        "409": { description: Instance is not empty. }
+        "422": { description: Malformed, incompatible, or empty backup; instance left unchanged. }
+  /v1/sys/seal:
+    post:
+      tags: [sys]
+      summary: Seal the server (drops the in-memory master key)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sealed: { type: boolean }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/backup:
+    get:
+      tags: [sys]
+      summary: Stream a key-preserving full-instance backup (JSONL, rows as stored — no plaintext secrets)
+      responses:
+        "200":
+          description: Streamed backup file.
+          content:
+            application/x-ndjson:
+              schema: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/version:
+    get:
+      tags: [sys]
+      summary: Build metadata (version, commit, date)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  commit: { type: string }
+                  date: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/sys/oidc:
+    get:
+      tags: [sys]
+      summary: Get the OIDC human-login provider configuration (secret_set flag only, never the client secret)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OIDCProviderView' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [sys]
+      summary: Set the OIDC human-login provider configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, example: Google }
+                issuer: { type: string, example: "https://accounts.google.com" }
+                client_id: { type: string }
+                client_secret: { type: string, writeOnly: true, example: "<secret value>" }
+                scopes:
+                  type: array
+                  items: { type: string }
+                redirect_url: { type: string }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "400": { description: Invalid provider config. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [sys]
+      summary: Delete the OIDC human-login provider configuration
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/oidc/federation:
+    get:
+      tags: [sys]
+      summary: Get the OIDC CI-federation (machine identity) configuration
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FederationConfigView' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [sys]
+      summary: Set the OIDC CI-federation configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                issuer: { type: string, example: "https://token.actions.githubusercontent.com" }
+                audience: { type: string }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        "400": { description: Invalid federation config. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [sys]
+      summary: Delete the OIDC CI-federation configuration
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/oidc/federation/bindings:
+    get:
+      tags: [sys]
+      summary: List CI-federation trust bindings
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FederationBinding' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [sys]
+      summary: Create a CI-federation trust binding (structured claim match -> scoped token grant)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, example: deploy-prod }
+                match_claims:
+                  type: object
+                  additionalProperties: { type: string }
+                  example: { repository: "acme/web" }
+                scope_kind: { type: string, enum: [config, environment] }
+                scope_id: { type: string, format: uuid }
+                access: { type: string, enum: [read, readwrite] }
+                ttl_seconds: { type: integer, maximum: 3600 }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FederationBinding' }
+        "400": { description: Invalid binding or unknown scope. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/oidc/federation/bindings/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [sys]
+      summary: Delete a CI-federation trust binding
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/sys/master-key:
+    get:
+      tags: [sys]
+      summary: Get master-key status (seal type, version, rotated_at, rekey ceremony progress). Owner-only.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unseal_type: { type: string, enum: [shamir, awskms] }
+                  master_key_version: { type: integer }
+                  rekey_in_progress: { type: boolean }
+                  submitted: { type: integer }
+                  required: { type: integer }
+                  rotated_at: { type: [string, "null"], format: date-time }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/master-key/rotate:
+    post:
+      tags: [sys]
+      summary: Rotate the master key in a single call (KMS seals only; Shamir requires a rekey ceremony). Owner-only.
+      responses:
+        "200":
+          description: Rotated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  master_key_version: { type: integer }
+        "400": { description: Shamir seal requires a rekey ceremony. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { description: Server is sealed. }
+  /v1/sys/master-key/rekey/init:
+    post:
+      tags: [sys]
+      summary: Open a Shamir master-key rekey (proof-of-possession) ceremony. Owner-only.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nonce: { type: string }
+                  required: { type: integer }
+                  submitted: { type: integer }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: A rekey ceremony is already in progress. }
+        "503": { description: Server is sealed. }
+  /v1/sys/master-key/rekey/submit:
+    post:
+      tags: [sys]
+      summary: Submit one current unseal share to the open rekey ceremony. Owner-only.
+      description: On completion, the response carries the operator's only copy of the freshly generated unseal shares.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nonce, share]
+              properties:
+                nonce: { type: string }
+                share: { type: string, writeOnly: true, example: "<secret value>", description: Hex-encoded current unseal share. }
+      responses:
+        "200":
+          description: OK. `new_shares` is present only when the ceremony completes on this call.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  complete: { type: boolean }
+                  submitted: { type: integer }
+                  required: { type: integer }
+                  master_key_version: { type: integer }
+                  new_shares:
+                    type: array
+                    items: { type: string, writeOnly: true, example: "<secret value>" }
+        "400": { description: Invalid nonce/share, or rejected by reconstruction. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/master-key/rekey:
+    delete:
+      tags: [sys]
+      summary: Cancel the open rekey ceremony (zeroizes accumulated shares). Owner-only.
+      responses:
+        "204": { description: Canceled. }
+        "400": { description: KMS seal has no ceremony to cancel. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: No ceremony is open. }
