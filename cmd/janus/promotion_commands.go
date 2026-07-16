@@ -186,6 +186,7 @@ func newPromoteCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&includeRemoves, "include-removes", false, "with --all, also propagate removed keys")
 	cmd.Flags().BoolVar(&createTarget, "create-target", false, "create the target config if it does not exist")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the diff and exit without applying")
+	addPromoteRequestSubcommands(cmd)
 	return cmd
 }
 

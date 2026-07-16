@@ -29,4 +29,30 @@ test('primary nav links to the dev-focused destinations', async () => {
   expect(screen.getByRole('link', { name: 'Tokens' })).toHaveAttribute('href', '/tokens')
   expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
   expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute('href', '/integrations')
+  expect(screen.getByRole('link', { name: /approvals/i })).toHaveAttribute('href', '/approvals')
+})
+
+test('approvals nav entry shows a pending-count badge when there are pending requests', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'acme', name: 'Acme' }] })),
+    http.get('/v1/promote/requests', ({ request }) => {
+      const status = new URL(request.url).searchParams.get('status')
+      if (status === 'pending') return HttpResponse.json({ requests: [{ id: 'r1' }, { id: 'r2' }] })
+      return HttpResponse.json({ requests: [] })
+    }),
+  )
+  renderApp(<Sidebar />, { route: '/', withAuth: false })
+  const link = await screen.findByRole('link', { name: /approvals/i })
+  expect(await screen.findByText('2')).toBeInTheDocument()
+  expect(link).toBeInTheDocument()
+})
+
+test('approvals nav entry shows no badge when there are zero pending requests', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'acme', name: 'Acme' }] })),
+    http.get('/v1/promote/requests', () => HttpResponse.json({ requests: [] })),
+  )
+  renderApp(<Sidebar />, { route: '/', withAuth: false })
+  await screen.findByRole('link', { name: /approvals/i })
+  expect(screen.queryByText('0')).not.toBeInTheDocument()
 })

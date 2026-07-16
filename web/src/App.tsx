@@ -14,6 +14,7 @@ import { HomePage } from './home/HomePage'
 import { ProjectsList } from './home/ProjectsList'
 import { ProjectBoard } from './home/ProjectBoard'
 import { PipelineSettings } from './promotion/PipelineSettings'
+import { ApprovalsPage } from './promotion/ApprovalsPage'
 import { AuditPage } from './audit/AuditPage'
 import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
@@ -69,6 +70,7 @@ function Gate() {
             <Route path="/transit" element={<TransitPage />} />
             <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/operations" element={<OperationsPage />} />
+            <Route path="/approvals" element={<ApprovalsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/trash" element={<TrashPage />} />
             <Route path="*" element={<NotFound />} />

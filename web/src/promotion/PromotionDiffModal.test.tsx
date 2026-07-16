@@ -218,3 +218,48 @@ test('an apply error keeps the modal open and shows a danger toast', async () =>
   await waitFor(() => expect(screen.getByText('FEATURE_WALLET')).toBeInTheDocument())
   expect(onClose).not.toHaveBeenCalled()
 })
+
+test('a 403 on apply offers "Request approval instead" with the same selection', async () => {
+  mockPreview()
+  server.use(
+    http.post('/v1/promote', () =>
+      HttpResponse.json({ error: { code: 'forbidden', message: 'you cannot promote to this target' } }, { status: 403 }),
+    ),
+  )
+  renderModal()
+  await screen.findByText('FEATURE_WALLET')
+  await userEvent.click(screen.getByRole('button', { name: /promote 2 keys/i }))
+  expect(await screen.findByRole('button', { name: /request approval instead/i })).toBeInTheDocument()
+})
+
+test('filing a request from the fallback posts the same selection as a promotion request', async () => {
+  mockPreview()
+  server.use(
+    http.post('/v1/promote', () =>
+      HttpResponse.json({ error: { code: 'forbidden', message: 'you cannot promote to this target' } }, { status: 403 }),
+    ),
+  )
+  let body: any
+  server.use(
+    http.post('/v1/promote/requests', async ({ request }) => {
+      body = await request.json()
+      return HttpResponse.json({ id: 'req-9', status: 'pending' }, { status: 201 })
+    }),
+  )
+  const onClose = vi.fn()
+  renderModal({ onClose })
+  await screen.findByText('FEATURE_WALLET')
+  await userEvent.click(screen.getByRole('button', { name: /promote 2 keys/i }))
+  await userEvent.click(await screen.findByRole('button', { name: /request approval instead/i }))
+  await waitFor(() => expect(body).toBeTruthy())
+  expect(body.from_config).toBe('c-dev')
+  expect(body.to_config).toBe('c-stg')
+  expect(body.source_version).toBe(12)
+  const sels = (body.selections as { key: string; action: string }[]).sort((a, b) => a.key.localeCompare(b.key))
+  expect(sels).toEqual([
+    { key: 'FEATURE_WALLET', action: 'set' },
+    { key: 'LOG_LEVEL', action: 'set' },
+  ])
+  expect(await screen.findByText(/request filed/i)).toBeInTheDocument()
+  await waitFor(() => expect(onClose).toHaveBeenCalled())
+})

@@ -16,6 +16,10 @@ func TestPromotionActionMatrix(t *testing.T) {
 		{RoleDeveloper, PromotionManage, false},
 		{RoleAdmin, PromotionManage, true},
 		{RoleOwner, PromotionManage, true},
+		{RoleViewer, PromotionRequest, false},
+		{RoleDeveloper, PromotionRequest, true},
+		{RoleAdmin, PromotionRequest, true},
+		{RoleOwner, PromotionRequest, true},
 	}
 	for _, c := range cases {
 		if got := roleAllows(c.role, c.action); got != c.want {

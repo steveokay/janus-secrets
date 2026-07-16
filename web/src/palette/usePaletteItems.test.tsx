@@ -64,3 +64,9 @@ test('includes a Go to Integrations nav action', () => {
   const { result } = renderHook(() => usePaletteItems(), { wrapper: wrapper(qc, '/') })
   expect(result.current.some((i: PaletteItem) => i.label === 'Go to Integrations' && i.to === '/integrations')).toBe(true)
 })
+
+test('includes a Go to Approvals nav action', () => {
+  const qc = seed()
+  const { result } = renderHook(() => usePaletteItems(), { wrapper: wrapper(qc, '/') })
+  expect(result.current.some((i: PaletteItem) => i.label === 'Go to Approvals' && i.to === '/approvals')).toBe(true)
+})

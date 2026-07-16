@@ -78,6 +78,7 @@ type Service struct {
 	envs       *store.EnvironmentRepo
 	pipeline   *store.PipelineRepo
 	locked     *store.LockedKeyRepo
+	requests   *store.PromotionRequestRepo
 }
 
 func New(sec *secrets.Service, st *store.Store) *Service {
@@ -88,6 +89,7 @@ func New(sec *secrets.Service, st *store.Store) *Service {
 		envs:       store.NewEnvironmentRepo(st),
 		pipeline:   store.NewPipelineRepo(st),
 		locked:     store.NewLockedKeyRepo(st),
+		requests:   store.NewPromotionRequestRepo(st),
 	}
 }
 
