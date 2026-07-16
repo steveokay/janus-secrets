@@ -106,6 +106,140 @@ TOKEN=$(kubectl -n myapp create token janus-sync --duration=8760h)
 > non-expiring token, provision a legacy Secret-backed ServiceAccount
 > token instead — at the cost of a longer-lived credential.
 
+#### Generating the `--k8s-token` (ServiceAccount token)
+
+The `--k8s-token` (and the **Token** field in the web UI's k8s sync form)
+is a **Kubernetes credential**, issued **by your cluster** — not by Janus.
+It is the `janus-sync` ServiceAccount's bearer token, and Janus presents
+it to your API server as `Authorization: Bearer <token>`. **Janus cannot
+generate it:** minting a Kubernetes token requires a privileged cluster
+credential, and Janus is only the *consumer* of the least-privilege token
+you provide. So you always create it on the Kubernetes side and paste /
+pass the value into Janus.
+
+> This is a different thing from a **Janus service token** (`janus_svc_…`),
+> which Janus *does* issue (see [service-tokens.md](service-tokens.md)):
+> that one lets apps/CI authenticate **to** Janus. The `--k8s-token` lets
+> Janus authenticate **to your Kubernetes cluster**. Don't confuse them.
+
+Two ways to mint it, both against the `janus-sync` ServiceAccount from
+step 1:
+
+**Bound, expiring token (recommended)** — the TokenRequest API, one
+command:
+
+```sh
+kubectl -n myapp create token janus-sync --duration=8760h
+```
+
+Prints the token to stdout. The duration is capped by the cluster (some
+cap well below a year); rotate before expiry with
+`janus sync update <id> --k8s-token <new>`.
+
+**Legacy Secret-backed token (non-expiring)** — when you want a static,
+long-lived token (older clusters, or to avoid rotation). This is also the
+most UI-friendly path, since it's just a resource you create and read:
+
+```sh
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: janus-sync-token
+  namespace: myapp
+  annotations:
+    kubernetes.io/service-account.name: janus-sync
+type: kubernetes.io/service-account-token
+YAML
+
+# the token value to paste into Janus:
+kubectl -n myapp get secret janus-sync-token -o jsonpath='{.data.token}' | base64 -d
+# bonus — the same Secret also carries the cluster CA for --ca-cert:
+kubectl -n myapp get secret janus-sync-token -o jsonpath='{.data.ca\.crt}' | base64 -d
+```
+
+Treat a non-expiring token as a sensitive long-lived credential: Janus
+stores it envelope-encrypted and never echoes it back, but rotate it if it
+leaks.
+
+**Prefer a GUI over `kubectl`?** The token is still a Kubernetes artifact,
+so you generate it with a Kubernetes tool, not Janus:
+
+- **Kubernetes Dashboard** — apply the ServiceAccount / RBAC / token
+  Secret above via its resource editor, then open the `janus-sync-token`
+  Secret and reveal the `token` value.
+- **Lens / OpenLens** (desktop) — create the ServiceAccount and token
+  Secret, then copy the token from the Secret view.
+- **Cloud console Cloud Shell** (EKS/GKE/AKS) — runs `kubectl create
+  token …` in the browser with no local install.
+
+Then paste the value into the web UI's **Token** field (Operations → Sync
+→ create target → Provider `k8s`) or pass it as `--k8s-token`.
+
+#### What goes in the `--api-url` field
+
+`--api-url` is the base URL of the cluster's **Kubernetes API server**
+(the control plane). Janus appends the REST path itself, issuing
+`PATCH {api-url}/api/v1/namespaces/{namespace}/secrets/{secret-name}`, so
+you supply **only scheme + host + port** — no path, no trailing slash. It
+is the same value your kubeconfig uses as the cluster `server`
+(the `kubectl config view … {.clusters[0].cluster.server}` command above
+prints exactly this).
+
+Rules that bite people:
+
+- **HTTPS only, and the host must match the cert.** Janus verifies the
+  API server's TLS against `--ca-cert` with no skip-verify, so the host
+  in the URL must be a Subject Alternative Name (SAN) on the API server's
+  serving certificate. Safest path: use the exact `server` string
+  `kubectl` uses together with its matching CA — don't swap a DNS name for
+  an IP (or vice-versa).
+- **No path / no trailing slash.** `https://api.example.com:6443` ✅ —
+  not `.../` and not `.../api/v1`.
+
+Which endpoint to use depends on where **Janus** runs relative to the
+cluster:
+
+| Janus location | `--api-url` value |
+|---|---|
+| Outside the cluster (standalone binary/container) | The cluster's externally reachable endpoint — the kubeconfig `server` (e.g. an EKS/GKE/AKS HTTPS endpoint, or `https://<control-plane>:6443`). Must be network-reachable **from the Janus host**. |
+| Inside the cluster (Janus itself is a pod) | The in-cluster endpoint `https://kubernetes.default.svc`, with the in-cluster CA at `/var/run/secrets/kubernetes.io/serviceaccount/ca.crt`. |
+
+##### Docker Desktop's built-in Kubernetes
+
+Docker Desktop's kubeconfig (`docker-desktop` context) has
+`server: https://kubernetes.docker.internal:6443` (older versions:
+`https://127.0.0.1:6443`). Its API-server cert includes SANs for
+`kubernetes.docker.internal`, `localhost`, and `127.0.0.1` — but **not**
+`host.docker.internal`. Pull the CA from that context specifically:
+
+```sh
+CACERT=$(kubectl config view --raw --minify --context docker-desktop \
+  -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)
+```
+
+- **Janus runs on the host** (same machine as Docker Desktop): use
+  `--api-url https://kubernetes.docker.internal:6443` (or
+  `https://127.0.0.1:6443`). Both resolve and both are cert SANs.
+- **Janus runs inside a container** (e.g. this repo's compose stack):
+  `127.0.0.1` would point at the Janus container itself, not the host. The
+  reachable host address is `host.docker.internal` — but that name is
+  **not** a cert SAN, so strict TLS verification fails. Fix it by mapping
+  the SAN hostname to the host gateway and using that name (so the URL
+  host still matches the cert). Add to the `janus` service in
+  `docker-compose.yml`:
+
+  ```yaml
+  extra_hosts:
+    - "kubernetes.docker.internal:host-gateway"
+  ```
+
+  then set `--api-url https://kubernetes.docker.internal:6443`. Now the
+  container resolves `kubernetes.docker.internal` to the host, reaches the
+  API server, **and** the hostname matches a cert SAN so verification
+  passes. (Do **not** use `host.docker.internal` in the URL — it routes
+  correctly but fails cert verification, and Janus has no skip-verify.)
+
 ### 3. Create the sync target in Janus
 
 `--prune` defaults to `true`, which is what you want for a Janus-managed

@@ -84,7 +84,12 @@ Applies use **server-side apply** (`fieldManager=janus`) against
 retry and Kubernetes itself tracks which fields Janus owns.
 
 - **Addr:** `namespace`/`secret_name`.
-- **Creds:** `api_url`/`token`/`ca_cert`.
+- **Creds:** `api_url`/`token`/`ca_cert`. `api_url` is the API server base
+  URL (scheme + host + port, no path — Janus appends
+  `/api/v1/namespaces/…`); its host must be a SAN on the server cert since
+  TLS is verified against `ca_cert`. For which endpoint to use (outside vs.
+  inside the cluster, and the Docker Desktop container case), see
+  [kubernetes.md § What goes in the `--api-url` field](../guides/kubernetes.md#what-goes-in-the---api-url-field).
 
 ## GitHub key-name constraint
 
