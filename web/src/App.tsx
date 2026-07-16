@@ -18,6 +18,7 @@ import { AuditPage } from './audit/AuditPage'
 import { TokensPage } from './tokens/TokensPage'
 import { MembersPage } from './members/MembersPage'
 import { TransitPage } from './transit/TransitPage'
+import { IntegrationsPage } from './integrations/IntegrationsPage'
 import { OperationsPage } from './operations/OperationsPage'
 import { SettingsPage } from './settings/SettingsPage'
 import { TrashPage } from './trash/TrashPage'
@@ -66,6 +67,7 @@ function Gate() {
             <Route path="/tokens" element={<TokensPage />} />
             <Route path="/members" element={<MembersPage />} />
             <Route path="/transit" element={<TransitPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/operations" element={<OperationsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/trash" element={<TrashPage />} />
