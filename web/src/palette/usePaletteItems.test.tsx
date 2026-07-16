@@ -58,3 +58,9 @@ test('omits configs/secrets when no active project (top-level route)', () => {
   expect(result.current.some((i) => i.group === 'Configs')).toBe(false)
   expect(result.current.some((i) => i.group === 'Secrets')).toBe(false)
 })
+
+test('includes a Go to Integrations nav action', () => {
+  const qc = seed()
+  const { result } = renderHook(() => usePaletteItems(), { wrapper: wrapper(qc, '/') })
+  expect(result.current.some((i: PaletteItem) => i.label === 'Go to Integrations' && i.to === '/integrations')).toBe(true)
+})

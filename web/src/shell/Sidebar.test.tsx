@@ -28,4 +28,5 @@ test('primary nav links to the dev-focused destinations', async () => {
   expect(screen.getByRole('link', { name: 'Members' })).toHaveAttribute('href', '/members')
   expect(screen.getByRole('link', { name: 'Tokens' })).toHaveAttribute('href', '/tokens')
   expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
+  expect(screen.getByRole('link', { name: 'Integrations' })).toHaveAttribute('href', '/integrations')
 })
