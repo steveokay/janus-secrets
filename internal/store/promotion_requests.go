@@ -139,35 +139,18 @@ func (r *PromotionRequestRepo) listBy(ctx context.Context, column, value, status
 	return out, nil
 }
 
-// ClaimForApply atomically transitions a pending request to applied, recording
-// the approver. Returns ErrNotFound if the request is missing or not pending
-// (e.g. already claimed by a concurrent approver).
-func (r *PromotionRequestRepo) ClaimForApply(ctx context.Context, id, approver string) error {
+// MarkApplied atomically transitions a pending request to applied, recording
+// the approver and the resulting target config version in one statement. It is
+// called ONLY after the promotion has actually succeeded, so an applied row
+// always corresponds to a real promotion (no stranded "applied" state on an
+// apply failure). Returns ErrNotFound if the request is missing or no longer
+// pending (e.g. a concurrent approver won the race).
+func (r *PromotionRequestRepo) MarkApplied(ctx context.Context, id, approver string, version int) error {
 	return r.s.execAffectingOne(ctx, `
 		UPDATE promotion_requests
-		SET status = 'applied', decided_by = $2::uuid, decided_at = now()
+		SET status = 'applied', decided_by = $2::uuid, decided_at = now(), applied_target_version = $3
 		WHERE id = $1::uuid AND status = 'pending'`,
-		id, approver)
-}
-
-// SetAppliedVersion records the resulting target config version on an
-// already-applied request.
-func (r *PromotionRequestRepo) SetAppliedVersion(ctx context.Context, id string, version int) error {
-	return r.s.execAffectingOne(ctx, `
-		UPDATE promotion_requests
-		SET applied_target_version = $2
-		WHERE id = $1::uuid AND status = 'applied'`,
-		id, version)
-}
-
-// RevertToPending undoes a claim (e.g. because applying the promotion failed
-// after the claim was taken), clearing decision/applied-version fields.
-func (r *PromotionRequestRepo) RevertToPending(ctx context.Context, id string) error {
-	return r.s.execAffectingOne(ctx, `
-		UPDATE promotion_requests
-		SET status = 'pending', decided_by = NULL, decided_at = NULL, applied_target_version = NULL
-		WHERE id = $1::uuid AND status = 'applied'`,
-		id)
+		id, approver, version)
 }
 
 // Decide transitions a pending request to a terminal decision (e.g.

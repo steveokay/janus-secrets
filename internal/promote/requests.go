@@ -81,9 +81,6 @@ func (s *Service) ApproveRequest(ctx context.Context, id, approver string) (Appl
 	if req.Status != "pending" {
 		return ApplyResult{}, ErrRequestConflict
 	}
-	if err := s.requests.ClaimForApply(ctx, id, approver); err != nil {
-		return ApplyResult{}, ErrRequestConflict
-	}
 	target := ""
 	if req.TargetConfigID != nil {
 		target = *req.TargetConfigID
@@ -92,6 +89,12 @@ func (s *Service) ApproveRequest(ctx context.Context, id, approver string) (Appl
 	for _, sel := range req.Selections {
 		sels = append(sels, Selection{Key: sel.Key, Action: Action(sel.Action)})
 	}
+	// Apply FIRST; only mark the request applied once the promotion actually
+	// succeeded. On an apply failure the request is left pending (no write), so
+	// an "applied" row always corresponds to a real promotion — never a stranded
+	// state. The mark is an atomic CAS (pending -> applied): if a concurrent
+	// approver won the race in the meantime it returns ErrNotFound, which we
+	// surface as a conflict (the promotion still happened and is returned).
 	res, err := s.Apply(ctx, ApplyRequest{
 		SourceConfigID: req.SourceConfigID,
 		TargetConfigID: target,
@@ -103,11 +106,10 @@ func (s *Service) ApproveRequest(ctx context.Context, id, approver string) (Appl
 		Actor:          approver,
 	})
 	if err != nil {
-		_ = s.requests.RevertToPending(ctx, id)
-		return ApplyResult{}, err
+		return ApplyResult{}, err // request stays pending; can be retried or cancelled
 	}
-	if verr := s.requests.SetAppliedVersion(ctx, id, res.TargetVersion); verr != nil {
-		return res, verr
+	if merr := s.requests.MarkApplied(ctx, id, approver, res.TargetVersion); merr != nil {
+		return res, ErrRequestConflict
 	}
 	return res, nil
 }

@@ -161,6 +161,13 @@ func (s *Server) handlePromoteRequestList(w http.ResponseWriter, r *http.Request
 	var list []*store.PromotionRequest
 	var err error
 	if mine {
+		// A service token has no user identity, so it can own no requests; return
+		// an empty list rather than issuing a `requested_by = ''::uuid` query that
+		// Postgres would reject as a malformed uuid (a spurious 500).
+		if promoteActorUser(r) == "" {
+			writeJSON(w, http.StatusOK, map[string]any{"requests": []map[string]any{}})
+			return
+		}
 		list, err = s.promote.ListRequestsByRequester(r.Context(), promoteActorUser(r), status)
 	} else {
 		list, err = s.promote.ListRequestsByProject(r.Context(), projectID, status)

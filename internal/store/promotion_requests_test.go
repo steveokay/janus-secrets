@@ -88,19 +88,14 @@ func TestPromotionRequestLifecycle(t *testing.T) {
 		t.Fatalf("want 1 request by requester, got %+v", byRequester)
 	}
 
-	// ClaimForApply succeeds once.
-	if err := repo.ClaimForApply(ctx, created.ID, approver); err != nil {
-		t.Fatalf("ClaimForApply: %v", err)
+	// MarkApplied atomically transitions pending -> applied with the version.
+	if err := repo.MarkApplied(ctx, created.ID, approver, 2); err != nil {
+		t.Fatalf("MarkApplied: %v", err)
 	}
 
-	// Second claim on the same (now non-pending) request -> ErrNotFound.
-	if err := repo.ClaimForApply(ctx, created.ID, approver); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("second ClaimForApply: want ErrNotFound, got %v", err)
-	}
-
-	// SetAppliedVersion succeeds against the claimed (applied) request.
-	if err := repo.SetAppliedVersion(ctx, created.ID, 2); err != nil {
-		t.Fatalf("SetAppliedVersion: %v", err)
+	// Second MarkApplied on the same (now non-pending) request -> ErrNotFound.
+	if err := repo.MarkApplied(ctx, created.ID, approver, 3); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second MarkApplied: want ErrNotFound, got %v", err)
 	}
 
 	final, err := repo.Get(ctx, created.ID)
