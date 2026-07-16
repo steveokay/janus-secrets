@@ -12,6 +12,9 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestStringFormat(t *testing.T) {
+	// Restore the package globals so test order can't leak the mutated values.
+	origV, origC, origD := Version, Commit, Date
+	defer func() { Version, Commit, Date = origV, origC, origD }()
 	Version, Commit, Date = "1.2.3", "abc1234", "2026-07-16T00:00:00Z"
 	got := String()
 	for _, want := range []string{"1.2.3", "abc1234", "2026-07-16T00:00:00Z"} {
