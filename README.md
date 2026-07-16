@@ -38,8 +38,10 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > [managing secrets](docs/guides/managing-secrets.md),
 > [service tokens](docs/guides/service-tokens.md),
 > [GitHub Actions](docs/guides/github-actions.md),
-> [Docker](docs/guides/docker.md), and
-> [Kubernetes](docs/guides/kubernetes.md).
+> [Docker](docs/guides/docker.md),
+> [Kubernetes](docs/guides/kubernetes.md), and
+> [production deployment](docs/guides/production-deployment.md) (TLS
+> termination, configuration, unseal, sizing, backups, and upgrades).
 > The subsystem **references** cover
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
 > [data model & versioning](docs/data-model.md),

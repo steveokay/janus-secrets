@@ -34,6 +34,10 @@ Task-oriented walkthroughs for the common workflows:
 - [Kubernetes integration](guides/kubernetes.md) — syncing a config to a
   namespaced `Secret`, refreshing running pods, and whether you need a
   controller (you don't, for the sync itself).
+- [Production deployment](guides/production-deployment.md) — TLS termination
+  (Caddy/nginx), the full `JANUS_*` configuration reference, unseal in
+  production (Shamir vs. KMS auto-unseal), running the released image,
+  sizing, backups, upgrades, and monitoring.
 
 ## System functionality
 
@@ -87,6 +91,11 @@ Running Janus and connecting it to the outside world:
   reference.
 - [Dynamic Postgres credentials](ops/dynamic.md) — Vault-style short-lived
   database roles with a TTL/renewal/revocation lease manager. **Implemented.**
+
+## API reference
+
+- [OpenAPI spec](openapi.yaml) — machine-readable REST API definition for
+  all `/v1/` routes; feed it to your favorite OpenAPI viewer/codegen tool.
 
 ## Design specs & plans
 
