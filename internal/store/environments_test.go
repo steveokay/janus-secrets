@@ -122,3 +122,49 @@ func TestEnvironmentRepo_ListByProjectPage(t *testing.T) {
 		t.Fatalf("covered %d of 5", len(seen))
 	}
 }
+
+func TestEnvironmentRepo_LastActivity(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	pr := NewProjectRepo(s)
+	er := NewEnvironmentRepo(s)
+	cr := NewConfigRepo(s)
+	sr := NewSecretRepo(s)
+
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pr.Create(ctx, id, "p", "P", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e1, err := er.Create(ctx, p.ID, "dev", "Dev") // will get a version
+	if err != nil {
+		t.Fatal(err)
+	}
+	e2, err := er.Create(ctx, p.ID, "prod", "Prod") // stays empty
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, err := cr.Create(ctx, e1.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sr.SaveConfigVersion(ctx, c1.ID, nil, "init", "tester"); err != nil {
+		t.Fatalf("save version: %v", err)
+	}
+
+	m, err := er.LastActivity(ctx, []string{e1.ID, e2.ID})
+	if err != nil {
+		t.Fatalf("LastActivity: %v", err)
+	}
+	if _, ok := m[e1.ID]; !ok {
+		t.Errorf("e1 should have activity")
+	}
+	if _, ok := m[e2.ID]; ok {
+		t.Errorf("e2 empty, should be absent")
+	}
+}
