@@ -289,3 +289,38 @@ func mkConfigNamed(t *testing.T, s *Store, projectSlug, envSlug, cfgName string)
 	}
 	return p.ID, e.ID, c.ID
 }
+
+// TestSecretRepo_TypePersisted asserts that a Change's Type is persisted on
+// its secret_values row and read back on SecretValue, and that an empty Type
+// defaults to "string".
+func TestSecretRepo_TypePersisted(t *testing.T) {
+	st := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	_, _, configID := mkConfig(t, st, "prod")
+	sr := NewSecretRepo(st)
+	enc := func(vv int) (*EncryptedValue, error) {
+		return &EncryptedValue{WrappedDEK: []byte("w"), Ciphertext: []byte("c"), Nonce: []byte("n"), DEKKeyVersion: 1}, nil
+	}
+	if _, err := sr.SaveConfigVersion(ctx, configID, []Change{{Key: "CONF", Type: "json", Encrypt: enc}}, "init", "tester"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	_, state, err := sr.GetLatest(ctx, configID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if state["CONF"].Type != "json" {
+		t.Errorf("Type = %q, want json", state["CONF"].Type)
+	}
+	// empty Type must default to "string"
+	if _, err := sr.SaveConfigVersion(ctx, configID, []Change{{Key: "PLAIN", Encrypt: enc}}, "", "tester"); err != nil {
+		t.Fatalf("save2: %v", err)
+	}
+	_, state2, err := sr.GetLatest(ctx, configID)
+	if err != nil {
+		t.Fatalf("get2: %v", err)
+	}
+	if state2["PLAIN"].Type != "string" {
+		t.Errorf("empty Type should default to string, got %q", state2["PLAIN"].Type)
+	}
+}

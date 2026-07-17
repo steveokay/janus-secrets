@@ -66,8 +66,10 @@ func (r *SecretRepo) SaveConfigVersion(ctx context.Context, configID string, cha
 		// This also prevents a set-then-delete of the same key in one batch from
 		// leaving an orphan secret_values row. A nil closure means delete.
 		final := make(map[string]func(int) (*EncryptedValue, error), len(changes))
+		types := make(map[string]string, len(changes))
 		for _, ch := range changes {
 			final[ch.Key] = ch.Encrypt
+			types[ch.Key] = ch.Type
 		}
 
 		// Apply the net changes, recording keys deleted in this version.
@@ -86,14 +88,18 @@ func (r *SecretRepo) SaveConfigVersion(ctx context.Context, configID string, cha
 				if err != nil {
 					return err
 				}
+				secretType := types[key]
+				if secretType == "" {
+					secretType = "string"
+				}
 				var svID string
 				if err := tx.QueryRow(ctx,
 					`INSERT INTO secret_values
-					   (config_id, key, value_version, wrapped_dek, ciphertext, nonce, dek_key_version)
-					 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+					   (config_id, key, value_version, wrapped_dek, ciphertext, nonce, dek_key_version, type)
+					 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
 					 RETURNING id::text`,
 					configID, key, nextVV, val.WrappedDEK, val.Ciphertext,
-					val.Nonce, val.DEKKeyVersion).Scan(&svID); err != nil {
+					val.Nonce, val.DEKKeyVersion, secretType).Scan(&svID); err != nil {
 					return err
 				}
 				livePtrs[key] = svID
@@ -168,7 +174,7 @@ func (r *SecretRepo) GetVersion(ctx context.Context, configID string, version in
 
 	rows, err := r.s.pool.Query(ctx,
 		`SELECT sv.id::text, sv.config_id::text, sv.key, sv.value_version,
-		        sv.wrapped_dek, sv.ciphertext, sv.nonce, sv.dek_key_version, sv.created_at
+		        sv.wrapped_dek, sv.ciphertext, sv.nonce, sv.dek_key_version, sv.created_at, sv.type
 		 FROM config_version_entries e
 		 JOIN secret_values sv ON sv.id = e.secret_value_id
 		 WHERE e.config_version_id = $1::uuid AND NOT e.tombstone`, cv.ID)
@@ -181,7 +187,7 @@ func (r *SecretRepo) GetVersion(ctx context.Context, configID string, version in
 	for rows.Next() {
 		var sv SecretValue
 		if err := rows.Scan(&sv.ID, &sv.ConfigID, &sv.Key, &sv.ValueVersion,
-			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt); err != nil {
+			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt, &sv.Type); err != nil {
 			return ConfigVersion{}, nil, mapError(err)
 		}
 		state[sv.Key] = sv
@@ -199,10 +205,10 @@ func (r *SecretRepo) GetValueByID(ctx context.Context, id string) (SecretValue, 
 	var sv SecretValue
 	err := r.s.pool.QueryRow(ctx,
 		`SELECT id::text, config_id::text, key, value_version,
-		        wrapped_dek, ciphertext, nonce, dek_key_version, created_at
+		        wrapped_dek, ciphertext, nonce, dek_key_version, created_at, type
 		 FROM secret_values WHERE id = $1::uuid`, id).
 		Scan(&sv.ID, &sv.ConfigID, &sv.Key, &sv.ValueVersion,
-			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt)
+			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt, &sv.Type)
 	if err != nil {
 		return SecretValue{}, mapError(err)
 	}
@@ -279,7 +285,7 @@ func (r *SecretRepo) LatestPromotionByConfig(ctx context.Context, configIDs []st
 func (r *SecretRepo) GetKeyHistory(ctx context.Context, configID, key string) ([]SecretValue, error) {
 	rows, err := r.s.pool.Query(ctx,
 		`SELECT id::text, config_id::text, key, value_version,
-		        wrapped_dek, ciphertext, nonce, dek_key_version, created_at
+		        wrapped_dek, ciphertext, nonce, dek_key_version, created_at, type
 		 FROM secret_values WHERE config_id = $1::uuid AND key = $2
 		 ORDER BY value_version ASC`, configID, key)
 	if err != nil {
@@ -290,7 +296,7 @@ func (r *SecretRepo) GetKeyHistory(ctx context.Context, configID, key string) ([
 	for rows.Next() {
 		var sv SecretValue
 		if err := rows.Scan(&sv.ID, &sv.ConfigID, &sv.Key, &sv.ValueVersion,
-			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt); err != nil {
+			&sv.WrappedDEK, &sv.Ciphertext, &sv.Nonce, &sv.DEKKeyVersion, &sv.CreatedAt, &sv.Type); err != nil {
 			return nil, mapError(err)
 		}
 		out = append(out, sv)
