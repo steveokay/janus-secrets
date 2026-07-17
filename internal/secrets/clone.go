@@ -15,11 +15,28 @@ import (
 // normal SetSecrets write path (the value AAD binds config_id, so blobs cannot be
 // copied verbatim). No secret value is logged or audited here — the caller emits
 // a single value-free env.clone event.
-func (s *Service) CloneEnvironment(ctx context.Context, projectID, srcEnvID, newSlug, newName, actor string) (*store.Environment, error) {
+//
+// This is NOT fully atomic — the store layer offers no cross-call transaction, so
+// the config/secret copies land as separate writes. As a best-effort compensating
+// action, if any step after the environment is created fails, the newly created
+// environment is soft-deleted before the error propagates, so a failed clone never
+// leaves a LIVE partially-populated environment behind. The cleanup is itself
+// best-effort: a soft-delete failure is swallowed and the ORIGINAL clone error is
+// what returns.
+func (s *Service) CloneEnvironment(ctx context.Context, projectID, srcEnvID, newSlug, newName, actor string) (env *store.Environment, err error) {
 	newEnv, err := s.CreateEnvironment(ctx, projectID, newSlug, newName)
 	if err != nil {
 		return nil, err
 	}
+	// From here on, any error triggers a best-effort soft-delete of the partially
+	// built environment. Named returns let this run at every downstream error site
+	// without duplicating the cleanup call. On the success path err is nil and the
+	// closure is a no-op.
+	defer func() {
+		if err != nil {
+			_ = s.envs.SoftDelete(ctx, newEnv.ID) // best-effort; original err wins
+		}
+	}()
 
 	srcConfigs, err := s.configs.ListByEnvironment(ctx, srcEnvID)
 	if err != nil {

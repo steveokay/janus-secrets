@@ -101,3 +101,58 @@ func TestCloneEnvironment(t *testing.T) {
 		t.Fatalf("newBranch BRANCH_ONLY = %q, want b1", gotBranch.Value)
 	}
 }
+
+// TestCloneEnvironmentCleanupOnFailure forces a mid-clone failure and asserts the
+// best-effort compensating cleanup ran: the newly created environment must not be
+// left LIVE. The fault seam is the keyring — after building the source tree we
+// seal it, so copyOwnSecrets→RevealConfig fails to decrypt the source, which
+// happens only AFTER CreateEnvironment succeeded (the copy step, not the env
+// create). CloneEnvironment must then soft-delete the new env and return the error.
+func TestCloneEnvironmentCleanupOnFailure(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+
+	slug := fmt.Sprintf("proj-%d", slugSeq.Add(1))
+	p, err := s.CreateProject(ctx, slug, "Clone Cleanup Project")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	src, err := s.CreateEnvironment(ctx, p.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatalf("CreateEnvironment src: %v", err)
+	}
+	root, err := s.CreateConfig(ctx, src.ID, "root", nil)
+	if err != nil {
+		t.Fatalf("CreateConfig root: %v", err)
+	}
+	if _, err := s.SetSecrets(ctx, root.ID, []SecretChange{
+		{Key: "API_KEY", Value: []byte("v1")},
+	}, "", "tester"); err != nil {
+		t.Fatalf("SetSecrets root: %v", err)
+	}
+
+	// Seal the keyring so the copy step (RevealConfig) fails mid-clone, after the
+	// new environment has already been created.
+	s.keyring.Seal()
+
+	const newSlug = "staging"
+	newEnv, err := s.CloneEnvironment(ctx, p.ID, src.ID, newSlug, "Staging", "tester")
+	if err == nil {
+		t.Fatalf("CloneEnvironment succeeded despite sealed keyring; want error")
+	}
+	if newEnv != nil {
+		t.Fatalf("CloneEnvironment returned env %v alongside error; want nil", newEnv)
+	}
+
+	// The compensating cleanup must have soft-deleted the new env: it must not
+	// appear among the project's LIVE environments.
+	live, err := s.envs.ListByProject(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ListByProject: %v", err)
+	}
+	for _, e := range live {
+		if e.Slug == newSlug {
+			t.Fatalf("cloned env %q left LIVE after failed clone; cleanup did not run", newSlug)
+		}
+	}
+}
