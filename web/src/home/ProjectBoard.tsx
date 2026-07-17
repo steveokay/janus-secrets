@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQueries, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Lock, Plus, Layers, ArrowRight, GitBranch, CornerUpRight, Trash2 } from 'lucide-react'
+import * as Menu from '@radix-ui/react-dropdown-menu'
+import { Lock, Plus, Layers, ArrowRight, GitBranch, CornerUpRight, Trash2, MoreHorizontal } from 'lucide-react'
 import { endpoints, Config, Environment } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
@@ -14,9 +15,17 @@ import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
 import { opsEndpoints, type RotationView, type SyncView } from '../operations/endpoints'
 import { CreateEnvironmentForm, CreateConfigForm } from '../structure/CreateForms'
+import { RenameDialog } from '../structure/RenameDialog'
+import { CloneEnvDialog } from '../structure/CloneEnvDialog'
 import { ProjectReadsStrip } from '../metrics/ReadsStrip'
 import { usePipeline } from '../promotion/usePipeline'
 import { PromotionDiffModal } from '../promotion/PromotionDiffModal'
+import { recencyLabel } from './recency'
+
+const menuItem =
+  'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-text'
+const menuItemDanger =
+  'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-danger outline-none data-[highlighted]:bg-danger-soft'
 
 // Per-env config-list state, keyed by env id so column reorder can never
 // misalign a column with another env's configs (see ProjectBoard).
@@ -98,12 +107,21 @@ function ConfigCard({ pid, config, depth, ops, promote }: {
       }
       onDragEnd={canPromote ? () => promote.onDragEnd() : undefined}
       className={cn(
-        'flex flex-col gap-1 rounded border border-line bg-card px-3 py-2 hover:border-brand-line',
+        'relative flex flex-col gap-1 rounded border border-line bg-card px-3 py-2 hover:border-brand-line',
         depth > 0 && 'ml-4',
       )}
     >
+      {depth > 0 && (
+        <span
+          data-testid="inherit-connector"
+          aria-hidden
+          className="pointer-events-none absolute -left-4 top-0 h-1/2 w-4"
+        >
+          <span className="absolute left-0 top-0 h-full w-px bg-line" />
+          <span className="absolute left-0 top-full h-px w-4 bg-line" />
+        </span>
+      )}
       <div className="flex items-center gap-2">
-        {depth > 0 && <span className="text-[11px] text-info">↳</span>}
         <Lock size={12} strokeWidth={1.7} className="text-ink-faint" />
         <span className="font-mono text-[12.5px] text-ink">{config.name}</span>
         {config.promoted_from_env && (
@@ -194,14 +212,36 @@ function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarg
   const qc = useQueryClient()
   const toast = useToast()
   const [confirmEnv, setConfirmEnv] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [cloning, setCloning] = useState(false)
   const delEnv = useMutation({
     mutationFn: () => endpoints.deleteEnvironment(pid, env.id),
     onSuccess: () => { toast({ title: `Moved ${env.name} to Trash` }); void qc.invalidateQueries({ queryKey: ['envs', pid] }) },
     onError: () => toast({ title: 'Delete failed', tone: 'danger' }),
   })
+  const rename = useMutation({
+    mutationFn: (name: string) => endpoints.renameEnvironment(pid, env.id, name),
+    onSuccess: (_data, name) => {
+      toast({ title: `Renamed to ${name}` })
+      void qc.invalidateQueries({ queryKey: ['envs', pid] })
+      setRenaming(false)
+    },
+    onError: () => toast({ title: 'Rename failed', tone: 'danger' }),
+  })
+  const clone = useMutation({
+    mutationFn: ({ slug, name }: { slug: string; name: string }) => endpoints.cloneEnvironment(pid, env.id, slug, name),
+    onSuccess: () => {
+      toast({ title: `Cloned ${env.name}` })
+      void qc.invalidateQueries({ queryKey: ['envs', pid] })
+      void qc.invalidateQueries({ queryKey: ['configs', pid] })
+      setCloning(false)
+    },
+    onError: () => toast({ title: 'Clone failed', tone: 'danger' }),
+  })
   const tone = envTone(env.name)
   const roots = configs.filter((c) => !c.inherits_from || !configs.some((x) => x.id === c.inherits_from))
   const count = loading ? '…' : error ? '—' : `${configs.length} config${configs.length === 1 ? '' : 's'}`
+  const recency = recencyLabel(env)
   return (
     <section
       onDragOver={isDropTarget ? (e) => e.preventDefault() : undefined}
@@ -213,20 +253,39 @@ function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarg
         dimmed && 'opacity-50',
       )}
     >
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-0.5 flex items-center justify-between">
         <h3 className="text-[13px] font-semibold text-ink">{env.name}</h3>
         <div className="flex items-center gap-1.5">
           <Pill tone="muted">{count}</Pill>
-          <button
-            type="button"
-            aria-label={`delete environment ${env.name}`}
-            onClick={() => setConfirmEnv(true)}
-            className="flex h-5 w-5 items-center justify-center rounded text-ink-faint hover:bg-danger-soft hover:text-danger"
-          >
-            <Trash2 size={12} strokeWidth={1.8} />
-          </button>
+          <Menu.Root>
+            <Menu.Trigger
+              aria-label={`actions for ${env.name}`}
+              className="flex h-5 w-5 items-center justify-center rounded text-ink-faint outline-none hover:bg-row-hover hover:text-ink data-[state=open]:bg-row-hover"
+            >
+              <MoreHorizontal size={14} strokeWidth={1.8} />
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Content
+                align="end"
+                sideOffset={6}
+                className="min-w-[170px] rounded-card border border-line bg-card p-1.5 shadow-pop"
+              >
+                <Menu.Item className={menuItem} onSelect={() => setRenaming(true)}>
+                  Rename
+                </Menu.Item>
+                <Menu.Item className={menuItem} onSelect={() => setCloning(true)}>
+                  Clone environment
+                </Menu.Item>
+                <Menu.Separator className="my-1 h-px bg-line-soft" />
+                <Menu.Item className={menuItemDanger} onSelect={() => setConfirmEnv(true)}>
+                  Delete
+                </Menu.Item>
+              </Menu.Content>
+            </Menu.Portal>
+          </Menu.Root>
         </div>
       </div>
+      {recency && <div className="mb-1 text-[10px] text-ink-faint">{recency}</div>}
       <ConfirmDialog
         open={confirmEnv}
         onOpenChange={setConfirmEnv}
@@ -236,6 +295,20 @@ function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarg
         tone="danger"
         onConfirm={() => { setConfirmEnv(false); delEnv.mutate() }}
       />
+      {renaming && (
+        <RenameDialog
+          title={`Rename ${env.name}`}
+          initial={env.name}
+          onSubmit={(name) => rename.mutate(name)}
+          onClose={() => setRenaming(false)}
+        />
+      )}
+      {cloning && (
+        <CloneEnvDialog
+          onSubmit={(slug, name) => clone.mutate({ slug, name })}
+          onClose={() => setCloning(false)}
+        />
+      )}
       <div className={cn('mb-3 h-[3px] w-10 rounded-full', envDotClass[tone])} />
       <button
         type="button"

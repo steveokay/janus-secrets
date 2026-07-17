@@ -177,7 +177,7 @@ func TestNoSecretValueInLogsOrErrorResponse(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, nil)))
 	defer slog.SetDefault(prev)
 
-	ts, _, email, password, cid := authStackFull(t)
+	ts, srv, email, password, cid := authStackFull(t)
 	cookie := login(t, ts.URL, email, password)
 
 	const sentinel = "SENTINEL-LEAK-CANARY-9f3a"
@@ -186,6 +186,35 @@ func TestNoSecretValueInLogsOrErrorResponse(t *testing.T) {
 	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/CANARY", cookie, "",
 		fmt.Sprintf(`{"value":%q}`, sentinel), nil); code != 200 {
 		t.Fatalf("write CANARY: %d", code)
+	}
+
+	// Clone the env that owns this config (carrying the sentinel through the clone
+	// decrypt->re-encrypt path) and assert the value never surfaces in logs or
+	// audit. Resolve the source env + project from cid via the store.
+	srcCfg, err := store.NewConfigRepo(srv.st).Get(context.Background(), cid)
+	if err != nil {
+		t.Fatalf("get config: %v", err)
+	}
+	srcEnv, err := store.NewEnvironmentRepo(srv.st).Get(context.Background(), srcCfg.EnvironmentID)
+	if err != nil {
+		t.Fatalf("get env: %v", err)
+	}
+	if code := doAuthed(t, "POST",
+		ts.URL+"/v1/projects/"+srcEnv.ProjectID+"/environments/"+srcEnv.ID+"/clone", cookie, "",
+		`{"slug":"leakclone","name":"LeakClone"}`, nil); code != 201 {
+		t.Fatalf("clone env: %d", code)
+	}
+
+	// The clone must not have written the sentinel into any audit_events row.
+	var auditDump strings.Builder
+	if err := store.NewAuditRepo(srv.st).Iterate(context.Background(), func(a store.AuditRow) error {
+		auditDump.WriteString(a.Action + "|" + a.Resource + "|" + derefStr(a.Detail) + "\n")
+		return nil
+	}); err != nil {
+		t.Fatalf("iterate audit: %v", err)
+	}
+	if strings.Contains(auditDump.String(), sentinel) {
+		t.Fatal("sentinel secret value leaked into an audit_events row via clone")
 	}
 
 	// Reveal it — the value is expected in the client response, never in logs.

@@ -1,6 +1,9 @@
 package store
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // EnvironmentRepo persists environments.
 type EnvironmentRepo struct{ s *Store }
@@ -107,6 +110,14 @@ func (r *EnvironmentRepo) ListByProject(ctx context.Context, projectID string) (
 	return r.ListByProjectPage(ctx, projectID, 0, nil)
 }
 
+// UpdateName sets an environment's display name. Slug is immutable. Returns
+// ErrNotFound if the environment does not exist or is soft-deleted.
+func (r *EnvironmentRepo) UpdateName(ctx context.Context, id, name string) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE environments SET name = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, name)
+}
+
 // SoftDelete marks an environment deleted.
 func (r *EnvironmentRepo) SoftDelete(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx,
@@ -125,4 +136,35 @@ func (r *EnvironmentRepo) Undelete(ctx context.Context, id string) error {
 // ErrParentNotFound if a child config still references it.
 func (r *EnvironmentRepo) Destroy(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx, `DELETE FROM environments WHERE id = $1::uuid`, id)
+}
+
+// LastActivity returns, for each given LIVE environment id that has at least one
+// config version, the timestamp of its most recent version. Ids with no activity
+// — including soft-deleted environments, even if they still have versions — are
+// absent. Empty input returns an empty map without querying.
+func (r *EnvironmentRepo) LastActivity(ctx context.Context, ids []string) (map[string]time.Time, error) {
+	out := make(map[string]time.Time, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.s.pool.Query(ctx, `
+		SELECT e.id::text, max(cv.created_at)
+		FROM environments e
+		JOIN configs c ON c.environment_id = e.id AND c.deleted_at IS NULL
+		JOIN config_versions cv ON cv.config_id = c.id
+		WHERE e.deleted_at IS NULL AND e.id::text = ANY($1)
+		GROUP BY e.id`, ids)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var ts time.Time
+		if err := rows.Scan(&id, &ts); err != nil {
+			return nil, mapError(err)
+		}
+		out[id] = ts
+	}
+	return out, mapError(rows.Err())
 }

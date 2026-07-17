@@ -39,6 +39,11 @@ components:
         slug: { type: string, example: acme-web }
         name: { type: string, example: Acme Web }
         created_at: { type: string, format: date-time }
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Most recent config-version timestamp across the project's configs; null if none.
     Environment:
       type: object
       properties:
@@ -47,6 +52,11 @@ components:
         slug: { type: string, example: prod }
         name: { type: string, example: Production }
         created_at: { type: string, format: date-time }
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Most recent config-version timestamp across the environment's configs; null if none.
     Config:
       type: object
       properties:
@@ -394,6 +404,27 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Project' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [projects]
+      summary: Rename a project (name only; slug is immutable)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        "400": { description: Validation error. }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
     delete:
@@ -886,6 +917,27 @@ paths:
               schema: { $ref: '#/components/schemas/Environment' }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [environments]
+      summary: Rename an environment (name only; slug is immutable)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: Renamed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Environment' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [environments]
       summary: Soft-delete (or, with ?destroy=true, hard-destroy) an environment
@@ -913,6 +965,38 @@ paths:
               schema: { $ref: '#/components/schemas/Environment' }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/environments/{eid}/clone:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [environments]
+      summary: Clone an environment (deep-copy config tree + each config's latest secrets)
+      description: >
+        Creates a new environment in the same project and deep-copies the source
+        environment's config tree, remapping inheritance, and re-encrypts each
+        config's own latest secrets under the new config's key. Admin+. The
+        env.clone audit event is value-free (source/new env ids only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug: { type: string, example: staging }
+                name: { type: string, example: Staging }
+      responses:
+        "201":
+          description: Cloned. Returns the new environment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Environment' }
+        "400": { description: Validation error (slug is required). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: An environment with that slug already exists. }
   /v1/projects/{pid}/environments/{eid}/members:
     parameters:
       - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }

@@ -122,3 +122,105 @@ func TestEnvironmentRepo_ListByProjectPage(t *testing.T) {
 		t.Fatalf("covered %d of 5", len(seen))
 	}
 }
+
+func TestEnvironmentRepo_LastActivity(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	pr := NewProjectRepo(s)
+	er := NewEnvironmentRepo(s)
+	cr := NewConfigRepo(s)
+	sr := NewSecretRepo(s)
+
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pr.Create(ctx, id, "p", "P", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e1, err := er.Create(ctx, p.ID, "dev", "Dev") // will get a version
+	if err != nil {
+		t.Fatal(err)
+	}
+	e2, err := er.Create(ctx, p.ID, "prod", "Prod") // stays empty
+	if err != nil {
+		t.Fatal(err)
+	}
+	e3, err := er.Create(ctx, p.ID, "old", "Old") // has a version but soft-deleted
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, err := cr.Create(ctx, e1.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sr.SaveConfigVersion(ctx, c1.ID, nil, "init", "tester"); err != nil {
+		t.Fatalf("save version: %v", err)
+	}
+	c3, err := cr.Create(ctx, e3.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sr.SaveConfigVersion(ctx, c3.ID, nil, "init", "tester"); err != nil {
+		t.Fatalf("save version: %v", err)
+	}
+	if err := er.SoftDelete(ctx, e3.ID); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	m, err := er.LastActivity(ctx, []string{e1.ID, e2.ID, e3.ID})
+	if err != nil {
+		t.Fatalf("LastActivity: %v", err)
+	}
+	if _, ok := m[e1.ID]; !ok {
+		t.Errorf("e1 should have activity")
+	}
+	if _, ok := m[e2.ID]; ok {
+		t.Errorf("e2 empty, should be absent")
+	}
+	if _, ok := m[e3.ID]; ok {
+		t.Errorf("e3 soft-deleted, should be absent despite having a version")
+	}
+}
+
+func TestEnvironmentRepo_UpdateName(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	projects := NewProjectRepo(s)
+	repo := NewEnvironmentRepo(s)
+
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := projects.Create(ctx, id, "acme", "Acme", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := repo.Create(ctx, p.ID, "prod", "Production")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.UpdateName(ctx, e.ID, "Prod (new)"); err != nil {
+		t.Fatalf("UpdateName: %v", err)
+	}
+	got, err := repo.Get(ctx, e.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Name != "Prod (new)" {
+		t.Errorf("name = %q, want %q", got.Name, "Prod (new)")
+	}
+	if got.Slug != "prod" {
+		t.Errorf("slug must be immutable, got %q", got.Slug)
+	}
+
+	if err := repo.UpdateName(ctx, "00000000-0000-0000-0000-000000000000", "X"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing id: want ErrNotFound, got %v", err)
+	}
+}

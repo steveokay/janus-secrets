@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,11 +16,16 @@ type createProjectRequest struct {
 	Name string `json:"name"`
 }
 
+type renameRequest struct {
+	Name string `json:"name"`
+}
+
 type projectResponse struct {
-	ID        string `json:"id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID             string  `json:"id"`
+	Slug           string  `json:"slug"`
+	Name           string  `json:"name"`
+	CreatedAt      string  `json:"created_at"`
+	LastActivityAt *string `json:"last_activity_at"`
 }
 
 func projectView(p *store.Project) projectResponse {
@@ -63,6 +69,21 @@ func (s *Server) handleProjectList(w http.ResponseWriter, r *http.Request) {
 	for _, p := range ps {
 		if s.can(r, authz.ProjectRead, authz.Resource{ProjectID: p.ID}) == nil {
 			out = append(out, projectView(p))
+		}
+	}
+	ids := make([]string, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	act, err := store.NewProjectRepo(s.st).LastActivity(r.Context(), ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	for i := range out {
+		if ts, ok := act[out[i].ID]; ok {
+			v := ts.UTC().Format(time.RFC3339)
+			out[i].LastActivityAt = &v
 		}
 	}
 	var next *string
@@ -113,6 +134,33 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectRename(w http.ResponseWriter, r *http.Request) {
+	pid := chi.URLParam(r, "pid")
+	if !s.authorize(w, r, authz.ProjectUpdate, authz.Resource{ProjectID: pid}, "project.update", "projects/"+pid) {
+		return
+	}
+	var req renameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "name is required")
+		return
+	}
+	repo := store.NewProjectRepo(s.st)
+	if err := repo.UpdateName(r.Context(), pid, req.Name); err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "project.update", "projects/"+pid, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	p, err := repo.Get(r.Context(), pid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, projectView(p))
 }
 
 func (s *Server) handleProjectRestore(w http.ResponseWriter, r *http.Request) {

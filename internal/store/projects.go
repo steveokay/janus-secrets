@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -113,6 +114,14 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*Project, error) {
 	return r.ListPage(ctx, 0, nil)
 }
 
+// UpdateName sets a project's display name. Slug is immutable. Returns
+// ErrNotFound if the project does not exist or is soft-deleted.
+func (r *ProjectRepo) UpdateName(ctx context.Context, id, name string) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE projects SET name = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, name)
+}
+
 // SoftDelete marks a project deleted. Returns ErrNotFound if it was already
 // deleted or does not exist.
 func (r *ProjectRepo) SoftDelete(ctx context.Context, id string) error {
@@ -135,6 +144,38 @@ func (r *ProjectRepo) Undelete(ctx context.Context, id string) error {
 // references it (NO ACTION foreign keys).
 func (r *ProjectRepo) Destroy(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx, `DELETE FROM projects WHERE id = $1::uuid`, id)
+}
+
+// LastActivity returns, for each given project id that has at least one config
+// version, the timestamp of its most recent version (max config_versions.created_at
+// across the project's live environments and configs). Ids with no activity are
+// absent from the map. Empty input returns an empty map without querying.
+func (r *ProjectRepo) LastActivity(ctx context.Context, ids []string) (map[string]time.Time, error) {
+	out := make(map[string]time.Time, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.s.pool.Query(ctx, `
+		SELECT p.id::text, max(cv.created_at)
+		FROM projects p
+		JOIN environments e ON e.project_id = p.id AND e.deleted_at IS NULL
+		JOIN configs c ON c.environment_id = e.id AND c.deleted_at IS NULL
+		JOIN config_versions cv ON cv.config_id = c.id
+		WHERE p.id::text = ANY($1)
+		GROUP BY p.id`, ids)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var ts time.Time
+		if err := rows.Scan(&id, &ts); err != nil {
+			return nil, mapError(err)
+		}
+		out[id] = ts
+	}
+	return out, mapError(rows.Err())
 }
 
 // RotateKEK atomically installs a new KEK version for a live project. It locks

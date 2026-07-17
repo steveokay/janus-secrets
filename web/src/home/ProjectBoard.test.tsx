@@ -1,8 +1,11 @@
 import { http, HttpResponse } from 'msw'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { ProjectBoard } from './ProjectBoard'
+import { ToastProvider } from '../ui/Toast'
+import * as endpointsModule from '../lib/endpoints'
 
 // Default rotation/sync handlers so every existing board test keeps passing
 // under the global onUnhandledRequest:'error' mode (see web/src/test/setup.ts).
@@ -160,4 +163,102 @@ test('config card renders a created-at line', async () => {
   renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
   const devLink = await screen.findByRole('link', { name: /^dev\b/i })
   expect(within(devLink).getByText(/created .* ago|created just now/)).toBeInTheDocument()
+})
+
+test('the env column header exposes a quick-action menu with Rename, Clone environment, and Delete', async () => {
+  mock()
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  await screen.findByRole('heading', { name: 'Development' })
+  await userEvent.click(screen.getByRole('button', { name: /actions for Development/i }))
+  expect(await screen.findByRole('menuitem', { name: /^rename$/i })).toBeInTheDocument()
+  expect(screen.getByRole('menuitem', { name: /clone environment/i })).toBeInTheDocument()
+  expect(screen.getByRole('menuitem', { name: /^delete$/i })).toBeInTheDocument()
+})
+
+test('Rename opens RenameDialog and submitting calls endpoints.renameEnvironment', async () => {
+  mock()
+  const renameSpy = vi
+    .spyOn(endpointsModule.endpoints, 'renameEnvironment')
+    .mockResolvedValue({ id: 'e1', slug: 'dev', name: 'Development 2' })
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  await screen.findByRole('heading', { name: 'Development' })
+  await userEvent.click(screen.getByRole('button', { name: /actions for Development/i }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: /^rename$/i }))
+  const input = await screen.findByRole('textbox', { name: /name/i })
+  expect(input).toHaveValue('Development')
+  await userEvent.clear(input)
+  await userEvent.type(input, 'Development 2')
+  await userEvent.click(screen.getByRole('button', { name: /save/i }))
+  expect(renameSpy).toHaveBeenCalledWith('p1', 'e1', 'Development 2')
+  renameSpy.mockRestore()
+})
+
+test('rename success toast names the NEW env name, not the stale old one', async () => {
+  mock()
+  const renameSpy = vi
+    .spyOn(endpointsModule.endpoints, 'renameEnvironment')
+    .mockResolvedValue({ id: 'e1', slug: 'dev', name: 'Development 2' })
+  renderApp(
+    <ToastProvider>
+      <ProjectBoard />
+    </ToastProvider>,
+    { route: '/projects/p1', withAuth: false },
+  )
+  await screen.findByRole('heading', { name: 'Development' })
+  await userEvent.click(screen.getByRole('button', { name: /actions for Development/i }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: /^rename$/i }))
+  const input = await screen.findByRole('textbox', { name: /name/i })
+  await userEvent.clear(input)
+  await userEvent.type(input, 'Development 2')
+  await userEvent.click(screen.getByRole('button', { name: /save/i }))
+  // The toast must reflect the freshly-entered name, not the stale prop.
+  expect(await screen.findByText(/renamed to Development 2/i)).toBeInTheDocument()
+  expect(screen.queryByText('Renamed to Development')).not.toBeInTheDocument()
+  renameSpy.mockRestore()
+})
+
+test('Clone environment opens CloneEnvDialog and submitting calls endpoints.cloneEnvironment', async () => {
+  mock()
+  const cloneSpy = vi
+    .spyOn(endpointsModule.endpoints, 'cloneEnvironment')
+    .mockResolvedValue({ id: 'e9', slug: 'dev-2', name: 'Development 2' })
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  await screen.findByRole('heading', { name: 'Development' })
+  await userEvent.click(screen.getByRole('button', { name: /actions for Development/i }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: /clone environment/i }))
+  await userEvent.type(screen.getByRole('textbox', { name: /slug/i }), 'dev-2')
+  await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Development 2')
+  await userEvent.click(screen.getByRole('button', { name: /save/i }))
+  expect(cloneSpy).toHaveBeenCalledWith('p1', 'e1', 'dev-2', 'Development 2')
+  cloneSpy.mockRestore()
+})
+
+test('inherited config shows a connector line; the root config does not', async () => {
+  mock()
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  const rootLink = await screen.findByRole('link', { name: /^dev\b/i })
+  const branchLink = await screen.findByRole('link', { name: /dev_personal/i })
+
+  // Root card (depth 0): no connector.
+  expect(within(rootLink).queryByTestId('inherit-connector')).not.toBeInTheDocument()
+
+  // Child card (depth > 0): exactly one connector.
+  expect(within(branchLink).getAllByTestId('inherit-connector')).toHaveLength(1)
+})
+
+test('shows a recency subline when the env has last_activity_at', async () => {
+  server.use(
+    http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'gw', name: 'api-gateway' }] })),
+    http.get('/v1/projects/p1/environments', () =>
+      HttpResponse.json({ environments: [
+        { id: 'e1', slug: 'dev', name: 'Development', last_activity_at: new Date(Date.now() - 3_600_000).toISOString() },
+        { id: 'e2', slug: 'prod', name: 'Production' },
+      ] })),
+    http.get('/v1/projects/p1/environments/e1/configs', () => HttpResponse.json({ configs: [] })),
+    http.get('/v1/projects/p1/environments/e2/configs', () => HttpResponse.json({ configs: [] })),
+  )
+  opsEmpty()
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  await screen.findByRole('heading', { name: 'Development' })
+  expect(screen.getByText(/active /)).toBeInTheDocument()
 })

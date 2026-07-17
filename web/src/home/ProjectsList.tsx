@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
-import { LayoutGrid, List, Plus, FolderGit2, Trash2 } from 'lucide-react'
+import * as Menu from '@radix-ui/react-dropdown-menu'
+import { LayoutGrid, List, Plus, FolderGit2, MoreHorizontal } from 'lucide-react'
 import { endpoints, Project } from '../lib/endpoints'
 import { useProjects, useEnvironments } from '../secrets/nav'
 import { envTone, envDotClass } from '../ui/env'
@@ -10,17 +11,27 @@ import { Pill } from '../ui/Pill'
 import { cn } from '../ui/cn'
 import { useTitle } from '../lib/title'
 import { CreateProjectForm } from '../structure/CreateForms'
+import { RenameDialog } from '../structure/RenameDialog'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { InstanceReadsStrip } from '../metrics/ReadsStrip'
+import { glyphClass } from './glyph'
+import { recencyLabel } from './recency'
 
-type Sort = 'name-asc' | 'name-desc'
+const menuItem =
+  'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-ink outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-text'
+const menuItemDanger =
+  'flex w-full cursor-default select-none items-center rounded px-2.5 py-1.5 text-[13px] text-danger outline-none data-[highlighted]:bg-danger-soft'
+
+type Sort = 'name-asc' | 'name-desc' | 'created-desc' | 'created-asc' | 'activity-desc'
 
 function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list' }) {
   const envs = useEnvironments(project.id)
   const qc = useQueryClient()
   const toast = useToast()
   const [confirming, setConfirming] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const label = recencyLabel(project)
   const configQueries = useQueries({
     queries: (envs.data ?? []).map((e) => ({
       queryKey: ['configs', project.id, e.id],
@@ -40,6 +51,18 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
     onError: () => toast({ title: 'Delete failed', tone: 'danger' }),
   })
 
+  const rename = useMutation({
+    mutationFn: (name: string) => endpoints.renameProject(project.id, name),
+    // Source the name from the mutation input, not `project.name` — the prop is
+    // still the stale pre-rename value at this point (no re-render yet).
+    onSuccess: (_data, name) => {
+      toast({ title: `Renamed to ${name}` })
+      void qc.invalidateQueries({ queryKey: ['projects'] })
+      setRenaming(false)
+    },
+    onError: () => toast({ title: 'Rename failed', tone: 'danger' }),
+  })
+
   return (
     <div className="group relative">
       <Link
@@ -49,11 +72,26 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
           view === 'list' && 'flex items-center gap-4',
         )}
       >
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
-          {project.slug !== project.name && (
-            <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
-          )}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span
+            aria-hidden
+            data-testid="project-glyph"
+            className={cn(
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-logo text-[13px] font-bold text-on-brand',
+              glyphClass(project.slug),
+            )}
+          >
+            {project.name.charAt(0).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
+            {project.slug !== project.name && (
+              <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
+            )}
+            {label && (
+              <div className="truncate text-[11.5px] text-ink-faint">{label}</div>
+            )}
+          </div>
         </div>
         <div className={cn('flex items-center gap-2', view === 'grid' && 'mt-3')}>
           {envs.data && envs.data.length > 0 && (
@@ -66,14 +104,38 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
           <Pill tone="muted">{countLabel}</Pill>
         </div>
       </Link>
-      <button
-        type="button"
-        aria-label={`delete ${project.name}`}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setConfirming(true) }}
-        className="absolute right-2 top-2 hidden h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-danger-soft hover:text-danger group-hover:flex"
-      >
-        <Trash2 size={13} strokeWidth={1.8} />
-      </button>
+      <Menu.Root>
+        <Menu.Trigger
+          aria-label={`actions for ${project.name}`}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+          className="absolute right-2 top-2 hidden h-6 w-6 items-center justify-center rounded text-ink-faint outline-none hover:bg-row-hover hover:text-ink group-hover:flex group-focus-within:flex data-[state=open]:flex data-[state=open]:bg-row-hover"
+        >
+          <MoreHorizontal size={14} strokeWidth={1.8} />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Content
+            align="end"
+            sideOffset={6}
+            className="min-w-[160px] rounded-card border border-line bg-card p-1.5 shadow-pop"
+          >
+            <Menu.Item className={menuItem} onSelect={() => setRenaming(true)}>
+              Rename
+            </Menu.Item>
+            <Menu.Separator className="my-1 h-px bg-line-soft" />
+            <Menu.Item className={menuItemDanger} onSelect={() => setConfirming(true)}>
+              Delete
+            </Menu.Item>
+          </Menu.Content>
+        </Menu.Portal>
+      </Menu.Root>
+      {renaming && (
+        <RenameDialog
+          title={`Rename ${project.name}`}
+          initial={project.name}
+          onSubmit={(name) => rename.mutate(name)}
+          onClose={() => setRenaming(false)}
+        />
+      )}
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -111,7 +173,22 @@ export function ProjectsList() {
     const list = (projects.data ?? []).filter(
       (p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.slug.toLowerCase().includes(q.toLowerCase()),
     )
-    list.sort((a, b) => (sort === 'name-asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)))
+    list.sort((a, b) => {
+      switch (sort) {
+        case 'name-asc': return a.name.localeCompare(b.name)
+        case 'name-desc': return b.name.localeCompare(a.name)
+        case 'created-desc': return (b.created_at ?? '').localeCompare(a.created_at ?? '')
+        case 'created-asc': return (a.created_at ?? '').localeCompare(b.created_at ?? '')
+        case 'activity-desc': {
+          const av = a.last_activity_at ?? '', bv = b.last_activity_at ?? ''
+          if (av && bv) return bv.localeCompare(av)
+          if (av) return -1
+          if (bv) return 1
+          return a.name.localeCompare(b.name)
+        }
+        default: return 0
+      }
+    })
     return list
   }, [projects.data, q, sort])
 
@@ -181,6 +258,9 @@ export function ProjectsList() {
         >
           <option value="name-asc">Name A–Z</option>
           <option value="name-desc">Name Z–A</option>
+          <option value="created-desc">Newest</option>
+          <option value="created-asc">Oldest</option>
+          <option value="activity-desc">Recently active</option>
         </select>
         <div className="flex rounded border border-line">
           <button

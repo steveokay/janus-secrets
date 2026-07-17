@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,11 +18,12 @@ type createEnvRequest struct {
 }
 
 type envResponse struct {
-	ID        string `json:"id"`
-	ProjectID string `json:"project_id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID             string  `json:"id"`
+	ProjectID      string  `json:"project_id"`
+	Slug           string  `json:"slug"`
+	Name           string  `json:"name"`
+	CreatedAt      string  `json:"created_at"`
+	LastActivityAt *string `json:"last_activity_at"`
 }
 
 func envView(e *store.Environment) envResponse {
@@ -51,6 +53,51 @@ func (s *Server) handleEnvCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, envView(e))
 }
 
+type cloneEnvRequest struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+// handleEnvClone deep-copies a source environment's config tree and each config's
+// own latest secrets into a new environment in the same project (admin+, via
+// env:create). The audit event is value-free: it carries only the new/source env
+// ids ("from:<srcEnvID>"), never the slug/name or any secret value — the clone's
+// decrypt->re-encrypt happens entirely inside the service, which logs/audits
+// nothing.
+func (s *Server) handleEnvClone(w http.ResponseWriter, r *http.Request) {
+	eid := chi.URLParam(r, "eid")
+	// Resolve the source env's REAL scope (project) and authorize against it, not
+	// the URL pid. CloneEnvironment decrypts the source config tree under the
+	// source project's own KEK, so authorizing against the URL pid alone would let
+	// a caller who is admin of their OWN project clone (and thus exfiltrate) a
+	// victim env from ANOTHER project. Mirror handleEnvDelete/handleEnvRename: the
+	// URL pid is routing-only; the resolved scope is authoritative. An
+	// unknown/garbage/deleted eid resolves to ErrNotFound -> 404.
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.EnvCreate, res, "env.clone", "environments/"+eid) {
+		return
+	}
+	var req cloneEnvRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Slug == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "slug is required")
+		return
+	}
+	newEnv, err := s.service.CloneEnvironment(r.Context(), res.ProjectID, eid, req.Slug, req.Name, actorOf(r))
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "env.clone", "environments/"+newEnv.ID, "success", "", "from:"+eid); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusCreated, envView(newEnv))
+}
+
 func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 	pid := chi.URLParam(r, "pid")
 	if err := s.can(r, authz.ProjectRead, authz.Resource{ProjectID: pid}); err != nil {
@@ -70,6 +117,21 @@ func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 	out := make([]envResponse, 0, len(envs))
 	for _, e := range envs {
 		out = append(out, envView(e))
+	}
+	ids := make([]string, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	act, err := store.NewEnvironmentRepo(s.st).LastActivity(r.Context(), ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	for i := range out {
+		if ts, ok := act[out[i].ID]; ok {
+			v := ts.UTC().Format(time.RFC3339)
+			out[i].LastActivityAt = &v
+		}
 	}
 	var next *string
 	if len(envs) > 0 {
@@ -128,6 +190,38 @@ func (s *Server) handleEnvDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleEnvRename(w http.ResponseWriter, r *http.Request) {
+	eid := chi.URLParam(r, "eid")
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.EnvUpdate, res, "env.update", "environments/"+eid) {
+		return
+	}
+	var req renameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "name is required")
+		return
+	}
+	repo := store.NewEnvironmentRepo(s.st)
+	if err := repo.UpdateName(r.Context(), eid, req.Name); err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "env.update", "environments/"+eid, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	e, err := repo.Get(r.Context(), eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, envView(e))
 }
 
 func (s *Server) handleEnvRestore(w http.ResponseWriter, r *http.Request) {
