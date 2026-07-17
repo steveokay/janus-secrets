@@ -194,7 +194,7 @@ export function SecretTable({
                 <>
                   <span className="truncate">{key in revealed ? revealed[key] : '••••••••••••'}</span>
                   {st.existing && (
-                    <span className="inline-flex gap-1 opacity-0 group-hover:opacity-100">
+                    <span className="inline-flex gap-1 opacity-0 transition-nocturne group-hover:opacity-100">
                       {!(key in revealed) && (
                         <IconButton label={`reveal ${key}`} onClick={() => onReveal(key)}><Eye {...ICON} /></IconButton>
                       )}
