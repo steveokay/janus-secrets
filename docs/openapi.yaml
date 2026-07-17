@@ -39,6 +39,11 @@ components:
         slug: { type: string, example: acme-web }
         name: { type: string, example: Acme Web }
         created_at: { type: string, format: date-time }
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Most recent config-version timestamp across the project's configs; null if none.
     Environment:
       type: object
       properties:
@@ -47,6 +52,11 @@ components:
         slug: { type: string, example: prod }
         name: { type: string, example: Production }
         created_at: { type: string, format: date-time }
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Most recent config-version timestamp across the environment's configs; null if none.
     Config:
       type: object
       properties:

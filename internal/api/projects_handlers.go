@@ -16,10 +16,11 @@ type createProjectRequest struct {
 }
 
 type projectResponse struct {
-	ID        string `json:"id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID             string  `json:"id"`
+	Slug           string  `json:"slug"`
+	Name           string  `json:"name"`
+	CreatedAt      string  `json:"created_at"`
+	LastActivityAt *string `json:"last_activity_at"`
 }
 
 func projectView(p *store.Project) projectResponse {
@@ -63,6 +64,21 @@ func (s *Server) handleProjectList(w http.ResponseWriter, r *http.Request) {
 	for _, p := range ps {
 		if s.can(r, authz.ProjectRead, authz.Resource{ProjectID: p.ID}) == nil {
 			out = append(out, projectView(p))
+		}
+	}
+	ids := make([]string, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	act, err := store.NewProjectRepo(s.st).LastActivity(r.Context(), ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	for i := range out {
+		if ts, ok := act[out[i].ID]; ok {
+			v := ts.UTC().Format(time.RFC3339)
+			out[i].LastActivityAt = &v
 		}
 	}
 	var next *string

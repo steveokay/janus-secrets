@@ -17,11 +17,12 @@ type createEnvRequest struct {
 }
 
 type envResponse struct {
-	ID        string `json:"id"`
-	ProjectID string `json:"project_id"`
-	Slug      string `json:"slug"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
+	ID             string  `json:"id"`
+	ProjectID      string  `json:"project_id"`
+	Slug           string  `json:"slug"`
+	Name           string  `json:"name"`
+	CreatedAt      string  `json:"created_at"`
+	LastActivityAt *string `json:"last_activity_at"`
 }
 
 func envView(e *store.Environment) envResponse {
@@ -70,6 +71,21 @@ func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 	out := make([]envResponse, 0, len(envs))
 	for _, e := range envs {
 		out = append(out, envView(e))
+	}
+	ids := make([]string, len(out))
+	for i := range out {
+		ids[i] = out[i].ID
+	}
+	act, err := store.NewEnvironmentRepo(s.st).LastActivity(r.Context(), ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	for i := range out {
+		if ts, ok := act[out[i].ID]; ok {
+			v := ts.UTC().Format(time.RFC3339)
+			out[i].LastActivityAt = &v
+		}
 	}
 	var next *string
 	if len(envs) > 0 {
