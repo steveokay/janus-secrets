@@ -233,6 +233,19 @@ test('Clone environment opens CloneEnvDialog and submitting calls endpoints.clon
   cloneSpy.mockRestore()
 })
 
+test('inherited config shows a connector line; the root config does not', async () => {
+  mock()
+  renderApp(<ProjectBoard />, { route: '/projects/p1', withAuth: false })
+  const rootLink = await screen.findByRole('link', { name: /^dev\b/i })
+  const branchLink = await screen.findByRole('link', { name: /dev_personal/i })
+
+  // Root card (depth 0): no connector.
+  expect(within(rootLink).queryByTestId('inherit-connector')).not.toBeInTheDocument()
+
+  // Child card (depth > 0): exactly one connector.
+  expect(within(branchLink).getAllByTestId('inherit-connector')).toHaveLength(1)
+})
+
 test('shows a recency subline when the env has last_activity_at', async () => {
   server.use(
     http.get('/v1/projects', () => HttpResponse.json({ projects: [{ id: 'p1', slug: 'gw', name: 'api-gateway' }] })),

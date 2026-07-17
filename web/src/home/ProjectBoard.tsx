@@ -107,12 +107,21 @@ function ConfigCard({ pid, config, depth, ops, promote }: {
       }
       onDragEnd={canPromote ? () => promote.onDragEnd() : undefined}
       className={cn(
-        'flex flex-col gap-1 rounded border border-line bg-card px-3 py-2 hover:border-brand-line',
+        'relative flex flex-col gap-1 rounded border border-line bg-card px-3 py-2 hover:border-brand-line',
         depth > 0 && 'ml-4',
       )}
     >
+      {depth > 0 && (
+        <span
+          data-testid="inherit-connector"
+          aria-hidden
+          className="pointer-events-none absolute -left-4 top-0 h-1/2 w-4"
+        >
+          <span className="absolute left-0 top-0 h-full w-px bg-line" />
+          <span className="absolute left-0 top-full h-px w-4 bg-line" />
+        </span>
+      )}
       <div className="flex items-center gap-2">
-        {depth > 0 && <span className="text-[11px] text-info">↳</span>}
         <Lock size={12} strokeWidth={1.7} className="text-ink-faint" />
         <span className="font-mono text-[12.5px] text-ink">{config.name}</span>
         {config.promoted_from_env && (
