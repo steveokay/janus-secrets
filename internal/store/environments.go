@@ -130,9 +130,10 @@ func (r *EnvironmentRepo) Destroy(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx, `DELETE FROM environments WHERE id = $1::uuid`, id)
 }
 
-// LastActivity returns, for each given environment id that has at least one
-// config version, the timestamp of its most recent version. Ids with no
-// activity are absent. Empty input returns an empty map without querying.
+// LastActivity returns, for each given LIVE environment id that has at least one
+// config version, the timestamp of its most recent version. Ids with no activity
+// — including soft-deleted environments, even if they still have versions — are
+// absent. Empty input returns an empty map without querying.
 func (r *EnvironmentRepo) LastActivity(ctx context.Context, ids []string) (map[string]time.Time, error) {
 	out := make(map[string]time.Time, len(ids))
 	if len(ids) == 0 {
@@ -143,7 +144,7 @@ func (r *EnvironmentRepo) LastActivity(ctx context.Context, ids []string) (map[s
 		FROM environments e
 		JOIN configs c ON c.environment_id = e.id AND c.deleted_at IS NULL
 		JOIN config_versions cv ON cv.config_id = c.id
-		WHERE e.id::text = ANY($1)
+		WHERE e.deleted_at IS NULL AND e.id::text = ANY($1)
 		GROUP BY e.id`, ids)
 	if err != nil {
 		return nil, mapError(err)

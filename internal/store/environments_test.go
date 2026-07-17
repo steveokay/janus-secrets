@@ -149,6 +149,10 @@ func TestEnvironmentRepo_LastActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	e3, err := er.Create(ctx, p.ID, "old", "Old") // has a version but soft-deleted
+	if err != nil {
+		t.Fatal(err)
+	}
 	c1, err := cr.Create(ctx, e1.ID, "root", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -156,8 +160,18 @@ func TestEnvironmentRepo_LastActivity(t *testing.T) {
 	if _, err := sr.SaveConfigVersion(ctx, c1.ID, nil, "init", "tester"); err != nil {
 		t.Fatalf("save version: %v", err)
 	}
+	c3, err := cr.Create(ctx, e3.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sr.SaveConfigVersion(ctx, c3.ID, nil, "init", "tester"); err != nil {
+		t.Fatalf("save version: %v", err)
+	}
+	if err := er.SoftDelete(ctx, e3.ID); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
 
-	m, err := er.LastActivity(ctx, []string{e1.ID, e2.ID})
+	m, err := er.LastActivity(ctx, []string{e1.ID, e2.ID, e3.ID})
 	if err != nil {
 		t.Fatalf("LastActivity: %v", err)
 	}
@@ -166,5 +180,8 @@ func TestEnvironmentRepo_LastActivity(t *testing.T) {
 	}
 	if _, ok := m[e2.ID]; ok {
 		t.Errorf("e2 empty, should be absent")
+	}
+	if _, ok := m[e3.ID]; ok {
+		t.Errorf("e3 soft-deleted, should be absent despite having a version")
 	}
 }
