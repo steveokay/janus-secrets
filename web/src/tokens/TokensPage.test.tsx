@@ -179,3 +179,42 @@ test('zero tokens shows an empty state with a mint CTA that opens the sheet', as
 
   expect(await screen.findByLabelText('kind')).toBeInTheDocument()
 })
+
+it('filters tokens by name substring, case-insensitively', async () => {
+  mockTokens([T({ id: 't1', name: 'ci-deploy' }), T({ id: 't2', name: 'backup-runner' })])
+  mount()
+  await screen.findByText('ci-deploy')
+  await userEvent.type(screen.getByLabelText('search tokens'), 'BACKUP')
+  expect(screen.queryByText('ci-deploy')).toBeNull()
+  expect(screen.getByText('backup-runner')).toBeInTheDocument()
+  expect(screen.getByText('1 of 2')).toBeInTheDocument()
+})
+
+it('matches the scope kind word but not a cache-only scope name', async () => {
+  mockTokens([
+    T({ id: 't1', name: 'alpha', scope_kind: 'environment' }),
+    T({ id: 't2', name: 'beta', scope_kind: 'config' }),
+  ])
+  mount()
+  await screen.findByText('alpha')
+  await userEvent.type(screen.getByLabelText('search tokens'), 'environment')
+  expect(screen.getByText('alpha')).toBeInTheDocument()
+  expect(screen.queryByText('beta')).toBeNull()
+})
+
+it('shows a zero-match message when nothing matches', async () => {
+  mockTokens([T({ id: 't1', name: 'ci-deploy' })])
+  mount()
+  await screen.findByText('ci-deploy')
+  await userEvent.type(screen.getByLabelText('search tokens'), 'zzz')
+  expect(screen.getByText(/no tokens match/i)).toBeInTheDocument()
+})
+
+it('sorts by name when the Name header is clicked', async () => {
+  mockTokens([T({ id: 't1', name: 'zeta' }), T({ id: 't2', name: 'alpha' })])
+  mount()
+  await screen.findByText('zeta')
+  await userEvent.click(screen.getByRole('button', { name: /name/i }))
+  const cells = screen.getAllByRole('cell').filter((c) => /alpha|zeta/.test(c.textContent ?? ''))
+  expect(cells[0]).toHaveTextContent('alpha') // ascending
+})
