@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
+import { ToastProvider } from '../ui/Toast'
 import { ProjectsList } from './ProjectsList'
 import * as endpointsModule from '../lib/endpoints'
 
@@ -179,5 +180,29 @@ test('renaming a project via the quick-action menu calls endpoints.renameProject
   await userEvent.type(input, 'api-gateway-2')
   await userEvent.click(screen.getByRole('button', { name: /save/i }))
   expect(renameSpy).toHaveBeenCalledWith('p1', 'api-gateway-2')
+  renameSpy.mockRestore()
+})
+
+test('rename success toast names the NEW project name, not the stale old one', async () => {
+  mockProjects([{ id: 'p1', slug: 'api-gateway', name: 'api-gateway' }])
+  const renameSpy = vi
+    .spyOn(endpointsModule.endpoints, 'renameProject')
+    .mockResolvedValue({ id: 'p1', slug: 'api-gateway', name: 'api-gateway-2' })
+  renderApp(
+    <ToastProvider>
+      <ProjectsList />
+    </ToastProvider>,
+    { route: '/', withAuth: false },
+  )
+  await screen.findByRole('link', { name: /api-gateway/i })
+  await userEvent.click(screen.getByRole('button', { name: /actions for api-gateway/i }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: /rename/i }))
+  const input = await screen.findByRole('textbox', { name: /name/i })
+  await userEvent.clear(input)
+  await userEvent.type(input, 'api-gateway-2')
+  await userEvent.click(screen.getByRole('button', { name: /save/i }))
+  // The toast must reflect the freshly-entered name, not the stale prop.
+  expect(await screen.findByText(/renamed to api-gateway-2/i)).toBeInTheDocument()
+  expect(screen.queryByText('Renamed to api-gateway')).not.toBeInTheDocument()
   renameSpy.mockRestore()
 })

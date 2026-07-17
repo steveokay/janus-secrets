@@ -53,8 +53,10 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
 
   const rename = useMutation({
     mutationFn: (name: string) => endpoints.renameProject(project.id, name),
-    onSuccess: () => {
-      toast({ title: `Renamed to ${project.name}` })
+    // Source the name from the mutation input, not `project.name` — the prop is
+    // still the stale pre-rename value at this point (no re-render yet).
+    onSuccess: (_data, name) => {
+      toast({ title: `Renamed to ${name}` })
       void qc.invalidateQueries({ queryKey: ['projects'] })
       setRenaming(false)
     },
