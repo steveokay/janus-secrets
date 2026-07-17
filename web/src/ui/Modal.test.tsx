@@ -21,3 +21,10 @@ test('closed modal renders nothing', () => {
   render(<Modal open={false} label="Demo" onClose={() => {}}><p>body</p></Modal>)
   expect(screen.queryByText('body')).toBeNull()
 })
+
+test('close button triggers onClose', async () => {
+  const onClose = vi.fn()
+  render(<Modal open label="Demo" onClose={onClose}><p>body</p></Modal>)
+  await userEvent.click(screen.getByRole('button', { name: 'close' }))
+  expect(onClose).toHaveBeenCalled()
+})

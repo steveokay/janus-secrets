@@ -15,7 +15,7 @@ test('shows the password once, then wipes it from the DOM on close', async () =>
   render(<Harness />)
   expect(screen.getByText('p@ss-SHOWN-ONCE')).toBeInTheDocument()
   expect(screen.getByText(/shown once/i)).toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: /close|done/i }))
+  await userEvent.click(screen.getByRole('button', { name: 'Done' }))
   expect(screen.queryByText('p@ss-SHOWN-ONCE')).toBeNull()
 })
 
