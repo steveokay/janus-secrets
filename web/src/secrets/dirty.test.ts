@@ -1,4 +1,4 @@
-import { emptyBuffer, setValue, removeKey, addKey, summarize, toChanges, isDirty } from './dirty'
+import { emptyBuffer, setValue, removeKey, addKey, setType, summarize, toChanges, isDirty } from './dirty'
 
 // original = the config's own raw values (what a save diffs against)
 const original = { DB_URL: 'postgres://a', LOG_LEVEL: 'info' }
@@ -29,4 +29,19 @@ test('removing a key that never existed contributes nothing', () => {
   const b = removeKey(emptyBuffer(), 'NOPE')
   expect(toChanges(b, original)).toEqual([])
   expect(isDirty(b)).toBe(false)
+})
+
+test('setType records a type on a key with no prior buffer entry', () => {
+  const b = setType(emptyBuffer(), 'LOG_LEVEL', 'password')
+  expect(b.LOG_LEVEL).toEqual({ value: null, type: 'password' })
+})
+
+test('setType preserves an existing value already in the buffer', () => {
+  const b = setType(setValue(emptyBuffer(), 'LOG_LEVEL', 'debug'), 'LOG_LEVEL', 'password')
+  expect(b.LOG_LEVEL).toEqual({ value: 'debug', type: 'password' })
+})
+
+test('setValue preserves a type already recorded in the buffer', () => {
+  const b = setValue(setType(emptyBuffer(), 'LOG_LEVEL', 'password'), 'LOG_LEVEL', 'debug')
+  expect(b.LOG_LEVEL).toEqual({ value: 'debug', type: 'password' })
 })

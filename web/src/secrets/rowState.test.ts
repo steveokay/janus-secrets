@@ -7,6 +7,10 @@ const masked: Record<string, MaskedSecret> = {
 }
 const original = { OWN: 'a' }
 
+const maskedTyped: Record<string, MaskedSecret> = {
+  OWN: { value_version: 3, created_at: '', origin: 'own', type: 'string' },
+}
+
 test('no buffer entry → no change, server origin', () => {
   expect(rowState('OWN', masked, {}, original)).toEqual({ change: null, origin: 'own', existing: true })
   expect(rowState('INH', masked, {}, original)).toEqual({ change: null, origin: 'inherited', existing: true })
@@ -25,6 +29,20 @@ test('removing an existing key → removed', () => {
 })
 test('a brand-new key → added', () => {
   expect(rowState('NEW', masked, { NEW: { value: 'v' } }, original)).toMatchObject({ change: 'added', existing: false })
+})
+
+test('type-only change on an existing key → edited, value unchanged', () => {
+  expect(
+    rowState('OWN', maskedTyped, { OWN: { value: 'a', type: 'password' } }, original),
+  ).toMatchObject({ change: 'edited', origin: 'own', existing: true })
+})
+test('same value and same type as server → not a change', () => {
+  expect(
+    rowState('OWN', maskedTyped, { OWN: { value: 'a', type: 'string' } }, original).change,
+  ).toBeNull()
+})
+test('no buffer type recorded (undefined) is treated as the server type → not a change', () => {
+  expect(rowState('OWN', maskedTyped, { OWN: { value: 'a' } }, original).change).toBeNull()
 })
 
 test('parseDotenv: KEY=VALUE, comments, blanks, quotes, invalid', () => {
