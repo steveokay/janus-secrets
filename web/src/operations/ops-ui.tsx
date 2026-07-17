@@ -119,7 +119,7 @@ export function OpsTable({
     <div className="overflow-x-auto rounded-card border border-line bg-surface-2 shadow-elev-1">
       <table className="w-full min-w-[720px] text-[12.5px]">
         <thead>
-          <tr className="border-b border-line bg-surface-1 text-left text-ink-faint">
+          <tr className="sticky top-0 z-10 border-b border-line bg-surface-1 text-left text-ink-faint">
             {selectable && (
               <th className="px-2 py-1.5 w-8">
                 <input
