@@ -14,6 +14,7 @@ type secretChangeBody struct {
 	Key    string `json:"key"`
 	Value  string `json:"value"`
 	Delete bool   `json:"delete"`
+	Type   string `json:"type"`
 }
 
 type batchWriteRequest struct {
@@ -77,13 +78,14 @@ func (s *Server) handleSecretsBatchWrite(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		seen[c.Key] = true
-		changes = append(changes, secrets.SecretChange{Key: c.Key, Value: []byte(c.Value), Delete: c.Delete})
+		changes = append(changes, secrets.SecretChange{Key: c.Key, Value: []byte(c.Value), Delete: c.Delete, Type: c.Type})
 	}
 	s.applyWrite(w, r, cid, changes, req.Message, "keys="+strconv.Itoa(len(changes)))
 }
 
 type perKeyWriteRequest struct {
 	Value string `json:"value"`
+	Type  string `json:"type"`
 }
 
 func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +103,7 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "value is required")
 		return
 	}
-	s.applyWrite(w, r, cid, []secrets.SecretChange{{Key: key, Value: []byte(req.Value)}}, "", "key="+key)
+	s.applyWrite(w, r, cid, []secrets.SecretChange{{Key: key, Value: []byte(req.Value), Type: req.Type}}, "", "key="+key)
 }
 
 func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {

@@ -77,6 +77,7 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 			"value_version": m.ValueVersion,
 			"created_at":    m.CreatedAt.UTC().Format(time.RFC3339),
 			"origin":        m.Origin,
+			"type":          m.Type,
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"secrets": masked})
@@ -110,7 +111,7 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": string(sec.Value), "value_version": sec.ValueVersion})
+		writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": string(sec.Value), "value_version": sec.ValueVersion, "type": sec.Type})
 		return
 	}
 	if r.URL.Query().Get("raw") == "true" {
@@ -123,7 +124,7 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": string(sec.Value)})
+		writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": string(sec.Value), "type": sec.Type})
 		return
 	}
 	val, prov, err := s.resolverFor(r).ResolveKey(r.Context(), cid, key)
@@ -138,7 +139,16 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": string(val)})
+	typ := ""
+	if metas, mErr := s.service.ListSecretsMerged(r.Context(), cid); mErr == nil {
+		for _, m := range metas {
+			if m.Key == key {
+				typ = m.Type
+				break
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key": key, "value": string(val), "type": typ})
 }
 
 // handleKeyHistory serves masked value-version metadata for one key (no audit).

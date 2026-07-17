@@ -1181,6 +1181,7 @@ paths:
                             value_version: { type: integer }
                             created_at: { type: string, format: date-time }
                             origin: { type: string, description: Config id the value is inherited from, or own. }
+                            type: { type: string, enum: [string, password, json, ssh_key, certificate, note], description: Display/handling hint; never a storage or crypto concern. }
                   - type: object
                     description: Revealed (reveal=true).
                     properties:
@@ -1215,6 +1216,7 @@ paths:
                       key: { type: string, example: DATABASE_URL }
                       value: { type: string, writeOnly: true, example: "<secret value>" }
                       delete: { type: boolean, default: false }
+                      type: { type: string, enum: [string, password, json, ssh_key, certificate, note], description: "Display/handling hint; empty normalizes to string." }
       responses:
         "200":
           description: New config version created.
@@ -1255,6 +1257,7 @@ paths:
                   key: { type: string }
                   value: { type: string, writeOnly: true, example: "<secret value>" }
                   value_version: { type: integer }
+                  type: { type: string, enum: [string, password, json, ssh_key, certificate, note] }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
     put:
@@ -1269,6 +1272,7 @@ paths:
               required: [value]
               properties:
                 value: { type: string, writeOnly: true, example: "<secret value>" }
+                type: { type: string, enum: [string, password, json, ssh_key, certificate, note], description: "Display/handling hint; empty normalizes to string." }
       responses:
         "200":
           description: New config version created.
