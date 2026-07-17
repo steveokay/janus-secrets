@@ -233,3 +233,53 @@ test('403 on members list shows the "Member access required" empty state', async
   mount()
   expect(await screen.findByText('Member access required')).toBeInTheDocument()
 })
+
+it('filters role-bindings by email substring', async () => {
+  mockInstanceMembers([
+    { user_id: 'u-alice', role: 'developer' },
+    { user_id: 'u-bob', role: 'admin' },
+  ])
+  mockUsers([
+    { id: 'u-alice', email: 'alice@corp.io', disabled: false },
+    { id: 'u-bob', email: 'bob@corp.io', disabled: false },
+  ])
+  mount()
+  await screen.findByLabelText('search members')
+  // Both tables render at instance scope; scope assertions to the members table.
+  const membersTable = () => screen.getAllByRole('table')[0]
+  await waitFor(() => expect(within(membersTable()).getByText('alice@corp.io')).toBeInTheDocument())
+  await userEvent.type(screen.getByLabelText('search members'), 'bob')
+  expect(within(membersTable()).queryByText('alice@corp.io')).toBeNull()
+  expect(within(membersTable()).getByText('bob@corp.io')).toBeInTheDocument()
+})
+
+it('sorts role-bindings by privilege rank, not alphabetically', async () => {
+  mockInstanceMembers([
+    { user_id: 'u-owner', role: 'owner' },
+    { user_id: 'u-viewer', role: 'viewer' },
+  ])
+  mockUsers([
+    { id: 'u-owner', email: 'owner@corp.io', disabled: false },
+    { id: 'u-viewer', email: 'viewer@corp.io', disabled: false },
+  ])
+  mount()
+  await screen.findByLabelText('search members')
+  const membersTable = () => screen.getAllByRole('table')[0]
+  await waitFor(() => expect(within(membersTable()).getByText('owner@corp.io')).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: /^role/i }))
+  const emailCells = within(membersTable()).getAllByRole('cell').filter((c) => /@corp\.io/.test(c.textContent ?? ''))
+  expect(emailCells[0]).toHaveTextContent('viewer@corp.io') // viewer(0) before owner(3) ascending
+})
+
+it('filters the Users table independently of the members search', async () => {
+  mockInstanceMembers([{ user_id: 'u-alice', role: 'developer' }])
+  mockUsers([
+    { id: 'u-alice', email: 'alice@corp.io', disabled: false },
+    { id: 'u-bob', email: 'bob@corp.io', disabled: true },
+  ])
+  mount()
+  await screen.findByText('Users')
+  await userEvent.type(screen.getByLabelText('search users'), 'bob')
+  expect(screen.getByLabelText('search users')).toHaveValue('bob')
+  expect(screen.getByLabelText('search members')).toHaveValue('')
+})

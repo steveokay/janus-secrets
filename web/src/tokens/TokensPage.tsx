@@ -10,6 +10,9 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { EmptyState } from '../ui/EmptyState'
 import { RevealOnce } from '../ui/RevealOnce'
 import { useToast } from '../ui/Toast'
+import { useTableControls } from '../ui/table/useTableControls'
+import { SortHeader } from '../ui/table/SortHeader'
+import { TableSearch } from '../ui/table/TableSearch'
 import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
 
@@ -229,6 +232,22 @@ export function TokensPage() {
   const forbidden = tokens.error instanceof ApiError && tokens.error.status === 403
   const rows = tokens.data ?? []
 
+  const controls = useTableControls(rows, {
+    searchFields: (t) => [t.name, t.scope_kind],
+    comparators: {
+      name: (a, b) => a.name.localeCompare(b.name),
+      access: (a, b) => a.access.localeCompare(b.access),
+      created: (a, b) => a.created_at.localeCompare(b.created_at), // ISO UTC sorts chronologically
+      expires: (a, b) => {
+        if (!a.expires_at && !b.expires_at) return 0
+        if (!a.expires_at) return 1 // "never" sorts last ascending
+        if (!b.expires_at) return -1
+        return a.expires_at.localeCompare(b.expires_at)
+      },
+      status: (a, b) => Number(!!a.revoked_at) - Number(!!b.revoked_at), // active before revoked
+    },
+  })
+
   const mintButton = (
     <Button type="button" size="sm" onClick={() => setMintOpen(true)}>
       Mint token
@@ -260,45 +279,60 @@ export function TokensPage() {
           action={mintButton}
         />
       ) : (
-        <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
-          <thead>
-            <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
-              <th className="py-1.5">Name</th>
-              <th className="py-1.5">Scope</th>
-              <th className="py-1.5">Access</th>
-              <th className="py-1.5">Created</th>
-              <th className="py-1.5">Expires</th>
-              <th className="py-1.5">Status</th>
-              <th className="py-1.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((t) => (
-              <tr key={t.id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
-                <td className="py-1.5">{t.name}</td>
-                <td className="py-1.5"><ScopeCell kind={t.scope_kind} id={t.scope_id} /></td>
-                <td className="py-1.5">{t.access}</td>
-                <td className="py-1.5"><span title={t.created_at}>{relativeTime(t.created_at)}</span></td>
-                <td className="py-1.5">
-                  {t.expires_at ? <span title={t.expires_at}>{relativeTime(t.expires_at)}</span> : 'never'}
-                </td>
-                <td className="py-1.5">{t.revoked_at ? <Pill tone="danger">revoked</Pill> : null}</td>
-                <td className="py-1.5 text-right">
-                  {!t.revoked_at && (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      onClick={() => setRevokeTarget(t)}
-                    >
-                      Revoke
-                    </Button>
-                  )}
-                </td>
+        <>
+          <div className="mb-2">
+            <TableSearch
+              value={controls.query}
+              onChange={controls.setQuery}
+              matched={controls.matched}
+              total={controls.total}
+              label="search tokens"
+              placeholder="Search tokens…"
+            />
+          </div>
+          <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
+            <thead>
+              <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
+                <SortHeader label="Name" sortKey="name" controls={controls} />
+                <th className="py-1.5">Scope</th>
+                <SortHeader label="Access" sortKey="access" controls={controls} />
+                <SortHeader label="Created" sortKey="created" controls={controls} />
+                <SortHeader label="Expires" sortKey="expires" controls={controls} />
+                <SortHeader label="Status" sortKey="status" controls={controls} />
+                <th className="py-1.5" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {controls.matched === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-[12.5px] text-ink-mute">
+                    No tokens match “{controls.query}”.
+                  </td>
+                </tr>
+              ) : (
+                controls.view.map((t) => (
+                  <tr key={t.id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
+                    <td className="py-1.5">{t.name}</td>
+                    <td className="py-1.5"><ScopeCell kind={t.scope_kind} id={t.scope_id} /></td>
+                    <td className="py-1.5">{t.access}</td>
+                    <td className="py-1.5"><span title={t.created_at}>{relativeTime(t.created_at)}</span></td>
+                    <td className="py-1.5">
+                      {t.expires_at ? <span title={t.expires_at}>{relativeTime(t.expires_at)}</span> : 'never'}
+                    </td>
+                    <td className="py-1.5">{t.revoked_at ? <Pill tone="danger">revoked</Pill> : null}</td>
+                    <td className="py-1.5 text-right">
+                      {!t.revoked_at && (
+                        <Button type="button" variant="danger" size="sm" onClick={() => setRevokeTarget(t)}>
+                          Revoke
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </>
       )}
 
       {mintOpen && (
