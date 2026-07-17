@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -144,6 +145,38 @@ func (s *Server) handleEnvDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleEnvRename(w http.ResponseWriter, r *http.Request) {
+	eid := chi.URLParam(r, "eid")
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.EnvUpdate, res, "env.update", "environments/"+eid) {
+		return
+	}
+	var req renameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "name is required")
+		return
+	}
+	repo := store.NewEnvironmentRepo(s.st)
+	if err := repo.UpdateName(r.Context(), eid, req.Name); err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "env.update", "environments/"+eid, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	e, err := repo.Get(r.Context(), eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, envView(e))
 }
 
 func (s *Server) handleEnvRestore(w http.ResponseWriter, r *http.Request) {

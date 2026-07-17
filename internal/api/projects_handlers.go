@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -12,6 +13,10 @@ import (
 
 type createProjectRequest struct {
 	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+type renameRequest struct {
 	Name string `json:"name"`
 }
 
@@ -129,6 +134,33 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleProjectRename(w http.ResponseWriter, r *http.Request) {
+	pid := chi.URLParam(r, "pid")
+	if !s.authorize(w, r, authz.ProjectUpdate, authz.Resource{ProjectID: pid}, "project.update", "projects/"+pid) {
+		return
+	}
+	var req renameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "name is required")
+		return
+	}
+	repo := store.NewProjectRepo(s.st)
+	if err := repo.UpdateName(r.Context(), pid, req.Name); err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "project.update", "projects/"+pid, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	p, err := repo.Get(r.Context(), pid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, projectView(p))
 }
 
 func (s *Server) handleProjectRestore(w http.ResponseWriter, r *http.Request) {
