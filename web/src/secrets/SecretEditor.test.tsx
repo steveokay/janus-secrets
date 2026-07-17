@@ -429,6 +429,30 @@ test('clicking a version chip opens the per-key history sheet', async () => {
   expect(await within(dialog).findByText('v1')).toBeInTheDocument()
 })
 
+test('changing a row type marks the editor dirty and sends the type in the save payload', async () => {
+  seed()
+  let savedBody: unknown = null
+  server.use(
+    http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })),
+    http.put('/v1/configs/c1/secrets', async ({ request }) => {
+      savedBody = await request.json()
+      return HttpResponse.json({ version: 4 })
+    }),
+  )
+  renderApp(<ToastProvider><SecretEditor /></ToastProvider>, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  // Not dirty yet.
+  expect(screen.queryByRole('button', { name: /save as v/i })).toBeNull()
+  const select = screen.getByRole('combobox', { name: /type for db_url/i })
+  await userEvent.selectOptions(select, 'json')
+  // Type-only change enables Save.
+  const saveBtn = await screen.findByRole('button', { name: /save as v4/i })
+  await userEvent.click(saveBtn)
+  await waitFor(() => expect(savedBody).not.toBeNull())
+  const changes = (savedBody as { changes: Array<{ key: string; type?: string }> }).changes
+  expect(changes).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'DB_URL', type: 'json' })]))
+})
+
 test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {
   seed()
   server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))

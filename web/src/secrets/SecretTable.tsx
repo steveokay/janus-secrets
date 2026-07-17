@@ -8,6 +8,8 @@ import { rowState } from './rowState'
 import { relativeTime } from '../lib/relativeTime'
 import type { SortKey, SortState } from './sortRows'
 import { cn } from '../ui/cn'
+import { SECRET_TYPES, SECRET_TYPE_ORDER, normalizeType } from './secretTypes'
+import type { SecretType } from './secretTypes'
 
 const GRID = 'grid grid-cols-[24px_1.2fr_1.4fr_104px_92px_56px_96px] items-center gap-3 px-4'
 
@@ -70,7 +72,7 @@ export function SecretTable({
   rows, masked, buffer, original, editing, revealed,
   sort, onSort, selected, onToggleSelect, onSelectAll, active,
   onReveal, onCopy, onEdit, onChangeValue, onRemove, onRevert,
-  lockedKeys, onToggleLock, onOpenHistory,
+  lockedKeys, onToggleLock, onOpenHistory, onChangeType,
 }: {
   rows: string[]
   masked: Record<string, MaskedSecret>
@@ -93,6 +95,7 @@ export function SecretTable({
   lockedKeys: Set<string>
   onToggleLock: (key: string) => void
   onOpenHistory: (key: string) => void
+  onChangeType: (key: string, type: SecretType) => void
 }) {
   return (
     <div className="overflow-x-auto">
@@ -120,6 +123,11 @@ export function SecretTable({
         const isEditing = !!editing[key]
         const isRemoved = st.change === 'removed'
         const strike = isRemoved ? 'line-through opacity-45' : ''
+        const serverType = normalizeType(masked[key]?.type)
+        const bufferType = buffer[key]?.type
+        const effectiveType = bufferType !== undefined ? normalizeType(bufferType) : serverType
+        const spec = SECRET_TYPES[effectiveType]
+        const TypeIcon = spec.icon
         return (
           <div key={key} className={cn('group relative border-t border-line-soft hover:bg-row-hover transition-nocturne', GRID, 'py-2.5', st.change && washTone[st.change], active === key && 'ring-1 ring-inset ring-brand-line')}>
             {st.change && <span className={cn('absolute left-0 top-0 bottom-0 w-[3px]', railTone[st.change])} />}
@@ -137,6 +145,7 @@ export function SecretTable({
 
             {/* Key */}
             <span className={cn('font-mono text-[12.5px] font-semibold text-ink truncate flex items-center gap-1', strike)}>
+              <TypeIcon size={11} strokeWidth={1.9} className="shrink-0 text-ink-faint" aria-hidden />
               <span className="truncate">{key}</span>
               {lockedKeys.has(key) && (
                 <Lock size={11} strokeWidth={1.9} className="shrink-0 text-warning" aria-label={`${key} is promotion-locked`} />
@@ -151,13 +160,26 @@ export function SecretTable({
             {/* Value */}
             <span className={cn('font-mono text-[12.5px] text-ink-mute flex items-center gap-2 min-w-0', strike)}>
               {isEditing ? (
-                <input
-                  aria-label={`value for ${key}`}
-                  value={key in buffer ? (buffer[key].value ?? '') : (original[key] ?? '')}
-                  onChange={(e) => onChangeValue(key, e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Escape') onRevert(key) }}
-                  className="w-full rounded border border-line bg-surface-3 px-2.5 py-1 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft"
-                />
+                spec.multiline ? (
+                  <textarea
+                    aria-label={`value for ${key}`}
+                    data-testid={`value-${key}`}
+                    value={key in buffer ? (buffer[key].value ?? '') : (original[key] ?? '')}
+                    onChange={(e) => onChangeValue(key, e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') onRevert(key) }}
+                    rows={3}
+                    className="w-full resize-y rounded border border-line bg-surface-3 px-2.5 py-1 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft"
+                  />
+                ) : (
+                  <input
+                    aria-label={`value for ${key}`}
+                    data-testid={`value-${key}`}
+                    value={key in buffer ? (buffer[key].value ?? '') : (original[key] ?? '')}
+                    onChange={(e) => onChangeValue(key, e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') onRevert(key) }}
+                    className="w-full rounded border border-line bg-surface-3 px-2.5 py-1 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft"
+                  />
+                )
               ) : (
                 <>
                   <span className="truncate">{key in revealed ? revealed[key] : '••••••••••••'}</span>
@@ -174,8 +196,18 @@ export function SecretTable({
             </span>
 
             {/* Origin */}
-            <span>
+            <span className="flex flex-col items-start gap-1">
               <Pill tone={originTone[st.origin]}>{st.origin}</Pill>
+              <select
+                aria-label={`type for ${key}`}
+                value={effectiveType}
+                onChange={(e) => onChangeType(key, e.target.value as SecretType)}
+                className="w-full rounded border border-line bg-surface-3 px-1 py-0.5 text-[10.5px] text-ink-mute focus:border-brand-line focus:shadow-glow-soft"
+              >
+                {SECRET_TYPE_ORDER.map((t) => (
+                  <option key={t} value={t}>{SECRET_TYPES[t].label}</option>
+                ))}
+              </select>
             </span>
 
             {/* Updated */}

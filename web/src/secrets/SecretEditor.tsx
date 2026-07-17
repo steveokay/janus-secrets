@@ -5,7 +5,8 @@ import { endpoints } from '../lib/endpoints'
 import type { VersionMeta } from '../lib/endpoints'
 import { errorMessage } from '../lib/api'
 import { relativeTime } from '../lib/relativeTime'
-import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, summarize, toChanges, isDirty } from './dirty'
+import { Buffer, emptyBuffer, setValue, removeKey, revert, addKey, setType, summarize, toChanges, isDirty } from './dirty'
+import type { SecretType } from './secretTypes'
 import { useTitle } from '../lib/title'
 import { useToast } from '../ui/Toast'
 import { Button } from '../ui/Button'
@@ -69,8 +70,15 @@ export function SecretEditor() {
   // The config version from the value-free versions list — no mount reveal.
   // Robust to ordering: take the max present, 0 for a config with no versions yet.
   const version = Math.max(0, ...(versions.data ?? []).map((v) => v.version))
-  const summary = useMemo(() => summarize(buffer, original), [buffer, original])
-  const dirty = isDirty(buffer, original)
+  // Server-known type per key (from the masked list) — needed so a type-only
+  // change (no value edit) is still detected as dirty and sent on save.
+  const serverTypes = useMemo(() => {
+    const out: Record<string, string | undefined> = {}
+    for (const [k, v] of Object.entries(masked.data ?? {})) out[k] = v.type
+    return out
+  }, [masked.data])
+  const summary = useMemo(() => summarize(buffer, original, serverTypes), [buffer, original, serverTypes])
+  const dirty = isDirty(buffer, original, serverTypes)
 
   useEffect(() => {
     if (!dirty) return
@@ -80,7 +88,7 @@ export function SecretEditor() {
   }, [dirty])
 
   const save = useMutation({
-    mutationFn: () => endpoints.saveSecrets(cid, toChanges(buffer, original), ''),
+    mutationFn: () => endpoints.saveSecrets(cid, toChanges(buffer, original, serverTypes), ''),
     onSuccess: (res) => {
       setBuffer(emptyBuffer())
       setEditing({})
@@ -196,6 +204,23 @@ export function SecretEditor() {
   }
   function changeValue(key: string, value: string) {
     setBuffer((b) => setValue(b, key, value))
+  }
+  // Changing a row's type stages the type in the buffer. The batch-write API
+  // always re-encrypts a Value on any non-delete change (no "type-only, keep
+  // existing ciphertext" path server-side), so a type change on an existing
+  // key that hasn't otherwise been edited needs its raw original fetched
+  // (audited, on demand — same pattern as `edit()`) so save() has a value to
+  // resend unchanged alongside the new type. Added (buffer-only) keys already
+  // carry their value and need no fetch.
+  async function changeType(key: string, type: SecretType) {
+    if (!(key in original)) {
+      const existing = key in (masked.data ?? {})
+      if (existing) {
+        const v = key in revealed ? revealed[key] : (await endpoints.revealKeyRaw(cid, key)).value
+        setOriginal((o) => ({ ...o, [key]: v }))
+      }
+    }
+    setBuffer((b) => setType(b, key, type))
   }
   // Removing an existing key is a delete, not a reveal — no fetch needed. But
   // dirty.ts's `effective()` only counts a buffered delete when the key is
@@ -396,6 +421,7 @@ export function SecretEditor() {
           lockedKeys={lockedKeys}
           onToggleLock={onToggleLock}
           onOpenHistory={(key) => setHistoryKey(key)}
+          onChangeType={changeType}
         />
         </>
       )}

@@ -50,3 +50,58 @@ test('removeKey drops any staged type (a deleted row has no type)', () => {
   const b = removeKey(setType(emptyBuffer(), 'LOG_LEVEL', 'password'), 'LOG_LEVEL')
   expect(b.LOG_LEVEL).toEqual({ value: null })
 })
+
+// --- type-aware save (Part 1) ---
+
+const serverTypes = { DB_URL: 'string', LOG_LEVEL: 'string' }
+
+test('toChanges includes the buffer type when set on a value change', () => {
+  const b = setType(setValue(emptyBuffer(), 'LOG_LEVEL', 'debug'), 'LOG_LEVEL', 'password')
+  expect(toChanges(b, original, serverTypes)).toEqual([{ key: 'LOG_LEVEL', value: 'debug', type: 'password' }])
+})
+
+test('toChanges omits type when the buffer entry has none set', () => {
+  const b = setValue(emptyBuffer(), 'LOG_LEVEL', 'debug')
+  expect(toChanges(b, original, serverTypes)).toEqual([{ key: 'LOG_LEVEL', value: 'debug' }])
+})
+
+test('a type-only change (no value edit) makes isDirty true and is included in toChanges', () => {
+  const b = setType(emptyBuffer(), 'LOG_LEVEL', 'password')
+  expect(isDirty(b, original, serverTypes)).toBe(true)
+  expect(toChanges(b, original, serverTypes)).toEqual([{ key: 'LOG_LEVEL', value: 'info', type: 'password' }])
+})
+
+test('setting the type back to the server type (no value change) is not dirty', () => {
+  const b = setType(emptyBuffer(), 'LOG_LEVEL', 'string')
+  expect(isDirty(b, original, serverTypes)).toBe(false)
+  expect(toChanges(b, original, serverTypes)).toEqual([])
+})
+
+test('summarize counts a type-only change as changed', () => {
+  const b = setType(emptyBuffer(), 'LOG_LEVEL', 'password')
+  expect(summarize(b, original, serverTypes)).toEqual({ added: 0, changed: 1, removed: 0 })
+})
+
+test('a type-only change on a key with no server type is still dirty when set to non-default', () => {
+  const b = setType(emptyBuffer(), 'FEATURE_X', 'json')
+  // FEATURE_X isn't in `original`, so a type-only entry with no value is not a
+  // meaningful add — nothing to send, not dirty.
+  expect(isDirty(b, original, serverTypes)).toBe(false)
+  expect(toChanges(b, original, serverTypes)).toEqual([])
+})
+
+test('toChanges omits type on a delete', () => {
+  const b = removeKey(emptyBuffer(), 'DB_URL')
+  expect(toChanges(b, original, serverTypes)).toEqual([{ key: 'DB_URL', delete: true }])
+})
+
+test('a type-only change on a server-known key whose raw value has not landed in `original` yet is not sent (never misread as a delete)', () => {
+  // DB_URL is known server-side (serverTypes) but its raw value hasn't been
+  // fetched into `original` (e.g. the reveal is still in flight). Emitting
+  // anything here would be unsafe: toChanges would misread value:null as a
+  // delete for a key the caller never asked to remove.
+  const b = setType(emptyBuffer(), 'DB_URL', 'json')
+  const partialOriginal = { LOG_LEVEL: 'info' } // DB_URL missing on purpose
+  expect(isDirty(b, partialOriginal, serverTypes)).toBe(false)
+  expect(toChanges(b, partialOriginal, serverTypes)).toEqual([])
+})
