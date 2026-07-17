@@ -83,10 +83,12 @@ it('cycles a header asc -> desc -> off, restoring input order on off', () => {
   const { result } = renderHook(() => useTableControls(rows, config))
   act(() => result.current.toggleSort('name'))
   expect(result.current.sortDir).toBe('asc')
-  expect(result.current.view.map((r) => r.name)).toEqual(['Deploy', 'backup', 'ci']) // localeCompare: D<b<c
+  // localeCompare orders by base letter (b < c < d), case-insensitive at primary
+  // strength — deterministic across locales since the first letters differ.
+  expect(result.current.view.map((r) => r.name)).toEqual(['backup', 'ci', 'Deploy'])
   act(() => result.current.toggleSort('name'))
   expect(result.current.sortDir).toBe('desc')
-  expect(result.current.view.map((r) => r.name)).toEqual(['ci', 'backup', 'Deploy'])
+  expect(result.current.view.map((r) => r.name)).toEqual(['Deploy', 'ci', 'backup'])
   act(() => result.current.toggleSort('name'))
   expect(result.current.sortKey).toBeNull()
   expect(result.current.view.map((r) => r.name)).toEqual(['ci', 'Deploy', 'backup']) // input order
