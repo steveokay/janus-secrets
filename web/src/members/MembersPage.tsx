@@ -21,6 +21,7 @@ import { useTitle } from '../lib/title'
 import { useTableControls } from '../ui/table/useTableControls'
 import { SortHeader } from '../ui/table/SortHeader'
 import { TableSearch } from '../ui/table/TableSearch'
+import { UserPicker } from './UserPicker'
 
 const ROLES: MemberRole[] = ['viewer', 'developer', 'admin', 'owner']
 
@@ -64,16 +65,11 @@ function AddMemberSheet({ scope, members, users, onClose }: {
       >
         <label className="text-[12px] font-semibold">
           User
-          <select
-            aria-label="user"
+          <UserPicker
+            candidates={candidates.map((u) => ({ id: u.id, email: u.email }))}
             value={uid}
-            onChange={(e) => setUid(e.target.value)}
-            required
-            className="mt-1 w-full rounded border border-line bg-surface-3 px-3 py-2 text-[13px] font-normal text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
-          >
-            <option value="">— select —</option>
-            {candidates.map((u) => <option key={u.id} value={u.id}>{u.email}</option>)}
-          </select>
+            onChange={setUid}
+          />
         </label>
         <label className="text-[12px] font-semibold">
           Role

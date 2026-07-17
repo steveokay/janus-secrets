@@ -142,13 +142,11 @@ test('add member: sheet lists enabled non-member users only and PUTs chosen role
   await userEvent.click(screen.getByRole('button', { name: 'Add member' }))
 
   const sheet = await screen.findByRole('dialog')
-  const userSelect = within(sheet).getByLabelText('user')
-  const options = within(userSelect).getAllByRole('option').map((o) => o.textContent)
-  expect(options).toContain('new@example.com')
-  expect(options).not.toContain('owner@example.com')
-  expect(options).not.toContain('gone@example.com')
+  expect(within(sheet).getByText('new@example.com')).toBeInTheDocument()
+  expect(within(sheet).queryByText('owner@example.com')).toBeNull()
+  expect(within(sheet).queryByText('gone@example.com')).toBeNull()
 
-  await userEvent.selectOptions(userSelect, 'u2')
+  await userEvent.click(within(sheet).getByText('new@example.com'))
   await userEvent.selectOptions(within(sheet).getByLabelText('role'), 'developer')
   await userEvent.click(within(sheet).getByRole('button', { name: 'Add' }))
 
