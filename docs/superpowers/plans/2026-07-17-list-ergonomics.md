@@ -344,7 +344,8 @@ it('forwards typed input to onChange', async () => {
   render(<TableSearch value="" onChange={onChange} matched={5} total={5} label="search tokens" />)
   await userEvent.type(screen.getByLabelText('search tokens'), 'ci')
   expect(onChange).toHaveBeenCalled()
-  expect(onChange.mock.calls.at(-1)?.[0]).toBe('i') // last keystroke value (controlled input stays '')
+  const calls = onChange.mock.calls
+  expect(calls[calls.length - 1]?.[0]).toBe('i') // last keystroke value (controlled input stays '')
 })
 
 it('hides the count when empty and shows "N of M" when searching', () => {
