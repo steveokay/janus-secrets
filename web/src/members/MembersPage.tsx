@@ -18,6 +18,9 @@ import { EmptyState } from '../ui/EmptyState'
 import { RevealOnce } from '../ui/RevealOnce'
 import { useToast } from '../ui/Toast'
 import { useTitle } from '../lib/title'
+import { useTableControls } from '../ui/table/useTableControls'
+import { SortHeader } from '../ui/table/SortHeader'
+import { TableSearch } from '../ui/table/TableSearch'
 
 const ROLES: MemberRole[] = ['viewer', 'developer', 'admin', 'owner']
 
@@ -235,6 +238,22 @@ export function MembersPage() {
   const forbidden = members.error instanceof ApiError && members.error.status === 403
   const rows = members.data ?? []
 
+  const roleRank = (r: MemberRole) => ROLES.indexOf(r) // viewer(0) < developer(1) < admin(2) < owner(3)
+  const memberControls = useTableControls(rows, {
+    searchFields: (m) => [displayName(m.user_id, usersById)],
+    comparators: {
+      email: (a, b) => displayName(a.user_id, usersById).localeCompare(displayName(b.user_id, usersById)),
+      role: (a, b) => roleRank(a.role) - roleRank(b.role),
+    },
+  })
+  const userControls = useTableControls(usersList, {
+    searchFields: (u) => [u.email],
+    comparators: {
+      email: (a, b) => a.email.localeCompare(b.email),
+      status: (a, b) => Number(!!a.disabled) - Number(!!b.disabled), // active before disabled
+    },
+  })
+
   function handleScopeKind(k: ScopeKind) {
     setScopeKind(k)
     setPid('')
@@ -313,45 +332,60 @@ export function MembersPage() {
       ) : rows.length === 0 ? (
         <EmptyState title="No members yet" hint="Add a user and grant them a role in this scope." />
       ) : (
-        <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
-          <thead>
-            <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
-              <th className="py-1.5">Email</th>
-              <th className="py-1.5">Role</th>
-              <th className="py-1.5" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((m) => {
-              const label = displayName(m.user_id, usersById)
-              return (
-                <tr key={m.user_id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
-                  <td className="py-1.5">{label}</td>
-                  <td className="py-1.5">
-                    <select
-                      aria-label={`role for ${label}`}
-                      value={m.role}
-                      onChange={(e) => setPendingRole({ uid: m.user_id, role: e.target.value as MemberRole, label })}
-                      className="rounded border border-line bg-surface-3 px-2 py-1 text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
-                    >
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                  </td>
-                  <td className="py-1.5 text-right">
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      onClick={() => setRemoveTarget({ uid: m.user_id, label })}
-                    >
-                      Remove
-                    </Button>
+        <>
+          <div className="mb-2">
+            <TableSearch
+              value={memberControls.query}
+              onChange={memberControls.setQuery}
+              matched={memberControls.matched}
+              total={memberControls.total}
+              label="search members"
+              placeholder="Search members…"
+            />
+          </div>
+          <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
+            <thead>
+              <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
+                <SortHeader label="Email" sortKey="email" controls={memberControls} />
+                <SortHeader label="Role" sortKey="role" controls={memberControls} />
+                <th className="py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {memberControls.matched === 0 ? (
+                <tr>
+                  <td colSpan={3} className="py-6 text-center text-[12.5px] text-ink-mute">
+                    No members match “{memberControls.query}”.
                   </td>
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
+              ) : (
+                memberControls.view.map((m) => {
+                  const label = displayName(m.user_id, usersById)
+                  return (
+                    <tr key={m.user_id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
+                      <td className="py-1.5">{label}</td>
+                      <td className="py-1.5">
+                        <select
+                          aria-label={`role for ${label}`}
+                          value={m.role}
+                          onChange={(e) => setPendingRole({ uid: m.user_id, role: e.target.value as MemberRole, label })}
+                          className="rounded border border-line bg-surface-3 px-2 py-1 text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft transition-nocturne"
+                        >
+                          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </td>
+                      <td className="py-1.5 text-right">
+                        <Button type="button" variant="danger" size="sm" onClick={() => setRemoveTarget({ uid: m.user_id, label })}>
+                          Remove
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </>
       )}
 
       {scopeKind === 'instance' && usersAvailable && (
@@ -365,33 +399,46 @@ export function MembersPage() {
               Create user
             </Button>
           </div>
+          <div className="mb-2">
+            <TableSearch
+              value={userControls.query}
+              onChange={userControls.setQuery}
+              matched={userControls.matched}
+              total={userControls.total}
+              label="search users"
+              placeholder="Search users…"
+            />
+          </div>
           <table className="w-full rounded-card border border-line bg-surface-2 text-sm shadow-elev-1">
             <thead>
               <tr className="sticky top-0 z-10 bg-surface-1 text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
-                <th className="py-1.5">Email</th>
-                <th className="py-1.5">Status</th>
+                <SortHeader label="Email" sortKey="email" controls={userControls} />
+                <SortHeader label="Status" sortKey="status" controls={userControls} />
                 <th className="py-1.5" />
               </tr>
             </thead>
             <tbody>
-              {usersList.map((u) => (
-                <tr key={u.id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
-                  <td className="py-1.5">{u.email}</td>
-                  <td className="py-1.5">{u.disabled ? <Pill tone="danger">disabled</Pill> : <Pill tone="success">active</Pill>}</td>
-                  <td className="py-1.5 text-right">
-                    {!u.disabled && (
-                      <Button
-                        type="button"
-                        variant="danger"
-                        size="sm"
-                        onClick={() => setDisableTarget(u)}
-                      >
-                        Disable
-                      </Button>
-                    )}
+              {userControls.matched === 0 ? (
+                <tr>
+                  <td colSpan={3} className="py-6 text-center text-[12.5px] text-ink-mute">
+                    No users match “{userControls.query}”.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                userControls.view.map((u) => (
+                  <tr key={u.id} className="border-t border-line-soft hover:bg-row-hover transition-nocturne">
+                    <td className="py-1.5">{u.email}</td>
+                    <td className="py-1.5">{u.disabled ? <Pill tone="danger">disabled</Pill> : <Pill tone="success">active</Pill>}</td>
+                    <td className="py-1.5 text-right">
+                      {!u.disabled && (
+                        <Button type="button" variant="danger" size="sm" onClick={() => setDisableTarget(u)}>
+                          Disable
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
