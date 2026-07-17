@@ -16,6 +16,7 @@ type secretChange struct {
 	Key    string `json:"key"`
 	Value  string `json:"value,omitempty"`
 	Delete bool   `json:"delete,omitempty"`
+	Type   string `json:"type,omitempty"`
 }
 
 // parseSetArgs turns `set` args into changes. Forms:
@@ -67,6 +68,7 @@ func parseSetArgs(args []string, stdin io.Reader) ([]secretChange, error) {
 func newSecretsSetCmd() *cobra.Command {
 	var f secretFlags
 	var message string
+	var secretType string
 	cmd := &cobra.Command{
 		Use:   "set KEY[=VALUE] [KEY2=VALUE2 ...]",
 		Short: "Set one or more secrets as a single new config version",
@@ -85,6 +87,11 @@ func newSecretsSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if secretType != "" {
+				for i := range changes {
+					changes[i].Type = secretType
+				}
+			}
 			c, cid, err := f.resolveCID()
 			if err != nil {
 				return err
@@ -102,6 +109,7 @@ func newSecretsSetCmd() *cobra.Command {
 	}
 	f.bind(cmd)
 	cmd.Flags().StringVar(&message, "message", "", "config-version message")
+	cmd.Flags().StringVar(&secretType, "type", "", "secret type: string|password|json|ssh_key|certificate|note (applies to all KEY=VALUE args in this call; empty defaults to string)")
 	return cmd
 }
 

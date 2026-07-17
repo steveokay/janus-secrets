@@ -76,6 +76,10 @@ type SecretValue struct {
 	ConfigID     string
 	Key          string
 	ValueVersion int
+	// Type is plain metadata describing the secret's kind (e.g. "string",
+	// "password", "json"). It is NOT encrypted and is NOT part of
+	// EncryptedValue.
+	Type string
 	EncryptedValue
 	CreatedAt time.Time
 }
@@ -84,8 +88,11 @@ type SecretValue struct {
 // (a tombstone). Otherwise the store calls Encrypt with the value_version it
 // assigns to this key, and Encrypt returns the opaque encrypted value bound to
 // that exact version. Returning an error from Encrypt aborts the whole save.
+// Type is plain metadata (see SecretValue.Type); an empty Type defaults to
+// "string".
 type Change struct {
 	Key     string
+	Type    string
 	Encrypt func(valueVersion int) (*EncryptedValue, error)
 }
 

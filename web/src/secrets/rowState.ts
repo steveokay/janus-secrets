@@ -1,5 +1,6 @@
 import type { MaskedSecret } from '../lib/endpoints'
 import type { Buffer } from './dirty'
+import { normalizeType } from './secretTypes'
 
 export type Change = 'added' | 'edited' | 'removed' | null
 export interface RowState { change: Change; origin: MaskedSecret['origin']; existing: boolean }
@@ -14,12 +15,20 @@ export function rowState(
   const serverOrigin = masked[key]?.origin ?? 'own'
   const entry = buffer[key]
   if (!entry) return { change: null, origin: serverOrigin, existing }
-  if (entry.value === null) {
+  if (entry.value === null && entry.type === undefined) {
     return { change: existing ? 'removed' : null, origin: serverOrigin, existing }
   }
   const had = key in original
-  const changed = !had || original[key] !== entry.value
-  if (!changed) return { change: null, origin: serverOrigin, existing }
+  const valueChanged = entry.value !== null && (!had || original[key] !== entry.value)
+  const serverType = normalizeType(masked[key]?.type)
+  const bufferType = entry.type === undefined ? serverType : normalizeType(entry.type)
+  const typeChanged = existing && bufferType !== serverType
+  if (entry.value === null) {
+    // type-only entry with no value change recorded
+    if (!typeChanged) return { change: null, origin: serverOrigin, existing }
+  } else if (!valueChanged && !typeChanged) {
+    return { change: null, origin: serverOrigin, existing }
+  }
   if (existing) {
     const origin = serverOrigin === 'inherited' ? 'overridden' : serverOrigin
     return { change: 'edited', origin, existing }

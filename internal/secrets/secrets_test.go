@@ -132,3 +132,42 @@ func TestSetSecretsInvalidKey(t *testing.T) {
 		t.Fatalf("invalid key: got %v, want ErrValidation", err)
 	}
 }
+
+func TestSetSecretsCarriesTypeToReveal(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	_, configID := mkChain(t, s)
+
+	if _, err := s.SetSecrets(ctx, configID, []SecretChange{
+		{Key: "PAYLOAD", Value: []byte(`{"a":1}`), Type: "json"},
+	}, "m", "u"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetSecret(ctx, configID, "PAYLOAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "json" {
+		t.Fatalf("GetSecret Type = %q, want json", got.Type)
+	}
+
+	_, all, err := s.RevealConfig(ctx, configID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all["PAYLOAD"].Type != "json" {
+		t.Fatalf("RevealConfig Type = %q, want json", all["PAYLOAD"].Type)
+	}
+}
+
+func TestSetSecretsInvalidType(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+	_, configID := mkChain(t, s)
+	if _, err := s.SetSecrets(ctx, configID, []SecretChange{
+		{Key: "K", Value: []byte("v"), Type: "bogus"},
+	}, "m", "u"); !errors.Is(err, ErrValidation) {
+		t.Fatalf("invalid type: got %v, want ErrValidation", err)
+	}
+}

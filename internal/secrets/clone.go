@@ -101,7 +101,7 @@ func (s *Service) copyOwnSecrets(ctx context.Context, srcConfigID, dstConfigID, 
 	}
 	changes := make([]SecretChange, 0, len(state))
 	for _, sec := range state {
-		changes = append(changes, SecretChange{Key: sec.Key, Value: sec.Value})
+		changes = append(changes, SecretChange{Key: sec.Key, Value: sec.Value, Type: sec.Type})
 	}
 	_, err = s.SetSecrets(ctx, dstConfigID, changes, "Cloned environment", actor)
 	return err

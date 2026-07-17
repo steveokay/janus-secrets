@@ -66,6 +66,69 @@ func TestSecretsSetBatchesOneVersion(t *testing.T) {
 	}
 }
 
+func TestSecretsSetWithTypeFlag(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_ADDR", "")
+	t.Setenv("JANUS_TOKEN", "")
+
+	var gotBody map[string]any
+	mux := http.NewServeMux()
+	addResolveRoutes(mux)
+	mux.HandleFunc("/v1/configs/c1/secrets", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &gotBody)
+		_, _ = w.Write([]byte(`{"version":5,"id":"cv5","created_at":"2026-07-05T00:00:00Z"}`))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	_, _, err := runCmd(t, newSecretsCmd(), "set", "CONF=1",
+		"--type", "json",
+		"--address", ts.URL, "--project", "acme", "--env", "dev", "--config", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes, _ := gotBody["changes"].([]any)
+	if len(changes) != 1 {
+		t.Fatalf("want 1 change, got %v", gotBody)
+	}
+	ch, _ := changes[0].(map[string]any)
+	if ch["type"] != "json" {
+		t.Fatalf("want type=json sent in change payload, got %v", ch)
+	}
+}
+
+func TestSecretsSetWithoutTypeFlagOmitsType(t *testing.T) {
+	t.Setenv("JANUS_CONFIG_DIR", t.TempDir())
+	t.Setenv("JANUS_ADDR", "")
+	t.Setenv("JANUS_TOKEN", "")
+
+	var gotBody map[string]any
+	mux := http.NewServeMux()
+	addResolveRoutes(mux)
+	mux.HandleFunc("/v1/configs/c1/secrets", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &gotBody)
+		_, _ = w.Write([]byte(`{"version":6,"id":"cv6","created_at":"2026-07-05T00:00:00Z"}`))
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	_, _, err := runCmd(t, newSecretsCmd(), "set", "PLAIN=1",
+		"--address", ts.URL, "--project", "acme", "--env", "dev", "--config", "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changes, _ := gotBody["changes"].([]any)
+	if len(changes) != 1 {
+		t.Fatalf("want 1 change, got %v", gotBody)
+	}
+	ch, _ := changes[0].(map[string]any)
+	if typ, ok := ch["type"]; ok && typ != "" {
+		t.Fatalf("want type omitted/empty when --type not passed, got %v", ch)
+	}
+}
+
 func addResolveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/projects", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"projects":[{"id":"p1","slug":"acme"}]}`))

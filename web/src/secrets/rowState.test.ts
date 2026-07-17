@@ -1,4 +1,5 @@
 import { rowState, parseDotenv } from './rowState'
+import { emptyBuffer, setType, removeKey } from './dirty'
 import type { MaskedSecret } from '../lib/endpoints'
 
 const masked: Record<string, MaskedSecret> = {
@@ -6,6 +7,10 @@ const masked: Record<string, MaskedSecret> = {
   INH: { value_version: 1, created_at: '', origin: 'inherited' },
 }
 const original = { OWN: 'a' }
+
+const maskedTyped: Record<string, MaskedSecret> = {
+  OWN: { value_version: 3, created_at: '', origin: 'own', type: 'string' },
+}
 
 test('no buffer entry → no change, server origin', () => {
   expect(rowState('OWN', masked, {}, original)).toEqual({ change: null, origin: 'own', existing: true })
@@ -23,8 +28,26 @@ test('editing an inherited key → edited + overridden', () => {
 test('removing an existing key → removed', () => {
   expect(rowState('OWN', masked, { OWN: { value: null } }, original)).toMatchObject({ change: 'removed' })
 })
+test('removing a key that had its type edited first → removed, not edited', () => {
+  const b = removeKey(setType(emptyBuffer(), 'OWN', 'password'), 'OWN')
+  expect(rowState('OWN', maskedTyped, b, original)).toMatchObject({ change: 'removed' })
+})
 test('a brand-new key → added', () => {
   expect(rowState('NEW', masked, { NEW: { value: 'v' } }, original)).toMatchObject({ change: 'added', existing: false })
+})
+
+test('type-only change on an existing key → edited, value unchanged', () => {
+  expect(
+    rowState('OWN', maskedTyped, { OWN: { value: 'a', type: 'password' } }, original),
+  ).toMatchObject({ change: 'edited', origin: 'own', existing: true })
+})
+test('same value and same type as server → not a change', () => {
+  expect(
+    rowState('OWN', maskedTyped, { OWN: { value: 'a', type: 'string' } }, original).change,
+  ).toBeNull()
+})
+test('no buffer type recorded (undefined) is treated as the server type → not a change', () => {
+  expect(rowState('OWN', maskedTyped, { OWN: { value: 'a' } }, original).change).toBeNull()
 })
 
 test('parseDotenv: KEY=VALUE, comments, blanks, quotes, invalid', () => {

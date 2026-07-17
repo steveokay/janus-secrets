@@ -16,11 +16,13 @@ type MergedMeta struct {
 	ValueVersion int
 	CreatedAt    time.Time
 	Origin       string
+	Type         string
 }
 
 type storeMetaEntry struct {
-	vv int
-	at time.Time
+	vv  int
+	at  time.Time
+	typ string
 }
 
 // ListSecretsMerged returns the masked, inheritance-merged key set for configID.
@@ -52,7 +54,7 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 		}
 		lvl := map[string]storeMetaEntry{}
 		for k, sv := range state {
-			lvl[k] = storeMetaEntry{vv: sv.ValueVersion, at: sv.CreatedAt}
+			lvl[k] = storeMetaEntry{vv: sv.ValueVersion, at: sv.CreatedAt, typ: sv.Type}
 			if first {
 				own[k] = true
 			}
@@ -84,7 +86,7 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 				origin = "own"
 			}
 		}
-		out = append(out, MergedMeta{Key: k, ValueVersion: e.vv, CreatedAt: e.at, Origin: origin})
+		out = append(out, MergedMeta{Key: k, ValueVersion: e.vv, CreatedAt: e.at, Origin: origin, Type: e.typ})
 	}
 	return out, nil
 }

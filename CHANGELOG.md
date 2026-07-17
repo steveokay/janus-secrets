@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Typed secrets (value/password/json/ssh_key/certificate/note): per-type editor,
+  validation, and generate; type carried through promotion and clone; CLI
+  `secrets set --type`.
+
 ## [0.1.0] - 2026-07-16
 
 First tagged release. Feature-complete across build Phases 1–3.

@@ -21,6 +21,9 @@ type SecretChange struct {
 	Key    string
 	Value  []byte
 	Delete bool
+	// Type is a display/handling hint (see allowedTypes); empty normalizes to
+	// "string". Never a storage or crypto concern. Ignored for deletes.
+	Type string
 }
 
 // Secret is a decrypted secret value returned by a reveal.
@@ -28,6 +31,7 @@ type Secret struct {
 	Key          string
 	Value        []byte
 	ValueVersion int
+	Type         string
 }
 
 // SetSecrets encrypts and saves a batch of edits as one new config version.
@@ -35,6 +39,11 @@ func (s *Service) SetSecrets(ctx context.Context, configID string, changes []Sec
 	for _, ch := range changes {
 		if err := validateKey(ch.Key); err != nil {
 			return store.ConfigVersion{}, err
+		}
+		if !ch.Delete {
+			if err := validateType(ch.Type); err != nil {
+				return store.ConfigVersion{}, err
+			}
 		}
 	}
 	cfg, proj, err := s.resolveProject(ctx, configID)
@@ -55,7 +64,8 @@ func (s *Service) SetSecrets(ctx context.Context, configID string, changes []Sec
 			continue
 		}
 		storeChanges = append(storeChanges, store.Change{
-			Key: ch.Key,
+			Key:  ch.Key,
+			Type: normalizeType(ch.Type),
 			Encrypt: func(valueVersion int) (*store.EncryptedValue, error) {
 				// AAD is built from the resolved cfg.ID (canonical id::text), not
 				// the caller-supplied configID string, so representation quirks
@@ -119,7 +129,7 @@ func (s *Service) GetSecret(ctx context.Context, configID, key string) (Secret, 
 	if err != nil {
 		return Secret{}, err
 	}
-	return Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion}, nil
+	return Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion, Type: sv.Type}, nil
 }
 
 // RevealConfig decrypts and returns every live secret in the latest version.
@@ -146,7 +156,7 @@ func (s *Service) RevealConfig(ctx context.Context, configID string) (store.Conf
 			}
 			return store.ConfigVersion{}, nil, err
 		}
-		out[key] = Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion}
+		out[key] = Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion, Type: sv.Type}
 	}
 	return cv, out, nil
 }
@@ -180,7 +190,7 @@ func (s *Service) GetSecretVersion(ctx context.Context, configID, key string, va
 	if err != nil {
 		return Secret{}, err
 	}
-	return Secret{Key: key, Value: pt, ValueVersion: valueVersion}, nil
+	return Secret{Key: key, Value: pt, ValueVersion: valueVersion, Type: found.Type}, nil
 }
 
 // resolveProject walks config → environment → project.

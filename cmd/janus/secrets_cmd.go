@@ -68,6 +68,7 @@ func newSecretsListCmd() *cobra.Command {
 					ValueVersion int    `json:"value_version"`
 					CreatedAt    string `json:"created_at"`
 					Origin       string `json:"origin"`
+					Type         string `json:"type"`
 				} `json:"secrets"`
 			}
 			if err := c.call("GET", "/v1/configs/"+cid+"/secrets", nil, &resp); err != nil {
@@ -82,10 +83,14 @@ func newSecretsListCmd() *cobra.Command {
 			}
 			sort.Strings(keys)
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "KEY\tVERSION\tORIGIN\tUPDATED")
+			fmt.Fprintln(tw, "KEY\tVERSION\tORIGIN\tUPDATED\tTYPE")
 			for _, k := range keys {
 				m := resp.Secrets[k]
-				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n", k, m.ValueVersion, m.Origin, m.CreatedAt)
+				typ := m.Type
+				if typ == "" {
+					typ = "string"
+				}
+				fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", k, m.ValueVersion, m.Origin, m.CreatedAt, typ)
 			}
 			return tw.Flush()
 		},

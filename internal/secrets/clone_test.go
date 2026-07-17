@@ -102,6 +102,62 @@ func TestCloneEnvironment(t *testing.T) {
 	}
 }
 
+// TestCloneEnvironmentCarriesType proves a cloned secret keeps the type it had
+// on the source config: writing the source root's secret with Type "ssh_key"
+// and cloning the environment must leave the cloned root's revealed secret
+// with Type "ssh_key" too, not the zero-value "string" default.
+func TestCloneEnvironmentCarriesType(t *testing.T) {
+	s := newService(t)
+	ctx := context.Background()
+
+	slug := fmt.Sprintf("proj-%d", slugSeq.Add(1))
+	p, err := s.CreateProject(ctx, slug, "Clone Type Project")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	src, err := s.CreateEnvironment(ctx, p.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatalf("CreateEnvironment src: %v", err)
+	}
+	root, err := s.CreateConfig(ctx, src.ID, "root", nil)
+	if err != nil {
+		t.Fatalf("CreateConfig root: %v", err)
+	}
+	if _, err := s.SetSecrets(ctx, root.ID, []SecretChange{
+		{Key: "PRIV_KEY", Value: []byte("ssh-rsa AAAA..."), Type: "ssh_key"},
+	}, "", "tester"); err != nil {
+		t.Fatalf("SetSecrets root: %v", err)
+	}
+
+	newEnv, err := s.CloneEnvironment(ctx, p.ID, src.ID, "staging", "Staging", "tester")
+	if err != nil {
+		t.Fatalf("CloneEnvironment: %v", err)
+	}
+
+	cloned, err := s.configs.ListByEnvironment(ctx, newEnv.ID)
+	if err != nil {
+		t.Fatalf("ListByEnvironment(new): %v", err)
+	}
+	var newRoot *store.Config
+	for _, c := range cloned {
+		if c.Name == "root" {
+			newRoot = c
+		}
+	}
+	if newRoot == nil {
+		t.Fatalf("expected root in cloned env, got %d configs", len(cloned))
+	}
+
+	got, err := s.GetSecret(ctx, newRoot.ID, "PRIV_KEY")
+	if err != nil {
+		t.Fatalf("GetSecret(newRoot, PRIV_KEY): %v", err)
+	}
+	if got.Type != "ssh_key" {
+		t.Errorf("cloned PRIV_KEY.Type = %q, want ssh_key", got.Type)
+	}
+}
+
 // TestCloneEnvironmentCleanupOnFailure forces a mid-clone failure and asserts the
 // best-effort compensating cleanup ran: the newly created environment must not be
 // left LIVE. The fault seam is the keyring — after building the source tree we
