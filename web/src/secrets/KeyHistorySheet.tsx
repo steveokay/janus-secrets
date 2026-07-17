@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Eye, Copy } from 'lucide-react'
+import { Eye, Copy, Check } from 'lucide-react'
 import { endpoints } from '../lib/endpoints'
 import { Sheet } from '../ui/Sheet'
 import { Pill } from '../ui/Pill'
 import { Skeleton } from '../ui/Skeleton'
 import { useToast } from '../ui/Toast'
+import { useCopyFeedback } from '../ui/useCopyFeedback'
 import { relativeTime } from '../lib/relativeTime'
 
 // Inner body: keyed by `secretKey` from the parent so switching keys remounts
@@ -18,6 +19,7 @@ function KeyHistoryBody({ cid, secretKey }: { cid: string; secretKey: string }) 
     queryFn: () => endpoints.keyHistory(cid, secretKey),
   })
   const [revealed, setRevealed] = useState<Record<number, string>>({})
+  const copyFeedback = useCopyFeedback()
 
   async function reveal(version: number) {
     if (version in revealed) return
@@ -35,6 +37,7 @@ function KeyHistoryBody({ cid, secretKey }: { cid: string; secretKey: string }) 
     try {
       await navigator.clipboard?.writeText(value)
       toast({ title: `Copied v${version}` })
+      copyFeedback.markCopied(String(version))
     } catch {
       toast({ title: 'Copy failed', tone: 'danger' })
     }
@@ -61,11 +64,13 @@ function KeyHistoryBody({ cid, secretKey }: { cid: string; secretKey: string }) 
             {v.value_version in revealed ? (
               <button
                 type="button"
-                aria-label={`copy v${v.value_version}`}
+                aria-label={copyFeedback.isCopied(String(v.value_version)) ? `v${v.value_version} copied` : `copy v${v.value_version}`}
                 onClick={() => void copy(v.value_version)}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-ink-faint hover:bg-surface-3 hover:text-brand-text"
               >
-                <Copy size={13} strokeWidth={1.8} />
+                {copyFeedback.isCopied(String(v.value_version))
+                  ? <Check size={13} strokeWidth={1.8} className="text-success" />
+                  : <Copy size={13} strokeWidth={1.8} />}
               </button>
             ) : (
               <button

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { vi } from 'vitest'
 import { IssuedCredsModal } from './IssuedCredsModal'
 import type { IssuedCreds } from './endpoints'
 
@@ -22,4 +23,16 @@ test('shows the password once, then wipes it from the DOM on close', async () =>
 test('renders nothing when creds is null', () => {
   render(<IssuedCredsModal creds={null} onClose={() => {}} />)
   expect(screen.queryByText(/shown once/i)).toBeNull()
+})
+
+test('copy button shows an inline copied state after a successful copy', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  render(<Harness />)
+  const copyBtn = screen.getByRole('button', { name: 'copy Password' })
+  await user.click(copyBtn)
+  expect(screen.getByRole('button', { name: 'password copied' })).toBeInTheDocument()
+  await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+  expect(screen.getByRole('button', { name: 'copy Password' })).toBeInTheDocument()
+  vi.useRealTimers()
 })

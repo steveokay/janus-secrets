@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Eye, Copy, Pencil, X, Undo2, RotateCcw, ChevronUp, ChevronDown, Lock, LockOpen, Wand2, AlertTriangle } from 'lucide-react'
+import { Eye, Copy, Check, Pencil, X, Undo2, RotateCcw, ChevronUp, ChevronDown, Lock, LockOpen, Wand2, AlertTriangle } from 'lucide-react'
 import type { MaskedSecret } from '../lib/endpoints'
 import type { Buffer } from './dirty'
 import { Pill } from '../ui/Pill'
@@ -11,6 +11,7 @@ import { cn } from '../ui/cn'
 import { SECRET_TYPES, SECRET_TYPE_ORDER, normalizeType } from './secretTypes'
 import type { SecretType } from './secretTypes'
 import { generatePassword } from './generatePassword'
+import { useCopyFeedback } from '../ui/useCopyFeedback'
 
 const GRID = 'grid grid-cols-[24px_1.2fr_1.4fr_104px_92px_56px_96px] items-center gap-3 px-4'
 
@@ -98,6 +99,7 @@ export function SecretTable({
   onOpenHistory: (key: string) => void
   onChangeType: (key: string, type: SecretType) => void
 }) {
+  const copyFeedback = useCopyFeedback()
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[844px] rounded-card border border-line bg-card shadow-elev-1 overflow-hidden">
@@ -196,7 +198,12 @@ export function SecretTable({
                       {!(key in revealed) && (
                         <IconButton label={`reveal ${key}`} onClick={() => onReveal(key)}><Eye {...ICON} /></IconButton>
                       )}
-                      <IconButton label={`copy ${key}`} onClick={() => onCopy(key)}><Copy {...ICON} /></IconButton>
+                      <IconButton
+                        label={copyFeedback.isCopied(key) ? `copied ${key}` : `copy ${key}`}
+                        onClick={() => { onCopy(key); copyFeedback.markCopied(key) }}
+                      >
+                        {copyFeedback.isCopied(key) ? <Check {...ICON} className="text-success" /> : <Copy {...ICON} />}
+                      </IconButton>
                     </span>
                   )}
                 </>
