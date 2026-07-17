@@ -13,8 +13,10 @@ import { CreateProjectForm } from '../structure/CreateForms'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useToast } from '../ui/Toast'
 import { InstanceReadsStrip } from '../metrics/ReadsStrip'
+import { glyphClass } from './glyph'
+import { recencyLabel } from './recency'
 
-type Sort = 'name-asc' | 'name-desc'
+type Sort = 'name-asc' | 'name-desc' | 'created-desc' | 'created-asc' | 'activity-desc'
 
 function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list' }) {
   const envs = useEnvironments(project.id)
@@ -49,11 +51,26 @@ function ProjectCard({ project, view }: { project: Project; view: 'grid' | 'list
           view === 'list' && 'flex items-center gap-4',
         )}
       >
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
-          {project.slug !== project.name && (
-            <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
-          )}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span
+            aria-hidden
+            data-testid="project-glyph"
+            className={cn(
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-logo text-[13px] font-bold text-on-brand',
+              glyphClass(project.slug),
+            )}
+          >
+            {project.name.charAt(0).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-semibold text-ink">{project.name}</div>
+            {project.slug !== project.name && (
+              <div className="truncate font-mono text-[11.5px] text-ink-faint">{project.slug}</div>
+            )}
+            {recencyLabel(project) && (
+              <div className="truncate text-[11.5px] text-ink-faint">{recencyLabel(project)}</div>
+            )}
+          </div>
         </div>
         <div className={cn('flex items-center gap-2', view === 'grid' && 'mt-3')}>
           {envs.data && envs.data.length > 0 && (
@@ -111,7 +128,22 @@ export function ProjectsList() {
     const list = (projects.data ?? []).filter(
       (p) => p.name.toLowerCase().includes(q.toLowerCase()) || p.slug.toLowerCase().includes(q.toLowerCase()),
     )
-    list.sort((a, b) => (sort === 'name-asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)))
+    list.sort((a, b) => {
+      switch (sort) {
+        case 'name-asc': return a.name.localeCompare(b.name)
+        case 'name-desc': return b.name.localeCompare(a.name)
+        case 'created-desc': return (b.created_at ?? '').localeCompare(a.created_at ?? '')
+        case 'created-asc': return (a.created_at ?? '').localeCompare(b.created_at ?? '')
+        case 'activity-desc': {
+          const av = a.last_activity_at ?? '', bv = b.last_activity_at ?? ''
+          if (av && bv) return bv.localeCompare(av)
+          if (av) return -1
+          if (bv) return 1
+          return a.name.localeCompare(b.name)
+        }
+        default: return 0
+      }
+    })
     return list
   }, [projects.data, q, sort])
 
@@ -181,6 +213,9 @@ export function ProjectsList() {
         >
           <option value="name-asc">Name A–Z</option>
           <option value="name-desc">Name Z–A</option>
+          <option value="created-desc">Newest</option>
+          <option value="created-asc">Oldest</option>
+          <option value="activity-desc">Recently active</option>
         </select>
         <div className="flex rounded border border-line">
           <button

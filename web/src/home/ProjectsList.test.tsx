@@ -87,3 +87,69 @@ test('shows the instance Reads 24h strip above the projects', async () => {
   renderApp(<ProjectsList />, { route: '/', withAuth: false })
   expect(await screen.findByText('42')).toBeInTheDocument()
 })
+
+test('renders a glyph badge on each project card', async () => {
+  mockProjects([
+    { id: 'p1', slug: 'api-gateway', name: 'api-gateway' },
+    { id: 'p2', slug: 'web', name: 'web-frontend' },
+  ])
+  renderApp(<ProjectsList />, { route: '/', withAuth: false })
+  await screen.findByRole('link', { name: /api-gateway/i })
+  const glyphs = screen.getAllByTestId('project-glyph')
+  expect(glyphs).toHaveLength(2)
+})
+
+test('recency line shows active for last_activity_at and created for created_at only', async () => {
+  server.use(
+    http.get('/v1/projects', () =>
+      HttpResponse.json({
+        projects: [
+          {
+            id: 'p1',
+            slug: 'active-proj',
+            name: 'active-proj',
+            created_at: '2026-07-01T00:00:00Z',
+            last_activity_at: '2026-07-16T00:00:00Z',
+          },
+          {
+            id: 'p2',
+            slug: 'quiet-proj',
+            name: 'quiet-proj',
+            created_at: '2026-07-10T00:00:00Z',
+            last_activity_at: null,
+          },
+        ],
+      }),
+    ),
+    http.get('/v1/projects/:pid/environments', () => HttpResponse.json({ environments: [] })),
+  )
+  renderApp(<ProjectsList />, { route: '/', withAuth: false })
+  await screen.findByRole('link', { name: /active-proj/i })
+  expect(screen.getByText(/active /)).toBeInTheDocument()
+  expect(screen.getByText(/created /)).toBeInTheDocument()
+})
+
+test('sort select offers Newest/Oldest/Recently active, and Newest orders by created_at desc', async () => {
+  server.use(
+    http.get('/v1/projects', () =>
+      HttpResponse.json({
+        projects: [
+          { id: 'p1', slug: 'older', name: 'older', created_at: '2026-01-01T00:00:00Z' },
+          { id: 'p2', slug: 'newer', name: 'newer', created_at: '2026-07-01T00:00:00Z' },
+        ],
+      }),
+    ),
+    http.get('/v1/projects/:pid/environments', () => HttpResponse.json({ environments: [] })),
+  )
+  renderApp(<ProjectsList />, { route: '/', withAuth: false })
+  await screen.findByRole('link', { name: /older/i })
+
+  const sortSelect = screen.getByRole('combobox', { name: /sort/i })
+  expect(within(sortSelect).getByRole('option', { name: 'Newest' })).toHaveValue('created-desc')
+  expect(within(sortSelect).getByRole('option', { name: 'Oldest' })).toHaveValue('created-asc')
+  expect(within(sortSelect).getByRole('option', { name: 'Recently active' })).toHaveValue('activity-desc')
+
+  await userEvent.selectOptions(sortSelect, 'created-desc')
+  const links = screen.getAllByRole('link')
+  expect(within(links[0]).getByText('newer')).toBeInTheDocument()
+})
