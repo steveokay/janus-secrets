@@ -244,3 +244,58 @@ func TestEnvClone(t *testing.T) {
 		t.Fatal("clone slug leaked into an audit_events detail")
 	}
 }
+
+// TestEnvCloneAuthzScope guards the source-env scope resolution in the clone
+// handler:
+//   - An unknown/garbage source eid resolves to not-found -> 404 (never a silent
+//     201 that would create an empty env).
+//   - Cross-project exfiltration is denied: a principal who is admin of project A
+//     but has NO grant on project B cannot clone B's env by routing the request
+//     through /v1/projects/{A}/environments/{B-eid}/clone. Because clone decrypts
+//     the source config tree under B's own project KEK, authorizing against the
+//     URL pid (A) alone would leak B's secrets; the handler must authorize against
+//     the source env's REAL project (B), yielding 403.
+func TestEnvCloneAuthzScope(t *testing.T) {
+	ts, _, ownerEmail, ownerPass, _ := authStackFull(t)
+	owner := login(t, ts.URL, ownerEmail, ownerPass)
+
+	// Project A, on which our test principal will be admin.
+	var projA struct{ ID string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects", owner, "", `{"slug":"clonescope-a","name":"CloneScopeA"}`, &projA); code != http.StatusCreated {
+		t.Fatalf("create project A: %d", code)
+	}
+	// Project B (the victim), with an environment the principal must NOT be able to
+	// clone. The instance admin creates B; the principal gets no grant on it.
+	var projB struct{ ID string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects", owner, "", `{"slug":"clonescope-b","name":"CloneScopeB"}`, &projB); code != http.StatusCreated {
+		t.Fatalf("create project B: %d", code)
+	}
+	var envB struct{ ID string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects/"+projB.ID+"/environments", owner, "", `{"slug":"dev","name":"Dev"}`, &envB); code != http.StatusCreated {
+		t.Fatalf("create env B: %d", code)
+	}
+
+	// Mint a principal who is ADMIN of A only (env:create on A, nothing on B).
+	var adminA struct{ ID, Password string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/users", owner, "", `{"email":"admin-a-clonescope@corp.io"}`, &adminA); code != http.StatusOK {
+		t.Fatalf("create user: %d", code)
+	}
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/projects/"+projA.ID+"/members/"+adminA.ID, owner, "", `{"role":"admin"}`, nil); code != http.StatusNoContent {
+		t.Fatalf("grant admin on A: %d", code)
+	}
+	adminACookie := login(t, ts.URL, "admin-a-clonescope@corp.io", adminA.Password)
+
+	// (a) Unknown/garbage source eid -> 404, not a silent 201.
+	if code := doAuthed(t, "POST",
+		ts.URL+"/v1/projects/"+projA.ID+"/environments/00000000-0000-0000-0000-000000000000/clone",
+		adminACookie, "", `{"slug":"ghost","name":"Ghost"}`, nil); code != http.StatusNotFound {
+		t.Fatalf("unknown source eid: want 404, got %d", code)
+	}
+
+	// (b) Cross-project denial: admin of A cannot clone B's env by routing through A.
+	if code := doAuthed(t, "POST",
+		ts.URL+"/v1/projects/"+projA.ID+"/environments/"+envB.ID+"/clone",
+		adminACookie, "", `{"slug":"stolen","name":"Stolen"}`, nil); code != http.StatusForbidden {
+		t.Fatalf("cross-project clone: want 403, got %d", code)
+	}
+}

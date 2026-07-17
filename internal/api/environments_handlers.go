@@ -65,9 +65,20 @@ type cloneEnvRequest struct {
 // decrypt->re-encrypt happens entirely inside the service, which logs/audits
 // nothing.
 func (s *Server) handleEnvClone(w http.ResponseWriter, r *http.Request) {
-	pid := chi.URLParam(r, "pid")
 	eid := chi.URLParam(r, "eid")
-	if !s.authorize(w, r, authz.EnvCreate, authz.Resource{ProjectID: pid}, "env.clone", "environments/"+eid) {
+	// Resolve the source env's REAL scope (project) and authorize against it, not
+	// the URL pid. CloneEnvironment decrypts the source config tree under the
+	// source project's own KEK, so authorizing against the URL pid alone would let
+	// a caller who is admin of their OWN project clone (and thus exfiltrate) a
+	// victim env from ANOTHER project. Mirror handleEnvDelete/handleEnvRename: the
+	// URL pid is routing-only; the resolved scope is authoritative. An
+	// unknown/garbage/deleted eid resolves to ErrNotFound -> 404.
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.EnvCreate, res, "env.clone", "environments/"+eid) {
 		return
 	}
 	var req cloneEnvRequest
@@ -75,7 +86,7 @@ func (s *Server) handleEnvClone(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "slug is required")
 		return
 	}
-	newEnv, err := s.service.CloneEnvironment(r.Context(), pid, eid, req.Slug, req.Name, actorOf(r))
+	newEnv, err := s.service.CloneEnvironment(r.Context(), res.ProjectID, eid, req.Slug, req.Name, actorOf(r))
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
