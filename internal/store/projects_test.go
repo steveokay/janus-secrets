@@ -211,3 +211,37 @@ func TestProjectRepo_LastActivity(t *testing.T) {
 		t.Errorf("p3 is empty, should be absent")
 	}
 }
+
+func TestProjectRepo_UpdateName(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	pr := NewProjectRepo(s)
+
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pr.Create(ctx, id, "p", "Old", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := pr.UpdateName(ctx, p.ID, "New"); err != nil {
+		t.Fatalf("UpdateName: %v", err)
+	}
+	got, err := pr.Get(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Name != "New" {
+		t.Errorf("name = %q, want New", got.Name)
+	}
+	if got.Slug != "p" {
+		t.Errorf("slug must be immutable, got %q", got.Slug)
+	}
+
+	if err := pr.UpdateName(ctx, "00000000-0000-0000-0000-000000000000", "X"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing id: want ErrNotFound, got %v", err)
+	}
+}

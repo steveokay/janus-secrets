@@ -110,6 +110,14 @@ func (r *EnvironmentRepo) ListByProject(ctx context.Context, projectID string) (
 	return r.ListByProjectPage(ctx, projectID, 0, nil)
 }
 
+// UpdateName sets an environment's display name. Slug is immutable. Returns
+// ErrNotFound if the environment does not exist or is soft-deleted.
+func (r *EnvironmentRepo) UpdateName(ctx context.Context, id, name string) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE environments SET name = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, name)
+}
+
 // SoftDelete marks an environment deleted.
 func (r *EnvironmentRepo) SoftDelete(ctx context.Context, id string) error {
 	return r.s.execAffectingOne(ctx,

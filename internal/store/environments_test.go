@@ -185,3 +185,42 @@ func TestEnvironmentRepo_LastActivity(t *testing.T) {
 		t.Errorf("e3 soft-deleted, should be absent despite having a version")
 	}
 }
+
+func TestEnvironmentRepo_UpdateName(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	projects := NewProjectRepo(s)
+	repo := NewEnvironmentRepo(s)
+
+	id, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := projects.Create(ctx, id, "acme", "Acme", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := repo.Create(ctx, p.ID, "prod", "Production")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.UpdateName(ctx, e.ID, "Prod (new)"); err != nil {
+		t.Fatalf("UpdateName: %v", err)
+	}
+	got, err := repo.Get(ctx, e.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Name != "Prod (new)" {
+		t.Errorf("name = %q, want %q", got.Name, "Prod (new)")
+	}
+	if got.Slug != "prod" {
+		t.Errorf("slug must be immutable, got %q", got.Slug)
+	}
+
+	if err := repo.UpdateName(ctx, "00000000-0000-0000-0000-000000000000", "X"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing id: want ErrNotFound, got %v", err)
+	}
+}

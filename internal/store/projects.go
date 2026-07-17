@@ -114,6 +114,14 @@ func (r *ProjectRepo) List(ctx context.Context) ([]*Project, error) {
 	return r.ListPage(ctx, 0, nil)
 }
 
+// UpdateName sets a project's display name. Slug is immutable. Returns
+// ErrNotFound if the project does not exist or is soft-deleted.
+func (r *ProjectRepo) UpdateName(ctx context.Context, id, name string) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE projects SET name = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, name)
+}
+
 // SoftDelete marks a project deleted. Returns ErrNotFound if it was already
 // deleted or does not exist.
 func (r *ProjectRepo) SoftDelete(ctx context.Context, id string) error {
