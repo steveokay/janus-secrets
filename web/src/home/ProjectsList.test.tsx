@@ -6,6 +6,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { ProjectsList } from './ProjectsList'
+import * as endpointsModule from '../lib/endpoints'
 
 function mockProjects(projects: { id: string; slug: string; name: string }[]) {
   server.use(
@@ -152,4 +153,31 @@ test('sort select offers Newest/Oldest/Recently active, and Newest orders by cre
   await userEvent.selectOptions(sortSelect, 'created-desc')
   const links = screen.getAllByRole('link')
   expect(within(links[0]).getByText('newer')).toBeInTheDocument()
+})
+
+test('the card quick-action menu offers Rename and Delete', async () => {
+  mockProjects([{ id: 'p1', slug: 'api-gateway', name: 'api-gateway' }])
+  renderApp(<ProjectsList />, { route: '/', withAuth: false })
+  await screen.findByRole('link', { name: /api-gateway/i })
+  await userEvent.click(screen.getByRole('button', { name: /actions for api-gateway/i }))
+  expect(await screen.findByRole('menuitem', { name: /rename/i })).toBeInTheDocument()
+  expect(screen.getByRole('menuitem', { name: /delete/i })).toBeInTheDocument()
+})
+
+test('renaming a project via the quick-action menu calls endpoints.renameProject and invalidates the projects query', async () => {
+  mockProjects([{ id: 'p1', slug: 'api-gateway', name: 'api-gateway' }])
+  const renameSpy = vi
+    .spyOn(endpointsModule.endpoints, 'renameProject')
+    .mockResolvedValue({ id: 'p1', slug: 'api-gateway', name: 'api-gateway-2' })
+  renderApp(<ProjectsList />, { route: '/', withAuth: false })
+  await screen.findByRole('link', { name: /api-gateway/i })
+  await userEvent.click(screen.getByRole('button', { name: /actions for api-gateway/i }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: /rename/i }))
+  const input = await screen.findByRole('textbox', { name: /name/i })
+  expect(input).toHaveValue('api-gateway')
+  await userEvent.clear(input)
+  await userEvent.type(input, 'api-gateway-2')
+  await userEvent.click(screen.getByRole('button', { name: /save/i }))
+  expect(renameSpy).toHaveBeenCalledWith('p1', 'api-gateway-2')
+  renameSpy.mockRestore()
 })
