@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import {
   endpoints,
   Member,
@@ -22,6 +23,7 @@ import { useTableControls } from '../ui/table/useTableControls'
 import { SortHeader } from '../ui/table/SortHeader'
 import { TableSearch } from '../ui/table/TableSearch'
 import { UserPicker } from './UserPicker'
+import { RbacMatrix } from './RbacMatrix'
 
 const ROLES: MemberRole[] = ['viewer', 'developer', 'admin', 'owner']
 
@@ -160,6 +162,15 @@ export function MembersPage() {
   const [pid, setPid] = useState('')
   const [eid, setEid] = useState('')
 
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') === 'matrix' ? 'matrix' : 'list'
+  const setView = (v: 'list' | 'matrix') => {
+    const next = new URLSearchParams(params)
+    if (v === 'matrix') next.set('view', 'matrix')
+    else next.delete('view')
+    setParams(next, { replace: true })
+  }
+
   const projects = useProjects()
   const envs = useEnvironments(scopeKind === 'environment' ? pid || undefined : undefined)
 
@@ -263,13 +274,44 @@ export function MembersPage() {
           <h3 className="text-[15px] font-semibold text-ink">Members</h3>
           <p className="text-[12.5px] text-ink-faint">Role bindings scoped to the instance, a project, or an environment</p>
         </div>
-        {scope && !forbidden && (
-          <Button type="button" size="sm" onClick={() => setAddOpen(true)}>
-            Add member
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="flex overflow-hidden rounded border border-line">
+            <button
+              type="button"
+              aria-pressed={view === 'list'}
+              onClick={() => setView('list')}
+              className={`px-3 py-1.5 text-[12.5px] font-semibold transition-nocturne ${view === 'list' ? 'bg-surface-3 text-ink' : 'bg-surface-2 text-ink-mute hover:text-ink'}`}
+            >
+              List
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === 'matrix'}
+              onClick={() => setView('matrix')}
+              className={`px-3 py-1.5 text-[12.5px] font-semibold transition-nocturne ${view === 'matrix' ? 'bg-surface-3 text-ink' : 'bg-surface-2 text-ink-mute hover:text-ink'}`}
+            >
+              Matrix
+            </button>
+          </div>
+          {view === 'list' && scope && !forbidden && (
+            <Button type="button" size="sm" onClick={() => setAddOpen(true)}>
+              Add member
+            </Button>
+          )}
+        </div>
       </div>
 
+      {view === 'matrix' ? (
+        <RbacMatrix
+          onPickScope={(picked) => {
+            setScopeKind(picked.kind)
+            setPid(picked.kind === 'instance' ? '' : picked.pid)
+            setEid(picked.kind === 'environment' ? picked.eid : '')
+            setView('list')
+          }}
+        />
+      ) : (
+        <>
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <label className="text-[12px] font-semibold text-ink-mute">
           Scope
@@ -383,8 +425,10 @@ export function MembersPage() {
           </table>
         </>
       )}
+        </>
+      )}
 
-      {scopeKind === 'instance' && usersAvailable && (
+      {view === 'list' && scopeKind === 'instance' && usersAvailable && (
         <div className="mt-8">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
