@@ -73,7 +73,7 @@ These exist and work but are shallow versions of what the mockup/product implies
 - ~~No search/filter/sort~~ **[DONE 2026-07-17, list-ergonomics]** — name/scope-kind search + click-to-sort columns (Name/Access/Created/Expires/Status) via the shared `web/src/ui/table/` primitive. Still open: no last-used timestamp (backend doesn't record it — backend gap); no stale-token highlighting; no revoke+remint rotation flow.
 
 ### 2.6 Members (`web/src/members/MembersPage.tsx`) — LOW-MED
-- Has create/disable/roles (verified) + **[DONE 2026-07-17, list-ergonomics]** search + sort on the role-bindings and Users tables (role sorts by privilege rank, not alphabetically). Still open: no user search in the add-member *picker*, no last-login column (backend gap), no RBAC matrix view (users × scopes grid).
+- Has create/disable/roles (verified) + **[DONE 2026-07-17, list-ergonomics]** search + sort on the role-bindings and Users tables (role sorts by privilege rank, not alphabetically). ~~no user search in the add-member *picker*, no RBAC matrix view (users × scopes grid)~~ **[DONE 2026-07-18, rbac-matrix]** — read-only RBAC matrix (users × scopes grid, Instance + project columns with "+N env" env-aware cells, explicit bindings only, 403-tolerant fan-out) with a List|Matrix view toggle, plus search on the add-member picker. Still open: no last-login column (backend gap, see §5).
 
 ### 2.7 Transit (`web/src/transit/`) — LOW
 - Playground omits decrypt and datakey ops (decrypt arguably deliberate; datakey reasonable to add for parity).
