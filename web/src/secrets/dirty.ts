@@ -8,7 +8,8 @@ type Original = Record<string, string>
 export const emptyBuffer = (): Buffer => ({})
 export const setValue = (b: Buffer, key: string, value: string): Buffer => ({ ...b, [key]: { ...b[key], value } })
 export const addKey = setValue // adding and editing both set a value; save() diffs vs original
-export const removeKey = (b: Buffer, key: string): Buffer => ({ ...b, [key]: { ...b[key], value: null } })
+// Removal is a value-level state; a deleted row has no meaningful type, so drop any staged type.
+export const removeKey = (b: Buffer, key: string): Buffer => ({ ...b, [key]: { value: null } })
 export const revert = (b: Buffer, key: string): Buffer => { const { [key]: _drop, ...rest } = b; return rest }
 export const setType = (b: Buffer, key: string, type: SecretType): Buffer => ({
   ...b,

@@ -45,3 +45,8 @@ test('setValue preserves a type already recorded in the buffer', () => {
   const b = setValue(setType(emptyBuffer(), 'LOG_LEVEL', 'password'), 'LOG_LEVEL', 'debug')
   expect(b.LOG_LEVEL).toEqual({ value: 'debug', type: 'password' })
 })
+
+test('removeKey drops any staged type (a deleted row has no type)', () => {
+  const b = removeKey(setType(emptyBuffer(), 'LOG_LEVEL', 'password'), 'LOG_LEVEL')
+  expect(b.LOG_LEVEL).toEqual({ value: null })
+})

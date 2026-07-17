@@ -1,4 +1,5 @@
 import { rowState, parseDotenv } from './rowState'
+import { emptyBuffer, setType, removeKey } from './dirty'
 import type { MaskedSecret } from '../lib/endpoints'
 
 const masked: Record<string, MaskedSecret> = {
@@ -26,6 +27,10 @@ test('editing an inherited key → edited + overridden', () => {
 })
 test('removing an existing key → removed', () => {
   expect(rowState('OWN', masked, { OWN: { value: null } }, original)).toMatchObject({ change: 'removed' })
+})
+test('removing a key that had its type edited first → removed, not edited', () => {
+  const b = removeKey(setType(emptyBuffer(), 'OWN', 'password'), 'OWN')
+  expect(rowState('OWN', maskedTyped, b, original)).toMatchObject({ change: 'removed' })
 })
 test('a brand-new key → added', () => {
   expect(rowState('NEW', masked, { NEW: { value: 'v' } }, original)).toMatchObject({ change: 'added', existing: false })
