@@ -24,7 +24,7 @@ func (s *Service) RevealConfigVersion(ctx context.Context, configID string, vers
 			}
 			return nil, err
 		}
-		out[key] = Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion}
+		out[key] = Secret{Key: key, Value: pt, ValueVersion: sv.ValueVersion, Type: sv.Type}
 	}
 	return out, nil
 }

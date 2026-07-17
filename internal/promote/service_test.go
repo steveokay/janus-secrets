@@ -297,6 +297,43 @@ func TestReferencesCopiedRaw(t *testing.T) {
 	}
 }
 
+// TestTypeCarriedThroughPromotion proves a promoted secret keeps the type it
+// had on the source: setting the source key with Type "json" and promoting it
+// must leave the TARGET's revealed secret with Type "json" too, not the
+// zero-value "string" default.
+func TestTypeCarriedThroughPromotion(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	if _, err := h.sec.SetSecrets(ctx, h.devCfg,
+		[]secrets.SecretChange{{Key: "CONF", Value: []byte(`{"a":1}`), Type: "json"}},
+		"seed", h.actor); err != nil {
+		t.Fatalf("SetSecrets dev: %v", err)
+	}
+
+	diff, err := h.svc.Preview(ctx, h.devCfg, h.stgCfg, h.actor)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if _, err := h.svc.Apply(ctx, ApplyRequest{
+		SourceConfigID: h.devCfg,
+		TargetConfigID: h.stgCfg,
+		SourceVersion:  diff.SourceVersion,
+		Selections:     []Selection{{Key: "CONF", Action: ActionSet}},
+		Actor:          h.actor,
+	}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	got, err := h.sec.GetSecret(ctx, h.stgCfg, "CONF")
+	if err != nil {
+		t.Fatalf("GetSecret(target, CONF): %v", err)
+	}
+	if got.Type != "json" {
+		t.Errorf("promoted CONF.Type = %q, want json", got.Type)
+	}
+}
+
 func uniqueSlug(base string) string {
 	return base + "-" + itoa(slugSeq.Add(1))
 }

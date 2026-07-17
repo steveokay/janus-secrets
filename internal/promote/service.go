@@ -301,7 +301,7 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, err
 				skipped = append(skipped, sel.Key) // drift: vanished from the source
 				continue
 			}
-			changes = append(changes, secrets.SecretChange{Key: sel.Key, Value: append([]byte(nil), sec.Value...)})
+			changes = append(changes, secrets.SecretChange{Key: sel.Key, Value: append([]byte(nil), sec.Value...), Type: sec.Type})
 			applied = append(applied, sel)
 		}
 	}
