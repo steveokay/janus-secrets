@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
 import { screen } from '@testing-library/react'
 import { render } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach } from 'vitest'
 import App from './App'
 import { ThemeProvider } from './theme/ThemeProvider'
@@ -52,6 +53,15 @@ test('authenticated render at / marks Home current in the sidebar', async () => 
   expect(home).toHaveAttribute('aria-current', 'page')
   const projects = screen.getByRole('link', { name: /projects/i })
   expect(projects).not.toHaveAttribute('aria-current')
+})
+
+test('"?" opens the keyboard shortcuts overlay', async () => {
+  boot({ initialized: true, sealed: false, type: 'shamir' }, 200)
+  render(<ThemeProvider><App /></ThemeProvider>)
+  await screen.findByRole('button', { name: /user menu/i })
+  await userEvent.keyboard('?')
+  expect(await screen.findByRole('dialog', { name: 'Keyboard shortcuts' })).toBeInTheDocument()
+  expect(screen.getByText('Open command palette')).toBeInTheDocument()
 })
 
 test('authenticated render at /projects marks Projects current and shows ProjectsList content', async () => {

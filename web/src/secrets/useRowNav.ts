@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isTypingTarget } from '../lib/isTypingTarget'
 
 type Cbs = {
   visible: string[]
@@ -7,13 +8,6 @@ type Cbs = {
   onRemove: (key: string) => void
   onToggleSelect: (key: string) => void
   onFocusFilter: () => void
-}
-
-function isTypingTarget(t: EventTarget | null): boolean {
-  const el = t as HTMLElement | null
-  if (!el || !el.tagName) return false
-  const tag = el.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true
 }
 
 // Active-row keyboard navigation. Installs a window keydown listener that is
