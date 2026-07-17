@@ -1,6 +1,7 @@
 import type { MaskedSecret } from '../lib/endpoints'
 import type { Buffer } from './dirty'
 import { rowState } from './rowState'
+import { normalizeType } from './secretTypes'
 import { cn } from '../ui/cn'
 import { Modal } from '../ui/Modal'
 import { Button } from '../ui/Button'
@@ -40,12 +41,24 @@ export function ReviewDiffDialog({ open, onClose, buffer, masked, original, vers
               {s.title} ({s.keys.length})
             </div>
             <ul className="flex flex-col gap-1">
-              {s.keys.map((k) => (
-                <li key={k} className="flex items-center gap-2 font-mono text-[12.5px] text-ink">
-                  <span className={cn('h-1.5 w-1.5 rounded-full', s.dot)} />
-                  {k}
-                </li>
-              ))}
+              {s.keys.map((k) => {
+                const oldType = normalizeType(masked[k]?.type)
+                const newType = normalizeType(buffer[k]?.type === undefined ? masked[k]?.type : buffer[k]?.type)
+                const typeChanged = s.title === 'Changed' && oldType !== newType
+                return (
+                  <li key={k} className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-2 font-mono text-[12.5px] text-ink">
+                      <span className={cn('h-1.5 w-1.5 rounded-full', s.dot)} />
+                      {k}
+                    </span>
+                    {typeChanged && (
+                      <span className="ml-3.5 text-[11px] text-ink-faint">
+                        type: {oldType} → {newType}
+                      </span>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ))}
