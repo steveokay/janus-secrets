@@ -142,3 +142,72 @@ func TestProjectRepo_ListPage(t *testing.T) {
 		t.Fatalf("covered %d of 5", len(seen))
 	}
 }
+
+func TestProjectRepo_LastActivity(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	pr := NewProjectRepo(s)
+	er := NewEnvironmentRepo(s)
+	cr := NewConfigRepo(s)
+	sr := NewSecretRepo(s)
+
+	// p1 has a config version; p2 has an env+config but no version; p3 is empty.
+	id1, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p1, err := pr.Create(ctx, id1, "p1", "P1", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := pr.Create(ctx, id2, "p2", "P2", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id3, err := s.NewID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p3, err := pr.Create(ctx, id3, "p3", "P3", []byte("k"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e1, err := er.Create(ctx, p1.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1, err := cr.Create(ctx, e1.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e2, err := er.Create(ctx, p2.ID, "dev", "Dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cr.Create(ctx, e2.ID, "root", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sr.SaveConfigVersion(ctx, c1.ID, nil, "init", "tester"); err != nil {
+		t.Fatalf("save version: %v", err)
+	}
+
+	m, err := pr.LastActivity(ctx, []string{p1.ID, p2.ID, p3.ID})
+	if err != nil {
+		t.Fatalf("LastActivity: %v", err)
+	}
+	if _, ok := m[p1.ID]; !ok {
+		t.Errorf("p1 should have activity")
+	}
+	if _, ok := m[p2.ID]; ok {
+		t.Errorf("p2 has no config version, should be absent")
+	}
+	if _, ok := m[p3.ID]; ok {
+		t.Errorf("p3 is empty, should be absent")
+	}
+}
