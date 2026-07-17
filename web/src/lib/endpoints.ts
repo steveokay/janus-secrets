@@ -11,8 +11,8 @@ export interface SealStatus {
 }
 // /v1/auth/me principal: for users, `name` is the email address.
 export interface User { kind: 'user' | 'service_token'; id: string; name: string }
-export interface Project { id: string; slug: string; name: string }
-export interface Environment { id: string; slug: string; name: string }
+export interface Project { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
+export interface Environment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface Config { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string; promoted_from_env?: string; promoted_from_version?: number }
 // Trash (§1.10) — grouped soft-deleted entities. Value-free metadata only:
 // names/slugs/ownership + when it was deleted; never any secret material.
@@ -190,6 +190,12 @@ export const endpoints = {
     api.get<{ environments: Environment[] }>(`/v1/projects/${pid}/environments`).then((r) => r.environments),
   createEnvironment: (pid: string, slug: string, name: string) =>
     api.post<Environment>(`/v1/projects/${pid}/environments`, { slug, name }),
+  renameProject: (pid: string, name: string) =>
+    api.patch<Project>(`/v1/projects/${pid}`, { name }),
+  renameEnvironment: (pid: string, eid: string, name: string) =>
+    api.patch<Environment>(`/v1/projects/${pid}/environments/${eid}`, { name }),
+  cloneEnvironment: (pid: string, eid: string, slug: string, name: string) =>
+    api.post<Environment>(`/v1/projects/${pid}/environments/${eid}/clone`, { slug, name }),
   listConfigs: (pid: string, eid: string) =>
     api.get<{ configs: Config[] }>(`/v1/projects/${pid}/environments/${eid}/configs`).then((r) => r.configs),
   createConfig: (pid: string, eid: string, name: string, inherits_from?: string) =>
