@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { ProjectBoard } from './ProjectBoard'
+import { ToastProvider } from '../ui/Toast'
 import * as endpointsModule from '../lib/endpoints'
 
 // Default rotation/sync handlers so every existing board test keeps passing
@@ -189,6 +190,30 @@ test('Rename opens RenameDialog and submitting calls endpoints.renameEnvironment
   await userEvent.type(input, 'Development 2')
   await userEvent.click(screen.getByRole('button', { name: /save/i }))
   expect(renameSpy).toHaveBeenCalledWith('p1', 'e1', 'Development 2')
+  renameSpy.mockRestore()
+})
+
+test('rename success toast names the NEW env name, not the stale old one', async () => {
+  mock()
+  const renameSpy = vi
+    .spyOn(endpointsModule.endpoints, 'renameEnvironment')
+    .mockResolvedValue({ id: 'e1', slug: 'dev', name: 'Development 2' })
+  renderApp(
+    <ToastProvider>
+      <ProjectBoard />
+    </ToastProvider>,
+    { route: '/projects/p1', withAuth: false },
+  )
+  await screen.findByRole('heading', { name: 'Development' })
+  await userEvent.click(screen.getByRole('button', { name: /actions for Development/i }))
+  await userEvent.click(await screen.findByRole('menuitem', { name: /^rename$/i }))
+  const input = await screen.findByRole('textbox', { name: /name/i })
+  await userEvent.clear(input)
+  await userEvent.type(input, 'Development 2')
+  await userEvent.click(screen.getByRole('button', { name: /save/i }))
+  // The toast must reflect the freshly-entered name, not the stale prop.
+  expect(await screen.findByText(/renamed to Development 2/i)).toBeInTheDocument()
+  expect(screen.queryByText('Renamed to Development')).not.toBeInTheDocument()
   renameSpy.mockRestore()
 })
 

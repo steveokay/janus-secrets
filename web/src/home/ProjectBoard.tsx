@@ -212,8 +212,8 @@ function EnvColumn({ pid, env, configs, loading, error, ops, promote, isDropTarg
   })
   const rename = useMutation({
     mutationFn: (name: string) => endpoints.renameEnvironment(pid, env.id, name),
-    onSuccess: () => {
-      toast({ title: `Renamed to ${env.name}` })
+    onSuccess: (_data, name) => {
+      toast({ title: `Renamed to ${name}` })
       void qc.invalidateQueries({ queryKey: ['envs', pid] })
       setRenaming(false)
     },
