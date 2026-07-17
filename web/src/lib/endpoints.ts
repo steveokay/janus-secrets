@@ -27,9 +27,9 @@ export interface TrashConfig {
   project_id: string; project_name: string; deleted_at: string
 }
 export interface Trash { projects: TrashProject[]; environments: TrashEnvironment[]; configs: TrashConfig[] }
-export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden' }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string }
 export interface KeyVersionMeta { value_version: number; created_at: string }
-export interface SecretChange { key: string; value?: string; delete?: boolean }
+export interface SecretChange { key: string; value?: string; delete?: boolean; type?: string }
 export interface VersionResult { version: number; id: string; created_at: string }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string; promoted_from_env?: string; promoted_from_version?: number }
 export interface VersionDiff { a: number; b: number; added: string[]; changed: string[]; removed: string[] }
@@ -221,7 +221,7 @@ export const endpoints = {
     api.get<{ secrets: Record<string, MaskedSecret> }>(`/v1/configs/${cid}/secrets`).then((r) => r.secrets),
   // Raw (unresolved) single value for the editor — audited secret.reveal.
   revealKeyRaw: (cid: string, key: string) =>
-    api.get<{ key: string; value: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?raw=true`),
+    api.get<{ key: string; value: string; type?: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?raw=true`),
   // The config's own stored values verbatim (unresolved), plus the config
   // version — the editable truth the secret editor diffs against.
   rawConfig: (cid: string) =>
@@ -233,7 +233,7 @@ export const endpoints = {
   keyHistory: (cid: string, key: string) =>
     api.get<{ key: string; history: KeyVersionMeta[] }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/history`),
   revealKeyVersion: (cid: string, key: string, version: number) =>
-    api.get<{ key: string; value: string; value_version: number }>(
+    api.get<{ key: string; value: string; value_version: number; type?: string }>(
       `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?version=${version}`),
 
   // versions (B2): reads are config:read and NOT audited; diff is key NAMES only.
