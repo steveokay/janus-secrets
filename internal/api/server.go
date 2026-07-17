@@ -284,6 +284,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Patch("/v1/projects/{pid}/environments/{eid}", s.handleEnvRename)
 			r.Delete("/v1/projects/{pid}/environments/{eid}", s.handleEnvDelete)
 			r.Post("/v1/projects/{pid}/environments/{eid}/restore", s.handleEnvRestore)
+			r.Post("/v1/projects/{pid}/environments/{eid}/clone", s.handleEnvClone)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))

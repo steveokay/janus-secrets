@@ -53,6 +53,40 @@ func (s *Server) handleEnvCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, envView(e))
 }
 
+type cloneEnvRequest struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
+// handleEnvClone deep-copies a source environment's config tree and each config's
+// own latest secrets into a new environment in the same project (admin+, via
+// env:create). The audit event is value-free: it carries only the new/source env
+// ids ("from:<srcEnvID>"), never the slug/name or any secret value — the clone's
+// decrypt->re-encrypt happens entirely inside the service, which logs/audits
+// nothing.
+func (s *Server) handleEnvClone(w http.ResponseWriter, r *http.Request) {
+	pid := chi.URLParam(r, "pid")
+	eid := chi.URLParam(r, "eid")
+	if !s.authorize(w, r, authz.EnvCreate, authz.Resource{ProjectID: pid}, "env.clone", "environments/"+eid) {
+		return
+	}
+	var req cloneEnvRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Slug == "" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "slug is required")
+		return
+	}
+	newEnv, err := s.service.CloneEnvironment(r.Context(), pid, eid, req.Slug, req.Name, actorOf(r))
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "env.clone", "environments/"+newEnv.ID, "success", "", "from:"+eid); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusCreated, envView(newEnv))
+}
+
 func (s *Server) handleEnvList(w http.ResponseWriter, r *http.Request) {
 	pid := chi.URLParam(r, "pid")
 	if err := s.can(r, authz.ProjectRead, authz.Resource{ProjectID: pid}); err != nil {
