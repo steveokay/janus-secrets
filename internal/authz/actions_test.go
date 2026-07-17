@@ -5,7 +5,7 @@ import "testing"
 // allActions is every action in the vocabulary.
 var allActions = []Action{
 	SecretRead, SecretWrite, ConfigRead, ConfigCreate, ConfigDelete,
-	EnvCreate, EnvDelete, ProjectRead, ProjectCreate, ProjectDelete,
+	EnvCreate, EnvDelete, EnvUpdate, ProjectRead, ProjectCreate, ProjectUpdate, ProjectDelete,
 	MemberRead, MemberManage, TokenRead, TokenMint, TokenRevoke,
 	UserManage, AuditRead, SysSeal, SysBackup, OIDCManage,
 }
@@ -15,10 +15,10 @@ func TestMatrixExhaustive(t *testing.T) {
 		RoleViewer:    {SecretRead, ConfigRead, ProjectRead, MemberRead},
 		RoleDeveloper: {SecretRead, ConfigRead, ProjectRead, MemberRead, SecretWrite, ConfigCreate},
 		RoleAdmin: {SecretRead, ConfigRead, ProjectRead, MemberRead, SecretWrite, ConfigCreate,
-			ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
+			ConfigDelete, EnvCreate, EnvDelete, EnvUpdate, ProjectCreate, ProjectUpdate, MemberManage,
 			TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, OIDCManage},
 		RoleOwner: {SecretRead, ConfigRead, ProjectRead, MemberRead, SecretWrite, ConfigCreate,
-			ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
+			ConfigDelete, EnvCreate, EnvDelete, EnvUpdate, ProjectCreate, ProjectUpdate, MemberManage,
 			TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, OIDCManage, ProjectDelete},
 	}
 	for role, acts := range allowed {
@@ -69,6 +69,34 @@ func TestRoleRankAndValidity(t *testing.T) {
 	}
 	if ValidRole("root") || !ValidRole("owner") {
 		t.Fatal("ValidRole wrong")
+	}
+}
+
+func TestProjectAndEnvUpdateAdminOnly(t *testing.T) {
+	// project:update and env:update are admin+ (rename), project-scoped.
+	if roleAllows(RoleViewer, ProjectUpdate) {
+		t.Fatal("viewer must NOT have ProjectUpdate")
+	}
+	if roleAllows(RoleDeveloper, ProjectUpdate) {
+		t.Fatal("developer must NOT have ProjectUpdate")
+	}
+	if !roleAllows(RoleAdmin, ProjectUpdate) {
+		t.Fatal("admin must have ProjectUpdate")
+	}
+	if !roleAllows(RoleOwner, ProjectUpdate) {
+		t.Fatal("owner must have ProjectUpdate")
+	}
+	if roleAllows(RoleViewer, EnvUpdate) {
+		t.Fatal("viewer must NOT have EnvUpdate")
+	}
+	if roleAllows(RoleDeveloper, EnvUpdate) {
+		t.Fatal("developer must NOT have EnvUpdate")
+	}
+	if !roleAllows(RoleAdmin, EnvUpdate) {
+		t.Fatal("admin must have EnvUpdate")
+	}
+	if !roleAllows(RoleOwner, EnvUpdate) {
+		t.Fatal("owner must have EnvUpdate")
 	}
 }
 

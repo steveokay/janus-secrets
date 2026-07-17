@@ -11,8 +11,10 @@ const (
 	ConfigDelete     Action = "config:delete"
 	EnvCreate        Action = "env:create"
 	EnvDelete        Action = "env:delete"
+	EnvUpdate        Action = "env:update" // rename, admin+ project-scoped
 	ProjectRead      Action = "project:read"
 	ProjectCreate    Action = "project:create" // instance-scoped
+	ProjectUpdate    Action = "project:update" // rename, admin+ project-scoped
 	ProjectDelete    Action = "project:delete"
 	MemberRead       Action = "member:read"
 	MemberManage     Action = "member:manage"
@@ -71,7 +73,7 @@ var (
 	viewerActions    = setOf(SecretRead, ConfigRead, ProjectRead, MemberRead, TransitRead)
 	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse, DynamicIssue, SecretPromote, PromotionRequest))
 	adminActions     = union(developerActions, setOf(
-		ConfigDelete, EnvCreate, EnvDelete, ProjectCreate, MemberManage,
+		ConfigDelete, EnvCreate, EnvDelete, EnvUpdate, ProjectCreate, ProjectUpdate, MemberManage,
 		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage))
 	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey))
 
