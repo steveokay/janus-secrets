@@ -32,7 +32,7 @@ export function RbacMatrix({ onPickScope }: { onPickScope: (scope: MemberScope) 
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[10.5px] uppercase tracking-[.1em] text-ink-faint">
-              <th className="sticky left-0 z-20 bg-surface-1 px-3 py-2">User</th>
+              <th className="sticky left-0 top-0 z-20 bg-surface-1 px-3 py-2">User</th>
               <th className="sticky top-0 z-10 bg-surface-1 px-3 py-2">Instance</th>
               {model.columns.map((c) => (
                 <th key={c.id} className="sticky top-0 z-10 whitespace-nowrap bg-surface-1 px-3 py-2">
