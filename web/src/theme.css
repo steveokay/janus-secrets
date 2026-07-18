@@ -4,6 +4,10 @@
    Nocturne redesign (2026-07-12, ui-redo.md). Dark-first; light derived per §3.8. */
 
 :root {
+  /* Native controls (select option popups, scrollbars, etc.) follow the theme;
+     without this, dark-mode <select> dropdowns render on a light UA popup and
+     the option text inherits the light ink color → white-on-white, unreadable. */
+  color-scheme: light;
   /* ---- Canvas (light §3.8) ---- */
   --canvas: linear-gradient(160deg, #FAFAFC 0%, #F4F2FA 100%);
   --canvas-base: #F6F6FA;              /* solid under the gradient; smoke reads this */
@@ -61,6 +65,7 @@
 }
 
 html.dark {
+  color-scheme: dark;
   /* ---- Canvas (§3.1) ---- */
   --canvas: linear-gradient(160deg, #0B0A14 0%, #12101F 60%, #150F26 100%);
   --canvas-base: #0B0A14;              /* solid under the gradient; smoke reads this */

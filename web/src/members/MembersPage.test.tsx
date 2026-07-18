@@ -142,13 +142,11 @@ test('add member: sheet lists enabled non-member users only and PUTs chosen role
   await userEvent.click(screen.getByRole('button', { name: 'Add member' }))
 
   const sheet = await screen.findByRole('dialog')
-  const userSelect = within(sheet).getByLabelText('user')
-  const options = within(userSelect).getAllByRole('option').map((o) => o.textContent)
-  expect(options).toContain('new@example.com')
-  expect(options).not.toContain('owner@example.com')
-  expect(options).not.toContain('gone@example.com')
+  expect(within(sheet).getByText('new@example.com')).toBeInTheDocument()
+  expect(within(sheet).queryByText('owner@example.com')).toBeNull()
+  expect(within(sheet).queryByText('gone@example.com')).toBeNull()
 
-  await userEvent.selectOptions(userSelect, 'u2')
+  await userEvent.click(within(sheet).getByText('new@example.com'))
   await userEvent.selectOptions(within(sheet).getByLabelText('role'), 'developer')
   await userEvent.click(within(sheet).getByRole('button', { name: 'Add' }))
 
@@ -282,4 +280,61 @@ it('filters the Users table independently of the members search', async () => {
   await userEvent.type(screen.getByLabelText('search users'), 'bob')
   expect(screen.getByLabelText('search users')).toHaveValue('bob')
   expect(screen.getByLabelText('search members')).toHaveValue('')
+})
+
+function mockMatrixFanOut() {
+  // Reuses RbacMatrix.test.tsx's mock shape: one project (p1/App) with one
+  // env (e1/Prod), an instance owner, and a project-scoped admin — enough to
+  // produce at least one clickable project cell in the matrix.
+  mockProjects()
+  server.use(
+    http.get('/v1/projects/p1/members', () =>
+      HttpResponse.json({ members: [{ user_id: 'u1', role: 'admin' }] })),
+    http.get('/v1/projects/p1/environments/e1/members', () =>
+      HttpResponse.json({ members: [] })),
+  )
+  mockInstanceMembers([{ user_id: 'u1', role: 'owner' }])
+  mockUsers([{ id: 'u1', email: 'a@x.io', disabled: false }])
+}
+
+it('defaults to List view with the scope selector visible', async () => {
+  mockUsers([])
+  mockInstanceMembers([])
+  mount()
+  await screen.findByLabelText('scope')
+  expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Matrix' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+it('clicking Matrix hides the scope selector and renders the matrix', async () => {
+  mockMatrixFanOut()
+  mount()
+  await screen.findByLabelText('scope')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Matrix' }))
+
+  expect(await screen.findByText(/explicit role bindings/i)).toBeInTheDocument()
+  expect(screen.queryByLabelText('scope')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Matrix' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+it('clicking a matrix project cell returns to List with that scope selected', async () => {
+  mockMatrixFanOut()
+  mount()
+  await screen.findByLabelText('scope')
+
+  await userEvent.click(screen.getByRole('button', { name: 'Matrix' }))
+  const cell = await screen.findByRole('button', { name: /Proj role for a@x\.io/i })
+  await userEvent.click(cell)
+
+  expect(await screen.findByLabelText('scope')).toHaveValue('project')
+  await waitFor(() => expect(screen.getByLabelText('project')).toHaveValue('p1'))
+})
+
+it('rendering at ?view=matrix shows the matrix directly', async () => {
+  mockMatrixFanOut()
+  renderApp(<ToastProvider><MembersPage /></ToastProvider>, { route: '/members?view=matrix', withAuth: false })
+
+  expect(await screen.findByText(/explicit role bindings/i)).toBeInTheDocument()
+  expect(screen.queryByLabelText('scope')).not.toBeInTheDocument()
 })
