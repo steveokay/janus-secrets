@@ -46,3 +46,19 @@ func TestFormatDispatch(t *testing.T) {
 		t.Fatal("unknown format should error")
 	}
 }
+
+func TestFormatEnv_SkipsNonEnvVarKeys(t *testing.T) {
+	out := string(formatEnv(map[string]string{
+		"API_KEY":                        "v1",
+		"vigil-cloud.secrets.backup.txt": "x",
+	}))
+	if !strings.Contains(out, "API_KEY=") {
+		t.Errorf("API_KEY should be present:\n%s", out)
+	}
+	if strings.Contains(out, "vigil-cloud.secrets.backup.txt=") {
+		t.Errorf("non-env-var key must not be an assignment:\n%s", out)
+	}
+	if !strings.Contains(out, "# skipped: vigil-cloud.secrets.backup.txt") {
+		t.Errorf("expected a skipped comment:\n%s", out)
+	}
+}

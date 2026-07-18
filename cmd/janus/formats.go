@@ -21,10 +21,21 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // formatEnv emits KEY=value lines, single-quoting values that need it.
+// Keys that aren't valid env-var identifiers (e.g. filename-style keys with
+// dots or dashes) are skipped as assignments and instead noted with a
+// trailing "# skipped: <key>" comment so the .env file stays sourceable.
 func formatEnv(m map[string]string) []byte {
 	var b bytes.Buffer
+	var skipped []string
 	for _, k := range sortedKeys(m) {
+		if !isEnvVarName(k) {
+			skipped = append(skipped, k)
+			continue
+		}
 		fmt.Fprintf(&b, "%s=%s\n", k, shellQuote(m[k]))
+	}
+	for _, k := range skipped {
+		fmt.Fprintf(&b, "# skipped: %s\n", k)
 	}
 	return b.Bytes()
 }
