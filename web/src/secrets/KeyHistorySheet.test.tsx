@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { http, HttpResponse } from 'msw'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { vi } from 'vitest'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { ToastProvider } from '../ui/Toast'
@@ -36,6 +37,21 @@ test('revealing a version calls the audited versioned reveal and shows plaintext
   await userEvent.click(await screen.findByRole('button', { name: /reveal v1/i }))
   expect(await screen.findByText('old-secret')).toBeInTheDocument()
   expect(revealedVersion).toBe('1')
+})
+
+test('copying a revealed version briefly shows an inline copied state', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  server.use(http.get('/v1/configs/:cid/secrets/:key', () =>
+    HttpResponse.json({ key: 'API_KEY', value: 'old-secret', value_version: 1 })))
+  mountSheet()
+  await user.click(await screen.findByRole('button', { name: /reveal v1/i }))
+  await screen.findByText('old-secret')
+  await user.click(screen.getByRole('button', { name: /copy v1/i }))
+  expect(await screen.findByRole('button', { name: 'v1 copied' })).toBeInTheDocument()
+  await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+  expect(screen.getByRole('button', { name: /copy v1/i })).toBeInTheDocument()
+  vi.useRealTimers()
 })
 
 // A controlled harness so the test can close and reopen the Sheet.

@@ -45,6 +45,16 @@ test('OpsTable renders forbidden EmptyState when allForbidden', () => {
   expect(screen.getByText(/access required/i)).toBeInTheDocument()
 })
 
+test('OpsTable header row is sticky (mirrors audit/tokens/members tables)', () => {
+  render(
+    <OpsTable columns={['A']} isLoading={false} isError={false} allForbidden={false} isEmpty={false}>
+      <tr><td>x</td></tr>
+    </OpsTable>,
+  )
+  const headerRow = screen.getByText('A').closest('tr')
+  expect(headerRow).toHaveClass('sticky', 'top-0')
+})
+
 test('OpsTable sortable header calls onSort and shows the active caret', async () => {
   const onSort = vi.fn()
   render(

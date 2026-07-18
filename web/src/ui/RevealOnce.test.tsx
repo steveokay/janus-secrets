@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ToastProvider } from './Toast'
 import { RevealOnce } from './RevealOnce'
@@ -23,6 +23,29 @@ test('shows secret, copies with toast, closes explicitly', async () => {
   expect(copiedToast.textContent).not.toContain('janus_svc_abc')
   await userEvent.click(screen.getByRole('button', { name: /stored it/i }))
   expect(onClose).toHaveBeenCalled()
+})
+
+test('copy button briefly shows a Copied! state, then reverts', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  const orig = navigator.clipboard
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true, writable: true })
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  try {
+    render(
+      <ToastProvider>
+        <RevealOnce open onClose={() => {}} title="Service token" secret="janus_svc_abc" hint="Shown once." />
+      </ToastProvider>,
+    )
+    await screen.findByText('janus_svc_abc')
+    await user.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+    Object.defineProperty(navigator, 'clipboard', { value: orig, configurable: true, writable: true })
+  }
 })
 
 test('pressing Escape invokes onClose', async () => {

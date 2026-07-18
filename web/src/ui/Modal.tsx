@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import * as D from '@radix-ui/react-dialog'
+import { X } from 'lucide-react'
 import { cn } from './cn'
 
 // Accessible modal shell (focus-trap, Esc, aria-modal, restore-focus) via Radix
@@ -25,6 +26,12 @@ export function Modal({ open, onClose, label, className, children }: {
           )}
         >
           <D.Title className="sr-only">{label}</D.Title>
+          <D.Close
+            aria-label="close"
+            className="absolute right-3.5 top-3.5 flex h-6 w-6 items-center justify-center rounded text-ink-faint transition-nocturne hover:bg-surface-3 hover:text-ink"
+          >
+            <X size={15} strokeWidth={1.7} />
+          </D.Close>
           {children}
         </D.Content>
       </D.Portal>

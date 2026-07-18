@@ -26,10 +26,10 @@ import { TrashPage } from './trash/TrashPage'
 import { PaletteProvider } from './palette/PaletteProvider'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { NotFound } from './shell/NotFound'
+import { ShortcutsHelp, useShortcutsHelp } from './shell/ShortcutsHelp'
 
 function Gate() {
   const { user, loading, refresh } = useAuth()
-  const location = useLocation()
   const [seal, setSeal] = useState<SealStatus | null>(null)
 
   useEffect(() => { endpoints.sealStatus().then(setSeal).catch(() => setSeal(null)) }, [])
@@ -53,9 +53,17 @@ function Gate() {
   if (seal.sealed) return <UnsealPage onUnsealed={() => endpoints.sealStatus().then(setSeal)} />
   if (!user) return <LoginPage />
 
+  return <AuthedApp sealed={seal.sealed} />
+}
+
+function AuthedApp({ sealed }: { sealed: boolean }) {
+  const location = useLocation()
+  const shortcutsHelp = useShortcutsHelp()
+
   return (
     <PaletteProvider>
-      <AppLayout sealed={seal.sealed} sidebar={<Sidebar />}>
+      <ShortcutsHelp open={shortcutsHelp.open} onClose={shortcutsHelp.close} />
+      <AppLayout sealed={sealed} sidebar={<Sidebar />}>
         <ErrorBoundary key={location.pathname}>
           <Routes>
             <Route path="/" element={<HomePage />} />

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import { SecretTable } from './SecretTable'
@@ -24,6 +24,20 @@ test('clicking the Key header requests a key sort', async () => {
   render(<SecretTable {...p} />)
   await userEvent.click(screen.getByRole('button', { name: /sort by key/i }))
   expect(p.onSort).toHaveBeenCalledWith('key')
+})
+
+test('copy button briefly shows a copied state after click, then reverts', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  const p = props()
+  render(<SecretTable {...p} />)
+  const copyBtn = screen.getByRole('button', { name: 'copy A' })
+  await user.click(copyBtn)
+  expect(p.onCopy).toHaveBeenCalledWith('A')
+  expect(screen.getByRole('button', { name: 'copied A' })).toBeInTheDocument()
+  await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+  expect(screen.getByRole('button', { name: 'copy A' })).toBeInTheDocument()
+  vi.useRealTimers()
 })
 
 test('header checkbox selects all visible', async () => {

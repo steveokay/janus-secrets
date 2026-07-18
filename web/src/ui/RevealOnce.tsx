@@ -1,5 +1,7 @@
 import * as D from '@radix-ui/react-dialog'
+import { Check } from 'lucide-react'
 import { useToast } from './Toast'
+import { useCopyFeedback } from './useCopyFeedback'
 
 // One-time secret display (minted tokens, initial passwords). The secret lives
 // only in the caller's state; never cache, log, or render it anywhere else.
@@ -11,6 +13,8 @@ export function RevealOnce({ open, onClose, title, secret, hint }: {
   hint: string
 }) {
   const toast = useToast()
+  const copyFeedback = useCopyFeedback()
+  const copied = copyFeedback.isCopied()
   return (
     <D.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <D.Portal>
@@ -32,13 +36,14 @@ export function RevealOnce({ open, onClose, title, secret, hint }: {
                   return
                 }
                 clipboard.writeText(secret).then(
-                  () => { toast({ title: "Copied — store it now, it won't be shown again" }) },
+                  () => { toast({ title: "Copied — store it now, it won't be shown again" }); copyFeedback.markCopied() },
                   () => { toast({ title: 'Copy failed', tone: 'danger' }) },
                 )
               }}
-              className="rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
+              className="inline-flex items-center gap-1 rounded border border-line bg-card px-3 py-1.5 text-[13px] font-semibold"
             >
-              Copy
+              {copied && <Check size={14} strokeWidth={1.8} className="text-success" />}
+              {copied ? 'Copied!' : 'Copy'}
             </button>
             <button type="button" onClick={onClose} className="rounded bg-brand px-3 py-1.5 text-[13px] font-semibold text-white">
               I've stored it

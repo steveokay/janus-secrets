@@ -1,12 +1,13 @@
 import { FormEvent, ReactNode, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Copy } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { endpoints, TransitKey } from '../lib/endpoints'
 import { apiErrorTitle } from '../lib/api'
 import { Pill } from '../ui/Pill'
 import { Button } from '../ui/Button'
 import { FIELD } from '../ui/Input'
 import { useToast } from '../ui/Toast'
+import { useCopyFeedback } from '../ui/useCopyFeedback'
 
 // UTF-8 text → base64. Encrypt/sign inputs are typed text the UI encodes before
 // sending; ciphertext/signature envelopes (janus:vN:…) are pasted verbatim.
@@ -30,6 +31,7 @@ const inputCls = `${FIELD} font-mono`
 // material ever reaches here. Selectable mono block + guarded clipboard copy.
 function OutBlock({ label, value }: { label: string; value: string }) {
   const toast = useToast()
+  const copyFeedback = useCopyFeedback()
   function copy() {
     const clipboard = navigator.clipboard
     if (!clipboard) {
@@ -37,10 +39,11 @@ function OutBlock({ label, value }: { label: string; value: string }) {
       return
     }
     clipboard.writeText(value).then(
-      () => toast({ title: 'Copied' }),
+      () => { toast({ title: 'Copied' }); copyFeedback.markCopied() },
       () => toast({ title: 'Copy failed', tone: 'danger' }),
     )
   }
+  const copied = copyFeedback.isCopied()
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
@@ -50,7 +53,8 @@ function OutBlock({ label, value }: { label: string; value: string }) {
           onClick={copy}
           className="flex items-center gap-1 text-[11.5px] font-semibold text-ink-mute transition-nocturne hover:text-ink"
         >
-          <Copy size={13} strokeWidth={1.7} /> Copy
+          {copied ? <Check size={13} strokeWidth={1.7} className="text-success" /> : <Copy size={13} strokeWidth={1.7} />}
+          {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
       <div className="select-all break-all rounded border border-line bg-line-soft px-3 py-2 font-mono text-[12.5px] text-ink">

@@ -1,6 +1,7 @@
 import { http, HttpResponse } from 'msw'
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { vi } from 'vitest'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
 import { Playground } from './Playground'
@@ -19,6 +20,21 @@ test('encrypt base64-encodes the text input and shows ciphertext', async () => {
   await userEvent.click(screen.getByRole('button', { name: /encrypt/i }))
   expect(await screen.findByText('janus:v2:Zm9v')).toBeInTheDocument()
   expect(sent!.plaintext).toBe('aGVsbG8=') // base64('hello')
+})
+
+test('copying the ciphertext output briefly flips the button to a Copied! state', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  server.use(http.post('/v1/transit/encrypt/app', () => HttpResponse.json({ ciphertext: 'janus:v2:Zm9v' })))
+  renderApp(<Playground keyMeta={AES} />, { route: '/transit', withAuth: false })
+  await user.type(screen.getByLabelText(/plaintext|text to encrypt/i), 'hello')
+  await user.click(screen.getByRole('button', { name: /^encrypt$/i }))
+  await screen.findByText('janus:v2:Zm9v')
+  await user.click(screen.getByRole('button', { name: /^copy$/i }))
+  expect(await screen.findByRole('button', { name: /copied/i })).toBeInTheDocument()
+  await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+  expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument()
+  vi.useRealTimers()
 })
 
 test('verify shows a valid/invalid badge without treating a bad sig as an error', async () => {

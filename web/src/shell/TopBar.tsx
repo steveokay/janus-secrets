@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react'
+import { Menu, Search } from 'lucide-react'
 import { Brand } from '../ui/Brand'
 import { Pill } from '../ui/Pill'
 import { Breadcrumb } from './Breadcrumb'
@@ -6,10 +6,20 @@ import { UserMenu } from './UserMenu'
 import { ThemeToggle } from './ThemeToggle'
 import { usePalette } from '../palette/PaletteProvider'
 
-export function TopBar({ sealed }: { sealed: boolean }) {
+export function TopBar({ sealed, onMenuClick }: { sealed: boolean; onMenuClick?: () => void }) {
   const { open } = usePalette()
   return (
     <header className="flex items-center gap-4 border-b border-line bg-surface-1 px-4 py-2">
+      {onMenuClick && (
+        <button
+          type="button"
+          onClick={onMenuClick}
+          aria-label="open sidebar"
+          className="flex h-7 w-7 items-center justify-center rounded text-ink-mute transition-nocturne hover:bg-surface-3 hover:text-ink sm:hidden"
+        >
+          <Menu size={17} strokeWidth={1.8} />
+        </button>
+      )}
       <Brand />
       <Breadcrumb />
       <button
