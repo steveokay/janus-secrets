@@ -36,3 +36,10 @@ type AuditFilter struct {
 	Action string
 	Result string
 }
+
+// AuditBucketCount is one (time-bucket, result) group with its event count.
+type AuditBucketCount struct {
+	Start  time.Time
+	Result string
+	Count  int
+}

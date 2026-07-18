@@ -176,4 +176,55 @@ func (r *AuditRepo) ListPage(ctx context.Context, f AuditFilter, beforeSeq int64
 	return out, mapError(rows.Err())
 }
 
+// auditWhere builds the shared filter predicates ($1..$N) for audit reads.
+func auditWhere(f AuditFilter) (where []string, args []any) {
+	add := func(cond string, val any) { args = append(args, val); where = append(where, cond) }
+	if f.From != nil {
+		add("occurred_at >= $"+itoa(len(args)+1), *f.From)
+	}
+	if f.To != nil {
+		add("occurred_at <= $"+itoa(len(args)+1), *f.To)
+	}
+	if f.Action != "" {
+		add("action = $"+itoa(len(args)+1), f.Action)
+	}
+	if f.Result != "" {
+		add("result = $"+itoa(len(args)+1), f.Result)
+	}
+	if f.Actor != "" {
+		n := itoa(len(args) + 1)
+		args = append(args, f.Actor)
+		where = append(where, "(actor_id = $"+n+" OR actor_name = $"+n+")")
+	}
+	return where, args
+}
+
+// Histogram returns per-(time-bucket, result) event counts matching f, ordered
+// by bucket ascending. bucket MUST be "hour" or "day" (caller-validated; passed
+// as a bound text param, never interpolated). Empty buckets are omitted.
+func (r *AuditRepo) Histogram(ctx context.Context, f AuditFilter, bucket string) ([]AuditBucketCount, error) {
+	where, args := auditWhere(f)
+	args = append(args, bucket)
+	bucketN := itoa(len(args))
+	sql := `SELECT date_trunc($` + bucketN + `, occurred_at) AS b, result, count(*) FROM audit_events`
+	if len(where) > 0 {
+		sql += ` WHERE ` + strings.Join(where, " AND ")
+	}
+	sql += ` GROUP BY b, result ORDER BY b`
+	rows, err := r.s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []AuditBucketCount
+	for rows.Next() {
+		var b AuditBucketCount
+		if err := rows.Scan(&b.Start, &b.Result, &b.Count); err != nil {
+			return nil, mapError(err)
+		}
+		out = append(out, b)
+	}
+	return out, mapError(rows.Err())
+}
+
 func itoa(n int) string { return strconv.Itoa(n) }
