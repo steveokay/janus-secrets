@@ -13,6 +13,7 @@ type Store interface {
 	Iterate(ctx context.Context, fn func(store.AuditRow) error) error
 	List(ctx context.Context, f store.AuditFilter, fn func(store.AuditRow) error) error
 	ListPage(ctx context.Context, f store.AuditFilter, beforeSeq int64, limit int) ([]store.AuditRow, error)
+	Histogram(ctx context.Context, f store.AuditFilter, bucket string) ([]store.AuditBucketCount, error)
 }
 
 // Recorder appends events and verifies the chain.
@@ -58,6 +59,11 @@ func (rec *Recorder) List(ctx context.Context, f store.AuditFilter, fn func(stor
 // ListPage exposes paginated reads for the API's events endpoint.
 func (rec *Recorder) ListPage(ctx context.Context, f store.AuditFilter, beforeSeq int64, limit int) ([]store.AuditRow, error) {
 	return rec.store.ListPage(ctx, f, beforeSeq, limit)
+}
+
+// Histogram exposes bucketed event counts for the API's histogram endpoint.
+func (rec *Recorder) Histogram(ctx context.Context, f store.AuditFilter, bucket string) ([]store.AuditBucketCount, error) {
+	return rec.store.Histogram(ctx, f, bucket)
 }
 
 // nz maps "" to a nil *string (SQL NULL).

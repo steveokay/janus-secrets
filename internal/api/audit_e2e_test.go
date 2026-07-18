@@ -289,3 +289,88 @@ func TestAuditEventsPagination(t *testing.T) {
 		t.Fatalf("expected to walk at least 4 events, saw %d", len(seen))
 	}
 }
+
+// TestAuditHistogram pins GET /v1/audit/histogram: validates required from/to
+// and bucket, rejects an absurd hour-bucketed range, and pivots the store's
+// grouped rows into per-bucket success/denied/error counts over a real
+// recorder (authStackFull wires audit.New(store.NewAuditRepo(st))).
+func TestAuditHistogram(t *testing.T) {
+	ts, _, email, password, configID := authStackFull(t)
+	adminCookie := login(t, ts.URL, email, password) // records auth.login (success)
+
+	// --- Seed a denied event: a read-only token attempts a mint -> 403. ---
+	var ro struct{ Token string }
+	roBody := fmt.Sprintf(`{"name":"ro","scope":{"kind":"config","id":%q},"access":"read"}`, configID)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", adminCookie, "", roBody, &ro); code != 200 {
+		t.Fatalf("mint ro token: %d", code)
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", "", ro.Token,
+		fmt.Sprintf(`{"name":"x","scope":{"kind":"config","id":%q},"access":"read"}`, configID), nil); code != 403 {
+		t.Fatalf("expected denied mint 403, got %d", code)
+	}
+
+	// --- Seed a success event: mint a real token. ---
+	mintBody := fmt.Sprintf(`{"name":"ci","scope":{"kind":"config","id":%q},"access":"read"}`, configID)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", adminCookie, "", mintBody, nil); code != 200 {
+		t.Fatalf("mint: %d", code)
+	}
+
+	from := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	to := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
+
+	// --- Missing from/to -> 400. ---
+	for _, q := range []string{
+		"bucket=day&to=" + to,
+		"bucket=day&from=" + from,
+	} {
+		code, body := rawGet(t, ts.URL+"/v1/audit/histogram?"+q, adminCookie)
+		if code != 400 {
+			t.Fatalf("query %q: want 400, got %d body=%s", q, code, body)
+		}
+	}
+
+	// --- bucket=week is not a supported bucket -> 400. ---
+	code, body := rawGet(t, ts.URL+"/v1/audit/histogram?from="+from+"&to="+to+"&bucket=week", adminCookie)
+	if code != 400 {
+		t.Fatalf("bucket=week: want 400, got %d body=%s", code, body)
+	}
+
+	// --- Absurd range for an hour bucket -> 400 (range guard). ---
+	code, body = rawGet(t, ts.URL+"/v1/audit/histogram?from=2000-01-01T00:00:00Z&to=2030-01-01T00:00:00Z&bucket=hour", adminCookie)
+	if code != 400 {
+		t.Fatalf("absurd hour range: want 400, got %d body=%s", code, body)
+	}
+
+	// --- Valid range covering the seeded events. ---
+	type wireBucket struct {
+		Start   string `json:"start"`
+		Success int    `json:"success"`
+		Denied  int    `json:"denied"`
+		Error   int    `json:"error"`
+	}
+	var hist struct {
+		Buckets []wireBucket `json:"buckets"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/audit/histogram?from="+from+"&to="+to+"&bucket=day", adminCookie, "", "", &hist); code != 200 {
+		t.Fatalf("histogram: %d", code)
+	}
+	if len(hist.Buckets) == 0 {
+		t.Fatalf("expected at least one bucket, got none: %+v", hist)
+	}
+	var totalSuccess, totalDenied int
+	for _, b := range hist.Buckets {
+		totalSuccess += b.Success
+		totalDenied += b.Denied
+	}
+	if totalSuccess == 0 {
+		t.Fatalf("expected at least one success count across buckets, got %+v", hist.Buckets)
+	}
+	if totalDenied == 0 {
+		t.Fatalf("expected at least one denied count across buckets, got %+v", hist.Buckets)
+	}
+
+	// --- Unauthenticated -> 401. ---
+	if code := doAuthed(t, "GET", ts.URL+"/v1/audit/histogram?from="+from+"&to="+to+"&bucket=day", "", "", "", nil); code != 401 {
+		t.Fatalf("unauthenticated histogram: want 401, got %d", code)
+	}
+}

@@ -375,6 +375,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/verify", s.handleAuditVerify)
 				r.Get("/export", s.handleAuditExport)
 				r.Get("/events", s.handleAuditEvents)
+				r.Get("/histogram", s.handleAuditHistogram)
 			})
 		}
 		r.Group(func(r chi.Router) {
