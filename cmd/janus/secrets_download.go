@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -16,8 +18,10 @@ func newSecretsDownloadCmd() *cobra.Command {
 		Use:   "download",
 		Short: "Download all secret values in env|json|yaml",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := formatSecrets(format, map[string]string{}); err != nil {
-				return err // validate format name before any network call
+			if format != "files" {
+				if _, err := formatSecrets(format, map[string]string{}); err != nil {
+					return err // validate format name before any network call
+				}
 			}
 			// --plain guard: only the CLI writing a file needs it.
 			if output != "" && !plain {
@@ -37,6 +41,19 @@ func newSecretsDownloadCmd() *cobra.Command {
 			if err := c.call("GET", path, nil, &resp); err != nil {
 				return err
 			}
+			if format == "files" {
+				if output == "" {
+					return fmt.Errorf("--format files requires --output <dir>")
+				}
+				if !plain {
+					return fmt.Errorf("refusing to write plaintext to %s without --plain", output)
+				}
+				if err := materializeSecrets(output, resp.Secrets); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %d secret(s) as files to %s\n", len(resp.Secrets), output)
+				return nil
+			}
 			data, err := formatSecrets(format, resp.Secrets)
 			if err != nil {
 				return err
@@ -53,8 +70,8 @@ func newSecretsDownloadCmd() *cobra.Command {
 		},
 	}
 	f.bind(cmd)
-	cmd.Flags().StringVar(&format, "format", "env", "output format: env|json|yaml")
-	cmd.Flags().StringVar(&output, "output", "", "write to a file instead of stdout (requires --plain)")
+	cmd.Flags().StringVar(&format, "format", "env", "output format: env|json|yaml|files")
+	cmd.Flags().StringVar(&output, "output", "", "write to a file instead of stdout (requires --plain); with --format files, the directory to materialize secrets into")
 	cmd.Flags().BoolVar(&plain, "plain", false, "permit writing plaintext secrets to disk")
 	cmd.Flags().BoolVar(&raw, "raw", false, "download stored values verbatim (do not resolve references)")
 	return cmd
@@ -83,6 +100,29 @@ func writeSecretFile(path string, data []byte) error {
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
+	}
+	return nil
+}
+
+// materializeSecrets writes each secret to <dir>/<key> (value verbatim). It
+// re-validates every key against path traversal (defense in depth, independent
+// of the server's validateKey) and refuses any key that could escape dir. The
+// dir is created 0700; files 0600 via writeSecretFile.
+func materializeSecrets(dir string, secrets map[string]string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	for k, v := range secrets {
+		if k == "" || k == "." || k == ".." || strings.ContainsAny(k, `/\`) {
+			return fmt.Errorf("refusing to materialize unsafe key %q", k)
+		}
+		full := filepath.Join(dir, k)
+		if filepath.Dir(full) != filepath.Clean(dir) {
+			return fmt.Errorf("refusing to materialize key %q outside %s", k, dir)
+		}
+		if err := writeSecretFile(full, []byte(v)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
