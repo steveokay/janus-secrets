@@ -56,10 +56,10 @@ These exist and work but are shallow versions of what the mockup/product implies
 - Dynamic panel: role update (PATCH) exists in backend but not in UI. _(still open)_
 - Per-role lease-health aggregate on the dynamic health segment deliberately deferred (would be an N-query fan-out per page load). _(open, low priority)_
 
-### 2.3 Audit viewer (`web/src/audit/AuditPage.tsx`) — MED
+### 2.3 Audit viewer (`web/src/audit/AuditPage.tsx`) — MED — **[DONE 2026-07-18]**
 - ~~No click-to-expand event detail (rows are summary-only).~~ **[DONE 2026-07-15, PR #81]** — click/keyboard row expand shows the full event incl. `prev_hash → hash` chain (one open at a time; Enter/Space/Esc; `aria-expanded`). Client-side date grouping (Today/Yesterday/`YYYY-MM-DD`) added too.
-- No event-count timeline/histogram; no saved filter presets (e.g. "failures, last 7d"). *(date grouping DONE; histogram/presets still open)*
-- Infinite scroll only — no page-size control; header not sticky on long scrolls.
+- ~~No event-count timeline/histogram; no saved filter presets (e.g. "failures, last 7d").~~ **[DONE 2026-07-18, feat/audit-depth]** — `GET /v1/audit/histogram` (new store aggregate, value-free bucket counts) backs a click-to-zoom `AuditHistogram` bar chart; saved filter presets (name + filter draft, `localStorage`-backed) let common queries (e.g. "failures, last 7d") be applied in one click.
+- ~~Infinite scroll only — no page-size control; header not sticky on long scrolls.~~ **[DONE 2026-07-18, feat/audit-depth]** — explicit page-size control alongside the existing sticky header/row-expand/date-grouping.
 
 ### 2.4 Projects list / board (`web/src/home/`) — MED
 **Update 2026-07-17 (board-depth):** shipped the depth batch — project cards now show a **glyph** + a **recency line** ("active X ago" / "created X ago", backed by a new `last_activity_at` aggregate over config versions) and a **quick-action menu (Rename)**; a **sort control** (Newest/Oldest/Recently active, by `created_at`/`last_activity_at`) replaces A–Z-only; the board's env-column headers gained an **⋯ menu (Rename / Clone environment / Delete)** plus a per-column **recency subline**; inheritance is now shown with **connector lines** instead of bare indentation. Backend: `PATCH` rename (name-only, admin+) for projects and environments, `POST` clone-environment (admin+, deep-copies the config tree + secrets, value-free `env.clone` audit, authorized against the source env's real project), and `last_activity_at` exposed on project/environment list responses.
