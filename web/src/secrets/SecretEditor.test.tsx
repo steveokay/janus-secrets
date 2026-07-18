@@ -453,6 +453,34 @@ test('changing a row type marks the editor dirty and sends the type in the save 
   expect(changes).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'DB_URL', type: 'json' })]))
 })
 
+test('AddKeyRow blocks an invalid key and shows a validation message', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByLabelText('new key'), 'a b')
+  expect(await screen.findByText(/letters, digits, and \. _ -/i)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /add key/i })).toBeDisabled()
+})
+
+test('AddKeyRow accepts a valid filename-style key', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByLabelText('new key'), 'vigil-cloud.secrets.backup.txt')
+  await userEvent.type(screen.getByLabelText('new value'), 'v')
+  expect(screen.getByRole('button', { name: /add key/i })).toBeEnabled()
+  await userEvent.click(screen.getByRole('button', { name: /add key/i }))
+  expect(await screen.findByText('vigil-cloud.secrets.backup.txt')).toBeInTheDocument()
+})
+
+test('AddKeyRow hints when a valid key is not env-injectable', async () => {
+  seed()
+  renderApp(<SecretEditor />, { route: '/projects/p1/configs/c1', withAuth: false })
+  await screen.findByText('DB_URL')
+  await userEvent.type(screen.getByLabelText('new key'), 'vigil-cloud.secrets.backup.txt')
+  expect(await screen.findByText(/not an env var/i)).toBeInTheDocument()
+})
+
 test('keyboard nav: ArrowDown+e edits a row; / focuses the filter', async () => {
   seed()
   server.use(http.get('/v1/configs/c1/secrets/DB_URL', () => HttpResponse.json({ key: 'DB_URL', value: 'postgres://a' })))

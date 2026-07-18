@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,11 @@ func newRunCmd() *cobra.Command {
 			if err := c.call("GET", path, nil, &resp); err != nil {
 				return err
 			}
-			env := buildChildEnv(os.Environ(), resp.Secrets, preserveEnv)
+			env, skipped := buildChildEnv(os.Environ(), resp.Secrets, preserveEnv)
+			if len(skipped) > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "janus: skipped %d secret(s) not usable as env vars: %s\n",
+					len(skipped), strings.Join(skipped, ", "))
+			}
 			return execChild(cmdArgs[0], cmdArgs[1:], env)
 		},
 	}

@@ -105,3 +105,30 @@ func TestDownloadOutputForces0600OnPreexistingFile(t *testing.T) {
 		t.Fatalf("file should be replaced with secrets, got: %s (%v)", b, err)
 	}
 }
+
+func TestMaterializeSecrets_WritesOnePerKey(t *testing.T) {
+	dir := t.TempDir()
+	err := materializeSecrets(dir, map[string]string{
+		"vigil-cloud.secrets.backup.txt": "line1\nline2\n",
+		"API_KEY":                        "v1",
+	})
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "vigil-cloud.secrets.backup.txt"))
+	if err != nil || string(b) != "line1\nline2\n" {
+		t.Errorf("file contents = %q err=%v", b, err)
+	}
+}
+
+func TestMaterializeSecrets_RefusesTraversal(t *testing.T) {
+	dir := t.TempDir()
+	for _, bad := range []string{"..", "../escape", "a/b", "a\\b", "."} {
+		if err := materializeSecrets(dir, map[string]string{bad: "x"}); err == nil {
+			t.Errorf("materialize key %q should refuse traversal", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escape")); err == nil {
+		t.Errorf("a file escaped the output dir")
+	}
+}

@@ -10,6 +10,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Typed secrets (value/password/json/ssh_key/certificate/note): per-type editor,
   validation, and generate; type carried through promotion and clone; CLI
   `secrets set --type`.
+- Filename-style secret keys (e.g. `foo.bar.txt`) — flat charset
+  `[A-Za-z0-9._-]`; `janus run` and `.env` export skip keys that aren't valid
+  env-var names (with a warning); new `janus secrets download --format files
+  --output <dir>` materializes each secret to a file (traversal-guarded,
+  requires `--plain`). Note: dotted keys can't be `${...}`-referenced and are
+  skipped (not synced) by the GitHub Actions integration.
 
 ## [0.1.0] - 2026-07-16
 

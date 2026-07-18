@@ -127,7 +127,7 @@ func TestSetSecretsInvalidKey(t *testing.T) {
 	ctx := context.Background()
 	_, configID := mkChain(t, s)
 	if _, err := s.SetSecrets(ctx, configID, []SecretChange{
-		{Key: "bad-key", Value: []byte("v")},
+		{Key: "bad key", Value: []byte("v")},
 	}, "m", "u"); !errors.Is(err, ErrValidation) {
 		t.Fatalf("invalid key: got %v, want ErrValidation", err)
 	}

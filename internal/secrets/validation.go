@@ -6,16 +6,20 @@ import (
 	"strings"
 )
 
-// keyRe restricts secret keys to environment-variable identifiers, since the
-// flagship `janus run` injects them as env vars.
-var keyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// keyRe allows filename-style secret keys: letters, digits, and . _ - . Keys are
+// NOT restricted to env-var identifiers because a secret may be a file (keyed by
+// its filename) that is materialized to disk rather than injected via `janus run`.
+// Env-var injection is gated separately at run time (cmd/janus isEnvVarName).
+var keyRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// validateKey rejects keys that are not valid env-var identifiers. The key name
-// is not secret (audit records key names, never values), so it may appear in
-// the error.
+// validateKey rejects keys that are not filename-safe. The key name is not secret
+// (audit records key names, never values), so it may appear in the error. Rejects
+// "."/".." and path separators so a key can never traverse when materialized to a
+// file, and caps length at 255 (filesystem limit).
 func validateKey(k string) error {
-	if !keyRe.MatchString(k) {
-		return fmt.Errorf("%w: key %q is not a valid identifier", ErrValidation, k)
+	if k == "" || len(k) > 255 || k == "." || k == ".." ||
+		strings.ContainsAny(k, `/\`) || !keyRe.MatchString(k) {
+		return fmt.Errorf("%w: key %q must be letters, digits, and . _ - (not '.'/'..' or path separators, ≤255)", ErrValidation, k)
 	}
 	return nil
 }

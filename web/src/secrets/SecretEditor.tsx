@@ -17,7 +17,7 @@ import { SelectionBar } from './SelectionBar'
 import { useRowSelection } from '../lib/useRowSelection'
 import { sortRows } from './sortRows'
 import type { SortKey, SortState } from './sortRows'
-import { rowState } from './rowState'
+import { rowState, isValidKey, isEnvVarKey } from './rowState'
 import { EditorToolbar } from './EditorToolbar'
 import { DirtyBar } from './DirtyBar'
 import { ReviewDiffDialog } from './ReviewDiffDialog'
@@ -472,18 +472,29 @@ export function SecretEditor() {
 function AddKeyRow({ onAdd }: { onAdd: (key: string, value: string) => void }) {
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
+  const keyErr = key !== '' && !isValidKey(key)
+  const showEnvHint = key !== '' && isValidKey(key) && !isEnvVarKey(key)
+  const canAdd = key !== '' && isValidKey(key)
   return (
-    <div className="mt-3 flex gap-2">
-      <input id="add-key-input" aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
-      <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={!key}
-        onClick={() => { onAdd(key, value); setKey(''); setValue('') }}
-      >
-        ＋ Add key
-      </Button>
+    <div className="mt-3">
+      <div className="flex gap-2">
+        <input id="add-key-input" aria-label="new key" placeholder="NEW_KEY" value={key} onChange={(e) => setKey(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
+        <input aria-label="new value" placeholder="value" value={value} onChange={(e) => setValue(e.target.value)} className="rounded border border-line bg-surface-3 px-2.5 py-1.5 font-mono text-[12.5px] text-ink focus:border-brand-line focus:shadow-glow-soft" />
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!canAdd}
+          onClick={() => { if (!canAdd) return; onAdd(key, value); setKey(''); setValue('') }}
+        >
+          ＋ Add key
+        </Button>
+      </div>
+      {keyErr && (
+        <p className="mt-1 text-[12px] text-danger">Key: letters, digits, and . _ - ; no spaces or slashes</p>
+      )}
+      {showEnvHint && (
+        <p className="mt-1 text-[12px] text-ink-faint">not an env var — skipped by janus run</p>
+      )}
     </div>
   )
 }

@@ -36,6 +36,16 @@ export function rowState(
   return { change: 'added', origin: 'own', existing }
 }
 
+const VALID_KEY_RE = /^[A-Za-z0-9._-]+$/
+/** Matches the backend validateKey: filename-safe, not '.'/'..'/slashes, <=255. */
+export function isValidKey(k: string): boolean {
+  return k.length > 0 && k.length <= 255 && k !== '.' && k !== '..' && !/[/\\]/.test(k) && VALID_KEY_RE.test(k)
+}
+/** True if the key is injectable by `janus run` (env-var identifier). */
+export function isEnvVarKey(k: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)
+}
+
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 function unquote(v: string): string {
   const t = v.trim()
