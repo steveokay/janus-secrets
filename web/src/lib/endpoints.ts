@@ -60,6 +60,9 @@ export interface AuditEventFilters {
   from?: string; to?: string; actor?: string; action?: string; result?: string
 }
 
+// audit histogram (§2.? depth) — success/denied/error counts per time bucket.
+export type HistBucket = { start: string; success: number; denied: number; error: number }
+
 // usage metrics (D) — on-demand read counts from audit_events (secret.reveal).
 export interface ConfigReads { config_id: string; config_name: string; project_name?: string; reads: number }
 export interface TokenReads { token_id: string; token_name: string; reads: number }
@@ -250,6 +253,8 @@ export const endpoints = {
     api.get<{ events: AuditEvent[]; next_cursor: number | null }>(`/v1/audit/events?${auditParams(f)}`),
   auditExportUrl: (f: AuditEventFilters, format: 'jsonl' | 'csv') =>
     `/v1/audit/export?${auditParams({ ...f, format })}`,
+  auditHistogram: (f: AuditEventFilters & { bucket: 'hour' | 'day' }) =>
+    api.get<{ buckets: HistBucket[] }>(`/v1/audit/histogram?${auditParams(f)}`).then((r) => r.buckets),
 
   // usage metrics (D). Metadata reads (no secret values); NOT self-audited.
   metricsReads24h: () => api.get<Reads24h>('/v1/metrics/reads-24h'),
