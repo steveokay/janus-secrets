@@ -215,7 +215,8 @@ func TestCLIRunInjectsExit(t *testing.T) {
 	}
 	self, _ := os.Executable()
 	child := exec.Command(self, "-test.run", "TestCLIRunInjectsExit")
-	child.Env = append(buildChildEnv(os.Environ(), rv.Secrets, false), "JANUS_RUN_CHILD=1")
+	builtEnv, _ := buildChildEnv(os.Environ(), rv.Secrets, false)
+	child.Env = append(builtEnv, "JANUS_RUN_CHILD=1")
 	err = child.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 7 {

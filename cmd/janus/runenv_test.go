@@ -2,13 +2,14 @@ package main
 
 import (
 	"sort"
+	"strings"
 	"testing"
 )
 
 func TestBuildChildEnvSecretsWin(t *testing.T) {
 	parent := []string{"PATH=/usr/bin", "DB_URL=old", "HOME=/home/me"}
 	secrets := map[string]string{"DB_URL": "new", "API_KEY": "k"}
-	got := buildChildEnv(parent, secrets, false)
+	got, _ := buildChildEnv(parent, secrets, false)
 
 	m := envToMap(got)
 	if m["DB_URL"] != "new" {
@@ -25,7 +26,7 @@ func TestBuildChildEnvSecretsWin(t *testing.T) {
 func TestBuildChildEnvPreserveEnv(t *testing.T) {
 	parent := []string{"DB_URL=old"}
 	secrets := map[string]string{"DB_URL": "new", "API_KEY": "k"}
-	got := buildChildEnv(parent, secrets, true)
+	got, _ := buildChildEnv(parent, secrets, true)
 	m := envToMap(got)
 	if m["DB_URL"] != "old" {
 		t.Fatalf("--preserve-env: parent should win, got %q", m["DB_URL"])
@@ -51,7 +52,7 @@ func envToMap(env []string) map[string]string {
 func TestBuildChildEnvDeterministicNoDup(t *testing.T) {
 	parent := []string{"A=1"}
 	secrets := map[string]string{"A": "2"}
-	got := buildChildEnv(parent, secrets, false)
+	got, _ := buildChildEnv(parent, secrets, false)
 	sort.Strings(got)
 	count := 0
 	for _, e := range got {
@@ -61,5 +62,22 @@ func TestBuildChildEnvDeterministicNoDup(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("A should appear once, got %d (%v)", count, got)
+	}
+}
+
+func TestBuildChildEnv_SkipsNonEnvVarKeys(t *testing.T) {
+	env, skipped := buildChildEnv(nil, map[string]string{
+		"API_KEY":                        "v1",
+		"vigil-cloud.secrets.backup.txt": "file-contents",
+	}, false)
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "API_KEY=v1") {
+		t.Errorf("API_KEY should be injected; env=%v", env)
+	}
+	if strings.Contains(joined, "vigil-cloud") {
+		t.Errorf("non-env-var key must NOT be injected; env=%v", env)
+	}
+	if len(skipped) != 1 || skipped[0] != "vigil-cloud.secrets.backup.txt" {
+		t.Errorf("skipped = %v, want [vigil-cloud.secrets.backup.txt]", skipped)
 	}
 }
