@@ -11,6 +11,7 @@ import { relativeTime } from '../lib/relativeTime'
 import { resultTone } from './resultTone'
 import { dayLabel } from './dayLabel'
 import { AuditHistogram } from './AuditHistogram'
+import { BUILTIN_PRESETS, loadPresets, savePreset, removePreset, Preset } from './presets'
 
 // Draft (inputs) vs applied (committed on Apply) — the events query only
 // refetches when applied changes, not on every keystroke.
@@ -32,6 +33,8 @@ export function AuditPage() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
   const [applied, setApplied] = useState<AuditEventFilters>({})
   const [expandedSeq, setExpandedSeq] = useState<number | null>(null)
+  const [pageSize, setPageSize] = useState(50)
+  const [savedPresets, setSavedPresets] = useState<Preset[]>(() => loadPresets())
 
   useEffect(() => {
     if (expandedSeq === null) return
@@ -43,9 +46,9 @@ export function AuditPage() {
   const verify = useQuery({ queryKey: ['audit', 'verify'], queryFn: endpoints.verifyAudit })
 
   const events = useInfiniteQuery({
-    queryKey: ['audit', 'events', applied],
+    queryKey: ['audit', 'events', applied, pageSize],
     queryFn: ({ pageParam }: { pageParam: number | undefined }) =>
-      endpoints.listAuditEvents({ ...applied, cursor: pageParam, limit: 50 }),
+      endpoints.listAuditEvents({ ...applied, cursor: pageParam, limit: pageSize }),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   })
@@ -56,6 +59,36 @@ export function AuditPage() {
   function resetFilters() {
     setDraft(EMPTY_DRAFT)
     setApplied({})
+  }
+
+  // Applying a preset sets both the draft form (best-effort, for display) and
+  // `applied` (source of truth for the query). `applied` is set directly from
+  // the preset's filters so the events/histogram query is guaranteed correct,
+  // even though preset `from`/`to` are ISO strings and the draft inputs are
+  // datetime-local strings (which we don't bother converting back).
+  function applyPreset(f: AuditEventFilters) {
+    setDraft({
+      actor: f.actor ?? '',
+      action: f.action ?? '',
+      result: f.result ?? '',
+      from: f.from ?? '',
+      to: f.to ?? '',
+    })
+    setApplied(f)
+  }
+  function refreshSavedPresets() {
+    setSavedPresets(loadPresets())
+  }
+  function saveCurrentPreset() {
+    const name = window.prompt('Preset name')
+    if (name) {
+      savePreset(name, applied)
+      refreshSavedPresets()
+    }
+  }
+  function removeSavedPreset(name: string) {
+    removePreset(name)
+    refreshSavedPresets()
   }
 
   let badge
@@ -143,6 +176,20 @@ export function AuditPage() {
         <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
           Reset
         </Button>
+        <label className="flex flex-col gap-1 text-[10.5px] uppercase tracking-[.08em] text-ink-faint">
+          Page size
+          <select
+            aria-label="page size"
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="rounded border border-line bg-surface-3 px-2.5 py-1.5 text-[12.5px] normal-case tracking-normal text-ink focus:border-brand-line"
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={200}>200</option>
+          </select>
+        </label>
         {!forbidden && (
           <div className="ml-auto flex flex-col items-end gap-1">
             <div className="flex gap-2">
@@ -164,6 +211,44 @@ export function AuditPage() {
             <p className="text-[11px] text-ink-faint">Exports are audited.</p>
           </div>
         )}
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {BUILTIN_PRESETS.map((p) => (
+          <button
+            key={p.name}
+            type="button"
+            onClick={() => applyPreset(p.filters())}
+            className="rounded-pill border border-line bg-card px-2.5 py-1 text-[11.5px] font-semibold text-ink-mute transition-nocturne hover:text-ink"
+          >
+            {p.name}
+          </button>
+        ))}
+        {savedPresets.map((p) => (
+          <span
+            key={p.name}
+            className="inline-flex items-center gap-1 rounded-pill border border-line bg-card px-2.5 py-1 text-[11.5px] font-semibold text-ink-mute"
+          >
+            <button type="button" onClick={() => applyPreset(p.filters)} className="hover:text-ink">
+              {p.name}
+            </button>
+            <button
+              type="button"
+              aria-label={`remove preset ${p.name}`}
+              onClick={() => removeSavedPreset(p.name)}
+              className="text-ink-faint hover:text-danger"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <button
+          type="button"
+          onClick={saveCurrentPreset}
+          className="rounded-pill border border-dashed border-line px-2.5 py-1 text-[11.5px] font-semibold text-ink-faint transition-nocturne hover:text-ink"
+        >
+          Save current…
+        </button>
       </div>
 
       {!forbidden && (

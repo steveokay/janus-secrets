@@ -1,9 +1,10 @@
 import { http, HttpResponse } from 'msw'
 import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { vi } from 'vitest'
 import { server } from '../test/msw'
 import { renderApp } from '../test/render'
-import { AuditEvent } from '../lib/endpoints'
+import { AuditEvent, endpoints } from '../lib/endpoints'
 import { AuditPage } from './AuditPage'
 
 // Builds a complete 13-field AuditEvent row (real wire shape — mirrors the
@@ -193,4 +194,32 @@ test('keyboard toggles row expand (Enter) and closes it (Esc)', async () => {
   expect(await screen.findByText(/THISHASH/)).toBeInTheDocument()
   await userEvent.keyboard('{Escape}')
   await waitFor(() => expect(screen.queryByText(/THISHASH/)).not.toBeInTheDocument())
+})
+
+test('clicking the "Failures · 24h" preset chip applies result=error to the events query', async () => {
+  mockVerify({ valid: true, count: 1, head_seq: 1 })
+  const spy = vi.spyOn(endpoints, 'listAuditEvents')
+  server.use(http.get('/v1/audit/events', () => HttpResponse.json({ events: [EV(1)], next_cursor: null })))
+  mount()
+  await screen.findByText(/Chain verified/)
+  await userEvent.click(screen.getByText('Failures · 24h'))
+  await screen.findByText('secret.write')
+  await waitFor(() => {
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ result: 'error' }))
+  })
+  spy.mockRestore()
+})
+
+test('changing page size to 100 makes the events query use limit 100', async () => {
+  mockVerify({ valid: true, count: 1, head_seq: 1 })
+  const spy = vi.spyOn(endpoints, 'listAuditEvents')
+  mockEvents({ events: [EV(1)], next_cursor: null })
+  mount()
+  await screen.findByText(/Chain verified/)
+  await screen.findByText('secret.write')
+  await userEvent.selectOptions(screen.getByLabelText('page size'), '100')
+  await waitFor(() => {
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }))
+  })
+  spy.mockRestore()
 })
