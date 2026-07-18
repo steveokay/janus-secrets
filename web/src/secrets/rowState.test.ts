@@ -1,4 +1,4 @@
-import { rowState, parseDotenv } from './rowState'
+import { rowState, parseDotenv, isValidKey } from './rowState'
 import { emptyBuffer, setType, removeKey } from './dirty'
 import type { MaskedSecret } from '../lib/endpoints'
 
@@ -54,4 +54,15 @@ test('parseDotenv: KEY=VALUE, comments, blanks, quotes, invalid', () => {
   const r = parseDotenv(['# comment', '', 'A=1', 'B="two words"', "C='q'", 'bad key=x', 'D=', 'nokeyval'].join('\n'))
   expect(r.pairs).toEqual({ A: '1', B: 'two words', C: 'q', D: '' })
   expect(r.skipped).toBe(2) // 'bad key=x' (invalid key) + 'nokeyval' (no '='); blank + '#' are ignored, not counted
+})
+
+describe('isValidKey', () => {
+  it('accepts filename-style keys', () => {
+    expect(isValidKey('API_KEY')).toBe(true)
+    expect(isValidKey('vigil-cloud.secrets.backup.txt')).toBe(true)
+    expect(isValidKey('.secrets')).toBe(true)
+  })
+  it('rejects empty, dot/dotdot, slashes, spaces', () => {
+    for (const k of ['', '.', '..', 'a/b', 'a\\b', 'a b']) expect(isValidKey(k)).toBe(false)
+  })
 })
