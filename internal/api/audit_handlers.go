@@ -86,6 +86,84 @@ func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, auditEventsResponse{Events: out, NextCursor: next})
 }
 
+// histBucket is the wire shape of one bucketed count in GET /v1/audit/histogram.
+type histBucket struct {
+	Start   string `json:"start"`
+	Success int    `json:"success"`
+	Denied  int    `json:"denied"`
+	Error   int    `json:"error"`
+}
+
+// handleAuditHistogram serves the histogram: validates the required from/to
+// range and bucket, guards against an absurdly large range for the requested
+// bucket granularity, then pivots the store's grouped (bucket, result) rows
+// into per-bucket success/denied/error counts. Value-free (counts only). Not
+// self-audited (precedent: verify/events — audit reads are not in the
+// must-audit set).
+func (s *Server) handleAuditHistogram(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r, authz.AuditRead, authz.Instance(), "audit.histogram", "audit") {
+		return
+	}
+	if s.audit == nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "audit is not configured")
+		return
+	}
+	filter, _, err := parseAuditFilter(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	if filter.From == nil || filter.To == nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "from and to are required")
+		return
+	}
+	bucket := r.URL.Query().Get("bucket")
+	if bucket == "" {
+		bucket = "day"
+	}
+	if bucket != "hour" && bucket != "day" {
+		writeError(w, http.StatusBadRequest, CodeValidation, "bucket must be hour or day")
+		return
+	}
+	step := time.Hour
+	if bucket == "day" {
+		step = 24 * time.Hour
+	}
+	if filter.To.Sub(*filter.From)/step > 1000 {
+		writeError(w, http.StatusBadRequest, CodeValidation, "range too large for bucket")
+		return
+	}
+	rows, err := s.audit.Histogram(r.Context(), filter, bucket)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	byStart := map[string]*histBucket{}
+	var order []string
+	for _, row := range rows {
+		key := row.Start.UTC().Format(time.RFC3339)
+		b := byStart[key]
+		if b == nil {
+			b = &histBucket{Start: key}
+			byStart[key] = b
+			order = append(order, key)
+		}
+		switch row.Result {
+		case "denied":
+			b.Denied += row.Count
+		case "error":
+			b.Error += row.Count
+		default:
+			b.Success += row.Count
+		}
+	}
+	out := make([]histBucket, 0, len(order))
+	for _, k := range order {
+		out = append(out, *byStart[k])
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"buckets": out})
+}
+
 // handleAuditExport streams filtered events as JSONL (default) or CSV. The
 // export is self-audited BEFORE any body is written, so an aborted download is
 // still recorded; if that audit write fails, respond 500 before streaming.

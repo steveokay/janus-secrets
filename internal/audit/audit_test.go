@@ -83,6 +83,27 @@ func (m *memStore) ListPage(_ context.Context, f store.AuditFilter, beforeSeq in
 	return out, nil
 }
 
+// Histogram is a minimal in-memory mirror of the store's grouped counts: all
+// rows collapse into a single bucket (Start left zero) since the pure engine
+// tests don't need real time-bucketing, only the pivot-by-result behavior.
+func (m *memStore) Histogram(_ context.Context, f store.AuditFilter, _ string) ([]store.AuditBucketCount, error) {
+	counts := map[string]int{}
+	for _, r := range m.rows {
+		if f.Action != "" && r.Action != f.Action {
+			continue
+		}
+		if f.Result != "" && r.Result != f.Result {
+			continue
+		}
+		counts[r.Result]++
+	}
+	var out []store.AuditBucketCount
+	for res, n := range counts {
+		out = append(out, store.AuditBucketCount{Result: res, Count: n})
+	}
+	return out, nil
+}
+
 var errBoom = errStub("boom")
 
 type errStub string
@@ -200,6 +221,30 @@ func TestListPagePassthrough(t *testing.T) {
 	}
 	if len(rows) != 2 || rows[0].Seq != 3 || rows[1].Seq != 2 {
 		t.Fatalf("listpage = %+v", rows)
+	}
+}
+
+func TestHistogramPassthrough(t *testing.T) {
+	r, _ := rec(t)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if err := r.Record(ctx, Event{Actor: Actor{Kind: "user", Name: "a"}, Action: "token.mint", Result: "success", IP: "ip"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Record(ctx, Event{Actor: Actor{Kind: "user", Name: "a"}, Action: "token.mint", Result: "denied", IP: "ip"}); err != nil {
+		t.Fatal(err)
+	}
+	buckets, err := r.Histogram(ctx, store.AuditFilter{}, "day")
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, b := range buckets {
+		counts[b.Result] += b.Count
+	}
+	if counts["success"] != 2 || counts["denied"] != 1 {
+		t.Fatalf("histogram = %+v", counts)
 	}
 }
 

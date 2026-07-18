@@ -169,3 +169,40 @@ func TestAuditListPage(t *testing.T) {
 	}
 	assertSeqs(t, limited, []int64{5})
 }
+
+func TestAuditRepo_Histogram(t *testing.T) {
+	if testStore == nil {
+		t.Skip("postgres/docker not available")
+	}
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewAuditRepo(testStore)
+
+	appendConst(t, repo, "token.mint")     // success
+	appendConst(t, repo, "secret.reveal")  // success
+	appendResult(t, repo, "secret.write", "denied")
+
+	buckets, err := repo.Histogram(ctx, AuditFilter{}, "day")
+	if err != nil {
+		t.Fatalf("Histogram: %v", err)
+	}
+	counts := map[string]int{}
+	for _, b := range buckets {
+		counts[b.Result] += b.Count
+	}
+	if counts["success"] != 2 || counts["denied"] != 1 {
+		t.Errorf("counts = %v, want success:2 denied:1", counts)
+	}
+
+	only, err := repo.Histogram(ctx, AuditFilter{Result: "denied"}, "day")
+	if err != nil {
+		t.Fatalf("Histogram (filtered): %v", err)
+	}
+	total := 0
+	for _, b := range only {
+		total += b.Count
+	}
+	if total != 1 {
+		t.Errorf("denied-filtered total = %d, want 1", total)
+	}
+}

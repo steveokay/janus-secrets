@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -134,6 +135,20 @@ func TestNoSecretValueInAuditRowsOrExport(t *testing.T) {
 	for _, sec := range secrets {
 		if strings.Contains(exBody, sec) {
 			t.Fatal("secret value leaked into /v1/audit/export output")
+		}
+	}
+
+	// (c) The histogram output (bucketed counts only) must likewise contain no
+	// secret material.
+	from := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	to := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
+	code, histBody := rawGet(t, ts.URL+"/v1/audit/histogram?from="+from+"&to="+to+"&bucket=day", cookie)
+	if code != 200 {
+		t.Fatalf("histogram: %d", code)
+	}
+	for _, sec := range secrets {
+		if strings.Contains(histBody, sec) {
+			t.Fatal("secret value leaked into /v1/audit/histogram output")
 		}
 	}
 }
