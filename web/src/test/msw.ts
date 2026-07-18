@@ -104,4 +104,11 @@ export const masterKeyHandlers = [
   ),
 ]
 
-export const server = setupServer(...promotionHandlers, ...masterKeyHandlers)
+// Default empty histogram so AuditPage's embedded AuditHistogram doesn't spam
+// unhandled-request warnings in tests that don't care about it. Tests
+// exercising the histogram itself override via server.use()/vi.spyOn.
+export const auditHistogramHandlers = [
+  http.get('/v1/audit/histogram', () => HttpResponse.json({ buckets: [] })),
+]
+
+export const server = setupServer(...promotionHandlers, ...masterKeyHandlers, ...auditHistogramHandlers)

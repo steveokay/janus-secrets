@@ -147,6 +147,16 @@ test('zero events shows the "no events match" empty state', async () => {
   expect(await screen.findByText('No events match these filters.')).toBeInTheDocument()
 })
 
+test('renders the event-count histogram above the events list', async () => {
+  mockVerify({ valid: true, count: 1, head_seq: 1 })
+  mockEvents({ events: [EV(1)], next_cursor: null })
+  server.use(http.get('/v1/audit/histogram', () =>
+    HttpResponse.json({ buckets: [{ start: '2026-07-15T00:00:00Z', success: 5, denied: 1, error: 0 }] })))
+  mount()
+  expect(await screen.findByText('secret.write')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /5/ })).toBeInTheDocument()
+})
+
 test('clicking a row expands full detail incl. hash chain', async () => {
   mockVerify({ valid: true, count: 1, head_seq: 1 })
   mockEvents({

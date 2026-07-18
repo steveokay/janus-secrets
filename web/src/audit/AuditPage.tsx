@@ -10,6 +10,7 @@ import { useTitle } from '../lib/title'
 import { relativeTime } from '../lib/relativeTime'
 import { resultTone } from './resultTone'
 import { dayLabel } from './dayLabel'
+import { AuditHistogram } from './AuditHistogram'
 
 // Draft (inputs) vs applied (committed on Apply) — the events query only
 // refetches when applied changes, not on every keystroke.
@@ -164,6 +165,13 @@ export function AuditPage() {
           </div>
         )}
       </div>
+
+      {!forbidden && (
+        <AuditHistogram
+          filters={applied}
+          onRange={(from, to) => setApplied({ ...applied, from, to })}
+        />
+      )}
 
       {forbidden ? (
         <EmptyState
