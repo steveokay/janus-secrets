@@ -2,26 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Janus</title>
-    <script>
-      // No-flash theme: apply html.dark before first paint. Mirrors
-      // web/src/theme/ThemeProvider.tsx (key 'janus.theme', default 'system').
-      (function () {
-        try {
-          var t = localStorage.getItem('janus.theme');
-          // Mirror ThemeProvider.readStored(): anything not 'light'/'dark' is
-          // treated as system, so a corrupt value follows the OS (no flash).
-          var dark = t === 'dark' ||
-            (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          if (dark) document.documentElement.classList.add('dark');
-        } catch (e) { /* ignore */ }
-      })();
-    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Janus — Secrets Registry</title>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

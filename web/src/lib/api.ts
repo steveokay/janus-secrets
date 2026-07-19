@@ -1,13 +1,14 @@
-// Thin typed fetch client. Every call is same-origin with the session cookie;
-// failures parse the server's {error:{code,message}} envelope into ApiError.
+/* Thin typed fetch client for the Janus /v1 API. Same-origin, cookie session.
+   Errors parse the server's {error:{code,message}} envelope. */
+
 export class ApiError extends Error {
-  readonly name = 'ApiError'
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
   ) {
     super(message)
+    this.name = 'ApiError'
   }
 }
 
@@ -22,45 +23,405 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const text = await res.text()
   const data = text ? JSON.parse(text) : undefined
   if (!res.ok) {
-    const e = data?.error
+    const e = (data as { error?: { code?: string; message?: string } } | undefined)?.error
     throw new ApiError(res.status, e?.code ?? 'error', e?.message ?? res.statusText)
   }
   return data as T
 }
 
-// Danger toast / inline error title for a failed mutation. Only surfaces the
-// server's curated message for 403/409 (delegation ceiling, last-owner,
-// self-guard etc.); anything else collapses to a generic failure so raw error
-// internals never leak to the UI (no-leak posture).
-export function apiErrorTitle(e: unknown): string {
-  return e instanceof ApiError && (e.status === 403 || e.status === 409) ? e.message : 'Request failed.'
+const get = <T>(path: string) => request<T>('GET', path)
+const post = <T>(path: string, body?: unknown) => request<T>('POST', path, body)
+const put = <T>(path: string, body?: unknown) => request<T>('PUT', path, body)
+const del = <T>(path: string) => request<T>('DELETE', path)
+
+/** Streams GET /v1/sys/backup and triggers a download. Sealed material only —
+    no plaintext — but still sensitive: never cached, object URL revoked. */
+export async function downloadBackup(): Promise<void> {
+  const res = await fetch('/v1/sys/backup', { credentials: 'include' })
+  if (!res.ok) throw new ApiError(res.status, 'error', res.statusText)
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const name = /filename="?([^";]+)"?/.exec(cd)?.[1] ?? 'janus-backup.jsonl'
+  const url = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
-// Maps the API's {error:{code,message}} envelope to a friendly, safe message.
-// 403/409 pass the server's curated message through (delegation ceiling,
-// last-owner, self-guard, etc.); known codes get friendly text; everything
-// else (incl. 5xx / non-ApiError) collapses to `fallback` so internals never leak.
-const FRIENDLY: Record<string, string> = {
-  validation: 'Please check your input.',
-  not_found: 'Not found.',
-  rate_limited: 'Too many attempts — try again shortly.',
-}
-
+/** Safe user-facing message: pass curated 403/409 text through, collapse the rest. */
 export function errorMessage(e: unknown, fallback = 'Request failed.'): string {
   if (e instanceof ApiError) {
-    // 403/409 carry the server's CURATED guardrail messages (delegation ceiling,
-    // last-owner, self-guard, conflicts) — always surface those verbatim, before
-    // any generic friendly mapping, so those precise messages are never lost.
     if (e.status === 403 || e.status === 409) return e.message || fallback
-    if (FRIENDLY[e.code]) return FRIENDLY[e.code]
+    if (e.code === 'validation') return 'Please check your input.'
+    if (e.code === 'rate_limited') return 'Too many attempts — try again shortly.'
+    if (e.code === 'sealed') return 'The server is sealed.'
   }
   return fallback
 }
 
+/* ── API shapes (mirror internal/api) ─────────────────────────── */
+
+export interface SealStatus {
+  initialized: boolean
+  sealed: boolean
+  type: 'shamir' | 'awskms'
+  threshold?: number
+  shares?: number
+  progress?: { submitted: number; required: number }
+}
+export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
+export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
+export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
+export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string }
+export interface SecretChange { key: string; value?: string; delete?: boolean }
+export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
+export interface VersionDiff { a: number; b: number; added: string[]; changed: string[]; removed: string[] }
+export interface ApiAuditEvent {
+  seq: number
+  occurred_at: string
+  actor_kind: string
+  actor_id: string | null
+  actor_name: string
+  action: string
+  resource: string
+  detail: string | null
+  result: 'success' | 'denied' | 'error'
+  result_code: string | null
+  ip: string
+  prev_hash: string
+  hash: string
+}
+export interface VerifyResult { valid: boolean; count: number; head_seq: number; head_hash?: string }
+export interface HistBucket { start: string; success: number; denied: number; error: number }
+export interface Reads24h {
+  reads_24h: number
+  top_configs: Array<{ config_id: string; config_name: string; project_name?: string; reads: number }>
+  top_tokens: Array<{ token_id: string; token_name: string; reads: number }>
+}
+export interface TokenMeta {
+  id: string; name: string
+  scope_kind: 'config' | 'environment' | 'transit'
+  scope_id: string
+  access: string
+  created_by: string
+  created_at: string
+  expires_at?: string
+  revoked_at?: string
+}
+export interface MintTokenResult {
+  token: string; id: string; name: string
+  scope: { kind: string; id: string }; access: string; expires_at: string | null
+}
+export interface UserInfo { id: string; email: string; disabled: boolean }
+export type Role = 'viewer' | 'developer' | 'admin' | 'owner'
+export interface ApiMember { user_id: string; role: Role }
+export interface ApiTransitKey {
+  name: string
+  type: 'aes256-gcm' | 'ed25519'
+  latest_version: number
+  min_decryption_version: number
+  deletion_allowed: boolean
+  versions: readonly number[]
+}
+export interface RotationPolicy {
+  id: string; project_id: string; config_id: string; secret_key: string
+  type: string; interval_seconds: number; status: string
+  failure_count: number; last_error?: string
+  next_rotation_at: string; last_rotated_at?: string; created_at: string
+}
+export interface SyncTargetApi {
+  id: string; project_id: string; config_id: string; provider: string
+  interval_seconds: number; status: string; failure_count: number; last_error?: string
+  next_sync_at: string; last_synced_at?: string
+  addr: { owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string }
+}
+export interface DynamicRole {
+  id: string; project_id: string; config_id: string; name: string
+  default_ttl_seconds: number; max_ttl_seconds: number; created_at: string
+}
+/* run history — value-free: timing, status, sanitized error, resulting version */
+export interface RunView {
+  id: number; started_at: string; ended_at: string
+  status: 'success' | 'failure'; error?: string
+  config_version?: number; attempt_num: number; keys_count?: number
+}
+/* the ONLY dynamic response carrying plaintext — shown once, never cached */
+export interface IssuedCreds { lease_id: string; username: string; password: string; expires_at: string }
+export interface RotationCreateInput {
+  config_id: string; secret_key: string; type: 'postgres' | 'webhook'; interval_seconds: number
+  config: {
+    admin_dsn?: string; role?: string; password_len?: number
+    url?: string; hmac_key?: string; notify_url?: string; notify_hmac_key?: string
+  }
+}
+export interface SyncCreateInput {
+  config_id: string; provider: 'github' | 'k8s'; prune?: boolean; interval_seconds: number
+  addr: { owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string }
+  creds: { pat?: string; api_url?: string; ca_cert?: string; token?: string }
+}
+export interface DynamicRoleCreateInput {
+  config_id: string; name: string; default_ttl_seconds: number; max_ttl_seconds: number
+  config: { admin_dsn?: string; creation_statements?: string; revocation_statements?: string; renew_statements?: string }
+}
+export interface ApiLease {
+  id: string; role_id: string; status: string; db_username: string
+  expires_at: string; max_expires_at: string; renewed_at?: string; created_at: string
+}
+export interface OIDCLoginStatus { enabled: boolean; name?: string }
+export interface VersionInfo { version: string; commit?: string }
+export interface InitResult { type: string; shares?: string[]; admin?: { email: string; password: string } }
+
+/* trash — value-free metadata for soft-deleted entities */
+export interface TrashProject { id: string; slug: string; name: string; deleted_at: string }
+export interface TrashEnvironment { id: string; slug: string; name: string; project_id: string; project_name: string; deleted_at: string }
+export interface TrashConfig { id: string; name: string; environment_id: string; environment_name: string; project_id: string; project_name: string; deleted_at: string }
+export interface Trash { projects: TrashProject[]; environments: TrashEnvironment[]; configs: TrashConfig[] }
+
+/* per-key value history */
+export interface KeyVersionMeta { value_version: number; created_at: string }
+
+/* promotion — wire types mirror the Go handler JSON exactly */
+export type PromoteStatus = 'add' | 'change' | 'remove' | 'same'
+export interface DiffEntry { key: string; status: PromoteStatus; source_value: string; target_value: string; locked: boolean }
+export interface PromoteDiff { source_version: number; target_exists: boolean; entries: DiffEntry[] }
+export interface PromoteSelection { key: string; action: 'set' | 'remove' }
+export interface PromoteApplyBody {
+  from_config: string; to_config?: string; to_env?: string; to_name?: string
+  create?: boolean; source_version: number; selections: PromoteSelection[]
+}
+export interface PromoteApplyResult { target_version: number; applied: string[]; skipped: string[] }
+export type PromotionRequestStatus = 'pending' | 'applied' | 'rejected' | 'cancelled'
+export interface RequestDiff { source_version: number; target_exists: boolean; entries: Array<{ key: string; status: PromoteStatus; locked: boolean }> }
+export interface PromotionRequest {
+  id: string; project_id: string; source_config_id: string; source_version: number
+  target_env_id: string; target_config_id?: string; target_name: string; create_target: boolean
+  keys: string[]; selections: PromoteSelection[]; note: string
+  status: PromotionRequestStatus; requested_by: string; decided_by?: string
+  applied_target_version?: number; created_at: string
+}
+export interface PromotionRequestDetail extends PromotionRequest { diff?: RequestDiff }
+
+/* OIDC provider + CI federation (admin) */
+export interface OIDCProviderView { name: string; issuer: string; client_id: string; scopes: string[]; redirect_url: string; enabled: boolean; secret_set: boolean }
+export interface OIDCConfigInput { name: string; issuer: string; client_id: string; client_secret: string; scopes: string[]; redirect_url: string; enabled: boolean }
+export interface FederationConfigView { issuer: string; audience: string; enabled: boolean }
+export interface FederationBindingView {
+  id: string; name: string; match_claims: Record<string, string>
+  scope_kind: 'config' | 'environment'; scope_id: string
+  access: 'read' | 'readwrite'; ttl_seconds: number; enabled: boolean
+}
+export type FederationBindingInput = Omit<FederationBindingView, 'id'>
+
+/* master-key rotation */
+export interface MasterKeyStatus {
+  unseal_type: 'shamir' | 'awskms'
+  master_key_version: number
+  rotated_at: string | null
+  rekey_in_progress: boolean
+  submitted: number
+  required: number
+}
+
+/* ── endpoints ────────────────────────────────────────────────── */
+
 export const api = {
-  get: <T>(path: string) => request<T>('GET', path),
-  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
-  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  del: <T>(path: string) => request<T>('DELETE', path),
+  // sys / auth
+  sealStatus: () => get<SealStatus>('/v1/sys/seal-status'),
+  init: (shares: number, threshold: number, admin_email: string) =>
+    post<InitResult>('/v1/sys/init', { shares, threshold, admin_email }),
+  unsealShare: (share: string) => post<SealStatus>('/v1/sys/unseal', { share }),
+  unsealKms: () => post<SealStatus>('/v1/sys/unseal', {}),
+  seal: () => post<{ sealed: boolean }>('/v1/sys/seal'),
+  version: () => get<VersionInfo>('/v1/sys/version'),
+  me: () => get<Me>('/v1/auth/me'),
+  login: (email: string, password: string) =>
+    post<{ user: { id: string; email: string } }>('/v1/auth/login', { email, password }),
+  logout: () => post<void>('/v1/auth/logout'),
+  oidcLoginStatus: () => get<OIDCLoginStatus>('/v1/auth/oidc/status'),
+
+  // structure
+  listProjects: () => get<{ projects: ApiProject[] }>('/v1/projects').then(r => r.projects),
+  createProject: (slug: string, name: string) => post<ApiProject>('/v1/projects', { slug, name }),
+  listEnvironments: (pid: string) =>
+    get<{ environments: ApiEnvironment[] }>(`/v1/projects/${pid}/environments`).then(r => r.environments),
+  createEnvironment: (pid: string, slug: string, name: string) =>
+    post<ApiEnvironment>(`/v1/projects/${pid}/environments`, { slug, name }),
+  listConfigs: (pid: string, eid: string) =>
+    get<{ configs: ApiConfig[] }>(`/v1/projects/${pid}/environments/${eid}/configs`).then(r => r.configs),
+  createConfig: (pid: string, eid: string, name: string, inherits_from?: string) =>
+    post<ApiConfig>(`/v1/projects/${pid}/environments/${eid}/configs`, { name, inherits_from }),
+
+  // secrets
+  maskedSecrets: (cid: string) =>
+    get<{ secrets: Record<string, MaskedSecret> }>(`/v1/configs/${cid}/secrets`).then(r => r.secrets),
+  revealKey: (cid: string, key: string) =>
+    get<{ key: string; value: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?raw=true`),
+  saveSecrets: (cid: string, changes: SecretChange[], message: string) =>
+    put<{ version: number }>(`/v1/configs/${cid}/secrets`, { message, changes }),
+  listVersions: (cid: string) =>
+    get<{ versions: VersionMeta[] }>(`/v1/configs/${cid}/versions`).then(r => r.versions),
+  diffVersions: (cid: string, a: number, b: number) =>
+    get<VersionDiff>(`/v1/configs/${cid}/versions/diff?a=${a}&b=${b}`),
+  rollback: (cid: string, target_version: number, message: string) =>
+    post<{ version: number }>(`/v1/configs/${cid}/rollback`, { target_version, message }),
+
+  // audit + metrics
+  verifyAudit: () => get<VerifyResult>('/v1/audit/verify'),
+  listAuditEvents: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v !== '' && v !== undefined) q.set(k, String(v))
+    return get<{ events: ApiAuditEvent[]; next_cursor: number | null }>(`/v1/audit/events?${q}`)
+  },
+  auditExportUrl: (format: 'jsonl' | 'csv') => `/v1/audit/export?format=${format}`,
+  auditHistogram: (bucket: 'hour' | 'day', from?: string) => {
+    const q = new URLSearchParams({ bucket })
+    if (from) q.set('from', from)
+    return get<{ buckets: HistBucket[] }>(`/v1/audit/histogram?${q}`).then(r => r.buckets)
+  },
+  metricsReads24h: () => get<Reads24h>('/v1/metrics/reads-24h'),
+
+  // tokens / users / members
+  listTokens: () => get<{ tokens: TokenMeta[] }>('/v1/tokens').then(r => r.tokens),
+  mintToken: (req: { name: string; scope: { kind: string; id: string }; access: string; ttl_seconds?: number }) =>
+    post<MintTokenResult>('/v1/tokens', req),
+  revokeToken: (id: string) => del<void>(`/v1/tokens/${id}`),
+  listUsers: () => get<{ users: UserInfo[] }>('/v1/users').then(r => r.users),
+  createUser: (email: string) => post<{ id: string; email: string; password: string }>('/v1/users', { email }),
+  listInstanceMembers: () => get<{ members: ApiMember[] }>('/v1/instance/members').then(r => r.members),
+  putInstanceMember: (uid: string, role: Role) => put<void>(`/v1/instance/members/${uid}`, { role }),
+
+  // transit
+  listTransitKeys: () => get<{ keys: ApiTransitKey[] }>('/v1/transit/keys').then(r => r.keys),
+  createTransitKey: (name: string, type: string) => post<ApiTransitKey>('/v1/transit/keys', { name, type }),
+  rotateTransitKey: (name: string) => post<ApiTransitKey>(`/v1/transit/keys/${encodeURIComponent(name)}/rotate`, {}),
+  transitEncrypt: (name: string, plaintext: string) =>
+    post<{ ciphertext: string }>(`/v1/transit/encrypt/${encodeURIComponent(name)}`, { plaintext: btoa(plaintext) }),
+  transitSign: (name: string, input: string) =>
+    post<{ signature: string }>(`/v1/transit/sign/${encodeURIComponent(name)}`, { input: btoa(input) }),
+
+  // structure lifecycle
+  renameProject: (pid: string, name: string) => request<ApiProject>('PATCH', `/v1/projects/${pid}`, { name }),
+  deleteProject: (pid: string) => del<void>(`/v1/projects/${pid}`),
+  restoreProject: (pid: string) => post<ApiProject>(`/v1/projects/${pid}/restore`, {}),
+  destroyProject: (pid: string) => del<void>(`/v1/projects/${pid}?destroy=true`),
+  renameEnvironment: (pid: string, eid: string, name: string) =>
+    request<ApiEnvironment>('PATCH', `/v1/projects/${pid}/environments/${eid}`, { name }),
+  cloneEnvironment: (pid: string, eid: string, slug: string, name: string) =>
+    post<ApiEnvironment>(`/v1/projects/${pid}/environments/${eid}/clone`, { slug, name }),
+  deleteEnvironment: (pid: string, eid: string) => del<void>(`/v1/projects/${pid}/environments/${eid}`),
+  restoreEnvironment: (pid: string, eid: string) => post<ApiEnvironment>(`/v1/projects/${pid}/environments/${eid}/restore`, {}),
+  destroyEnvironment: (pid: string, eid: string) => del<void>(`/v1/projects/${pid}/environments/${eid}?destroy=true`),
+  deleteConfig: (cid: string) => del<void>(`/v1/configs/${cid}`),
+  restoreConfig: (cid: string) => post<ApiConfig>(`/v1/configs/${cid}/restore`, {}),
+  destroyConfig: (cid: string) => del<void>(`/v1/configs/${cid}?destroy=true`),
+  listTrash: () => get<Trash>('/v1/trash'),
+
+  // per-key history — list is value-free; revealing one version IS audited
+  keyHistory: (cid: string, key: string) =>
+    get<{ key: string; history: KeyVersionMeta[] }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/history`),
+  revealKeyVersion: (cid: string, key: string, version: number) =>
+    get<{ key: string; value: string; value_version: number }>(
+      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?version=${version}`),
+
+  // promotion
+  getPipeline: (pid: string) => get<{ environment_ids: string[] }>(`/v1/projects/${pid}/pipeline`),
+  setPipeline: (pid: string, ids: string[]) =>
+    put<{ environment_ids: string[] }>(`/v1/projects/${pid}/pipeline`, { environment_ids: ids }),
+  listLockedKeys: (cid: string) => get<{ keys: string[] }>(`/v1/configs/${cid}/locked-keys`).then(r => r.keys ?? []),
+  lockKey: (cid: string, key: string) => post<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys`, { key }),
+  unlockKey: (cid: string, key: string) => del<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys/${encodeURIComponent(key)}`),
+  promotePreview: (from: string, target: { to?: string; to_env?: string }) => {
+    const q = new URLSearchParams({ from })
+    if (target.to) q.set('to', target.to)
+    if (target.to_env) q.set('to_env', target.to_env)
+    return get<PromoteDiff>(`/v1/promote/preview?${q}`)
+  },
+  promoteApply: (body: PromoteApplyBody) => post<PromoteApplyResult>('/v1/promote', body),
+  createPromoteRequest: (body: PromoteApplyBody & { note: string }) =>
+    post<{ id: string; status: 'pending' }>('/v1/promote/requests', body),
+  listPromoteRequests: (project: string, status?: string) => {
+    const q = new URLSearchParams({ project })
+    if (status) q.set('status', status)
+    return get<{ requests: PromotionRequest[] }>(`/v1/promote/requests?${q}`).then(r => r.requests ?? [])
+  },
+  getPromoteRequest: (id: string) => get<PromotionRequestDetail>(`/v1/promote/requests/${id}`),
+  approvePromoteRequest: (id: string) => post<PromoteApplyResult>(`/v1/promote/requests/${id}/approve`),
+  rejectPromoteRequest: (id: string, note: string) => post<{ status: string }>(`/v1/promote/requests/${id}/reject`, { note }),
+  cancelPromoteRequest: (id: string) => post<{ status: string }>(`/v1/promote/requests/${id}/cancel`),
+
+  // OIDC provider + federation admin
+  getOIDCConfig: () => get<OIDCProviderView>('/v1/sys/oidc'),
+  setOIDCConfig: (cfg: OIDCConfigInput) => put<{ ok: boolean }>('/v1/sys/oidc', cfg),
+  deleteOIDCConfig: () => del<void>('/v1/sys/oidc'),
+  getFederationConfig: () => get<FederationConfigView>('/v1/sys/oidc/federation'),
+  setFederationConfig: (cfg: FederationConfigView) => put<{ ok: boolean }>('/v1/sys/oidc/federation', cfg),
+  deleteFederationConfig: () => del<void>('/v1/sys/oidc/federation'),
+  listFederationBindings: () => get<FederationBindingView[]>('/v1/sys/oidc/federation/bindings'),
+  createFederationBinding: (b: FederationBindingInput) => post<FederationBindingView>('/v1/sys/oidc/federation/bindings', b),
+  deleteFederationBinding: (id: string) => del<void>(`/v1/sys/oidc/federation/bindings/${id}`),
+
+  // account + master key + backup
+  changePassword: (current_password: string, new_password: string) =>
+    post<void>('/v1/auth/password', { current_password, new_password }),
+  masterKeyStatus: () => get<MasterKeyStatus>('/v1/sys/master-key'),
+  rotateMasterKey: () => post<{ master_key_version: number }>('/v1/sys/master-key/rotate', {}),
+  rekeyInit: () => post<{ nonce: string; required: number; submitted: number }>('/v1/sys/master-key/rekey/init', {}),
+  rekeySubmit: (nonce: string, share: string) =>
+    post<{ complete: boolean; submitted?: number; required?: number; master_key_version?: number; new_shares?: string[] }>(
+      '/v1/sys/master-key/rekey/submit', { nonce, share }),
+  rekeyCancel: () => del('/v1/sys/master-key/rekey'),
+
+  // operations — rotation (lists are per-project; see lib/ops.ts aggregators)
+  listRotationPolicies: (projectId: string) =>
+    get<{ policies: RotationPolicy[] }>(`/v1/rotation/policies?project_id=${encodeURIComponent(projectId)}`).then(r => r.policies ?? []),
+  createRotationPolicy: (body: RotationCreateInput) => post<RotationPolicy>('/v1/rotation/policies', body),
+  rotateNow: (id: string) => post<{ rotated: boolean }>(`/v1/rotation/policies/${id}/rotate`, {}),
+  setRotationStatus: (id: string, status: 'active' | 'paused') =>
+    request<RotationPolicy>('PATCH', `/v1/rotation/policies/${id}`, { status }),
+  deleteRotationPolicy: (id: string) => del<void>(`/v1/rotation/policies/${id}`),
+  rotationRuns: (id: string) =>
+    get<{ runs: RunView[]; next_cursor: number | null }>(`/v1/rotation/policies/${id}/runs`).then(r => r.runs ?? []),
+
+  // operations — sync
+  listSyncTargets: (projectId: string) =>
+    get<{ targets: SyncTargetApi[] }>(`/v1/sync/targets?project_id=${encodeURIComponent(projectId)}`).then(r => r.targets ?? []),
+  createSyncTarget: (body: SyncCreateInput) => post<SyncTargetApi>('/v1/sync/targets', body),
+  syncNow: (id: string) => post<unknown>(`/v1/sync/targets/${id}/sync`, {}),
+  setSyncStatus: (id: string, status: 'active' | 'paused') =>
+    request<SyncTargetApi>('PATCH', `/v1/sync/targets/${id}`, { status }),
+  deleteSyncTarget: (id: string) => del<void>(`/v1/sync/targets/${id}`),
+  syncRuns: (id: string) =>
+    get<{ runs: RunView[]; next_cursor: number | null }>(`/v1/sync/targets/${id}/runs`).then(r => r.runs ?? []),
+
+  // operations — dynamic
+  listDynamicRoles: (configId: string) =>
+    get<{ roles: DynamicRole[] }>(`/v1/dynamic/roles?config_id=${encodeURIComponent(configId)}`).then(r => r.roles ?? []),
+  createDynamicRole: (body: DynamicRoleCreateInput) => post<DynamicRole>('/v1/dynamic/roles', body),
+  deleteDynamicRole: (id: string) => del<void>(`/v1/dynamic/roles/${id}`),
+  issueCreds: (roleId: string) => post<IssuedCreds>(`/v1/dynamic/roles/${roleId}/creds`, {}),
+  listLeases: (roleId: string) =>
+    get<{ leases: ApiLease[] }>(`/v1/dynamic/leases?role_id=${encodeURIComponent(roleId)}`).then(r => r.leases ?? []),
+  renewLease: (id: string) => post<ApiLease>(`/v1/dynamic/leases/${id}/renew`, {}),
+  revokeLease: (id: string) => post<{ revoked: boolean }>(`/v1/dynamic/leases/${id}/revoke`, {}),
+
+  // scoped members (instance / project / environment)
+  listScopedMembers: (path: string) => get<{ members: ApiMember[] }>(path).then(r => r.members),
+  putScopedMember: (path: string, uid: string, role: Role) => put<void>(`${path}/${uid}`, { role }),
+  deleteScopedMember: (path: string, uid: string) => del<void>(`${path}/${uid}`),
+}
+
+export function memberScopePath(s: { kind: 'instance' } | { kind: 'project'; pid: string } | { kind: 'environment'; pid: string; eid: string }): string {
+  switch (s.kind) {
+    case 'instance': return '/v1/instance/members'
+    case 'project': return `/v1/projects/${s.pid}/members`
+    case 'environment': return `/v1/projects/${s.pid}/environments/${s.eid}/members`
+  }
 }
