@@ -1,0 +1,288 @@
+/* ─────────────────────────────────────────────────────────────
+   JANUS ATRIUM — base sheet
+   ───────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { height: 100%; }
+
+body {
+  height: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--ink);
+  background-color: var(--paper);
+  /* engraved desk: fine cross-hatch + paper grain */
+  background-image:
+    repeating-linear-gradient(0deg,  var(--hatch1) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(90deg, var(--hatch2) 0 1px, transparent 1px 5px);
+  transition: background-color var(--t-med), color var(--t-med);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app { height: 100%; }
+
+::selection { background: var(--archivist); color: var(--paper-high); }
+
+/* ── Typography ──────────────────────────────── */
+
+h1, h2, h3 { font-family: var(--font-display); font-weight: 560; line-height: 1.12; letter-spacing: -0.01em; }
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+
+a { color: var(--archivist); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+code, kbd, samp, .mono { font-family: var(--font-mono); }
+
+/* small-caps archival label */
+.label {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  color: var(--ink-faint);
+}
+
+/* folio reference number, e.g. "FOL. 014 / PROD" */
+.folio {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+/* ── Focus ───────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--archivist);
+  outline-offset: 2px;
+  border-radius: 1px;
+}
+
+/* ── Sheets & plates (cards) ─────────────────── */
+
+.sheet {
+  background: var(--paper-high);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sheet);
+}
+
+.plate {
+  background: var(--paper-high);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-plate);
+  box-shadow: var(--shadow-plate);
+}
+
+/* double ledger rule under section heads */
+.ledger-rule {
+  border: 0;
+  border-top: 2px solid var(--rule-strong);
+  position: relative;
+  margin: var(--s2) 0 0;
+}
+.ledger-rule::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 2px;
+  border-top: 1px solid var(--rule);
+}
+
+/* perforation edge (ticket stubs, detachable panels) */
+.perforated { border-left: 2px dashed var(--rule); }
+
+/* ── Buttons ─────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--paper-high);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform var(--t-fast) var(--ease-press), box-shadow var(--t-fast) var(--ease-out), background var(--t-fast);
+  box-shadow: 0 1px 0 rgba(34,30,21,0.25);
+  user-select: none;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--paper); }
+.btn:active { transform: translateY(1px); box-shadow: none; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper-high);
+}
+.btn-primary:hover { background: var(--ink-hover); }
+
+.btn-stamp {
+  background: var(--vermilion);
+  border-color: var(--vermilion-deep);
+  color: var(--paper-high);
+  box-shadow: 0 1px 0 var(--vermilion-deep);
+}
+.btn-stamp:hover { background: var(--vermilion-deep); }
+
+.btn-ghost { border-color: transparent; background: transparent; box-shadow: none; }
+.btn-ghost:hover { background: var(--paper-low); }
+
+.btn-sm { padding: 0.3rem 0.65rem; font-size: var(--text-xs); }
+
+/* ── Inputs ──────────────────────────────────── */
+
+.input, .select, textarea.input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--paper-high);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.input::placeholder { color: var(--ink-ghost); font-family: var(--font-ui); }
+.input:focus, .select:focus {
+  outline: none;
+  border-color: var(--archivist);
+  box-shadow: 0 0 0 3px var(--archivist-wash);
+}
+
+/* underlined ruled-line field (login, unseal) */
+.field-ruled {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  background: transparent;
+  border: 0;
+  border-bottom: 1.5px solid var(--rule-strong);
+  border-radius: 0;
+  padding: 0.4rem 0.1rem;
+  width: 100%;
+  color: var(--ink);
+}
+.field-ruled:focus { outline: none; border-bottom-color: var(--archivist); box-shadow: 0 1.5px 0 var(--archivist); }
+.field-ruled::placeholder { color: var(--ink-ghost); font-family: var(--font-ui); font-size: var(--text-sm); }
+
+/* ── Rubber stamp ────────────────────────────── */
+
+.stamp {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  padding: 0.28rem 0.65rem;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  transform: rotate(-2deg);
+  color: var(--vermilion);
+  /* ink bleed */
+  text-shadow: 0 0 0.5px currentColor;
+  box-shadow: inset 0 0 0 1px var(--stamp-inset);
+  mix-blend-mode: var(--stamp-blend);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.55' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.35 0.68'/%3E%3C/filter%3E%3Crect width='120' height='40' fill='white' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.55' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.35 0.68'/%3E%3C/filter%3E%3Crect width='120' height='40' fill='white' filter='url(%23n)'/%3E%3C/svg%3E");
+  -webkit-mask-size: 120px 40px;
+  mask-size: 120px 40px;
+}
+.stamp.ok   { color: var(--verdigris); }
+.stamp.info { color: var(--archivist); }
+.stamp.flat { transform: none; }
+
+/* ── Pills & badges ──────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  padding: 0.16rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.pill-dev     { color: var(--env-dev);     background: var(--verdigris-wash); }
+.pill-staging { color: var(--env-staging); background: var(--ochre-wash); }
+.pill-prod    { color: var(--env-prod);    background: var(--vermilion-wash); }
+.pill-neutral { color: var(--ink-soft);    background: var(--paper-low); border-color: var(--rule); }
+.pill-info    { color: var(--archivist);   background: var(--archivist-wash); }
+
+/* ── Ledger table ────────────────────────────── */
+
+table.ledger { width: 100%; border-collapse: collapse; }
+table.ledger th {
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  color: var(--ink-faint);
+  padding: var(--s2) var(--s3);
+  border-bottom: 2px solid var(--rule-strong);
+  white-space: nowrap;
+}
+table.ledger td {
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--rule-faint);
+  vertical-align: middle;
+}
+table.ledger tbody tr { transition: background var(--t-fast); }
+table.ledger tbody tr:hover { background: var(--row-hover); }
+table.ledger .num { font-family: var(--font-mono); font-size: var(--text-sm); }
+
+/* ── Keyboard key ────────────────────────────── */
+
+kbd.key {
+  font-size: 0.68rem;
+  padding: 0.08rem 0.38rem;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--paper-high);
+  color: var(--ink-soft);
+}
+
+/* ── Scrollbars ──────────────────────────────── */
+
+* { scrollbar-width: thin; scrollbar-color: var(--ink-ghost) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--ink-ghost); border: 3px solid var(--paper); border-radius: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ── Shared animations ───────────────────────── */
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes stamp-down {
+  0%   { opacity: 0; transform: rotate(-2deg) scale(1.7); }
+  62%  { opacity: 1; transform: rotate(-2deg) scale(0.94); }
+  100% { opacity: 1; transform: rotate(-2deg) scale(1); }
+}
+@keyframes blink-caret { 50% { opacity: 0; } }
+
+.rise { animation: rise-in var(--t-slow) var(--ease-out) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

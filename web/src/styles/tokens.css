@@ -1,0 +1,144 @@
+/* ─────────────────────────────────────────────────────────────
+   JANUS ATRIUM — design tokens
+   Aesthetic: "Security Printing" — banknote engraving, archival
+   ledgers, rubber stamps, kraft & ink. Light-first.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Paper & ink ─────────────────────────────── */
+  --paper:        #efe9db;  /* room — warm parchment */
+  --paper-high:   #f7f3e8;  /* raised sheets, cards  */
+  --paper-low:    #e6dfcd;  /* recessed wells        */
+  --paper-dim:    #ddd5c0;  /* pressed / hover wells */
+  --ink:          #221e15;  /* primary ink           */
+  --ink-soft:     #4f483a;  /* secondary text        */
+  --ink-faint:    #857b66;  /* tertiary, captions    */
+  --ink-ghost:    #a99f88;  /* disabled, watermarks  */
+
+  /* ── Rules & lines ───────────────────────────── */
+  --rule:         rgba(34, 30, 21, 0.18);   /* hairline    */
+  --rule-strong:  rgba(34, 30, 21, 0.55);   /* heavy rule  */
+  --rule-faint:   rgba(34, 30, 21, 0.09);   /* ledger rows */
+
+  /* ── Inks of office ──────────────────────────── */
+  --vermilion:      #b3300e;  /* the stamp — danger, prod, primary action */
+  --vermilion-deep: #8f2408;
+  --vermilion-wash: rgba(179, 48, 14, 0.08);
+  --verdigris:      #33684f;  /* verified, success, dev */
+  --verdigris-deep: #24503b;
+  --verdigris-wash: rgba(51, 104, 79, 0.10);
+  --ochre:          #9a6d0b;  /* caution, staging */
+  --ochre-wash:     rgba(154, 109, 11, 0.12);
+  --archivist:      #2e4a68;  /* registrar's blue-black — links, focus, info */
+  --archivist-deep: #223a54;
+  --archivist-wash: rgba(46, 74, 104, 0.09);
+
+  /* ── Environment inks ────────────────────────── */
+  --env-dev:     var(--verdigris);
+  --env-staging: var(--ochre);
+  --env-prod:    var(--vermilion);
+
+  /* ── Type ────────────────────────────────────── */
+  --font-display: 'Fraunces', 'Georgia', serif;
+  --font-ui:      'Archivo', 'Helvetica Neue', sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Consolas', monospace;
+
+  --text-xs:   0.72rem;
+  --text-sm:   0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md:   1.0625rem;
+  --text-lg:   1.375rem;
+  --text-xl:   1.875rem;
+  --text-2xl:  2.625rem;
+  --text-3xl:  3.5rem;
+
+  --track-caps: 0.14em;   /* letterspacing for small caps labels */
+
+  /* ── Space & shape ───────────────────────────── */
+  --s1: 0.25rem; --s2: 0.5rem; --s3: 0.75rem; --s4: 1rem;
+  --s5: 1.5rem; --s6: 2rem; --s7: 3rem; --s8: 4.5rem;
+
+  --radius: 2px;            /* paper is cut, not rounded */
+  --radius-plate: 4px;      /* larger plates only        */
+
+  /* ── Shadow — paper lifted off the desk ──────── */
+  --shadow-sheet: 0 1px 0 rgba(34,30,21,0.06), 0 2px 8px rgba(34,30,21,0.07);
+  --shadow-plate: 0 1px 0 rgba(34,30,21,0.08), 0 6px 24px rgba(34,30,21,0.12);
+  --shadow-hover: 0 2px 0 rgba(34,30,21,0.06), 0 10px 28px rgba(34,30,21,0.14);
+
+  /* ── Motion ──────────────────────────────────── */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-press: cubic-bezier(0.34, 1.3, 0.64, 1);
+  --t-fast: 120ms;
+  --t-med:  220ms;
+  --t-slow: 420ms;
+
+  /* ── Themed surfaces beyond paper/ink ────────── */
+  --hatch1: rgba(34, 30, 21, 0.022);   /* desk cross-hatch     */
+  --hatch2: rgba(34, 30, 21, 0.016);
+  --row-hover: rgba(34, 30, 21, 0.028);
+  --bar-bg: rgba(247, 243, 232, 0.6);  /* folio bar veil       */
+  --ink-hover: #35301f;                /* primary button hover */
+  --stamp-blend: multiply;
+  --stamp-inset: rgba(247, 243, 232, 0.25);
+
+  /* ledger cover (sidebar) — its own plane, stable across themes */
+  --cover-bg: #221e15;
+  --cover-fg: #f7f3e8;
+  --cover-muted: rgba(247, 243, 232, 0.55);
+  --cover-faint: rgba(247, 243, 232, 0.4);
+  --cover-line: rgba(247, 243, 232, 0.16);
+  --cover-hover: rgba(247, 243, 232, 0.07);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   NIGHTWATCH — the registrar's office after dark. Same paper
+   metaphor, lamplight inverted: warm black desk, cream ink,
+   embers for vermilion, patina for verdigris.
+   ───────────────────────────────────────────────────────────── */
+
+:root[data-theme='nightwatch'] {
+  --paper:        #1a1712;
+  --paper-high:   #242019;
+  --paper-low:    #131109;
+  --paper-dim:    #2d2820;
+  --ink:          #eae2cf;
+  --ink-soft:     #c0b59c;
+  --ink-faint:    #8f8672;
+  --ink-ghost:    #625b4b;
+
+  --rule:         rgba(234, 226, 207, 0.16);
+  --rule-strong:  rgba(234, 226, 207, 0.42);
+  --rule-faint:   rgba(234, 226, 207, 0.08);
+
+  --vermilion:      #e25f35;
+  --vermilion-deep: #ef7a52;
+  --vermilion-wash: rgba(226, 95, 53, 0.13);
+  --verdigris:      #6cb08c;
+  --verdigris-deep: #8ac7a6;
+  --verdigris-wash: rgba(108, 176, 140, 0.13);
+  --ochre:          #d2a344;
+  --ochre-wash:     rgba(210, 163, 68, 0.14);
+  --archivist:      #92b3d6;
+  --archivist-deep: #aec8e6;
+  --archivist-wash: rgba(146, 179, 214, 0.13);
+
+  --shadow-sheet: 0 1px 0 rgba(0,0,0,0.35), 0 2px 10px rgba(0,0,0,0.4);
+  --shadow-plate: 0 1px 0 rgba(0,0,0,0.4), 0 8px 28px rgba(0,0,0,0.55);
+  --shadow-hover: 0 2px 0 rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.6);
+
+  --hatch1: rgba(234, 226, 207, 0.020);
+  --hatch2: rgba(234, 226, 207, 0.014);
+  --row-hover: rgba(234, 226, 207, 0.035);
+  --bar-bg: rgba(26, 23, 18, 0.65);
+  --ink-hover: #f8f2e2;
+  --stamp-blend: screen;
+  --stamp-inset: rgba(0, 0, 0, 0.3);
+
+  --cover-bg: #100e0a;
+  --cover-fg: #f0e9d8;
+  --cover-muted: rgba(240, 233, 216, 0.5);
+  --cover-faint: rgba(240, 233, 216, 0.36);
+  --cover-line: rgba(240, 233, 216, 0.14);
+  --cover-hover: rgba(240, 233, 216, 0.06);
+}

@@ -11,7 +11,7 @@ A single-tenant, self-hosted secrets manager combining the best of Doppler (proj
 - **Crypto:** Go stdlib `crypto/*` + `golang.org/x/crypto` ONLY. Never implement crypto primitives. Never add third-party crypto libraries without explicit discussion.
 - **HTTP:** `net/http` with `chi` router. REST + JSON, all routes under `/v1/`.
 - **CLI:** `cobra`. A single `janus` binary provides both the server (`janus server`) and the secrets CLI (`janus run`, `janus secrets …`); there is no separate `kh` binary.
-- **Web UI:** React + TypeScript + Vite + Tailwind + TanStack Query, in `web/`. Built to static assets and embedded in the Go binary via `go:embed`. No Node server in production. No Next.js.
+- **Web UI:** Svelte 5 (runes) + TypeScript + Vite, hand-written CSS design system (no Tailwind, no component library), in `web/`. Built to static assets and embedded in the Go binary via `go:embed`. No Node server in production.
 - **Deployment:** Dockerfile (multi-stage: build web → build Go with embedded assets) + docker-compose.yml (app + Postgres).
 
 ## Repository layout
@@ -78,23 +78,29 @@ Append-only `audit_events` table. Every authenticated request that touches a sec
 - List endpoints: cursor pagination. Mutations: idempotency via client-supplied `Idempotency-Key` where destructive.
 - Rate limiting on auth endpoints. Strict CORS (UI is same-origin embedded, so effectively none).
 
-## Web UI visual system (locked — do not restyle ad hoc)
+## Web UI visual system — "Atrium" (Security Printing)
 
-The SPA's visual design is **approved and canonical**:
-
-- **Mockup (source of truth for look & feel):** `docs/design/ui-nocturne-mockup.html` — open in a browser; dark-first + light toggle. It shows the app shell, secret editor, home command center, and both themes.
-- **Spec (tokens + rules):** `docs/superpowers/specs/2026-07-12-nocturne-design.md`.
-- **Superseded (kept in-tree for history):** the previous mockup/spec (`docs/design/ui-redesign-mockup.html` / `docs/superpowers/specs/2026-07-07-dark-redesign-design.md`) are superseded by Nocturne; the redo program is `ui-redo.md`.
-- **Punch-list / rollout tracker:** `fe-improvements.md`.
+The SPA is the Atrium redesign: banknote-engraving / archival-ledger aesthetic
+with two themes — `daylight` (default, parchment + ink) and `nightwatch`
+(dark) — switched via `data-theme` on `<html>` and persisted in localStorage.
 
 Rules for ANY change under `web/`:
 
-- Colors/type/radius/shadows come from the Tailwind theme tokens defined by the spec — **never raw palette classes** (`gray-400`, `blue-600`, hex literals) in components.
-- The theme is dual (light + dark) via CSS variables in `web/src/theme.css`; components use token classes only — never `dark:` palette variants, never raw hex (hex lives solely in `theme.css`, enforced by `web/src/test/no-raw-palette.test.ts`).
-- Every UI change must render correctly in BOTH light and dark themes (`npm run smoke` checks both).
-- One accent (violet `brand`); semantic green/amber/red express state only. Env coding: dev=blue, staging=amber, prod=red.
-- Monospace is reserved for secret keys/values; sans for all chrome.
-- New screens/components must match the mockup, or compose from its tokens/kit if not shown there. When a visual question isn't answered by mockup or spec, ask — don't improvise a new style.
+- ALL colors come from CSS-variable tokens in `web/src/styles/tokens.css`
+  (both themes live there); shared primitives (.btn, .stamp, .pill, .ledger,
+  .sheet/.plate, .field-ruled) in `web/src/styles/base.css`. Never hardcode
+  hex or raw palette values in components; every change must render correctly
+  in BOTH themes.
+- Type: Fraunces (display serif), Archivo (UI), IBM Plex Mono (secret keys,
+  values, hashes, folio refs) — bundled via @fontsource, no CDN (CSP is 'self').
+- Env accent coding: dev = verdigris, staging = ochre, prod = vermilion.
+- No native browser dialogs — use `web/src/lib/dialog.svelte.ts` +
+  `DialogHost` (confirm / prompt / notice, danger variant).
+- Data flows through the typed client `web/src/lib/api.ts` (mirrors /v1) and
+  the rune stores `session.svelte.ts` / `registry.svelte.ts`; ops lists need
+  scope params — aggregate via `web/src/lib/ops.ts`. Revealed plaintext lives
+  only in component state, never persisted.
+
 
 ## CLI (`janus`)
 
