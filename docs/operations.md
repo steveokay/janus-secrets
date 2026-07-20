@@ -42,6 +42,10 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
+| `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
+| `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
+| `JANUS_HTTP_WRITE_TIMEOUT` | no | HTTP server write timeout (Go duration, default `0` = disabled — deliberate, so `/v1/audit/export` can stream long-running responses) |
+| `JANUS_HTTP_MAX_BODY_BYTES` | no | Max request body size in bytes (default `10485760` = 10 MiB; `0` disables the cap). Not applied to the restore endpoint |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
@@ -165,6 +169,7 @@ travel as lowercase hex strings. Errors use the project-wide envelope
 | `POST /v1/sys/unseal` | Shamir: `{"share":"<hex>"}`, one per call; reaching the threshold reconstructs, verifies the KCV, and unseals. KMS: empty body retries. Idempotent when already unsealed |
 | `POST /v1/sys/unseal/reset` | Discard submitted shares |
 | `POST /v1/sys/seal` | Wipe the master key; back to sealed. Requires authentication and the `sys:seal` permission (owner/admin) |
+| `GET /v1/sys/version` | `{"version","commit","date"}` build metadata (matches `janus version`). Requires authentication (no instance permission beyond being logged in) |
 
 Error codes: `sealed`, `not_initialized`, `already_initialized`,
 `invalid_share`, `duplicate_share`, `key_check_failed`, `validation`,
@@ -214,6 +219,18 @@ server (503 while sealed) and the relevant **RBAC permission** (deny-by-default)
 service errors map to the standard envelope (`404 not_found`, `409 conflict`,
 `400 validation`, `503 sealed`, generic `500`). Values are never echoed in an
 error message or a log line.
+
+**Pagination and idempotency (cross-cutting).** List endpoints — projects,
+environments, configs, members, tokens, transit keys, users — support opt-in
+cursor pagination: `?limit=1-200` returns a page plus an opaque `next_cursor`
+(base64url, keyset on `created_at, id`) to pass back as `?cursor=`; omitting
+`?limit` returns everything unbounded, so existing callers are unaffected.
+`GET /v1/audit/events` paginates separately with its own raw-integer `?cursor=`
+keyed on sequence number. Destructive/mutating requests (`POST`/`PUT`/`DELETE`/
+`PATCH`) may carry an `Idempotency-Key` header; a repeated key on the same route
+replays the first response's status without re-executing the mutation. Keys are
+tracked by outcome status only (no request/response bodies are stored) and do
+not expire.
 
 **Hierarchy CRUD + lifecycle.** Every resource supports create, read/list,
 soft-delete, restore, and hard-destroy. A hard-destroy of a project or
@@ -477,17 +494,20 @@ grant/revoke, `sys.seal`, and `auth.login` (success, plus failed attempts as a
 `auth.logout`, `auth.password_change`. Every denied (`403`) authorization
 decision on these endpoints is recorded as a `denied` event. **Not** audited:
 masked/metadata reads (token/user/member `LIST`, `/v1/auth/me`, and
-`/v1/audit/verify` itself); `sys.init`/`sys.unseal` (pre-auth bootstrap
-operations).
+`/v1/audit/verify`/`/v1/audit/events`/`/v1/audit/histogram` themselves —
+`/v1/audit/export` is the one audit-log read that IS self-audited, since it's a
+bulk export); `sys.init`/`sys.unseal` (pre-auth bootstrap operations).
 
 | Route | Behavior | Requires |
 |---|---|---|
 | `GET /v1/audit/verify` | Walks the chain, recomputing every hash and checking linkage. `{"valid":true,"count":N,"head_seq":N,"head_hash":"<hex>"}` when intact; `{"valid":false,"broken_at_seq":K,"reason":"hash_mismatch"\|"chain_break"}` on the first break. Not self-audited. | `audit:read` (owner/admin) |
 | `GET /v1/audit/export` | Streams matching events, chunked. `?format=jsonl` (default, `application/x-ndjson`) or `?format=csv`. Filters (AND-combined): `?from=`/`?to=` (RFC3339), `?actor=` (matches actor id **or** name), `?action=`, `?result=` (`success`/`denied`/`error`). Each row includes `prev_hash`+`hash` (hex) for offline verification. Self-audited (`audit.export`) **before** streaming. | `audit:read` (owner/admin) |
+| `GET /v1/audit/events` | Paginated viewer page: same filters as export, plus `?limit=` (1-200, default 50) and a sequence-number `?cursor=`. `{"events":[...],"next_cursor":N\|null}`. Not self-audited. | `audit:read` (owner/admin) |
+| `GET /v1/audit/histogram` | Bucketed event counts for a chart: requires `?from=`/`?to=`, optional `?bucket=hour\|day` (default `day`, range capped at 1000 buckets). `{"buckets":[{"start","success","denied","error"}]}` — counts only, value-free. Not self-audited. | `audit:read` (owner/admin) |
 
-Both are gated by `RequireAuth` + `audit:read`, so they answer `503` while the
+All four are gated by `RequireAuth` + `audit:read`, so they answer `503` while the
 server is sealed and `403` for a caller without the permission. Invalid
-`format`/`from`/`to`/`result` → `400 validation`.
+`format`/`from`/`to`/`result`/`limit`/`cursor`/`bucket` → `400 validation`.
 
 **Tamper evidence & its limits.** `verify` detects any field mutation, deletion,
 or reordering of past events, and the chain stays contiguous under concurrency

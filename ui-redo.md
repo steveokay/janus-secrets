@@ -1,5 +1,12 @@
 # UI Redo — "Nocturne" redesign instructions
 
+> **⚠️ Superseded (2026-07-19) by the "Atrium" rewrite** — the React/Nocturne
+> SPA this document redesigned was itself replaced by a new Svelte 5 SPA
+> (banknote-engraving / archival-ledger aesthetic, `daylight`/`nightwatch`
+> themes). See the "Web UI visual system — Atrium" section in `CLAUDE.md` for
+> the current design authority and [`status.md`](status.md) for where the UI
+> stands today. Kept in-tree for history.
+
 _Decided 2026-07-12 via visual brainstorm (mockups persisted in `.superpowers/brainstorm/1307-1783872022/content/`). Owner picked: direction **A — Nocturne** (layered depth) over Vault-grade and Porcelain; home layout **1 — Command center**; scope **restyle + new screens** (the missing surfaces from `gaps.md` get designed once, in the new language)._
 
 This document is the redo instruction set. It supersedes the visual direction of `docs/design/ui-redesign-mockup.html` + `docs/superpowers/specs/2026-07-07-dark-redesign-design.md` once phase N1 lands (see §7 for the authority handover). Companion docs: `gaps.md` (what's missing), `fe-improvements.md` (old punch-list — folded in or retired by this).

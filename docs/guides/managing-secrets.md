@@ -176,13 +176,32 @@ janus secrets set DATABASE_URL=postgres://…                 # inline pair
 janus secrets set A=1 B=2 C=3 --message "seed prod config"  # batched → one version
 janus secrets set TOKEN <<<'s3cr3t'                         # value from stdin
 janus secrets set TOKEN                                      # TTY: echo-off prompt
+janus secrets set API_KEY=abc --type password                # tag the type (display hint only)
 ```
 
 Value sources, in order: inline `KEY=VALUE` / positional `KEY VALUE`,
 then piped stdin, then an echo-off TTY prompt for a bare `KEY`. Inline
 values are visible in the process list and shell history — prefer stdin
 or the prompt for real secrets. `--message` sets the config version's
-message. The `Saved N secret(s) as vN` confirmation goes to stderr.
+message. `--type string|password|json|ssh_key|certificate|note` tags
+every key=value pair in the call with a display/handling hint used by the
+web UI (masking, generator, validation) — it is **not** a storage or
+crypto distinction, and it applies to all pairs in the call; omit it to
+default to `string`. The `Saved N secret(s) as vN` confirmation goes to
+stderr.
+
+#### Key naming
+
+Secret keys accept a flat filename-style charset (`[A-Za-z0-9._-]`, e.g.
+`config.json` or `id_rsa.pub`), not just valid env-var names — this
+supports secrets that are really whole files. A key that isn't a valid
+environment-variable name (contains `.` or `-`, or starts with a digit)
+is **skipped with a warning** by `janus run` and by `secrets download
+--format env`; it can still be written to disk via `--format files`
+(below) or read individually with `secrets get`. Such keys also cannot
+be used in `${...}` references and are skipped (not synced) by the
+GitHub Actions sync integration — see
+[github-actions.md](./github-actions.md#key-name-constraints).
 
 ### Get
 
@@ -229,6 +248,22 @@ This is a **secret delete** (a tombstone in a new version), not an entity
 destroy — the key's history remains and it can be re-set later. See
 [Soft delete vs hard destroy](#soft-delete-vs-hard-destroy) for the
 distinction from destroying a whole project/environment/config.
+
+### Lock / unlock (promotion protection)
+
+`janus secrets lock KEY` marks a key promotion-protected on the bound
+config; `janus secrets unlock KEY` clears it. A locked key is silently
+skipped by `janus promote` / `promote request` even when selected via
+`--all` or `--key` — useful for an environment-specific value (e.g. a
+prod-only credential) that a promotion from a lower environment should
+never overwrite:
+
+```sh
+janus secrets lock DATABASE_URL     # protect this key on the bound config
+janus secrets unlock DATABASE_URL   # clear the protection
+```
+
+See [Promotion & approvals](#promotion--approvals) below.
 
 ## Versioning & rollback
 
@@ -374,36 +409,45 @@ Promotion copies selected secrets forward along the pipeline
 config — it never moves ciphertext verbatim — and records a value-free
 audit event naming only the keys involved.
 
+`janus promote` operates on the **bound config** (from `.janus.yaml` or
+`--project`/`--env`/`--config`, same resolution as `janus secrets`) as
+the *source*, and `--to <env-slug>` names the *target environment* — the
+target config is resolved by matching the bound config's name in that
+environment. Bind your directory to the source config with `janus setup`
+(or pass the flags explicitly) before promoting.
+
 ### Direct promotion
 
 If you hold `secret:promote` on the **target** environment you can promote
-directly. Pick the source config version, choose which keys to carry
-(`set` an updated value, `remove` a deleted one), and apply:
+directly. Choose which keys to carry with `--key` (repeatable) or
+`--all` (every added/changed key), preview with `--dry-run`, and apply:
 
 ```sh
-janus promote \
-  --from <source-config-id> --to <target-config-id> \
-  --key DB_PASSWORD --key API_URL
+janus promote --to staging --key DATABASE_URL --key API_KEY
+janus promote --to staging --all                    # every added/changed key
+janus promote --to staging --all --dry-run           # print the diff, apply nothing
+janus promote --to staging --all --create-target     # create the target config if missing
+janus promote --to staging --all --include-removes   # also propagate deletions
 ```
 
 This maps to `POST /v1/promote`. Only the next allowed pipeline step is
-accepted, and keys locked in the target are refused (`409`). The web UI
-exposes the same flow as a drag-and-diff modal.
+accepted, and keys locked in the target (`janus secrets lock`, see
+[above](#lock--unlock-promotion-protection)) are silently skipped. The
+web UI exposes the same flow as a drag-and-diff modal.
 
 ### Approval workflow (for users without `secret:promote`)
 
 Developers who lack `secret:promote` on the target don't get to promote
 directly — but if they hold `promotion:request` on the **source**
 environment (granted to `developer` and above) they can *file a request*
-for someone who can:
+for someone who can. Requesting requires explicit `--key` selection (no
+`--all` shortcut):
 
 ```sh
 # File a request (pins the current source version; value-free)
-janus promote request \
-  --from <source-config-id> --to <target-config-id> \
-  --key DB_PASSWORD --note "rotate prod db creds"
+janus promote request --to staging --key DATABASE_URL --note "rotate prod db creds"
 
-# See what's waiting
+# See what's waiting (--project takes a project id, not a slug)
 janus promote requests --project <project-id> --status pending
 
 # A holder of secret:promote on the target reviews and decides:

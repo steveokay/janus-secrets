@@ -40,13 +40,31 @@ See [../ci-federation.md](../ci-federation.md) and
 
 ## Minting a token
 
-Tokens are minted through the REST API at `POST /v1/tokens`. There is **no
-`janus tokens` CLI subcommand** — you either call the API directly with an
-admin/owner bearer credential, or use the web UI (Settings → Tokens, see
-[../web.md](../web.md)), which calls the same endpoint. The caller needs the
-`token:mint` permission at the token's scope.
+Tokens are minted through the REST API at `POST /v1/tokens`. There are three
+equivalent ways to call it: the `janus token mint` CLI subcommand, the web UI
+(Settings → Tokens, see [../web.md](../web.md)), or the raw API with an
+admin/owner bearer credential. The caller needs the `token:mint` permission at
+the token's scope.
 
-### Request
+### Via the CLI
+
+`janus token mint` scopes to the config bound by `.janus.yaml` (or
+`--project`/`--env`/`--config`) — pass `--config` for a config-scoped token,
+or omit it for an environment-scoped token. The raw token prints to
+**stdout** (capturable), the summary to stderr:
+
+```sh
+TOKEN=$(janus token mint --name "web-app prod reader" \
+  --project acme-web --env prod --config prod \
+  --access read --ttl 24h)
+```
+
+`--access` accepts `read` or `rw` (mapped to `readwrite`). Add `--json` for
+machine-readable output. See [Listing tokens](#listing-tokens) and
+[Revoking a token](#revoking-a-token) below for `janus token list` /
+`janus token revoke`.
+
+### Via the REST API
 
 The request body carries the token's name, its scope, its access level, and an
 optional TTL:
@@ -59,7 +77,7 @@ optional TTL:
 | `access` | string | `read` or `readwrite` for config/environment scopes. |
 | `ttl_seconds` | number | Optional. Positive number of seconds until expiry; omit for a long-lived token. |
 
-### Example
+#### Example
 
 ```sh
 # ADDR is your instance; ADMIN is an admin/owner bearer credential
@@ -75,7 +93,7 @@ curl -XPOST "$ADDR/v1/tokens" \
       }'
 ```
 
-### Response
+#### Response
 
 The response returns the raw token **once**, alongside its metadata:
 
@@ -154,9 +172,12 @@ subcommands, and the download flows in depth.
 `GET /v1/tokens` returns token **metadata only** — the raw value is
 structurally unrecoverable, so listing can never leak a credential. The response
 is filtered to tokens whose scope target you can read, and paginates via a
-cursor:
+cursor. `janus token list` (add `--json` for machine-readable output) calls
+the same endpoint:
 
 ```sh
+janus token list
+
 curl "$ADDR/v1/tokens" \
   -H "Authorization: Bearer $ADMIN"
 ```
@@ -188,9 +209,12 @@ page limit — keep paging until `next_cursor` is `null`.
 `DELETE /v1/tokens/{id}` revokes a token by its `id` (not its raw value).
 Revocation is **immediate**: the next request presenting that token fails
 authentication. This is the lever to pull when a token is leaked, a machine is
-decommissioned, or a credential is being rotated.
+decommissioned, or a credential is being rotated. `janus token revoke <id>`
+(confirms on a TTY unless `--yes`) calls the same endpoint:
 
 ```sh
+janus token revoke tok_abc123 --yes
+
 curl -XDELETE "$ADDR/v1/tokens/tok_abc123" \
   -H "Authorization: Bearer $ADMIN"
 # → 204 No Content

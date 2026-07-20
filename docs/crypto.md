@@ -170,6 +170,51 @@ behind a fakeable `KMSClient` interface so tests need no real AWS.
 > how they guard first-boot initialization; see comments in `unseal.go` /
 > `kms.go`. This is intentional and noted so future readers don't "fix" it.
 
+## Key rotation
+
+Rotation re-wraps key material; it never decrypts a secret value. Two
+independent operations, each in its own package above `internal/crypto`:
+
+### Project KEK rotation (`internal/projectkeys`)
+
+- **Rotate** installs a fresh project KEK as a new version (`projects.kek_version`
+  incremented); the superseded wrapped KEK is preserved in
+  `project_kek_versions`. Existing DEKs stay wrapped under the old KEK — reads
+  stay correct because each DEK row carries its own `dek_key_version`.
+- **Rewrap** is a resumable, batched sweep (`rewrapBatchSize = 200`, keyset-
+  paginated so a crash loses at most one in-flight batch) that walks every DEK
+  still wrapped under a superseded KEK version, unwraps it under its old KEK,
+  and re-wraps it under the latest KEK. It touches only 32-byte DEKs — the
+  sweep's row type carries no ciphertext/nonce, so a secret value is
+  structurally unreachable from this code path. Superseded KEK versions with
+  no remaining DEK references are retired (deleted) at the end of a sweep.
+- Both are owner-only (`kek:manage`), exposed as `POST
+  /v1/projects/{pid}/kek/rotate`, `POST /v1/projects/{pid}/kek/rewrap`, `GET
+  /v1/projects/{pid}/kek` (status), and `janus project rotate-kek / rewrap /
+  kek-status <project-id>`.
+
+### Master-key rotation (`internal/masterkeys`)
+
+Rotating the master key re-wraps **every** master-wrapped blob — project KEKs
+(current + superseded versions), the auth token-HMAC key, OIDC client secrets,
+and transit key material — under a freshly generated master, in one DB
+transaction, then swaps the in-memory master and re-seals. `Keyring.RotateMaster`
+enforces atomicity: it takes an `unwrap`/`wrap` pair and a `persist` closure: the
+in-memory master is only swapped if **both** the rewrap and the persist commit
+succeed; on either failure the old master is retained unchanged (never a
+half-rotated keyring).
+
+- **KMS-unsealed instances** rotate in a single call (`Rotate`) — no operator
+  interaction, mirroring `Unsealer.Reseal`'s single KMS round-trip.
+- **Shamir-sealed instances** require an interactive rekey ceremony (`RekeyInit`
+  / `RekeySubmit` / `RekeyCancel`): operators submit proof-of-possession shares
+  of the *current* master (same threshold as unseal) before a new share set is
+  minted and shown once, analogous to `Init`. `Rotate` on a Shamir seal returns
+  `ErrShamirCeremonyRequired` rather than silently falling back.
+- Owner-only, exposed under `/v1/sys/master-key/*` and the `janus master-key`
+  CLI; `seal_config.master_key_version` / `master_key_rotated_at` (migration
+  `000019`) track rotation state for the "chain verified"-style status surface.
+
 ## Error & logging discipline
 
 - No key material, plaintext, or share bytes ever appear in an error message.

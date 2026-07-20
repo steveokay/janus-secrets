@@ -25,7 +25,10 @@ janus run -- ./my-service
    default — config inheritance and `${...}` references are applied before
    injection.
 3. **Builds the child environment** by overlaying those secrets on the
-   parent environment (precedence below).
+   parent environment (precedence below). A key that isn't a valid
+   environment-variable name (Janus keys accept a broader filename-style
+   charset — see [managing-secrets.md](./managing-secrets.md#key-naming)) is
+   **skipped with a warning** on stderr rather than injected.
 4. **Execs your command** with that environment, wiring through this
    process's stdin/stdout/stderr, forwarding signals to the child, and
    propagating the child's exit code verbatim.
@@ -204,16 +207,29 @@ janus run -- ./my-service
 
 Some runtimes cannot be launched through `janus run` (an existing process
 manager, a container image you do not control). For those, `janus secrets
-download` serializes a config's resolved secrets in one of three formats:
+download` serializes a config's resolved secrets in one of four formats:
 
 ```sh
 janus secrets download --format env          # KEY=value lines
 janus secrets download --format json         # indented JSON, keys sorted
 janus secrets download --format yaml         # YAML, keys sorted, values quoted
+janus secrets download --format files --output ./secrets --plain   # one file per key
 ```
 
 Like `run`, download **resolves** references by default; pass `--raw` for
 the stored values verbatim.
+
+The `env` format specifically requires each key to be a valid
+environment-variable name; Janus keys accept a broader filename-style
+charset (see [managing-secrets.md](./managing-secrets.md#key-naming)), so a
+key like `config.json` or `id_rsa.pub` is **skipped as an assignment** when
+downloading `--format env` — it's left as a `# skipped: <key>` comment so
+the file stays sourceable (`json`/`yaml` have no such restriction — any key
+serializes fine as a map entry). Use `--format files` to materialize such
+keys: it writes each secret to `<output-dir>/<key>` (mode `0600`,
+traversal-guarded), which is also handy for secrets that are genuinely whole
+files (an `id_rsa`, a `config.json`). `--format files` always writes to
+disk, so it always requires `--output` **and** `--plain`.
 
 ### It prints to stdout and refuses to write plaintext to disk
 

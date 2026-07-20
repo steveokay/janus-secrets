@@ -16,9 +16,15 @@ those below it and is testable in isolation.
 ├──────────────────────────────────────────────────────────┤
 │  internal/api    HTTP handlers, middleware, routes     ✅ │
 │                  (sys + auth + token + user + member +    │
-│                   project/env/config/secret + versions)   │
+│                   project/env/config/secret + versions +  │
+│                   trash + transit + rotation + sync +      │
+│                   dynamic + promote + audit + metrics)    │
 ├──────────────────────────────────────────────────────────┤
 │  internal/auth ✅  internal/authz ✅  internal/audit ✅    │
+│  internal/resolve ✅ (inheritance + references)            │
+│  internal/promote ✅  internal/masterkeys ✅               │
+│  internal/projectkeys ✅  internal/transit ✅               │
+│  internal/rotation ✅  internal/secretsync ✅  internal/dynamic ✅ │
 ├──────────────────────────────────────────────────────────┤
 │  internal/store  Postgres repositories, migrations    ✅  │
 │                  crypto-blind: stores ciphertext only     │
@@ -33,7 +39,12 @@ stored; the store knows how to persist opaque ciphertext but never holds a key
 or plaintext. Encryption orchestration — the layer that holds the unsealed
 keyring and turns plaintext into stored ciphertext — sits *above* the store in
 `internal/secrets`, and `internal/api` composes everything into the runnable
-server.
+server. `internal/masterkeys` and `internal/projectkeys` sit alongside
+`internal/secrets`, orchestrating rotation of the master key and per-project
+KEKs respectively — both re-wrap key material only and never decrypt a secret
+value. `internal/resolve` composes read-time config inheritance and secret
+references over `internal/secrets`, with `internal/api` owning authz/audit for
+each resolved read (see [references.md](references.md)).
 
 See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 [operations.md](operations.md) for the implemented layers.
@@ -44,13 +55,22 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 |---------|---------|-------|
 | `internal/crypto` | AES-256-GCM envelope encryption, key hierarchy, in-memory keyring, Shamir + AWS KMS unseal | ✅ implemented |
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
-| `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning | ✅ core CRUD (inheritance/references deferred) |
-| `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops | ✅ implemented |
-| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `.../members`, `/v1/projects` + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete, `/v1/configs/{cid}/versions` list/diff/rollback, sealed-state + auth + authz middleware, `Boot` composition | ✅ implemented (secret-facing REST API live) |
-| `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, `Principal` | ✅ implemented (OIDC/federation Phase 2) |
+| `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning, trash, idempotency | ✅ implemented |
+| `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops, key validation | ✅ implemented |
+| `internal/resolve` | Read-time config inheritance + secret-reference resolution (pure, composes over `internal/secrets`) | ✅ implemented |
+| `internal/masterkeys` | Master-key rotation: KMS single-call rotate, Shamir interactive rekey ceremony, re-wraps all master-wrapped material in one tx | ✅ implemented |
+| `internal/projectkeys` | Per-project KEK rotation + resumable DEK rewrap sweep, version-aware reads | ✅ implemented |
+| `internal/promote` | Env-to-env secret promotion pipeline: locked keys, per-key selection, four-eyes approval workflow (`promotion_requests`) | ✅ implemented |
+| `internal/transit` | Named-key encrypt/decrypt/sign/verify/rewrap-as-a-service, key versioning, `min_decryption_version` | ✅ implemented |
+| `internal/rotation` | Scheduled static secret rotation (Postgres password + webhook rotators), run history | ✅ implemented |
+| `internal/secretsync` | One-way sync of resolved secrets to GitHub Actions + Kubernetes Secrets, run history | ✅ implemented |
+| `internal/dynamic` | Dynamic Postgres credentials: lease manager, TTL/renewal/revocation, crash-safe issue, orphan sweep | ✅ implemented |
+| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `/v1/trash`, `.../members`, `/v1/projects` (+ KEK rotate/rewrap, pipeline, locked-keys, promote) + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete/history, `/v1/configs/{cid}/versions` list/diff/rollback, `/v1/transit/*`, `/v1/rotation/*`, `/v1/sync/*`, `/v1/dynamic/*`, `/v1/audit/*` (verify/export/events/histogram), `/v1/metrics/reads-24h`, cursor pagination + `Idempotency-Key` middleware, sealed-state + auth + authz middleware, `Boot` composition | ✅ implemented |
+| `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, OIDC login + CI federation, `Principal` | ✅ implemented |
 | `internal/authz` | Pure deny-by-default RBAC engine (viewer/developer/admin/owner; instance/project/env scopes; `Can`, `EffectiveRole`, grant/revoke) | ✅ implemented |
-| `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export; fail-closed per-handler recording | ✅ implemented |
-| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) — secrets CLI (`janus run`, etc.) planned | ✅ implemented (secrets CLI ⏳ planned) |
+| `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export, bucketed histogram; fail-closed per-handler recording | ✅ implemented |
+| `web/` | Svelte 5 (runes) + TypeScript + Vite SPA (Atrium design, hand-written CSS tokens), embedded via `go:embed` | ✅ implemented |
+| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) + secrets/control-plane CLI (`login`, `setup`, `run`, `secrets …`, `project`/`env`/`config`/`token` CRUD, `promote`, `pipeline`, `master-key`, `dynamic`, `sync`, `rotation`, `backup`, `restore`, `whoami`, `completion`) | ✅ implemented |
 
 ## Sealed vs. unsealed
 
@@ -84,21 +104,40 @@ A write today (every layer below is built ✅):
    records it fail-closed after the mutation commits.
 
 A read reverses steps 2–3: `GET /v1/configs/{cid}/secrets` returns masked
-metadata (no audit), while a reveal (`?reveal=true`, or `GET
-.../secrets/{key}`) decrypts and audits `secret.reveal`. Rollback (`POST
+metadata (no audit) with each key's inheritance `origin`, while a reveal
+(`?reveal=true`, or `GET .../secrets/{key}`) resolves inheritance + references,
+decrypts, and audits `secret.reveal` (plus one reveal per distinct config
+dereferenced via a reference — see [references.md](references.md)). `?raw=true`
+returns the config's own stored values verbatim, unresolved. Rollback (`POST
 /v1/configs/{cid}/rollback`) repoints at existing ciphertext without
-re-encrypting. See
+re-encrypting. Deleting a secret writes a tombstone entry (per-key history is
+preserved); deleting a project/environment/config soft-deletes it — visible via
+`GET /v1/trash` and reversible via `.../restore` — with a separate explicit hard
+destroy. See
 [operations.md](operations.md) for how the server boots, seals, and unseals
 around all of this.
 
 ## Build phases
 
-Phase 1 is being built strictly in order (see `../CLAUDE.md` for the full list):
+All three phases in `../CLAUDE.md` are complete:
 
-> crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
-> encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
-> auth ✅ → RBAC ✅ → audit ✅ → REST API ✅ → **CLI with `run`**.
+> **Phase 1 — Core:** crypto + unseal ✅ → store + migrations + versioning ✅ →
+> CRUD service + encryption orchestration ✅ → server bootstrap (sys API +
+> `janus` CLI) ✅ → auth ✅ → RBAC ✅ → audit ✅ → REST API ✅ → CLI with `run` ✅.
+>
+> **Phase 2 — Transit + UI:** transit engine ✅ → SPA ✅ (originally React/
+> Nocturne, rewritten to Svelte 5/Atrium in PR #95, 2026-07-19 — see
+> [web.md](web.md)) → OIDC login + CI federation ✅ → usage metrics ✅.
+>
+> **Phase 3 — Rotation + dynamic:** static rotation (Postgres + webhook) ✅ →
+> sync integrations (GitHub Actions + Kubernetes) ✅ → dynamic Postgres
+> credentials + lease manager ✅.
 
-Phases 2 (transit engine + web UI + OIDC + usage metrics) and 3 (rotation +
-dynamic Postgres credentials) follow. HA/Raft, PKI/CA, SSH signing, HSM,
-multi-tenancy, and FIPS claims are explicit non-goals.
+Since the original three phases, further depth work has shipped on top: config
+inheritance + secret references (`internal/resolve`), per-project KEK rotation
+and master-key rotation, trash/restore, per-key value history, typed secrets,
+an env-to-env promotion pipeline with a four-eyes approval workflow, cursor
+pagination, an `Idempotency-Key` middleware, and an audit event histogram. See
+`../gaps.md` and the per-feature progress notes for the full history.
+HA/Raft, PKI/CA, SSH signing, HSM, multi-tenancy, and FIPS claims remain
+explicit non-goals.

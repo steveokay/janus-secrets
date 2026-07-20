@@ -2,11 +2,16 @@
 
 The same `janus` binary that runs the server is also the operator/developer
 client. Alongside the sys commands (`server`, `init`, `unseal`, `seal-status`,
-`seal`, `migrate` — see [operations.md](operations.md)) it provides the
-secrets workflow: authenticate, bind a directory to a config, read/write
-secrets, and — the flagship — inject a config's secrets as environment
-variables into a subprocess (`janus run`). These commands consume the `/v1/`
-REST API; there is no separate client binary.
+`seal`, `migrate`, `backup`, `restore` — see [operations.md](operations.md))
+it provides the secrets workflow: authenticate, bind a directory to a config,
+read/write secrets, and — the flagship — inject a config's secrets as
+environment variables into a subprocess (`janus run`). It also provides the
+**control plane** — creating/managing projects, environments, configs,
+service tokens, cross-environment promotion, and the release pipeline order
+— and thin CLI fronts for the Phase 3 engines (`rotation`, `sync`, `dynamic`,
+documented in depth in [operations.md](operations.md) and `docs/ops/*.md`).
+These commands consume the `/v1/` REST API; there is no separate client
+binary.
 
 ## The mental model
 
@@ -36,13 +41,31 @@ Any error exits non-zero.
 ```
 janus login [--email E] [--address URL]                 # password prompt → store session
 janus logout                                            # server logout (best-effort) + clear session
+janus whoami [--json]                                   # show the authenticated principal
 janus setup [--project P --env E --config C]            # validate + write ./.janus.yaml
+
 janus secrets list [--json]                             # masked table + ORIGIN (no reveal, no audit)
 janus secrets get KEY [--version N] [--raw]             # print one value to stdout (audited)
-janus secrets set KEY[=VALUE] [K2=V2 …] [--message M]   # batch = one config version
+janus secrets set KEY[=VALUE] [K2=V2 …] [--message M] [--type T]   # batch = one config version
 janus secrets delete KEY [K2 …] [--yes] [--message M]   # tombstones → new config version
-janus secrets download --format env|json|yaml [--output PATH] [--plain] [--raw]
+janus secrets download --format env|json|yaml|files [--output PATH] [--plain] [--raw]
+janus secrets diff <vA> <vB> [--json]                   # key names only, no values
+janus secrets lock KEY / unlock KEY                     # promotion-protect a key on the bound config
 janus run [--preserve-env] [--raw] [--project P --env E --config C] -- <cmd> [args…]
+
+janus project create/list/delete/restore                # project CRUD (soft-delete + restore)
+janus project rotate-kek/rewrap/kek-status <project-id> # project KEK lifecycle (owner-only)
+janus env create/list/delete/restore                    # environments within a project (alias: environment)
+janus config create/list/delete/restore                 # configs within an environment (+ --inherits-from)
+janus token mint/list/revoke                            # service tokens, scoped to a config or environment
+janus pipeline get/set <project-slug> [env-slug …]      # ordered environment pipeline for promotion
+janus promote --to ENV [--all|--key K]                  # promote the bound config's secrets (direct or via request)
+janus promote request/requests/approve/reject/cancel    # capability-gap promotion request/approval workflow
+janus master-key status/rekey/rotate                    # master-key rotation (Shamir rekey ceremony / KMS)
+
+janus rotation create/list/get/update/delete/rotate     # scheduled secret rotation policies (see operations.md)
+janus sync create/list/get/update/delete/sync           # sync targets: GitHub Actions / Kubernetes (see operations.md)
+janus dynamic roles …/creds/renew/revoke/leases         # dynamic Postgres credentials + leases (see operations.md)
 ```
 
 **Resolution (`--raw`).** `get`, `download`, and `run` **resolve** config
@@ -54,7 +77,15 @@ inheritance and reference model.
 
 The address/credential/binding flags — `--address`, `--token`, `--project`,
 `--env`, `--config` — are accepted by every secrets/`run` command (and the
-relevant subset by `login`/`logout`/`setup`).
+relevant subset by `login`/`logout`/`setup`). The control-plane commands
+(`project`/`env`/`config`/`token`/`pipeline`/`promote`/`master-key`/`rotation`/
+`sync`/`dynamic`) accept `--address`/`--token`, plus `--project`/`--env`/
+`--config` where a resource needs disambiguating; they otherwise take
+resource ids or slugs as positional arguments — see `--help` on each for the
+exact flags. Full flag-by-flag detail for the seal lifecycle, backup/restore,
+and the rotation/sync/dynamic engines lives in
+[operations.md](operations.md) and `docs/ops/*.md`; this document focuses on
+the secrets workflow and the project/env/config/token/promotion control plane.
 
 ## Credentials & storage
 
@@ -192,6 +223,18 @@ janus logout
 Revokes the session server-side (best-effort) and clears it from `auth.json`.
 Accepts `--address` / `--token`.
 
+### `janus whoami`
+
+```bash
+janus whoami          # principal, type, and any scoping
+janus whoami --json   # machine-readable
+```
+
+Shows the authenticated principal (user email or service token name),
+resolved with the same credential precedence as every other command
+(`--token` > `JANUS_TOKEN` > stored session). Useful for confirming which
+identity a script or CI job is about to act as before it touches secrets.
+
 ### `janus setup`
 
 ```bash
@@ -238,16 +281,32 @@ version is a stored artifact). See [references.md](references.md).
 ```bash
 janus secrets set DATABASE_URL=postgres://…                    # inline (argv-visible)
 janus secrets set A=1 B=2 C=3 --message "seed dev config"      # batched → one version
+janus secrets set DATABASE_URL postgres://…                    # KEY VALUE positional form
 janus secrets set TOKEN <<<'s3cr3t'                            # value from stdin (safer)
 janus secrets set TOKEN                                        # TTY: echo-off prompt
+janus secrets set API_KEY=abc --type password                  # tag the type (display hint only)
 ```
 
-Value sources, in order: inline `VALUE` / `K=V` → piped stdin → echo-off TTY
-prompt. Inline values are **visible in the process list and shell history** — a
+Value sources, in order: inline `VALUE` / `K=V` → a lone `KEY VALUE` pair of
+positional args → piped stdin → echo-off TTY prompt. Inline values are
+**visible in the process list and shell history** — a
 documented caveat; prefer stdin or the prompt for real secrets. Multiple pairs
 batch into a single `PUT …/secrets`, committing **one new config version** (the
 versioning-correct unit of diff/rollback). `--message` sets that version's
-message. The `Saved N secret(s) as vN` confirmation goes to stderr.
+message. `--type string|password|json|ssh_key|certificate|note` tags every
+key=value pair in the call with a display/handling hint (masking behavior,
+generator, validation in the web UI); it is **not** a storage or crypto
+distinction — omit it (empty) to default to `string`. The `Saved N secret(s)
+as vN` confirmation goes to stderr.
+
+Secret keys accept a flat filename-style charset (`[A-Za-z0-9._-]`, e.g.
+`config.json` or `id_rsa.pub`), not just valid env-var names. A key that
+isn't a valid environment-variable name (contains `.` or `-`, or starts with
+a digit) is **skipped with a warning** by `janus run` and by
+`secrets download --format env` — it can still be written to disk via
+`--format files` (below) or read individually with `secrets get`. Such keys
+also cannot be used in `${...}` references and are skipped (not synced) by
+the GitHub Actions sync integration.
 
 ### `janus secrets delete`
 
@@ -266,6 +325,7 @@ janus secrets download --format env                          # → stdout (KEY=v
 janus secrets download --format json > config.json           # your own redirect
 janus secrets download --format env --output .env --plain    # CLI writes the file (0600)
 janus secrets download --format env --raw                    # stored values, unresolved
+janus secrets download --format files --output ./secrets --plain   # one file per key
 ```
 
 Bulk-reveals every value (**resolved** by default — inheritance + references
@@ -273,16 +333,47 @@ applied; `--raw` returns the config's own stored values verbatim) and
 serializes it:
 
 - `env` → `KEY=value` lines; values are single-quoted/escaped for POSIX shell
-  safety only when they need it.
+  safety only when they need it. Keys that aren't valid env-var names are
+  skipped with a warning (see `secrets set` above).
 - `json` → indented `encoding/json`, keys sorted.
 - `yaml` → `gopkg.in/yaml.v3`, keys sorted, values always quoted.
+- `files` → materializes each secret to `<output-dir>/<key>` (one file per
+  key, mode `0600`), including filename-style keys that `env`/`json`/`yaml`
+  would otherwise need no special handling for. `--output` is **required**
+  with this format (it names the target directory, not a single file) and
+  each resolved path is traversal-guarded to stay inside that directory.
 
 **The `--plain` rule:** streaming to **stdout needs no flag** — a shell
 `> file` redirect is your own act, not a file the CLI created. But `--output
 PATH` makes the *CLI* write a plaintext file, so it **requires `--plain`**;
 without it the command refuses (`refusing to write plaintext to <PATH> without
---plain`) and writes nothing. With `--plain --output`, the file is created mode
-`0600`.
+--plain`) and writes nothing. With `--plain --output`, the file(s) are created
+mode `0600`. `--format files` always writes to disk, so it always requires
+`--plain`.
+
+### `janus secrets diff`
+
+```bash
+janus secrets diff 2 5              # what changed between config version 2 and 5
+janus secrets diff 2 5 --json
+```
+
+Diffs two config versions **by key name only** (added / removed / changed) —
+never prints a value, so it is safe to run against a shared terminal or paste
+into a ticket. `--json` emits the machine-readable form.
+
+### `janus secrets lock` / `janus secrets unlock`
+
+```bash
+janus secrets lock DATABASE_URL     # promotion-protect this key on the bound config
+janus secrets unlock DATABASE_URL   # clear the protection
+```
+
+Marks (or clears) a key as promotion-protected on the bound config. A locked
+key is skipped by `janus promote`/`promote request` even when selected via
+`--all` or `--key`, preventing an environment-specific value (e.g. a prod-only
+credential) from being accidentally overwritten by a promotion from a lower
+environment. See [Promotion](#janus-promote) below.
 
 ### `janus run` (flagship)
 
@@ -319,6 +410,165 @@ Windows**, which lacks the full POSIX signal set — a documented platform
 limitation. Under a POSIX shell (including this repo's Bash on Windows), Ctrl-C
 reaches the child as expected.
 
+## Control plane
+
+The commands below manage the project → environment → config hierarchy
+itself, service tokens, cross-environment promotion, and master-key rotation
+— as opposed to the secrets workflow above, which operates on the single
+config a directory is bound to. All accept `--address` / `--token` (same
+credential precedence as the secrets commands); most also accept
+`--project` / `--env` / `--config` to disambiguate a target when it isn't
+given positionally and isn't picked up from `.janus.yaml`. Run
+`janus <command> --help` (and `janus <command> <subcommand> --help`) for the
+exact flags — the summaries here cover shape and intent, not every flag.
+
+### `janus project`
+
+```bash
+janus project create --slug acme-web --name "Acme Web"
+janus project list [--json]
+janus project delete <slug> [--yes]      # soft-delete (restorable)
+janus project restore <slug>
+```
+
+Project CRUD. Delete is a soft-delete; `restore` undoes it. Slugs are
+immutable once created (there is no `project update`/rename via this CLI).
+
+```bash
+janus project rotate-kek <project-id>    # instant: fresh KEK version
+janus project rewrap <project-id>        # re-wrap DEKs onto the current version (resumable)
+janus project kek-status <project-id>    # current version + versions still holding DEKs
+```
+
+Owner-only project key-encryption-key (KEK) lifecycle. `rotate-kek` is
+instant and bumps the KEK version; existing per-secret-version DEKs still
+wrapped by the old version are re-wrapped lazily by `rewrap`, which is
+resumable/idempotent and **never decrypts a secret value**. `kek-status`
+shows the current version and any superseded versions still holding DEKs (so
+you know whether a `rewrap` is needed). These take a project **id**, not a
+slug.
+
+### `janus env` (alias: `environment`)
+
+```bash
+janus env create --slug staging --name Staging --project acme-web
+janus env list --project acme-web [--json]
+janus env delete <slug> --project acme-web [--yes]   # soft-delete
+janus env restore <slug> --project acme-web
+```
+
+Environment CRUD within a project. `--project` (or `.janus.yaml` /
+`JANUS_PROJECT`) selects the project; the environment slug is a positional
+argument for `delete`/`restore`.
+
+### `janus config`
+
+```bash
+janus config create --name prod --project acme-web --env prod
+janus config create --name feature-x --inherits-from prod --project acme-web --env prod
+janus config list --project acme-web --env prod [--json]
+janus config delete <name> --project acme-web --env prod [--yes]   # soft-delete
+janus config restore <name> --project acme-web --env prod
+```
+
+Config CRUD within a project/environment. `--inherits-from` creates a branch
+config that inherits from a base config in the **same** environment (see
+[references.md](references.md) for the inheritance/merge model). Configs are
+matched by **name** (they have no slug).
+
+### `janus token`
+
+```bash
+janus token mint --name ci-deploy --env prod --access read [--config default] [--ttl 24h] [--json]
+janus token list [--json]
+janus token revoke <id> [--yes]
+```
+
+Service-token lifecycle. `mint` scopes a token to either an environment
+(default) or a single config (`--config`), with `--access read|rw`, an
+optional `--ttl` (no expiry if omitted), and prints the raw `janus_svc_…`
+token **once** — only its HMAC is stored server-side, so it cannot be
+recovered later; mint a new one and revoke the old if it's lost. `list`
+shows metadata only (name, scope, access, created/expires) — never the
+token value. See [Service tokens](guides/service-tokens.md) for the scoping
+model in depth.
+
+### `janus pipeline`
+
+```bash
+janus pipeline get <project-slug>                    # ordered env slugs
+janus pipeline set <project-slug> dev staging prod    # set the order
+```
+
+Reads or sets a project's ordered release pipeline (e.g.
+`dev → staging → prod`). The pipeline order is what `janus promote` and the
+web UI use to determine valid "promote forward" targets and default
+next-environment suggestions.
+
+### `janus promote`
+
+```bash
+janus promote --to staging --all                       # promote every added/changed key
+janus promote --to staging --key DATABASE_URL --key API_KEY
+janus promote --to staging --all --dry-run              # print the diff, apply nothing
+janus promote --to staging --all --create-target        # create the target config if missing
+janus promote --to staging --all --include-removes       # also propagate deletions
+```
+
+Direct promotion of the **bound** config's secrets to a config in another
+environment (same project, positioned via the pipeline or an explicit
+target). Requires `secret:promote` on the target; keys marked
+`secrets lock` are always skipped. `--dry-run` shows the diff without
+applying. Values are re-encrypted under the target config's keys (a
+same-project promotion never blob-copies ciphertext).
+
+```bash
+janus promote request --to staging --key DATABASE_URL --note "rotate creds"
+janus promote requests --project acme-web [--mine] [--status pending]
+janus promote approve <request-id>
+janus promote reject <request-id> [--note "reason"] [--yes]
+janus promote cancel <request-id> [--yes]
+```
+
+Request/approval workflow for users who lack `secret:promote` on the
+**target** (four-eyes promotion): `request` files a value-free request for
+specific keys (`--all` is rejected at the request stage — v1 requires
+explicit `--key` selection); a holder of `secret:promote` on the target
+`approve`s (applies immediately) or `reject`s it; the requester can `cancel`
+a still-pending request. `requests` lists requests for a project, optionally
+filtered to your own (`--mine`) or by `--status`.
+
+### `janus master-key`
+
+```bash
+janus master-key status                       # version, unseal type, rekey progress
+janus master-key rekey --share <hex>          # submit a share (repeat --share to threshold)
+janus master-key rekey --cancel               # abort an in-progress ceremony
+janus master-key rotate                       # single-step rotation (KMS seals only)
+```
+
+Online master-key rotation, owner-only. Under a **Shamir** seal this is a
+proof-of-possession rekey ceremony: submit unseal shares (prefer piping over
+`--share`, which is visible in shell history) until the threshold is met,
+which re-wraps every project KEK under a freshly generated master key and
+returns a **new** set of shares — the old shares stop working. Under an
+**AWS KMS** seal, `rotate` does it in one authenticated call (no shares
+involved). `status` shows the current master-key version and, during a
+Shamir ceremony, how many shares have been submitted so far.
+
+### `janus rotation`, `janus sync`, `janus dynamic`
+
+Thin CLI fronts for the Phase 3 engines — scheduled secret rotation
+(Postgres password / webhook rotators), one-way sync to GitHub Actions /
+Kubernetes, and Vault-style dynamic Postgres credentials with a lease
+manager. All three follow the same `create/list/get/update/delete` shape
+plus an engine-specific action (`rotation rotate`, `sync sync`,
+`dynamic creds`/`renew`/`revoke`/`leases`). Full flag reference, the SQL/
+webhook templating rules, scheduler tick env vars, and runbooks live in
+[operations.md](operations.md) and `docs/ops/rotation.md` /
+`docs/ops/sync.md` / `docs/ops/dynamic.md` — this file doesn't duplicate
+them.
+
 ## Error handling
 
 Server error envelopes surface as actionable CLI messages, with the common
@@ -336,12 +586,20 @@ value.
 
 ## Non-goals (this version)
 
-Deliberately deferred, so their absence is not surprising:
+Deliberately absent from the CLI itself, so their absence is not surprising:
 
-- OIDC / browser login and CI JWT exchange (password + `JANUS_TOKEN` only for
-  now).
+- OIDC / browser login and CI JWT exchange for the **CLI** (password +
+  `JANUS_TOKEN` only). OIDC human login and OIDC-federated CI machine
+  identity exist, but only via the web UI / `POST /v1/auth/oidc/federate` —
+  see [oidc.md](oidc.md) / [ci-federation.md](ci-federation.md) — not as a
+  `janus login` flow.
 - OS keychain storage (the `0600` `auth.json` is the store).
 - Parent-directory walk for `.janus.yaml` (cwd only).
 - A global path-map directory binding (dropped in favor of the committed
   `.janus.yaml` plus flags/env as the single source of truth).
-- Shell completions; sync / rotation / `.env` import (Phase 3).
+- `.env` file import (secrets are set one-by-one or scripted with
+  `secrets set`, not bulk-imported from a `.env` file, via this CLI).
+
+`janus completion [bash|zsh|fish|powershell]` (shell completion scripts) and
+the Phase 3 engines (`rotation`/`sync`/`dynamic`) are implemented — see the
+Control plane section above.

@@ -1,5 +1,10 @@
 # Janus — build status
 
+> All three build phases below are now complete. This file is the detailed
+> per-milestone build log — kept for history. For the current state of the
+> system and the forward-looking feature roadmap, see
+> [`docs/roadmap.md`](docs/roadmap.md).
+
 Phase 1 (Core) is being built strictly in order. Each task counts as done only
 after implementation + spec review + quality review.
 
