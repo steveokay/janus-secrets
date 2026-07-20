@@ -1,7 +1,7 @@
 <script lang="ts">
   import { registry } from '../lib/registry.svelte'
   import { api, errorMessage, type VersionMeta, type VersionDiff, type SecretChange, type KeyVersionMeta } from '../lib/api'
-  import { relTime, stampDate, isValidKey, isEnvVarKey } from '../lib/util'
+  import { relTime, stampDate, isValidKey, isEnvVarKey, parseEnvOrProps, type ImportedEntry } from '../lib/util'
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
   import PromotePanel from '../components/PromotePanel.svelte'
@@ -35,6 +35,9 @@
   let filter = $state('')
   let showVersions = $state(false)
   let showPromote = $state(false)
+  let showImport = $state(false)
+  let importText = $state('')
+  let importPicked = $state<Record<number, boolean>>({})
   let lockedKeys = $state<Set<string>>(new Set())
   let historyFor = $state<string | null>(null)
   let keyHistory = $state<KeyVersionMeta[]>([])
@@ -266,6 +269,109 @@
     }
   }
 
+  /* ── download .env ──────────────────────────── */
+
+  function envQuote(v: string): string {
+    if (v === '') return '""'
+    if (/[\n\r"'#\s\\$]/.test(v)) {
+      return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"'
+    }
+    return v
+  }
+
+  async function downloadEnv() {
+    if (!ctx) return
+    const exportable = rows.filter(r => !r.deleted && !r.added && r.key)
+    const ok = await dialog.confirm({
+      title: 'Download .env with plaintext values?',
+      body: `All ${exportable.length} values are revealed (each recorded in the audit ledger) and written to a plaintext file on this machine.`,
+      confirmLabel: 'Reveal & download',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const revealed = await Promise.all(
+        exportable.map(async r => {
+          if (r.revealed && r.value !== null) return { key: r.key, value: r.value }
+          const res = await api.revealKey(configId, r.key)
+          return { key: r.key, value: res.value }
+        }),
+      )
+      const lines: string[] = [
+        `# ${ctx.project.name} / ${ctx.env.slug} / ${ctx.config.name} — exported from Janus (v${latestVersion})`,
+      ]
+      for (const { key, value } of revealed.sort((a, b) => a.key.localeCompare(b.key))) {
+        if (isEnvVarKey(key)) lines.push(`${key}=${envQuote(value)}`)
+        else lines.push(`# skipped (not an env-var name — use janus secrets download --format files): ${key}`)
+      }
+      const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      try {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${ctx.project.name}-${ctx.env.slug}-${ctx.config.name}.env`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+      flashToast(`Downloaded ${revealed.length} values — every reveal recorded in the audit ledger`)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Export failed.'))
+    }
+  }
+
+  /* ── bulk import (.env / .properties) ─────── */
+
+  const importEntries = $derived.by((): ImportedEntry[] => (importText.trim() ? parseEnvOrProps(importText) : []))
+
+  $effect(() => {
+    // default selection: everything parseable
+    const sel: Record<number, boolean> = {}
+    for (const e of importEntries) sel[e.line] = !e.error
+    importPicked = sel
+  })
+
+  function importStatus(e: ImportedEntry): 'new' | 'overwrite' | 'invalid' {
+    if (e.error) return 'invalid'
+    return rows.some(r => !r.added && r.key === e.key) ? 'overwrite' : 'new'
+  }
+
+  async function onImportFile(ev: Event) {
+    const file = (ev.currentTarget as HTMLInputElement).files?.[0]
+    if (!file) return
+    importText = await file.text()
+    ;(ev.currentTarget as HTMLInputElement).value = ''
+  }
+
+  function applyImport() {
+    let added = 0
+    let updated = 0
+    const seen = new Set<string>()
+    for (const e of importEntries) {
+      if (e.error || !importPicked[e.line] || seen.has(e.key)) continue
+      seen.add(e.key)
+      const existing = rows.find(r => r.key === e.key)
+      if (existing) {
+        existing.draft = e.value
+        existing.revealed = true
+        existing.dirty = true
+        existing.deleted = false
+        updated++
+      } else {
+        rows.push({
+          key: e.key, origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
+          revealed: true, value: null, draft: e.value, dirty: true, deleted: false, added: true, editing: false,
+        })
+        added++
+      }
+    }
+    showImport = false
+    importText = ''
+    flashToast(`Imported ${added + updated} key${added + updated === 1 ? '' : 's'} into the draft (${added} new, ${updated} overwriting) — review, then save`)
+  }
+
   const mask = '•'.repeat(14)
 </script>
 
@@ -359,8 +465,73 @@
 
     <div class="toolbar rise" style="animation-delay: 60ms">
       <input class="input search" placeholder={`Filter ${rows.length} keys…`} bind:value={filter} />
-      <button class="btn" onclick={addRow}>+ Add secret</button>
+      <div class="toolbar-actions">
+        <button class="btn" onclick={() => (showImport = !showImport)}>{showImport ? 'Close import' : 'Import…'}</button>
+        <button class="btn" onclick={downloadEnv} disabled={!rows.some(r => !r.added)}>Download .env</button>
+        <button class="btn" onclick={addRow}>+ Add secret</button>
+      </div>
     </div>
+
+    {#if showImport}
+      <section class="sheet import-panel rise">
+        <div class="section-head">
+          <h3>Bulk import</h3>
+          <span class="folio">.env or Java .properties — parsed locally, staged into the draft, committed on Save</span>
+        </div>
+        <div class="import-input">
+          <textarea
+            class="input mono"
+            rows="6"
+            spellcheck="false"
+            bind:value={importText}
+            placeholder={'# paste here, or choose a file\nDATABASE_URL=postgres://…\nexport API_TOKEN="tok_…"\napp.timeout: 30s'}
+          ></textarea>
+          <label class="btn btn-sm file-btn">
+            Choose file…
+            <input type="file" accept=".env,.properties,.txt,text/plain" onchange={onImportFile} hidden />
+          </label>
+        </div>
+
+        {#if importEntries.length}
+          <table class="ledger import-preview">
+            <thead>
+              <tr><th style="width: 36px"></th><th>Key</th><th>Value</th><th style="width: 120px">Action</th></tr>
+            </thead>
+            <tbody>
+              {#each importEntries as e (e.line)}
+                {@const st = importStatus(e)}
+                <tr class:invalid={st === 'invalid'}>
+                  <td>
+                    <input type="checkbox" checked={importPicked[e.line] ?? false} disabled={st === 'invalid'}
+                      onchange={(ev) => (importPicked[e.line] = (ev.currentTarget as HTMLInputElement).checked)} />
+                  </td>
+                  <td class="mono key">
+                    {e.key || '—'}
+                    {#if !e.error && !isEnvVarKey(e.key)}<span class="file-badge">file</span>{/if}
+                  </td>
+                  <td class="mono val-preview">{e.error ? '' : e.value.split('\n')[0].slice(0, 48) + (e.value.length > 48 || e.value.includes('\n') ? '…' : '')}</td>
+                  <td>
+                    {#if st === 'invalid'}<span class="state bad" title={e.error}>line {e.line}: {e.error}</span>
+                    {:else if st === 'overwrite'}<span class="chg mod mono">~ overwrite</span>
+                    {:else}<span class="chg add mono">+ new</span>{/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          <div class="import-foot">
+            <span class="folio">
+              {importEntries.filter(e => !e.error && importPicked[e.line]).length} selected ·
+              {importEntries.filter(e => e.error).length} invalid skipped
+            </span>
+            <button class="btn btn-stamp" onclick={applyImport}
+              disabled={!importEntries.some(e => !e.error && importPicked[e.line])}>
+              Stage into draft
+            </button>
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     <div class="sheet table-wrap rise" style="animation-delay: 100ms">
       <table class="ledger">
@@ -562,7 +733,20 @@
   .chg.del { color: var(--vermilion); background: var(--vermilion-wash); text-decoration: line-through; }
 
   .toolbar { display: flex; justify-content: space-between; gap: var(--s3); margin: var(--s5) 0 var(--s3); }
+  .toolbar-actions { display: flex; gap: var(--s2); }
   .search { max-width: 300px; }
+
+  /* ── bulk import panel ──────────────────────── */
+  .import-panel { padding: var(--s4) var(--s5); margin-bottom: var(--s3); border-left: 4px solid var(--verdigris); }
+  .import-panel .section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s3); flex-wrap: wrap; }
+  .import-input { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
+  .import-input textarea { resize: vertical; white-space: pre; }
+  .file-btn { position: relative; }
+  .import-preview { margin-top: var(--s3); }
+  .import-preview tr.invalid td { background: var(--vermilion-wash); opacity: 0.75; }
+  .val-preview { font-size: var(--text-xs); color: var(--ink-soft); }
+  .state.bad { color: var(--vermilion); font-size: var(--text-xs); font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; }
+  .import-foot { display: flex; justify-content: space-between; align-items: center; margin-top: var(--s3); }
 
   .table-wrap { overflow-x: auto; }
 

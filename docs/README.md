@@ -16,6 +16,27 @@ Task-oriented walkthroughs for the common workflows:
 - [Getting started](guides/getting-started.md) — bring up the stack, unseal,
   log in, create your first project, and run a command with its secrets
   injected.
+- [Using the web UI](guides/using-the-web-ui.md) — the in-browser first-run
+  ceremony (init → unseal → login), themes, the command palette, the in-tray,
+  and a map of where every task lives.
+- [Importing & exporting](guides/import-export.md) — bulk import from `.env`
+  / Java `.properties` with preview and per-key selection; the audited
+  **Download .env** export; filename-style "file" keys.
+- [Promoting between environments](guides/promoting-environments.md) — the
+  per-project pipeline, drag-and-drop promotion, the key-level review panel,
+  approval requests (four-eyes), and locked keys.
+- [Operations console](guides/operations-console.md) — creating and running
+  rotation policies, sync targets (GitHub / Kubernetes), and dynamic
+  Postgres roles with shown-once credential issuance, all from the UI.
+- [Members & RBAC](guides/members-and-rbac.md) — inviting users and binding
+  roles at instance / project / environment scope, with the guardrails.
+- [SSO & CI federation](guides/sso-and-federation.md) — configuring OIDC
+  login and GitHub Actions trust bindings from the Integrations page.
+- [Master key & backups](guides/master-key-and-backup.md) — master-key
+  rotation, the Shamir rekey ceremony, encrypted backup download, passphrase
+  change.
+- [Trash & recovery](guides/trash-and-recovery.md) — soft delete, restore,
+  and permanent destroy.
 - [Injecting secrets into your app](guides/injecting-secrets.md) — `janus run`
   in depth, env-var precedence, `.janus.yaml` binding, client auth, and the
   `janus secrets download` file fallback with its `--plain` guardrail.
@@ -61,9 +82,11 @@ Task-oriented walkthroughs for the common workflows:
 - [CI federation](ci-federation.md) — OIDC-federated machine identity: exchanging
   a GitHub Actions OIDC JWT for a short-lived scoped service token via
   structured-claim trust bindings. **Implemented.**
-- [Web UI](web.md) — the embedded React SPA: unseal/login, the secret editor,
-  version diff, audit viewer, token/member management, transit console, the
-  dashboard, and the operations console. **Implemented.**
+- [Web UI](web.md) — the embedded **Atrium** SPA (Svelte, dual-theme
+  "Security Printing" design): init/unseal/login ceremony, the secret editor
+  (import/export, multi-line values, per-key history, locked keys),
+  promotion + approvals, audit ledger, tokens, scoped members, transit,
+  operations, integrations, trash, and settings. **Implemented.**
 - [Operations: server & `janus` CLI](operations.md) — running the server, the
   seal lifecycle (init/unseal/seal), the sys HTTP API, configuration, the dev
   workflow, and the KMS auto-unseal setup. **Implemented.**
@@ -108,3 +131,5 @@ Running Janus and connecting it to the outside world:
 All three build phases (Core, Transit + UI, Rotation + dynamic) have shipped.
 See [`../status.md`](../status.md) for the live milestone tracker and
 [`../gaps.md`](../gaps.md) for the current gap analysis and priority order.
+
+Forward-looking feature proposals live in [roadmap.md](roadmap.md).

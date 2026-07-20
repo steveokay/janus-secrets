@@ -223,7 +223,7 @@ curl -XPOST $ADDR/v1/transit/decrypt/app -H "$AUTH" \
 Key export / backup-restore (an exfiltration surface), HMAC/hash helper
 endpoints (apps can do those locally), convergent/derived keys and key-derivation
 `context`, RSA/ECDSA or other key types, and project-scoped transit keys
-(instance-only for v1) are out of scope. The transit React UI (Phase-2
+(instance-only for v1) are out of scope. The transit web UI (Phase-2
 sub-project B) and per-operation usage metrics (sub-project D) are separate
 Phase-2 work; the management-only audit policy here deliberately leaves
 data-plane usage visibility to D.

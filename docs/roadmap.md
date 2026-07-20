@@ -1,0 +1,94 @@
+# Janus — Atrium status & feature roadmap
+
+_2026-07-19. The first half of this file is where the system stands; the second
+half is the forward roadmap — features I'd add, ranked by value against effort.
+Effort: **S** ≈ a session, **M** ≈ a day or two, **L** ≈ a week-plus._
+
+## Where it stands
+
+Full stack in one repo: the upstream Janus backend (synced through PR #94,
+filename-style keys) + the Atrium SPA (Svelte 5, "Security Printing" design,
+Daylight/Nightwatch themes) embedded in the single binary. The UI covers the
+entire API surface: init/unseal/login ceremony, projects → envs → configs,
+secret editor (masked/audited reveal, dirty-buffer saves, multi-line values,
+per-key history, locked keys), promotion pipeline + approvals, audit ledger,
+tokens, scoped members, transit, operations (rotation/sync/dynamic incl.
+create flows and credential issuance), integrations (OIDC + CI federation),
+trash, settings (master-key rotate/rekey, backup, passphrase), command
+palette, and in-app modal dialogs.
+
+Upstream non-goals stay non-goals here: no HA/Raft, no PKI/CA, no SSH signing,
+no HSM, no multi-tenancy, no FIPS claims.
+
+---
+
+## Proposed features
+
+### 1. Security hardening
+
+| Feature | Why | Effort |
+|---|---|---|
+| **Native TLS listener** (`JANUS_TLS_CERT/KEY`, optional ACME) | Today TLS is delegated to a reverse proxy; small shops run without one. Already flagged upstream as a later milestone. | M |
+| **TOTP second factor for password logins** (+ recovery codes) | Passwords guard the whole vault; UI login is the widest door. Passkeys/WebAuthn as a follow-up. | M |
+| **Session management** — list active sessions, revoke one/all (upstream gap 1.12) | An admin who suspects a stolen cookie currently has nothing to pull. | S |
+| **Secret expiry / max-age policy** per key or config, surfaced in the in-tray ("STRIPE_KEY is 180d old") | Rotation exists but nothing nags about stale static secrets — the most common real-world failure. | M |
+| **Break-glass access** — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
+| **Per-token IP allowlists** and token usage anomaly notes (new IP → in-tray) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |
+| **GCP KMS / Azure Key Vault auto-unseal** | The `Unsealer` interface already exists; AWS-only is an adoption blocker off-AWS. | M |
+
+### 2. Secret lifecycle & editor
+
+| Feature | Why | Effort |
+|---|---|---|
+| ~~**Dotenv/properties import**~~ **SHIPPED 2026-07-19** — Import… in the editor: paste or choose a `.env`/`.properties` file, preview with per-key selection (new / overwrite / invalid), stage into the dirty buffer, commit as one version | The first thing every migrating user does is re-key an existing `.env` by hand. | ~~S~~ |
+| **Value generator** in the editor (random password / hex / base64, length picker) | Stops people inventing weak values; one button next to the value field. | S |
+| **Unused-secret detection** — "not read in 90 days" chip from audit data, with a bulk-review view | Dead secrets are silent risk; all the data is already in `audit_events`. | M |
+| **Per-key read insights** — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
+| **Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked) | Promote covers adjacent stages; "why does staging behave differently from prod" needs an arbitrary diff. | M |
+| **Secret annotations** — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today; helps rotation triage. | M |
+| **Require-approval-for-prod-edits** toggle — direct saves to protected configs create a promotion-style request instead | The approvals machinery exists; extending four-eyes review to raw prod edits closes its biggest bypass. | M |
+
+### 3. Integrations & delivery
+
+| Feature | Why | Effort |
+|---|---|---|
+| **More sync providers**: GitLab CI variables, Cloudflare Workers secrets, Vercel/Netlify env, AWS SSM/Secrets Manager (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. Prioritize by demand. | M each |
+| **More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC | The trust-binding model generalizes; only issuer/claims mapping differs. | S each |
+| **Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost; a `janus import` command + wizard screen. | L |
+| **Notifications**: webhook + Slack (and SMTP) for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14) | The in-tray only helps people already looking at it; failures must find humans. | M |
+| **Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
+| **Client SDKs** (Go, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. | L |
+| **More rotators**: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. | M each |
+
+### 4. Operations & observability
+
+| Feature | Why | Effort |
+|---|---|---|
+| **Prometheus `/metrics`** — request rates/latency, seal state, lease counts, rotation/sync failure gauges, audit head seq | Self-hosted means someone else's dashboard; today the only signal is logs. | S |
+| **Scheduled encrypted backups** to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy; the sealed-material export already exists. | M |
+| **Audit shipping** — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
+| **Health panel in Settings** — DB latency, scheduler tick ages, failed-run counts, chain-verify age | The engines are invisible until they fail; surfacing tick staleness catches wedged schedulers. | S |
+| **First-run onboarding checklist** on the dashboard (create project → add secrets → mint token → `janus run`) (upstream gap 1.13) | The empty state after init is a dead end for newcomers. | S |
+
+### 5. UI polish
+
+| Feature | Why | Effort |
+|---|---|---|
+| **Global key search** in the command palette (search masked key names across configs) | "Where is STRIPE_KEY set?" is a daily question; names are metadata, safe to index. | S |
+| **Bulk row selection** in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
+| **JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor | Multi-line editing landed; format validation is the natural next step. | S |
+| **Shortcuts help modal** (`?`) + `g`-prefixed nav chords | The palette exists; discoverability doesn't. | S |
+| **Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit | The bones are semantic; a deliberate pass would close the gaps. | M |
+| **Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
+
+---
+
+## Suggested near-term slate
+
+If I picked the next five, weighing leverage against effort:
+
+1. **Dotenv import** (2.1) — biggest onboarding unlock, smallest cost.
+2. **Prometheus metrics + health panel** (4.1, 4.4) — makes self-hosting operable.
+3. **Notifications via webhook/Slack** (3.4) — failures must reach humans.
+4. **Session management + TOTP** (1.2, 1.3) — the cheapest meaningful hardening.
+5. **Global key search** (5.1) — daily-use quality of life.

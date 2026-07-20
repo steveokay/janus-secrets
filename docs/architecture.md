@@ -99,6 +99,6 @@ Phase 1 is being built strictly in order (see `../CLAUDE.md` for the full list):
 > encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 > auth ✅ → RBAC ✅ → audit ✅ → REST API ✅ → **CLI with `run`**.
 
-Phases 2 (transit engine + React UI + OIDC + usage metrics) and 3 (rotation +
+Phases 2 (transit engine + web UI + OIDC + usage metrics) and 3 (rotation +
 dynamic Postgres credentials) follow. HA/Raft, PKI/CA, SSH signing, HSM,
 multi-tenancy, and FIPS claims are explicit non-goals.
