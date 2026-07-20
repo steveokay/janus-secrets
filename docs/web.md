@@ -1,137 +1,120 @@
-# Web UI
+# Web UI — the Atrium
 
-**Status:** Phase 2, sub-project B, milestone 1 (**core editor**) — implemented.
-The React SPA now ships embedded in the `janus` binary. Spec:
-[`superpowers/specs/2026-07-06-spa-core-editor-design.md`](superpowers/specs/2026-07-06-spa-core-editor-design.md).
+The SPA is the **Atrium**: Svelte 5 + TypeScript + Vite with a hand-written CSS
+design system, built to static assets and embedded in the `janus` binary via
+`go:embed` (`internal/web`), served same-origin — no Node in production. It
+replaces the earlier React/Nocturne UI.
 
-A single-page React app served **same-origin** from the Go server. It replaces
-the CLI for the core secrets loop: unseal, sign in, navigate Project →
-Environment → Config, and edit secrets with masked values, audited reveal, and
-batched "Save as vN" config versions.
+## Visual system — "Security Printing"
 
-## Architecture
+The design language is drawn from banknote engraving, archival ledgers, and
+rubber stamps. Two themes, switched from the top bar and persisted in
+`localStorage`:
 
+- **Daylight** (default) — warm parchment ground, near-black ink
+- **Nightwatch** — the same office after dark: warm black, cream ink
+
+All colors come from CSS-variable tokens in `web/src/styles/tokens.css` (both
+themes live there); shared primitives — buttons, stamps, pills, ledger tables,
+sheets/plates, ruled fields — in `web/src/styles/base.css`. Type: Fraunces
+(display serif), Archivo (UI), IBM Plex Mono (keys, values, hashes), all
+bundled locally via Fontsource, so the strict `'self'` CSP holds. Environment
+accents: **dev = verdigris, staging = ochre, prod = vermilion**. Native
+browser dialogs are never used — confirmations and prompts render as in-app
+modals (`web/src/lib/dialog.svelte.ts` + `DialogHost`).
+
+## The gate: init → unseal → login
+
+The app fronts the full server lifecycle:
+
+- **Init ceremony** — on an uninitialized server the UI performs `POST
+  /v1/sys/init`: choose shares/threshold and the first admin email; the Shamir
+  shares and one-time admin password are displayed exactly once behind an
+  acknowledgement gate, then never again.
+- **Unseal** — live progress from `seal-status` (keyholes fill as shares land,
+  including shares submitted elsewhere, e.g. by the CLI); KMS auto-unseal gets
+  a single button. All other routes 503 until unsealed.
+- **Login** — email + password, or SSO when an OIDC provider is enabled
+  (gated by the unauthenticated `oidc/status` probe).
+
+## Screens
+
+| Route | Screen |
+|---|---|
+| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (failing rotations, sync errors, expiring leases, denials), project cards, live event feed |
+| `/projects` | Dossier list + create |
+| `/projects/:id` | Environment board — pipeline editor, env rename/clone/delete, config create, **drag a config tile onto another env column to stage a promotion** |
+| `/projects/:id/configs/:cid` | **Secret editor** (below) |
+| `/audit` | Audit ledger — chain-verify stamp, hash stitch, result filter, text filter (accepts `?q=`), pagination, JSONL/CSV export |
+| `/approvals` | Promotion requests — four-eyes review, approve/reject/cancel, value-free diff |
+| `/tokens` | Service tokens — mint (shown once), revoke |
+| `/members` | Members — scoped RBAC bindings at instance / project / environment |
+| `/transit` | Transit keys — create, rotate, version notches, encrypt/sign bench |
+| `/operations` | Rotation / sync / dynamic consoles with **create** flows, pause/resume, run history, credential issuance |
+| `/integrations` | OIDC SSO provider, CI federation trust bindings, sync summary |
+| `/settings` | Instance info, master-key rotate + Shamir **rekey ceremony**, encrypted backup download, passphrase change |
+| `/trash` | Soft-deleted projects/envs/configs — restore or destroy |
+
+`Ctrl+K` opens the command palette (projects, configs, pages, actions like
+theme toggle and audit export).
+
+## The secret editor
+
+The flagship screen. Reads are masked by default — the list shows key,
+origin (own / inherited / override), value version, and age only. Everything
+else is explicit:
+
+- **Reveal** — clicking a masked value is an audited read (`secret.reveal`);
+  bulk *Reveal all* records one event per key. A toast confirms the ledger
+  entry. Revealed plaintext lives only in component state.
+- **Dirty buffer** — edits, adds, and deletes accumulate locally (amber rows)
+  and commit together as **one immutable config version** ("Save as vN"),
+  with Discard as the escape hatch.
+- **Multi-line values** — the value editor is a growing textarea; paste JSON,
+  PEM blocks, whole files. `Ctrl+Enter` or blur commits to the buffer.
+  Collapsed rows show the first line plus a `⏎ n lines` marker.
+- **Filename-style keys** — keys may be filenames (`service-account.json`);
+  invalid keys are rejected inline with the same rule as the server, and
+  non-env-var keys carry a `file` badge ("skipped by `janus run` — use
+  `janus secrets download --format files`").
+- **Import…** — bulk import from `.env` or Java `.properties` (paste or file
+  picker), parsed locally with a preview (new / overwrite / invalid per line)
+  and per-key selection; staged into the dirty buffer, committed on Save.
+  See [Importing & exporting](guides/import-export.md).
+- **Download .env** — confirm-gated export: every value is revealed (audited
+  per key) and serialized as a properly quoted dotenv file; file-keys are
+  skipped with a comment.
+- **Per-key history** — value-free version list per key, with audited reveal
+  of any historical value.
+- **Locked keys** — lock/unlock per key (`⚿`); locked keys cannot be
+  overwritten by promotions.
+- **Promote →** — key-level diff against the next pipeline stage; apply
+  directly or file an approval request. See
+  [Promoting between environments](guides/promoting-environments.md).
+- **Config versions** — history panel with real diffs (added/changed/removed
+  chips) and rollback (a new version identical to the target — nothing is
+  rewritten).
+
+## Security posture
+
+- Revealed plaintext and unseal shares never enter persistent storage; the
+  only shown-once surfaces (init shares/password, minted tokens, issued
+  dynamic credentials, rekey shares) render once and are gone on dismiss.
+- All mutations flow through the `/v1` API with the session cookie; the SPA
+  is same-origin, so CORS stays closed and the CSP stays `'self'`.
+- Write-only credential fields (rotation admin DSNs, sync PATs/tokens/CA
+  certs, dynamic-role DSNs, the OIDC client secret) are never echoed back by
+  the API and never rendered from fetched data.
+
+## Development
+
+```sh
+cd web && npm run dev     # Vite on :5173, proxies /v1 → the Go server
+npx svelte-check          # type-check
+make build                # build web → embed → binary
 ```
-web/                    Vite + React + TS + Tailwind app (source)
-  src/lib/              api client (fetch + ApiError), typed endpoints, query client
-  src/auth/             AuthProvider, login, change-password
-  src/unseal/           unseal screen
-  src/shell/            TopBar, AppLayout, Sidebar, Placeholder
-  src/secrets/          nav hooks, SecretEditor, pure dirty-buffer
-  src/structure/        create-forms (project/env/config)
-internal/web/           Go: //go:embed dist + Handler() (assets + SPA fallback + CSP)
-```
 
-The store is unchanged and the server exposes **no new `/v1` endpoints** for the
-UI — the SPA consumes the existing auth/sys/projects/environments/configs/secrets
-routes. The only server-side additions are the `internal/web` static handler, a
-narrowing of the seal gate (below), and the CSP header.
-
-### Serving & the SPA fallback
-
-`internal/web.Handler()` serves the embedded static assets; any path that is not
-a real asset and not under `/v1` returns `index.html`, so client-side routing
-owns deep links (`/projects/x/configs/y` loads the shell and React Router takes
-over). It mounts as the chi router's `NotFound` fallback (via `Server.MountUI`,
-wired in `Boot`) **after** the `/v1` routes, so the API always wins. Every
-response carries a restrictive `Content-Security-Policy: default-src 'self'`
-(plus `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`).
-
-### Seal gate
-
-The server starts sealed and `/v1` secret operations return `503` until it is
-unsealed. `RequireUnsealed` gates only `/v1/*` API paths (except `/v1/sys/*`) —
-**non-`/v1` paths, i.e. the SPA and its assets, are always served**, so the UI
-can load and present the unseal screen while the server is sealed.
-
-## Flows
-
-- **Bootstrap:** on load the app reads `GET /v1/sys/seal-status`. If the seal is
-  not initialized it shows a "run `janus init`" notice (initialization stays a
-  CLI/operator step). If sealed → the **unseal screen**. Otherwise it reads
-  `GET /v1/auth/me`; a `401` → the **login** page, success → the app.
-- **Unseal:** Shamir servers show a "k of threshold submitted" progress bar and a
-  password-type share input (one share per `POST /v1/sys/unseal`), plus a Reset
-  button (`POST /v1/sys/unseal/reset`). KMS servers auto-unseal; the screen polls
-  seal-status. **Shares live only in the input field and are cleared on submit —
-  never persisted, cached, or logged.**
-- **Navigation** (project-centric): the sidebar is a project switcher + the
-  selected project's environment → config tree; a config opens the editor.
-  Lightweight create forms add projects, environments, and configs (a config may
-  inherit from a **same-environment** base — the server enforces this).
-- **Secret editor** (the flagship): the masked list (`GET …/secrets`, not
-  audited) shows each key with an `origin` badge (`own` / `inherited` /
-  `overridden`, from the inheritance feature). The eye reveals one value
-  (`GET …/secrets/{key}`, an **audited** `secret.reveal`). Editing works on the
-  config's **own raw values** (`?reveal=true&raw=true`) — inherited rows are not
-  editable in place. Edits accumulate in a client-side dirty buffer (add / edit /
-  delete) with a live pending summary; **Save as vN** posts the whole batch as
-  one `PUT …/secrets` = one config version. A dirty buffer arms an
-  unsaved-changes guard.
-
-**Security:** revealed secret plaintext and Shamir shares live only in ephemeral
-React state — never in the TanStack Query cache, `localStorage`, or logs. The
-session cookie is httpOnly (the SPA never reads it; `GET /v1/auth/me` is the
-source of truth). React auto-escaping + the CSP mitigate XSS; same-origin
-embedding means no CORS surface.
-
-## Scope
-
-**In this milestone:** app shell, unseal, login, change-password, project/env/
-config navigation + create, and the secret editor (masked list, reveal, raw-value
-editing, batched save).
-
-**Deferred to later B-slices** (visible as "Coming soon" placeholders): config
-version history / diff / rollback browsing, the audit viewer, token and member
-management, the project dashboard + usage metrics, and the transit UI. Structure
-rename/delete/destroy and OIDC login are also out of this milestone.
-
-## Build & develop
-
-- **Production:** the multi-stage `Dockerfile` builds `web/` (`npm ci && npm run
-  build`) and copies `web/dist` into `internal/web/dist` before `go build`, so the
-  single binary embeds the UI. No Node in production.
-- **`make build`** mirrors this locally (builds the SPA, stages it under
-  `internal/web/dist`, builds the binary). The committed
-  `internal/web/dist/index.html` is a placeholder a real build overwrites — do not
-  commit built assets (the root `.gitignore`'s `dist/` rule keeps them out).
-- **`make dev`** documents the two-terminal dev flow: `cd web && npm run dev`
-  (Vite on `:5173`, proxying `/v1` → `:8200`) alongside `make dev-up` (the Go
-  server + Postgres on `:8200`). The Vite proxy keeps the app same-origin in dev,
-  so the session cookie works exactly as in production.
-- **`make test`** runs `go test ./...` and the web suite (`npm run test`).
-
-## Testing
-
-- **Web:** Vitest + React Testing Library + MSW (mocks `/v1` with the real
-  envelope shapes). Covers the dirty-buffer logic, editor reveal/save, unseal
-  progress, login (401/429), and the bootstrap guards.
-- **Go:** `internal/web` tests assert the SPA fallback (deep links → shell,
-  `/v1` untouched, real assets served, CSP present); `internal/api` asserts the
-  UI mounts as a fallback and the seal gate serves static assets while sealed.
-
-## Operations console (`/operations`)
-
-A cross-project console for the three Phase-3 engines — **rotation**,
-**sync**, and **dynamic credentials** — that are otherwise API/CLI-only.
-The page fans out over every project you can see (silently skipping ones
-where you lack the engine's role) and shows unified tables with a Project
-filter and three tabs:
-
-- **Rotation** — policies with status/next-run; actions: rotate-now,
-  pause/resume, edit interval, delete.
-- **Sync** — targets with provider/destination/status; actions: sync-now,
-  pause/resume, edit interval, delete.
-- **Dynamic** — roles; actions: issue credentials, view/renew/revoke
-  leases, delete role. **Admin/owner-oriented:** listing roles requires
-  `dynamic:manage`, so a developer holding only `dynamic:issue` sees an
-  empty "Access required" table here even though they *can* issue
-  credentials via `janus dynamic issue` on the CLI. This matches the
-  engine's RBAC (issue and manage are distinct grants); the console does
-  not down-scope to an issue-only view.
-
-The console **cannot create** resources — creating a policy/target/role
-requires entering privileged admin DSNs, PATs, k8s tokens, or SQL
-templates, which stays in the CLI (`janus rotation|sync|dynamic … create`).
-No secret is ever rendered except a freshly **issued** dynamic password,
-which is shown once in an ephemeral dialog and never cached.
+Data flows through the typed client `web/src/lib/api.ts` (mirrors `/v1`) and
+the rune stores `session.svelte.ts` / `registry.svelte.ts`. The ops list
+endpoints require scope params — aggregate across the tree via
+`web/src/lib/ops.ts`.
