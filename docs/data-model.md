@@ -1,12 +1,14 @@
 # Data model & versioning
 
-**Package:** `internal/store`. **Status:** implemented (foundation + core CRUD)
-— see [`superpowers/specs/2026-07-03-store-layer-design.md`](superpowers/specs/2026-07-03-store-layer-design.md).
-The schema, migrations, repositories, and two-level versioning (batched saves,
-history, diff, rollback) are built and tested against real Postgres. Config
-inheritance and read-time secret references are now implemented as a resolution
-layer over these reads — see [references.md](references.md). This document
-explains the hierarchy and the two-level versioning scheme.
+**Package:** `internal/store`. **Status:** implemented — see
+[`superpowers/specs/2026-07-03-store-layer-design.md`](superpowers/specs/2026-07-03-store-layer-design.md)
+for the original design (schema has since grown well past that snapshot; see
+migrations below for current state). The schema, migrations, repositories, and
+two-level versioning (batched saves, history, diff, rollback) are built and
+tested against real Postgres. Config inheritance and read-time secret
+references are implemented as a resolution layer over these reads — see
+[references.md](references.md). This document explains the hierarchy and the
+two-level versioning scheme.
 
 The store is **crypto-blind**: it persists and returns opaque encrypted bytes
 (`wrapped_dek`, `ciphertext`, `nonce`, `wrapped_kek`) and never holds a key or
@@ -25,8 +27,33 @@ Project            e.g. "acme-web"          — owns a wrapped project KEK
 
 Projects, environments, and configs are addressed by human `slug`/`name` (unique
 within their parent, scoped to non-deleted rows) and carry a `uuid` primary key.
-Configs have a nullable `inherits_from` column reserved for the (not-yet-built)
-root/branch inheritance feature.
+Configs have a nullable `inherits_from` column: a root config plus branch
+configs within the same environment, resolved read-time (child wins per key)
+— see [references.md](references.md).
+
+### Secret keys
+
+A secret `key` is filename-style: `[A-Za-z0-9._-]+`, 1–255 chars, and never
+`.`/`..` or a path separator (`internal/secrets` `validateKey`). This is a
+strict superset of a shell-safe env-var identifier, so a key may be a dotted
+filename (e.g. `config.prod.json`) to support secrets that are files rather
+than env vars. Consequences:
+
+- `janus run` and `.env` export skip keys that aren't valid env-var
+  identifiers (with a warning) — only `secrets download --format files`
+  materializes every key, one file per key, to `<dir>/<key>` (traversal-guarded
+  by the same charset rule).
+- Dotted/filename-style keys are **not** `${KEY}`-referenceable and are skipped
+  by the GitHub Actions sync integration (both require env-var-shaped names).
+
+### Typed secrets
+
+Each `secret_values` row carries a `type` (migration `000022`): `value`
+(default, stored as `'string'`), `password`, `json`, `ssh_key`, `certificate`,
+or `note`. This is purely a **display/handling hint** for the CLI and web
+editor (multiline editors, password generation, non-blocking JSON/PEM
+validation) — it has no effect on storage or encryption; the value is still an
+opaque encrypted blob regardless of type.
 
 ## Two-level versioning
 
@@ -88,8 +115,10 @@ Two distinct notions, both required by the project spec:
   a later save that sets the key again. This is the immutable-versioning way.
 - **Entity soft-delete** (project / environment / config) = a nullable
   `deleted_at` timestamp. Soft-deleted entities are hidden from reads and lists
-  and can be undeleted. **Hard destroy** is a separate, explicit operation that
-  actually removes rows.
+  and can be undeleted via a `.../restore` endpoint. `GET /v1/trash` lists an
+  actor's soft-deleted entities across the hierarchy (per-item authorized, no
+  new table — it queries the existing `deleted_at` columns). **Hard destroy**
+  is a separate, explicit operation that actually removes rows.
 
 Migration `000005_cascade_destroy` makes hard destroy transitive: every
 *ownership* foreign key (environment→project, config→environment,

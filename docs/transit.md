@@ -111,7 +111,7 @@ the server is sealed).
 | Route | Body | Result | Requires |
 |---|---|---|---|
 | `POST /v1/transit/keys` | `{name, type}` | `201` metadata | `transit:manage` |
-| `GET /v1/transit/keys` | | `{keys:[metadata]}` | `transit:read` |
+| `GET /v1/transit/keys?limit=&cursor=` | | `{keys:[metadata], next_cursor}` | `transit:read` |
 | `GET /v1/transit/keys/{name}` | | metadata | `transit:read` |
 | `POST /v1/transit/keys/{name}/rotate` | | metadata (new `latest_version`) | `transit:manage` |
 | `POST /v1/transit/keys/{name}/config` | `{min_decryption_version?, deletion_allowed?}` | metadata | `transit:manage` |
@@ -128,6 +128,12 @@ the server is sealed).
 Metadata responses — `{name, type, latest_version, min_decryption_version,
 deletion_allowed, versions:[{version, created_at}], created_at}` — never include
 key material or wrapped bytes.
+
+`GET /v1/transit/keys` pagination is opt-in and backward-compatible: omitting
+`?limit` returns every key unbounded (`next_cursor: null`), matching
+pre-pagination behavior. Supplying `?limit=1-200` returns a page plus an opaque
+`next_cursor` (base64url) to pass back as `?cursor=` for the next page;
+`next_cursor` is `null` once exhausted.
 
 ## Authorization
 
@@ -223,7 +229,7 @@ curl -XPOST $ADDR/v1/transit/decrypt/app -H "$AUTH" \
 Key export / backup-restore (an exfiltration surface), HMAC/hash helper
 endpoints (apps can do those locally), convergent/derived keys and key-derivation
 `context`, RSA/ECDSA or other key types, and project-scoped transit keys
-(instance-only for v1) are out of scope. The transit web UI (Phase-2
-sub-project B) and per-operation usage metrics (sub-project D) are separate
-Phase-2 work; the management-only audit policy here deliberately leaves
-data-plane usage visibility to D.
+(instance-only for v1) are out of scope. The transit UI (Phase-2 sub-project B)
+is built and part of the web app's key console; per-operation usage metrics
+(sub-project D) remain separate Phase-2 work — the management-only audit
+policy here deliberately leaves data-plane usage visibility to D.

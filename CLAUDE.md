@@ -27,7 +27,7 @@ internal/audit/      hash-chained audit log
 internal/transit/    KMS/transit engine (phase 2)
 internal/dynamic/    dynamic secrets + lease manager (phase 3)
 internal/rotation/   static rotation + sync integrations (phase 3)
-web/                 React SPA
+web/                 Svelte SPA
 migrations/          SQL migrations
 ```
 
@@ -112,7 +112,7 @@ Core secrets commands (same `janus` binary as the server): `janus login`, `janus
 crypto layer + unseal → store + migrations → projects/envs/configs/secrets CRUD with versioning → auth (passwords, service tokens) → RBAC → audit log → REST API → CLI with `run`. Ends with: docker-compose up, create project, set secrets, `janus run` works.
 
 **Phase 2 — Transit + UI:**
-transit engine (named keys, encrypt/decrypt/sign/verify/rewrap, key versioning, min_decryption_version) reusing internal/crypto; React SPA (project overview dashboard, secret editor with masked values / batched dirty-state saves / config version diff, audit viewer with chain-verify badge and export, token/member management); OIDC login; **usage metrics** — lightweight daily aggregates (reads per config, per token) derived from audit events for the dashboard ("Reads 24h"), no external metrics stack.
+transit engine (named keys, encrypt/decrypt/sign/verify/rewrap, key versioning, min_decryption_version) reusing internal/crypto; SPA (project overview dashboard, secret editor with masked values / batched dirty-state saves / config version diff, audit viewer with chain-verify badge and export, token/member management); OIDC login; **usage metrics** — lightweight daily aggregates (reads per config, per token) derived from audit events for the dashboard ("Reads 24h"), no external metrics stack.
 
 **Phase 3 — Rotation + dynamic:**
 static rotation framework (scheduled, webhook-notified; Postgres password + generic webhook rotators first); sync integrations (GitHub Actions secrets, Kubernetes Secrets); dynamic Postgres credentials with lease manager (TTL, renewal, revocation on expiry; revoke-on-startup sweep for leases orphaned by a crash).

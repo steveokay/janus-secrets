@@ -175,5 +175,6 @@ handling, and exporting to files, see
 | [../cli.md](../cli.md) | Full `janus` CLI reference — every command, precedence, and flag |
 | [../operations.md](../operations.md) | Server operations: seal lifecycle, env vars, auth/RBAC, audit |
 
-Note: service tokens are minted through the REST API (`POST /v1/tokens`) or the
-web UI — there is no `janus tokens` subcommand.
+Note: service tokens are minted via `janus token mint`, the REST API
+(`POST /v1/tokens`), or the web UI — see
+[service-tokens.md](./service-tokens.md).

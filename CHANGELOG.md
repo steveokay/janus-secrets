@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- Replaced the React/Nocturne web SPA with a new Svelte 5 "Atrium" SPA
+  (banknote-engraving / archival-ledger aesthetic, `daylight`/`nightwatch`
+  themes, hand-written CSS tokens — no Tailwind, no React). Covers the same
+  full API surface (init/unseal/login, projects → envs → configs, secret
+  editor, promotion + approvals, audit ledger, tokens, members, transit,
+  operations, integrations, trash, settings, command palette).
+
+- Secret editor: bulk import from `.env` / Java `.properties` (paste or file
+  picker, local parsing, preview with per-key new/overwrite/invalid
+  selection, staged into the dirty buffer as one config version) and a
+  confirm-gated **Download .env** export (audited per-key reveal, sorted and
+  quoted output, filename-style keys skipped with a comment, mirroring the
+  CLI). Environment rename on the project board (display name only; slug
+  stays immutable).
+
 ### Added
 - Typed secrets (value/password/json/ssh_key/certificate/note): per-type editor,
   validation, and generate; type carried through promotion and clone; CLI

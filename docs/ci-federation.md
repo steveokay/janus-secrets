@@ -29,8 +29,9 @@ The exchange is verify → match → mint:
 4. Janus projects the verified claims to their string values and finds the
    **single** enabled binding whose every `match_claims` entry equals the token's
    claim. Zero matches → denied; more than one → denied as ambiguous.
-5. Janus mints a service token for the matched binding's scope/access with a TTL
-   of `min(binding.ttl_seconds, 1h)`, and returns it.
+5. Janus mints a service token for the matched binding's scope/access with the
+   binding's `ttl_seconds` (capped at 1h **when the binding was created**, not at
+   mint time — see Safety rules below), and returns it.
 
 Every failure — not configured, bad signature/issuer/audience/expiry, no match,
 ambiguous match — returns one indistinguishable `federation_denied` (401); the

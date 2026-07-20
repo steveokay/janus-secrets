@@ -18,7 +18,7 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 >   config version list/diff/rollback), config inheritance + secret references,
 >   and the secrets CLI (`janus login`/`setup`/`secrets`/`run`).
 > - **Phase 2 — Transit + UI:** the Vault-style transit (encryption-as-a-service)
->   engine; the **React SPA** (embedded via `go:embed`, served same-origin) —
+>   engine; the **Svelte SPA** (embedded via `go:embed`, served same-origin) —
 >   unseal/login, project/env/config nav, the flagship secret editor, version
 >   diff, audit viewer, token/member management, transit console, and the
 >   operations console; **OIDC** human login **and** OIDC-federated CI machine
@@ -29,7 +29,8 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 >
 > Janus is usable end-to-end: `docker compose up`, create a project in the UI or
 > CLI, set secrets, and `janus run` injects them into your process. What remains
-> is polish and release hygiene, tracked in [gaps.md](gaps.md).
+> is polish and further feature work — see [docs/roadmap.md](docs/roadmap.md)
+> for the current state summary and forward-looking roadmap.
 >
 > **Docs:** full documentation lives under [`docs/`](docs/) (see the
 > [docs index](docs/README.md)). New here? Start with the task-oriented
@@ -167,7 +168,9 @@ admin-configured under `/v1/sys/oidc*`. See [docs/oidc.md](docs/oidc.md) and
 
 ### Web UI
 
-A **React + TypeScript + Vite + Tailwind** SPA is built to static assets and
+A **Svelte 5 + TypeScript + Vite** SPA — the "Atrium" design, a
+banknote-engraving / archival-ledger aesthetic with hand-written CSS tokens
+(no Tailwind, no component library) — is built to static assets and
 **embedded in the `janus` binary** via `go:embed`, served same-origin by the Go
 server (no Node in production). It covers in-browser Shamir unseal and login, the
 project → environment → config tree, the flagship **secret editor** (masked list
@@ -176,9 +179,9 @@ batched "Save as vN"), config version diff, the audit viewer with chain-verify
 badge and export, token/member management, the transit key console, a usage
 dashboard ("Reads 24h"), and an **operations console** over the three Phase-3
 engines (rotation, sync, dynamic leases — manage and act, not create). The visual
-system is dual-theme (dark-first + light) via CSS-variable tokens. Revealed
-plaintext and unseal shares never enter the Query cache or storage. See
-[docs/web.md](docs/web.md).
+system is dual-theme (`daylight` default + `nightwatch` dark) via CSS-variable
+tokens. Revealed plaintext and unseal shares live only in component state, never
+persisted or cached. See [docs/web.md](docs/web.md).
 
 ### Rotation, sync & dynamic secrets (Phase 3)
 
@@ -271,9 +274,9 @@ credential/address/binding precedence rules, the `.janus.yaml` format, and the
 - **CLI:** `cobra` (server/ops: `janus server/init/unseal/seal-status/seal/
   migrate`; secrets: `janus login/logout/setup/secrets/run`; Phase-3:
   `janus rotation/sync/dynamic`).
-- **Web UI:** React + TypeScript + Vite + Tailwind + TanStack Query, built to
-  static assets and embedded in the binary via `go:embed` (no Node in
-  production).
+- **Web UI:** Svelte 5 (runes) + TypeScript + Vite, hand-written CSS design
+  system (no Tailwind, no component library), built to static assets and
+  embedded in the binary via `go:embed` (no Node in production).
 - **Deployment:** multi-stage Dockerfile (build web → embed → build Go) +
   docker-compose (app + Postgres).
 
@@ -299,7 +302,7 @@ internal/secretsync/ sync to GitHub Actions + Kubernetes Secrets             ←
 internal/dynamic/    dynamic Postgres credentials + lease manager            ← implemented
 internal/web/        //go:embed dist + SPA handler (CSP, deep-link fallback) ← implemented
 migrations/          SQL migrations (000001–000012)
-web/                 React SPA (Vite + TS + Tailwind + TanStack Query)       ← implemented
+web/                 Svelte SPA (Vite + TS, hand-written CSS)                ← implemented
 docs/                subsystem docs, design specs, implementation plans
 ```
 
@@ -367,7 +370,7 @@ config inheritance + secret references ✅. **Phase 1 complete.** Live tracker:
 [status.md](status.md).
 
 **Phase 2 — Transit + UI:** transit/KMS engine ✅ (sub-project A — see
-[docs/transit.md](docs/transit.md)); React SPA ✅ (sub-project B — embedded
+[docs/transit.md](docs/transit.md)); SPA ✅ (sub-project B — embedded
 same-origin SPA: unseal/login, project/env/config nav, the flagship secret editor
 with audited reveal + batched Save-as-vN, config version diff, audit viewer,
 token/member management, transit console, dashboard, and the operations console —
@@ -379,9 +382,10 @@ usage metrics ✅ (sub-project D — "Reads 24h"). **Phase 2 complete.**
 webhook) ✅; sync integrations (GitHub Actions, Kubernetes) ✅; dynamic Postgres
 credentials with a lease manager ✅. **Phase 3 complete.**
 
-All three build phases have shipped. Remaining work is polish, spec debt, and
-release hygiene — see the [gap analysis](gaps.md) and the live
-[status tracker](status.md).
+All three build phases have shipped. Remaining work is polish and further
+feature depth — see the live [state & roadmap](docs/roadmap.md) (the earlier
+per-milestone [status.md](status.md) build log and [gap analysis](gaps.md)
+are kept for history; most of the latter's findings have since shipped).
 
 ### Non-goals
 

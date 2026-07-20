@@ -212,6 +212,17 @@ provider-specific `--owner`/`--repo`/`--environment`/`--pat` or
 rotate credentials or repoint the destination without recreating the
 target.
 
+## Run history
+
+Every reconcile attempt — scheduled or manual, success or failure — also
+appends a row to `sync_runs` (started/ended time, status, value-free error
+category, resulting config version, keys-written count, attempt number) in
+the same transaction as the attempt itself. `GET /v1/sync/targets/{id}/runs`
+(cursor-paginated, `sync:manage`) lists a target's history newest-first; the
+web UI surfaces it as a per-target run-history panel. History is capped at
+the 100 most recent runs per target — older rows are pruned automatically
+on insert. There is no CLI subcommand for run history; use the API or UI.
+
 ## RBAC & audit
 
 Creating, listing, updating, deleting, or manually syncing a target

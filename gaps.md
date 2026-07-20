@@ -1,5 +1,15 @@
 # Janus — Gap Analysis
 
+> **⚠️ Superseded (2026-07-19) by [`docs/roadmap.md`](docs/roadmap.md).** Most
+> gaps below have since shipped (settings hub, trash/restore, audit depth,
+> RBAC matrix, board depth, ops console depth, promotion approval, CLI control
+> plane, release hygiene, API hardening, master-key/KEK rotation, integrations
+> hub, typed secrets, filename-style keys, and the Svelte "Atrium" UI rewrite).
+> `docs/roadmap.md` is the current state-of-the-system summary and forward
+> roadmap; `status.md` is the (now largely historical) phase-by-phase build
+> log. Kept in-tree for history — do not treat unstruck rows below as still
+> open without checking the code first.
+
 _Audited 2026-07-12 (main @ d36add8) by a 4-agent sweep: UI depth, backend-vs-spec, UI↔backend parity, ops/DX. Conflicting findings were re-verified against the code before inclusion._
 
 Severity: **HIGH** = missing capability users will hit; **MED** = real friction or spec drift; **LOW** = polish.

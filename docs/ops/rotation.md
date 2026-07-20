@@ -130,6 +130,17 @@ Both `create` variants also accept `--notify-url`/`--notify-hmac-key` for the
 optional post-rotation notify webhook, and `--password-len` (postgres type,
 default 32) to size the generated password.
 
+## Run history
+
+Every rotation attempt — scheduled or manual, success or failure — also
+appends a row to `rotation_runs` (started/ended time, status, value-free
+error category, resulting config version, attempt number) in the same
+transaction as the attempt itself. `GET /v1/rotation/policies/{id}/runs`
+(cursor-paginated, `rotation:manage`) lists a policy's history newest-first;
+the web UI surfaces it as a per-policy run-history panel. History is capped
+at the 100 most recent runs per policy — older rows are pruned automatically
+on insert. There is no CLI subcommand for run history; use the API or UI.
+
 ## RBAC & audit
 
 Creating, listing, updating, deleting, or manually rotating a policy requires
