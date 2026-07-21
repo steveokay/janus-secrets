@@ -22,6 +22,20 @@ components:
       in: cookie
       name: janus_session
   schemas:
+    NotificationChannel:
+      type: object
+      description: Masked notification channel — never carries the destination URL or HMAC key.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [webhook, slack] }
+        enabled: { type: boolean }
+        events:
+          type: array
+          items: { type: string }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     Error:
       type: object
       required: [error]
@@ -2634,6 +2648,147 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "503": { description: Server is sealed. }
+
+  # ---------------------------------------------------------------------
+  # notifications
+  # ---------------------------------------------------------------------
+  /v1/notifications/channels:
+    post:
+      tags: [notifications]
+      summary: Create a notification channel
+      description: >-
+        Requires `notification:manage` (admin/owner). The destination URL and
+        optional webhook HMAC key are write-only — never returned. Subscribes to
+        one or more event kinds: rotation.failed, sync.failed, promotion.pending,
+        access.denied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type, url, events]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [webhook, slack] }
+                url: { type: string, writeOnly: true, example: "https://hooks.example.com/..." }
+                hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+                events:
+                  type: array
+                  items: { type: string, enum: [rotation.failed, sync.failed, promotion.pending, access.denied] }
+      responses:
+        "201": { description: Created (masked channel view). }
+        "400": { description: Validation error. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: A channel with that name already exists. }
+    get:
+      tags: [notifications]
+      summary: List notification channels (masked)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items: { $ref: '#/components/schemas/NotificationChannel' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/notifications/channels/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [notifications]
+      summary: Get a channel (masked)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotificationChannel' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [notifications]
+      summary: Update a channel
+      description: Selectively update enabled state, subscribed events, or the destination URL / HMAC key (write-only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                events:
+                  type: array
+                  items: { type: string }
+                url: { type: string, writeOnly: true }
+                hmac_key: { type: string, writeOnly: true }
+      responses:
+        "200": { description: Updated (masked channel view). }
+        "400": { description: Validation error. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [notifications]
+      summary: Delete a channel
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/notifications/channels/{id}/test:
+    post:
+      tags: [notifications]
+      summary: Send a synchronous test notification
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Test delivered. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "502": { description: Test delivery failed (channel unreachable / non-2xx). }
+  /v1/notifications/channels/{id}/deliveries:
+    get:
+      tags: [notifications]
+      summary: Recent delivery history for a channel (value-free)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deliveries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        event_kind: { type: string }
+                        status: { type: string, enum: [pending, delivered, failed] }
+                        attempts: { type: integer }
+                        next_attempt_at: { type: string, format: date-time }
+                        last_error: { type: string }
+                        created_at: { type: string, format: date-time }
+                        delivered_at: { type: string, format: date-time }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------------
   # dynamic

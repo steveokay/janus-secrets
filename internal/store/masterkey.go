@@ -31,8 +31,9 @@ type MasterKeyMeta struct {
 type rewrapFn func(old, aad []byte) (newCT []byte, err error)
 
 // RewrapAllUnderNewMaster re-wraps every master-wrapped blob (project KEKs,
-// superseded KEK versions, the auth token-HMAC key, OIDC client secrets, and
-// transit key material) under a new master via rewrap, then writes the reseal
+// superseded KEK versions, the auth token-HMAC key, OIDC client secrets,
+// transit key material, and notification channel configs) under a new master
+// via rewrap, then writes the reseal
 // result and bumps master_key_version. Everything runs in a single transaction:
 // any error — including one from reseal — rolls the whole rotation back.
 func (r *MasterKeyRepo) RewrapAllUnderNewMaster(
@@ -70,7 +71,15 @@ func (r *MasterKeyRepo) RewrapAllUnderNewMaster(
 		if err := rewrapTransit(ctx, tx, rewrap); err != nil {
 			return err
 		}
-		// 6. reseal + persist new seal metadata, bumping the version.
+		// 6. notification_channels (all rows; config blob is arbitrary length,
+		//    AAD binds the channel id).
+		if err := rewrapByID(ctx, tx, rewrap,
+			`SELECT id::text, config_ct FROM notification_channels FOR UPDATE`,
+			func(id string) []byte { return crypto.NotificationChannelAAD(id) },
+			`UPDATE notification_channels SET config_ct=$2 WHERE id=$1::uuid`); err != nil {
+			return err
+		}
+		// 7. reseal + persist new seal metadata, bumping the version.
 		cfg, err := reseal()
 		if err != nil {
 			return err

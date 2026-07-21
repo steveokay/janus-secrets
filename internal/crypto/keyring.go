@@ -109,6 +109,29 @@ func (k *Keyring) UnwrapOIDCClientSecret(ct Ciphertext) ([]byte, error) {
 	return Decrypt(k.master, ct, OIDCClientSecretAAD())
 }
 
+// WrapNotificationConfig encrypts a notification channel's config blob
+// (arbitrary-length JSON: destination URL + optional HMAC key) under the master
+// key, bound to the channel id so a row copied to another channel fails to
+// unwrap. Instance-scoped, like the OIDC client secret.
+func (k *Keyring) WrapNotificationConfig(channelID string, config []byte) (Ciphertext, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return Ciphertext{}, ErrSealed
+	}
+	return Encrypt(k.master, config, NotificationChannelAAD(channelID))
+}
+
+// UnwrapNotificationConfig decrypts a blob wrapped by WrapNotificationConfig.
+func (k *Keyring) UnwrapNotificationConfig(channelID string, ct Ciphertext) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return nil, ErrSealed
+	}
+	return Decrypt(k.master, ct, NotificationChannelAAD(channelID))
+}
+
 // NewDEK generates a fresh DEK and wraps it under projectKEK in one call,
 // minimizing the plaintext DEK's lifetime. Refuses to run while sealed.
 //

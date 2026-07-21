@@ -49,3 +49,4 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 | recover something deleted | Trash ([guide](trash-and-recovery.md)) |
 | rotate/rekey the master key, backups | Settings ([guide](master-key-and-backup.md)) |
 | review or revoke your logged-in devices | Settings → **Active sessions** |
+| get alerted on failures / pending approvals | Notifications ([guide](notifications.md)) |

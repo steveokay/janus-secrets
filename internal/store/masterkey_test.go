@@ -28,6 +28,10 @@ var seededDeletedProjectID string
 // seededTransitName is the transit key name captured by seedMasterWrapped.
 const seededTransitName = "test-transit"
 
+// seededNotifChannelID is the notification channel row seeded for the master-key
+// re-wrap assertions.
+var seededNotifChannelID string
+
 // rewrapClosure returns a caller closure that decrypts under m1 and re-encrypts
 // under m2 for the same AAD — exactly what the service layer will supply.
 func rewrapClosure(m1, m2 []byte) func(old, aad []byte) ([]byte, error) {
@@ -73,7 +77,7 @@ func seedMasterWrapped(t *testing.T, st *Store, m1 []byte) {
 
 	// Isolate: resetDB does not truncate the transit/oidc/auth tables.
 	if _, err := st.pool.Exec(ctx,
-		`TRUNCATE seal_config, auth_config, oidc_providers,
+		`TRUNCATE seal_config, auth_config, oidc_providers, notification_channels,
 		          transit_key_versions, transit_keys,
 		          project_kek_versions, projects RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("seed truncate: %v", err)
@@ -166,6 +170,19 @@ func seedMasterWrapped(t *testing.T, st *Store, m1 []byte) {
 		 VALUES ($1::uuid, $2::uuid, 1, $3)`, tkvID, tkID, tmat); err != nil {
 		t.Fatalf("seed transit_key_versions: %v", err)
 	}
+
+	// notification_channels (arbitrary-length config blob, AAD binds channel id).
+	ncID, err := st.NewID(ctx)
+	if err != nil {
+		t.Fatalf("seed notif newid: %v", err)
+	}
+	seededNotifChannelID = ncID
+	ncCfg := mustMarshal(crypto.Encrypt(m1, []byte(`{"url":"https://hooks.example/x"}`), crypto.NotificationChannelAAD(ncID)))
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO notification_channels (id, name, type, events, config_ct, created_by)
+		 VALUES ($1::uuid, 'seed-notif', 'webhook', '{access.denied}', $2, 'seed')`, ncID, ncCfg); err != nil {
+		t.Fatalf("seed notification_channels: %v", err)
+	}
 }
 
 // unwrapAt fetches a single blob and attempts to decrypt it under key with aad.
@@ -235,6 +252,15 @@ func assertTransitUnwraps(t *testing.T, st *Store, key []byte) {
 	}
 }
 
+func assertNotifUnwraps(t *testing.T, st *Store, key []byte) {
+	t.Helper()
+	if _, err := unwrapAt(t, st,
+		`SELECT config_ct FROM notification_channels WHERE id=$1::uuid`,
+		key, crypto.NotificationChannelAAD(seededNotifChannelID), seededNotifChannelID); err != nil {
+		t.Fatalf("notification config did not unwrap under expected key: %v", err)
+	}
+}
+
 func assertAuthUnwraps(t *testing.T, st *Store, key []byte) {
 	t.Helper()
 	if _, err := unwrapAt(t, st,
@@ -278,6 +304,7 @@ func TestRewrapAllUnderNewMasterRoundTrip(t *testing.T) {
 	assertAuthUnwraps(t, st, m2)
 	assertOIDCUnwraps(t, st, m2)
 	assertTransitUnwraps(t, st, m2)
+	assertNotifUnwraps(t, st, m2)
 
 	// Defense-in-depth: a non-projects blob must NOT decrypt under the old master.
 	if _, err := crypto.Decrypt(m1, mustParse(t, st,
@@ -317,6 +344,7 @@ func TestRewrapAllRollsBackOnResealError(t *testing.T) {
 	assertAuthUnwraps(t, st, m1)
 	assertOIDCUnwraps(t, st, m1)
 	assertTransitUnwraps(t, st, m1)
+	assertNotifUnwraps(t, st, m1)
 
 	meta, err := repo.GetMasterKeyMeta(ctx)
 	if err != nil {

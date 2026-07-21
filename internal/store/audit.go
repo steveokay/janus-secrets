@@ -176,6 +176,28 @@ func (r *AuditRepo) ListPage(ctx context.Context, f AuditFilter, beforeSeq int64
 	return out, mapError(rows.Err())
 }
 
+// ListSince returns events with seq > afterSeq in ascending seq order, at most
+// limit rows. Used by the notification dispatcher to tail the audit log forward
+// from its cursor (the complement of ListPage, which pages backward from head).
+func (r *AuditRepo) ListSince(ctx context.Context, afterSeq int64, limit int) ([]AuditRow, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT `+auditCols+` FROM audit_events WHERE seq > $1 ORDER BY seq ASC LIMIT $2`,
+		afterSeq, limit)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []AuditRow
+	for rows.Next() {
+		a, err := scanAuditRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, mapError(rows.Err())
+}
+
 // auditWhere builds the shared filter predicates ($1..$N) for audit reads.
 func auditWhere(f AuditFilter) (where []string, args []any) {
 	add := func(cond string, val any) { args = append(args, val); where = append(where, cond) }

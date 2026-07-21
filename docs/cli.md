@@ -68,6 +68,7 @@ janus master-key status/rekey/rotate                    # master-key rotation (S
 janus rotation create/list/get/update/delete/rotate     # scheduled secret rotation policies (see operations.md)
 janus sync create/list/get/update/delete/sync           # sync targets: GitHub Actions / Kubernetes (see operations.md)
 janus dynamic roles …/creds/renew/revoke/leases         # dynamic Postgres credentials + leases (see operations.md)
+janus notifications create/list/update/delete/test/deliveries  # outbound alerting channels (see operations.md)
 ```
 
 **Resolution (`--raw`).** `get`, `download`, and `run` **resolve** config

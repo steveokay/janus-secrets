@@ -72,6 +72,15 @@ func runServer(ctx context.Context) error {
 		dynamicTick = d
 	}
 
+	notifyTick := 30 * time.Second // production default; 0 disables
+	if v := os.Getenv("JANUS_NOTIFY_TICK"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_NOTIFY_TICK %q: use a Go duration like 30s, or 0 to disable", v)
+		}
+		notifyTick = d
+	}
+
 	httpRead := 30 * time.Second
 	if v := os.Getenv("JANUS_HTTP_READ_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -114,6 +123,7 @@ func runServer(ctx context.Context) error {
 		RotationTick:       rotationTick,
 		SyncTick:           syncTick,
 		DynamicTick:        dynamicTick,
+		NotificationTick:   notifyTick,
 		Version:            version.Version,
 		HTTPReadTimeout:    httpRead,
 		HTTPWriteTimeout:   httpWrite,

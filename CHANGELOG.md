@@ -23,6 +23,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- Notifications (outbound alerting): configurable **webhook** and **Slack**
+  channels that subscribe to `rotation.failed`, `sync.failed`,
+  `promotion.pending`, and `access.denied` events. A crash-safe dispatcher
+  (`JANUS_NOTIFY_TICK`, default 30s) tails the value-free audit log from a
+  persisted cursor and fans matching events into a delivery outbox, retrying
+  with exponential backoff — so alerts are never lost and can never carry a
+  secret value. Destination URL + optional webhook HMAC signing key are
+  write-only (master-key-wrapped, re-wrapped by master-key rotation, excluded
+  from backups). New `notification:manage` RBAC action (admin/owner),
+  `/v1/notifications/channels` REST surface (+ test + delivery history),
+  `janus notifications` CLI, and a **Notifications** web screen. Migration
+  000024.
 - Session management (self-service): `GET /v1/auth/sessions` lists your active
   sessions with non-secret client metadata (IP, user-agent, last-seen) and a
   current-session marker; `DELETE /v1/auth/sessions/{id}` revokes one and

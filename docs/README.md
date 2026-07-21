@@ -37,6 +37,8 @@ Task-oriented walkthroughs for the common workflows:
   change.
 - [Trash & recovery](guides/trash-and-recovery.md) — soft delete, restore,
   and permanent destroy.
+- [Notifications](guides/notifications.md) — webhook / Slack alerting on
+  rotation & sync failures, denials, and pending approvals.
 - [Injecting secrets into your app](guides/injecting-secrets.md) — `janus run`
   in depth, env-var precedence, `.janus.yaml` binding, client auth, and the
   `janus secrets download` file fallback with its `--plain` guardrail.
