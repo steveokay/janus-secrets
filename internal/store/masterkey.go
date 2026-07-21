@@ -32,8 +32,8 @@ type rewrapFn func(old, aad []byte) (newCT []byte, err error)
 
 // RewrapAllUnderNewMaster re-wraps every master-wrapped blob (project KEKs,
 // superseded KEK versions, the auth token-HMAC key, OIDC client secrets,
-// transit key material, and notification channel configs) under a new master
-// via rewrap, then writes the reseal
+// transit key material, notification channel configs, and user TOTP secrets)
+// under a new master via rewrap, then writes the reseal
 // result and bumps master_key_version. Everything runs in a single transaction:
 // any error — including one from reseal — rolls the whole rotation back.
 func (r *MasterKeyRepo) RewrapAllUnderNewMaster(
@@ -79,7 +79,14 @@ func (r *MasterKeyRepo) RewrapAllUnderNewMaster(
 			`UPDATE notification_channels SET config_ct=$2 WHERE id=$1::uuid`); err != nil {
 			return err
 		}
-		// 7. reseal + persist new seal metadata, bumping the version.
+		// 7. user_totp (all rows; AAD binds the user id).
+		if err := rewrapByID(ctx, tx, rewrap,
+			`SELECT user_id::text, wrapped_secret FROM user_totp FOR UPDATE`,
+			func(id string) []byte { return crypto.TOTPSecretAAD(id) },
+			`UPDATE user_totp SET wrapped_secret=$2 WHERE user_id=$1::uuid`); err != nil {
+			return err
+		}
+		// 8. reseal + persist new seal metadata, bumping the version.
 		cfg, err := reseal()
 		if err != nil {
 			return err

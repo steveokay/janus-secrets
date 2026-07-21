@@ -33,6 +33,7 @@ type Service struct {
 	configs  *store.ConfigRepo
 	envs     *store.EnvironmentRepo
 	transit  transitKeys
+	totp     *store.TOTPRepo
 	keyring  *crypto.Keyring
 
 	// idleTimeout is the session inactivity window; 0 disables enforcement.
@@ -63,6 +64,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		configs:  store.NewConfigRepo(st),
 		envs:     store.NewEnvironmentRepo(st),
 		transit:  store.NewTransitRepo(st),
+		totp:     store.NewTOTPRepo(st),
 		keyring:  kr,
 
 		oidcProviders:  store.NewOIDCProviderRepo(st),

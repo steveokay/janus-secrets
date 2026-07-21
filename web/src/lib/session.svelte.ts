@@ -71,8 +71,8 @@ export const session = {
     return false
   },
 
-  async login(email: string, password: string) {
-    await api.login(email, password)
+  async login(email: string, password: string, totpCode?: string) {
+    await api.login(email, password, totpCode)
     await resolveAuthed()
   },
 

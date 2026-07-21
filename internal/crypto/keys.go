@@ -105,6 +105,13 @@ func NotificationChannelAAD(channelID string) []byte {
 	return appendField([]byte("janus:notification:channel"), channelID)
 }
 
+// TOTPSecretAAD binds a user's master-wrapped TOTP shared secret to their user
+// id, in a domain distinct from every other AAD, so a secret row copied to
+// another user fails to unwrap.
+func TOTPSecretAAD(userID string) []byte {
+	return appendField([]byte("janus:auth:totp-secret"), userID)
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

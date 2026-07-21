@@ -11,7 +11,7 @@ func TestLoginVerifyLogout(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
 
-	cookie, err := svc.Login(ctx, email, []byte(password))
+	cookie, err := svc.Login(ctx, email, []byte(password), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,8 +43,8 @@ func TestLoginIndistinguishableFailures(t *testing.T) {
 	svc, email, _ := newTestService(t)
 	ctx := context.Background()
 
-	_, errWrongPW := svc.Login(ctx, email, []byte("wrong password"))
-	_, errNoUser := svc.Login(ctx, "nobody@example.com", []byte("whatever"))
+	_, errWrongPW := svc.Login(ctx, email, []byte("wrong password"), "")
+	_, errNoUser := svc.Login(ctx, "nobody@example.com", []byte("whatever"), "")
 	if !errors.Is(errWrongPW, ErrInvalidCredentials) || !errors.Is(errNoUser, ErrInvalidCredentials) {
 		t.Fatalf("want ErrInvalidCredentials for both: %v / %v", errWrongPW, errNoUser)
 	}
@@ -66,7 +66,7 @@ func TestVerifySessionGarbage(t *testing.T) {
 func TestChangePassword(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
-	cookie, err := svc.Login(ctx, email, []byte(password))
+	cookie, err := svc.Login(ctx, email, []byte(password), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,10 +78,10 @@ func TestChangePassword(t *testing.T) {
 	if err := svc.ChangePassword(ctx, p.ID, []byte(password), []byte("newpassword1")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Login(ctx, email, []byte(password)); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.Login(ctx, email, []byte(password), ""); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("old password still valid: %v", err)
 	}
-	if _, err := svc.Login(ctx, email, []byte("newpassword1")); err != nil {
+	if _, err := svc.Login(ctx, email, []byte("newpassword1"), ""); err != nil {
 		t.Fatalf("new password rejected: %v", err)
 	}
 }
@@ -90,7 +90,7 @@ func TestCreateSessionForUser(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
 
-	cookie, err := svc.Login(ctx, email, []byte(password))
+	cookie, err := svc.Login(ctx, email, []byte(password), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestEnsureHMACKeyIdempotentAndSealed(t *testing.T) {
 	if err := svc.EnsureHMACKey(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Login(ctx, email, []byte(password)); err != nil {
+	if _, err := svc.Login(ctx, email, []byte(password), ""); err != nil {
 		t.Fatalf("login after re-ensure: %v", err)
 	}
 
@@ -132,7 +132,7 @@ func TestVerifySessionIdleTimeout(t *testing.T) {
 	svc, email, password := newTestService(t)
 	svc.SetSessionIdleTimeout(30 * time.Minute)
 	ctx := context.Background()
-	cookie, err := svc.Login(ctx, email, []byte(password))
+	cookie, err := svc.Login(ctx, email, []byte(password), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestVerifySessionIdleDisabled(t *testing.T) {
 	svc, email, password := newTestService(t)
 	// Zero (the default) disables idle enforcement entirely.
 	ctx := context.Background()
-	cookie, err := svc.Login(ctx, email, []byte(password))
+	cookie, err := svc.Login(ctx, email, []byte(password), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestVerifySessionAbsoluteTTLStillEnforced(t *testing.T) {
 	svc, email, password := newTestService(t)
 	svc.SetSessionIdleTimeout(30 * time.Minute)
 	ctx := context.Background()
-	cookie, err := svc.Login(ctx, email, []byte(password))
+	cookie, err := svc.Login(ctx, email, []byte(password), "")
 	if err != nil {
 		t.Fatal(err)
 	}

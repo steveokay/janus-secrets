@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/store"
@@ -25,9 +26,13 @@ var dummyPHC = func() string {
 	return h
 }()
 
-// Login verifies email+password and mints a session, returning the opaque
-// cookie value. All failures are ErrInvalidCredentials.
-func (s *Service) Login(ctx context.Context, email string, password []byte) (string, error) {
+// Login verifies email+password (and a TOTP second factor when the user has one
+// enabled) and mints a session, returning the opaque cookie value. Password
+// failures are ErrInvalidCredentials (no enumeration oracle). If the password is
+// correct but an activated TOTP factor exists and totpCode is empty, it returns
+// ErrTOTPRequired; a wrong code is ErrInvalidCredentials. totpCode may be a live
+// TOTP code or an unused recovery code.
+func (s *Service) Login(ctx context.Context, email string, password []byte, totpCode string) (string, error) {
 	defer zeroize(password)
 
 	u, err := s.users.GetByEmail(ctx, email)
@@ -50,6 +55,24 @@ func (s *Service) Login(ctx context.Context, email string, password []byte) (str
 	if needsRehash {
 		if newHash, hErr := HashPassword(password); hErr == nil {
 			_ = s.users.UpdatePassword(ctx, u.ID, newHash) // best-effort
+		}
+	}
+
+	// Second factor: only enforced for users with an activated TOTP.
+	enabled, _, err := s.TOTPStatus(ctx, u.ID)
+	if err != nil {
+		return "", err
+	}
+	if enabled {
+		if strings.TrimSpace(totpCode) == "" {
+			return "", ErrTOTPRequired
+		}
+		verified, err := s.verifySecondFactor(ctx, u.ID, totpCode)
+		if err != nil {
+			return "", err
+		}
+		if !verified {
+			return "", ErrInvalidCredentials
 		}
 	}
 

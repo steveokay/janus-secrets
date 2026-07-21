@@ -292,8 +292,10 @@ export const api = {
   seal: () => post<{ sealed: boolean }>('/v1/sys/seal'),
   version: () => get<VersionInfo>('/v1/sys/version'),
   me: () => get<Me>('/v1/auth/me'),
-  login: (email: string, password: string) =>
-    post<{ user: { id: string; email: string } }>('/v1/auth/login', { email, password }),
+  login: (email: string, password: string, totp_code?: string) =>
+    post<{ user: { id: string; email: string } }>('/v1/auth/login', {
+      email, password, ...(totp_code ? { totp_code } : {}),
+    }),
   logout: () => post<void>('/v1/auth/logout'),
   oidcLoginStatus: () => get<OIDCLoginStatus>('/v1/auth/oidc/status'),
 
@@ -426,6 +428,13 @@ export const api = {
   listSessions: () => get<{ sessions: SessionInfo[] }>('/v1/auth/sessions').then(r => r.sessions),
   revokeSession: (id: string) => del<void>(`/v1/auth/sessions/${id}`),
   revokeOtherSessions: () => del<{ revoked: number }>('/v1/auth/sessions'),
+
+  // two-factor (TOTP)
+  totpStatus: () => get<{ enabled: boolean; recovery_remaining: number }>('/v1/auth/totp'),
+  totpEnroll: () => post<{ secret: string; otpauth_url: string }>('/v1/auth/totp/enroll'),
+  totpConfirm: (code: string) => post<{ recovery_codes: string[] }>('/v1/auth/totp/confirm', { code }),
+  totpDisable: (code: string) => post<void>('/v1/auth/totp/disable', { code }),
+  totpRegenerateRecovery: (code: string) => post<{ recovery_codes: string[] }>('/v1/auth/totp/recovery-codes', { code }),
 
   // notifications (alerting channels)
   listChannels: () => get<{ channels: NotificationChannel[] }>('/v1/notifications/channels').then(r => r.channels),

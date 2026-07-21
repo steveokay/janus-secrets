@@ -38,4 +38,10 @@ var (
 	// inactivity window. Distinct from ErrUnauthenticated so the API can tell
 	// the (previously authenticated) caller why they were logged out.
 	ErrSessionExpired = errors.New("auth: session expired due to inactivity")
+	// ErrTOTPRequired is returned by Login when the password is correct but the
+	// user has an activated TOTP factor and supplied no second-factor code.
+	ErrTOTPRequired = errors.New("auth: totp code required")
+	// ErrTOTPState is returned for invalid TOTP enroll/confirm/disable states
+	// (e.g. confirming without a pending enrollment, or enrolling while active).
+	ErrTOTPState = errors.New("auth: invalid totp state")
 )

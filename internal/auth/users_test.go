@@ -19,7 +19,7 @@ func TestCreateAndListUsers(t *testing.T) {
 		t.Fatalf("id=%q pw=%q", id, pw)
 	}
 	// The generated password authenticates.
-	if _, err := svc.Login(ctx, "member@example.com", []byte(pw)); err != nil {
+	if _, err := svc.Login(ctx, "member@example.com", []byte(pw), ""); err != nil {
 		t.Fatalf("login new user: %v", err)
 	}
 
@@ -32,7 +32,7 @@ func TestCreateAndListUsers(t *testing.T) {
 	if err := svc.DisableUser(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Login(ctx, "member@example.com", []byte(pw)); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.Login(ctx, "member@example.com", []byte(pw), ""); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("disabled login: %v", err)
 	}
 }
