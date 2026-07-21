@@ -250,6 +250,46 @@ func TestOIDCClientSecretWrapSealed(t *testing.T) {
 	}
 }
 
+func TestNotificationConfigWrapRoundTrip(t *testing.T) {
+	k := NewKeyring()
+	if err := k.Unseal(testKey(0xAA)); err != nil {
+		t.Fatal(err)
+	}
+	cfg := []byte(`{"url":"https://hooks.example/x","hmac_key":"k"}`)
+
+	ct, err := k.WrapNotificationConfig("chan-1", cfg)
+	if err != nil {
+		t.Fatalf("wrap: %v", err)
+	}
+	got, err := k.UnwrapNotificationConfig("chan-1", ct)
+	if err != nil {
+		t.Fatalf("unwrap: %v", err)
+	}
+	if string(got) != string(cfg) {
+		t.Fatalf("round-trip mismatch: got %q", got)
+	}
+
+	// AAD binds the channel id: a blob unwrapped under a different id fails.
+	if _, err := k.UnwrapNotificationConfig("chan-2", ct); err == nil {
+		t.Fatal("expected error unwrapping under a different channel id")
+	}
+
+	ct.Data[0] ^= 0xff
+	if _, err := k.UnwrapNotificationConfig("chan-1", ct); err == nil {
+		t.Fatal("expected error unwrapping tampered ciphertext")
+	}
+}
+
+func TestNotificationConfigWrapSealed(t *testing.T) {
+	k := NewKeyring() // sealed
+	if _, err := k.WrapNotificationConfig("c", []byte("x")); err != ErrSealed {
+		t.Fatalf("want ErrSealed, got %v", err)
+	}
+	if _, err := k.UnwrapNotificationConfig("c", Ciphertext{Nonce: make([]byte, NonceSize)}); err != ErrSealed {
+		t.Fatalf("want ErrSealed, got %v", err)
+	}
+}
+
 func TestKeyringDoubleSeal(t *testing.T) {
 	k := NewKeyring()
 	k.Seal() // sealing an already-sealed keyring must not panic
