@@ -38,6 +38,7 @@ const (
 	SecretPromote    Action = "secret:promote"    // developer+, target-env scoped
 	PromotionManage  Action = "promotion:manage"  // admin+, project-scoped (pipeline + locked keys)
 	PromotionRequest Action = "promotion:request" // developer+, source-env scoped (approval workflow)
+	NotificationManage Action = "notification:manage" // instance-scoped (alerting channels)
 )
 
 // Role is a named bundle of actions.
@@ -74,7 +75,7 @@ var (
 	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse, DynamicIssue, SecretPromote, PromotionRequest))
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, EnvUpdate, ProjectCreate, ProjectUpdate, MemberManage,
-		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage))
+		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage, NotificationManage))
 	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey))
 
 	roleActions = map[Role]map[Action]bool{

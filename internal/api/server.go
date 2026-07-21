@@ -14,6 +14,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/masterkeys"
+	"github.com/steveokay/janus-secrets/internal/notification"
 	"github.com/steveokay/janus-secrets/internal/projectkeys"
 	"github.com/steveokay/janus-secrets/internal/promote"
 	"github.com/steveokay/janus-secrets/internal/rotation"
@@ -66,7 +67,11 @@ type Server struct {
 	// names). Value-free. nil in unit-test servers built without a real store /
 	// secrets service.
 	promote *promote.Service
-	auth    *auth.Service   // nil only in unit tests that exercise no auth path
+	// notification manages alerting channels + the delivery dispatcher.
+	// Constructed in New from the keyring + store; nil in unit-test servers built
+	// without a real store.
+	notification *notification.Service
+	auth         *auth.Service   // nil only in unit tests that exercise no auth path
 	authz   *authz.Engine   // nil only in unit-test servers that exercise no authz path
 	st      *store.Store    // for scope-chain resolution + membership/user handlers
 	audit   *audit.Recorder // nil in unit-test servers; Boot always wires a real one
@@ -108,6 +113,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// locked-keys routes (and the next task's preview/apply routes).
 	if kr != nil && st != nil && svc != nil {
 		s.promote = promote.New(svc, st)
+	}
+	// Notification service: alerting channels + the audit-tailing delivery
+	// dispatcher. Available whenever a real keyring and store are wired; nil in
+	// unit-test servers built without a real store.
+	if kr != nil && st != nil {
+		s.notification = notification.New(kr, st, store.NewAuditRepo(st), logger)
 	}
 
 	r := chi.NewRouter()
@@ -379,6 +390,18 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/export", s.handleAuditExport)
 				r.Get("/events", s.handleAuditEvents)
 				r.Get("/histogram", s.handleAuditHistogram)
+			})
+		}
+		if s.notification != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/notifications/channels", s.handleNotificationCreate)
+				r.Get("/v1/notifications/channels", s.handleNotificationList)
+				r.Get("/v1/notifications/channels/{id}", s.handleNotificationGet)
+				r.Patch("/v1/notifications/channels/{id}", s.handleNotificationUpdate)
+				r.Delete("/v1/notifications/channels/{id}", s.handleNotificationDelete)
+				r.Post("/v1/notifications/channels/{id}/test", s.handleNotificationTest)
+				r.Get("/v1/notifications/channels/{id}/deliveries", s.handleNotificationDeliveries)
 			})
 		}
 		r.Group(func(r chi.Router) {

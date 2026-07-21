@@ -32,6 +32,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 const get = <T>(path: string) => request<T>('GET', path)
 const post = <T>(path: string, body?: unknown) => request<T>('POST', path, body)
 const put = <T>(path: string, body?: unknown) => request<T>('PUT', path, body)
+const patch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, body)
 const del = <T>(path: string) => request<T>('DELETE', path)
 
 /** Streams GET /v1/sys/backup and triggers a download. Sealed material only —
@@ -240,6 +241,45 @@ export interface SessionInfo {
   current: boolean
 }
 
+export type NotificationEventKind = 'rotation.failed' | 'sync.failed' | 'promotion.pending' | 'access.denied'
+
+export interface NotificationChannel {
+  id: string
+  name: string
+  type: 'webhook' | 'slack'
+  enabled: boolean
+  events: NotificationEventKind[]
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationDelivery {
+  id: string
+  event_kind: string
+  status: 'pending' | 'delivered' | 'failed'
+  attempts: number
+  next_attempt_at: string
+  last_error?: string
+  created_at: string
+  delivered_at?: string
+}
+
+export interface CreateChannelInput {
+  name: string
+  type: 'webhook' | 'slack'
+  url: string
+  hmac_key?: string
+  events: NotificationEventKind[]
+}
+
+export interface UpdateChannelInput {
+  enabled?: boolean
+  events?: NotificationEventKind[]
+  url?: string
+  hmac_key?: string
+}
+
 /* ── endpoints ────────────────────────────────────────────────── */
 
 export const api = {
@@ -386,6 +426,14 @@ export const api = {
   listSessions: () => get<{ sessions: SessionInfo[] }>('/v1/auth/sessions').then(r => r.sessions),
   revokeSession: (id: string) => del<void>(`/v1/auth/sessions/${id}`),
   revokeOtherSessions: () => del<{ revoked: number }>('/v1/auth/sessions'),
+
+  // notifications (alerting channels)
+  listChannels: () => get<{ channels: NotificationChannel[] }>('/v1/notifications/channels').then(r => r.channels),
+  createChannel: (input: CreateChannelInput) => post<NotificationChannel>('/v1/notifications/channels', input),
+  updateChannel: (id: string, input: UpdateChannelInput) => patch<NotificationChannel>(`/v1/notifications/channels/${id}`, input),
+  deleteChannel: (id: string) => del<void>(`/v1/notifications/channels/${id}`),
+  testChannel: (id: string) => post<{ delivered: boolean }>(`/v1/notifications/channels/${id}/test`),
+  listDeliveries: (id: string) => get<{ deliveries: NotificationDelivery[] }>(`/v1/notifications/channels/${id}/deliveries`).then(r => r.deliveries),
   masterKeyStatus: () => get<MasterKeyStatus>('/v1/sys/master-key'),
   rotateMasterKey: () => post<{ master_key_version: number }>('/v1/sys/master-key/rotate', {}),
   rekeyInit: () => post<{ nonce: string; required: number; submitted: number }>('/v1/sys/master-key/rekey/init', {}),

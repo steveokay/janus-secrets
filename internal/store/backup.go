@@ -18,8 +18,12 @@ type backupTable struct {
 
 // backupTables is the full-instance dump set. Excluded on purpose:
 // sessions and oidc_auth_requests (ephemeral login state — everyone
-// re-authenticates after a restore) and schema_migrations (owned by
-// golang-migrate; the header pins the version instead).
+// re-authenticates after a restore); schema_migrations (owned by
+// golang-migrate; the header pins the version instead); and the notification
+// tables (notification_channels/_deliveries/_cursor) — operational alerting
+// config re-established after a restore. The cursor is seeded to the audit head
+// at migrate time, so restoring channels without it would replay the entire
+// restored audit history as stale alerts; reconfigure channels post-restore.
 var backupTables = []backupTable{
 	{"seal_config", "id"},
 	{"auth_config", "id"},

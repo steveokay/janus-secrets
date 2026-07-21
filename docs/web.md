@@ -52,6 +52,7 @@ The app fronts the full server lifecycle:
 | `/transit` | Transit keys — create, rotate, version notches, encrypt/sign bench |
 | `/operations` | Rotation / sync / dynamic consoles with **create** flows, pause/resume, run history, credential issuance |
 | `/integrations` | OIDC SSO provider, CI federation trust bindings, sync summary |
+| `/notifications` | Alerting channels (webhook / Slack) — subscribe to rotation/sync failures, denials, pending approvals; write-only URL/HMAC, test delivery, value-free delivery history |
 | `/settings` | Instance info, master-key rotate + Shamir **rekey ceremony**, encrypted backup download, passphrase change, **active sessions** (list + revoke one / sign out everywhere else) |
 | `/trash` | Soft-deleted projects/envs/configs — restore or destroy |
 

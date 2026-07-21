@@ -20,6 +20,7 @@
   import Approvals from './screens/Approvals.svelte'
   import Trash from './screens/Trash.svelte'
   import Integrations from './screens/Integrations.svelte'
+  import Notifications from './screens/Notifications.svelte'
   import NotFound from './screens/NotFound.svelte'
 
   const configMatch = $derived(match('/projects/:pid/configs/:cid', router.path))
@@ -81,6 +82,8 @@
       <Trash />
     {:else if router.path === '/integrations'}
       <Integrations />
+    {:else if router.path === '/notifications'}
+      <Notifications />
     {:else}
       <NotFound />
     {/if}

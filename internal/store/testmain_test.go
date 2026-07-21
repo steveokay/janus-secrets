@@ -78,6 +78,7 @@ func resetDB(t *testing.T) {
 	t.Helper()
 	_, err := testStore.pool.Exec(context.Background(),
 		`TRUNCATE seal_config, auth_config, audit_events, role_bindings, service_tokens, sessions, users,
+		         notification_channels, notification_deliveries,
 		         config_version_entries, secret_values,
 		         config_versions, configs, environments, projects
 		 RESTART IDENTITY CASCADE`)

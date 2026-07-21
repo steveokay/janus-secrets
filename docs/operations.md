@@ -42,6 +42,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
+| `JANUS_NOTIFY_TICK` | no | notification dispatcher tick interval; 0 disables (Go duration, default `30s`) |
 | `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
 | `JANUS_HTTP_WRITE_TIMEOUT` | no | HTTP server write timeout (Go duration, default `0` = disabled — deliberate, so `/v1/audit/export` can stream long-running responses) |
@@ -153,6 +154,12 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus dynamic renew <lease-id>` | Extend a lease by the role's default TTL, capped at its max. Requires `dynamic:issue` |
 | `janus dynamic revoke <lease-id>` | Revoke a lease now (drops the DB role). Idempotent. Requires `dynamic:issue` |
 | `janus dynamic leases --role <id>` | List a role's leases (status, username, expiry). Requires `dynamic:issue` |
+| `janus notifications create --name <n> --type webhook\|slack --url <url> --events <csv> [--hmac-key <k>]` | Create an alerting channel. `--events` is a comma-separated subset of `rotation.failed,sync.failed,promotion.pending,access.denied`. `--hmac-key` (webhook only) signs deliveries. Requires `notification:manage` |
+| `janus notifications list [--json]` | List channels (masked — no URL/HMAC). Requires `notification:manage` |
+| `janus notifications update <id> [--enable\|--disable] [--events <csv>] [--url <url> [--hmac-key <k>]]` | Update a channel. Requires `notification:manage` |
+| `janus notifications delete <id>` | Delete a channel and its queued deliveries. Requires `notification:manage` |
+| `janus notifications test <id>` | Send a synchronous test notification. Requires `notification:manage` |
+| `janus notifications deliveries <id>` | Show recent delivery history (value-free). Requires `notification:manage` |
 
 Errors render as `message (code, HTTP status)`, e.g.
 `seal is already initialized (already_initialized, HTTP 409)`.
@@ -423,6 +430,33 @@ template authoring and quoting rules, least-privilege admin-DSN setup, the
 lease lifecycle and crash-safety, TTL/renewal semantics, and RBAC/audit —
 is in the dynamic-credentials runbook (`docs/ops/dynamic.md`).
 
+## Notifications (outbound alerting)
+
+Notification **channels** route operational events to a generic **webhook**
+or a **Slack** incoming webhook so failures find humans instead of waiting to
+be noticed. A channel subscribes to one or more event kinds —
+`rotation.failed`, `sync.failed`, `promotion.pending` (a request awaiting
+approval), and `access.denied` (any 403). Manage channels via
+`janus notifications …` (`notification:manage`, instance admin/owner) or
+`/v1/notifications/channels`; the destination **URL** and optional webhook
+**HMAC signing key** are write-only (envelope-encrypted under the master key,
+never returned or logged).
+
+Delivery is **decoupled and crash-safe**: a dispatcher (interval
+`JANUS_NOTIFY_TICK`, default `30s`) tails the **audit log** from a persisted
+cursor and, for each matching event, enqueues a delivery per subscribing
+channel into an outbox, then sends it — retrying with exponential backoff
+(1m→1h, giving up after six attempts). Because notifications are rendered
+from the audit log, which has **no value field by construction**, a
+notification can never carry a secret value — it reports the event kind,
+resource **path/name**, actor, and a sanitized category detail only. Webhook
+payloads are signed `X-Janus-Signature: sha256=<hmac>` when a key is set;
+Slack channels receive a compact `{"text": …}` message. `POST
+…/channels/{id}/test` sends a synchronous test; `GET …/channels/{id}/deliveries`
+shows recent (value-free) delivery history. The dispatcher is a clean no-op
+while the server is sealed. Notification channels are **not** included in a
+backup — reconfigure them after a restore.
+
 ## Secrets CLI (developer & CI flows)
 
 The same `janus` binary is the client for the secrets routes above. Full
@@ -499,8 +533,10 @@ type has no value field); the log records key names and paths only.
 **What gets audited.** Mutations: token mint/revoke, user create/disable, member
 grant/revoke, `sys.seal`, and `auth.login` (success, plus failed attempts as a
 `denied`/anonymous event with the attempted email — brute-force visibility),
-`auth.logout`, `auth.password_change`, and session revocation
-(`auth.session.revoke`, `auth.session.revoke_others`). Every denied (`403`)
+`auth.logout`, `auth.password_change`, session revocation
+(`auth.session.revoke`, `auth.session.revoke_others`), and notification channel
+management (`notification.channel.create/update/delete`, `notification.channel.test`).
+Every denied (`403`)
 authorization decision on these endpoints is recorded as a `denied` event.
 **Not** audited: masked/metadata reads (token/user/member `LIST`,
 `/v1/auth/me`, the session **list** `/v1/auth/sessions`, and

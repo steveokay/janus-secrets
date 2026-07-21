@@ -97,6 +97,14 @@ func DynamicConfigAAD(roleID string) []byte {
 	return appendField([]byte("janus:dynamic:config"), roleID)
 }
 
+// NotificationChannelAAD binds a notification channel's master-wrapped config
+// blob (destination URL + optional HMAC signing key) to its channel id, in a
+// domain distinct from every other AAD, so a config row copied to another
+// channel fails to unwrap.
+func NotificationChannelAAD(channelID string) []byte {
+	return appendField([]byte("janus:notification:channel"), channelID)
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

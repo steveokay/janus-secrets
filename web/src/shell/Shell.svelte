@@ -38,6 +38,7 @@
       items: [
         { code: 'TK', label: 'Service tokens', href: '/tokens' },
         { code: 'MB', label: 'Members', href: '/members' },
+        { code: 'NT', label: 'Notifications', href: '/notifications' },
         { code: 'ST', label: 'Settings', href: '/settings' },
         { code: 'TS', label: 'Trash', href: '/trash' },
       ],

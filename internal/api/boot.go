@@ -52,6 +52,9 @@ type BootConfig struct {
 	// DynamicTick is the dynamic lease-manager tick interval. Zero disables the
 	// scheduler (tests).
 	DynamicTick time.Duration
+	// NotificationTick is the notification dispatcher's tick interval. Zero
+	// disables the dispatcher (tests); cmd/janus applies the production default.
+	NotificationTick time.Duration
 	// HTTP server hardening. Zero on any field disables that timeout (Go's
 	// default). cmd/janus applies production defaults; tests building BootConfig
 	// directly get zero.
@@ -173,6 +176,11 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// (tests) disables it.
 	if bc.DynamicTick > 0 {
 		go dynamicSvc.RunScheduler(ctx, bc.DynamicTick)
+	}
+	// Start the notification dispatcher on the same boot ctx. Zero tick (tests)
+	// disables it. Constructed inside New (needs only keyring + store).
+	if bc.NotificationTick > 0 && srv.notification != nil {
+		go srv.notification.RunScheduler(ctx, bc.NotificationTick)
 	}
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and
