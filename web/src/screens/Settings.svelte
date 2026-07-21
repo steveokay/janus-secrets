@@ -25,11 +25,125 @@
   let sessions = $state<SessionInfo[] | null>(null)
   let sessError = $state('')
 
+  /* two-factor (TOTP) */
+  type TotpStatus = { enabled: boolean; recovery_remaining: number }
+  let totp = $state<TotpStatus | null>(null)
+  let totpError = $state('')
+  let totpBusy = $state(false)
+  /* enrollment (shown once, component state only) */
+  let enroll = $state<{ secret: string; otpauth_url: string } | null>(null)
+  let confirmCode = $state('')
+  /* recovery codes (shown once, component state only) */
+  let recoveryCodes = $state<string[] | null>(null)
+  /* regenerate flow */
+  let regenOpen = $state(false)
+  let regenCode = $state('')
+
   $effect(() => {
     api.version().then(v => (version = v)).catch(() => (version = null))
     void loadMk()
     void loadSessions()
+    void loadTotp()
   })
+
+  async function loadTotp() {
+    totpError = ''
+    try {
+      totp = await api.totpStatus()
+    } catch (err) {
+      totpError = errorMessage(err, 'Could not load two-factor status.')
+      totp = null
+    }
+  }
+
+  async function startEnroll() {
+    totpError = ''
+    recoveryCodes = null
+    confirmCode = ''
+    totpBusy = true
+    try {
+      enroll = await api.totpEnroll()
+    } catch (err) {
+      totpError = errorMessage(err, 'Could not begin enrollment.')
+    } finally {
+      totpBusy = false
+    }
+  }
+
+  function cancelEnroll() {
+    enroll = null
+    confirmCode = ''
+    totpError = ''
+  }
+
+  async function confirmEnroll(e: SubmitEvent) {
+    e.preventDefault()
+    totpError = ''
+    totpBusy = true
+    try {
+      const res = await api.totpConfirm(confirmCode.trim())
+      enroll = null
+      confirmCode = ''
+      recoveryCodes = res.recovery_codes
+      await loadTotp()
+    } catch (err) {
+      totpError = errorMessage(err, 'That code was not accepted.')
+    } finally {
+      totpBusy = false
+    }
+  }
+
+  async function regenSubmit(e: SubmitEvent) {
+    e.preventDefault()
+    totpError = ''
+    totpBusy = true
+    try {
+      const res = await api.totpRegenerateRecovery(regenCode.trim())
+      regenOpen = false
+      regenCode = ''
+      recoveryCodes = res.recovery_codes
+      await loadTotp()
+    } catch (err) {
+      totpError = errorMessage(err, 'That code was not accepted.')
+    } finally {
+      totpBusy = false
+    }
+  }
+
+  async function disableTotp() {
+    totpError = ''
+    const code = await dialog.prompt({
+      title: 'Disable two-factor?',
+      body: 'Enter a current authenticator code (or a recovery code) to confirm. Your account will no longer require a second factor.',
+      label: 'Current code',
+      placeholder: '123456 or a recovery code',
+      confirmLabel: 'Disable two-factor',
+      danger: true,
+    })
+    if (code === null) return
+    const trimmed = code.trim()
+    if (!trimmed) {
+      totpError = 'A current code is required to disable two-factor.'
+      return
+    }
+    totpBusy = true
+    try {
+      await api.totpDisable(trimmed)
+      flash('Two-factor disabled.')
+      recoveryCodes = null
+      await loadTotp()
+    } catch (err) {
+      totpError = errorMessage(err, 'Could not disable two-factor.')
+    } finally {
+      totpBusy = false
+    }
+  }
+
+  function copyRecovery() {
+    if (!recoveryCodes) return
+    navigator.clipboard.writeText(recoveryCodes.join('\n'))
+    flash('Recovery codes copied.')
+  }
 
   async function loadSessions() {
     sessError = ''
@@ -321,6 +435,101 @@
       {/if}
     </div>
   </section>
+
+  <section class="op-section rise" style="animation-delay: 240ms">
+    <div class="section-head">
+      <h3>Two-factor authentication</h3>
+      <span class="folio">a time-based code from your authenticator app, in addition to your passphrase</span>
+    </div>
+    <div class="sheet card">
+      {#if totp === null}
+        <p class="folio">Loading…</p>
+      {:else if recoveryCodes}
+        <!-- Recovery codes are shown exactly once, on this device only. -->
+        <div class="new-shares">
+          <span class="stamp ok flat">Recovery codes — shown exactly once</span>
+          <p class="folio">Store these somewhere safe now. Each code can be used once if you lose your authenticator. They will not be shown again.</p>
+          <ol class="codes">
+            {#each recoveryCodes as rc, i}
+              <li><span class="folio">{i + 1}</span><code class="mono">{rc}</code></li>
+            {/each}
+          </ol>
+          <div class="row">
+            <button class="btn btn-sm" onclick={copyRecovery}>Copy all</button>
+            <button class="btn btn-sm" onclick={() => (recoveryCodes = null)}>I have stored them — dismiss</button>
+          </div>
+        </div>
+      {:else if enroll}
+        <!-- Secret + otpauth URI shown once, in component state only. -->
+        <div class="enroll">
+          <p class="folio">Add this account to your authenticator app — scan is not available here, so paste the setup link or type the secret manually. Then enter the 6-digit code it shows to finish.</p>
+          <div class="kv">
+            <span class="label">Secret</span>
+            <div class="mono-line">
+              <code class="mono">{enroll.secret}</code>
+              <button class="btn btn-ghost btn-sm" type="button"
+                onclick={() => { navigator.clipboard.writeText(enroll!.secret); flash('Secret copied.') }}>Copy</button>
+            </div>
+          </div>
+          <div class="kv">
+            <span class="label">Setup link</span>
+            <div class="mono-line">
+              <code class="mono uri">{enroll.otpauth_url}</code>
+              <button class="btn btn-ghost btn-sm" type="button"
+                onclick={() => { navigator.clipboard.writeText(enroll!.otpauth_url); flash('Setup link copied.') }}>Copy</button>
+            </div>
+          </div>
+          <form class="code-form" onsubmit={confirmEnroll}>
+            <label class="field"><span class="label" id="totp-confirm-lbl">Verification code</span>
+              <input class="field-ruled mono" bind:value={confirmCode} aria-labelledby="totp-confirm-lbl"
+                placeholder="123456" autocomplete="one-time-code" inputmode="numeric"
+                autocapitalize="off" spellcheck="false" /></label>
+            <button class="btn btn-primary btn-sm" type="submit" disabled={totpBusy || !confirmCode.trim()}>
+              {totpBusy ? 'Confirming…' : 'Confirm & enable'}
+            </button>
+            <button class="btn btn-ghost btn-sm" type="button" onclick={cancelEnroll} disabled={totpBusy}>Cancel</button>
+          </form>
+        </div>
+      {:else if totp.enabled}
+        <div class="tfa-enabled">
+          <div class="status-line">
+            <span class="stamp ok flat">Enabled</span>
+            <span class="folio {totp.recovery_remaining <= 2 ? 'low' : ''}">
+              {totp.recovery_remaining} recovery code{totp.recovery_remaining === 1 ? '' : 's'} remaining
+              {#if totp.recovery_remaining <= 2}— regenerate soon{/if}
+            </span>
+          </div>
+          {#if regenOpen}
+            <form class="code-form" onsubmit={regenSubmit}>
+              <label class="field"><span class="label" id="totp-regen-lbl">Current code to regenerate</span>
+                <input class="field-ruled mono" bind:value={regenCode} aria-labelledby="totp-regen-lbl"
+                  placeholder="123456 or a recovery code" autocomplete="one-time-code" inputmode="numeric"
+                  autocapitalize="off" spellcheck="false" /></label>
+              <button class="btn btn-primary btn-sm" type="submit" disabled={totpBusy || !regenCode.trim()}>
+                {totpBusy ? 'Working…' : 'Regenerate'}
+              </button>
+              <button class="btn btn-ghost btn-sm" type="button"
+                onclick={() => { regenOpen = false; regenCode = ''; totpError = '' }} disabled={totpBusy}>Cancel</button>
+            </form>
+          {:else}
+            <div class="row">
+              <button class="btn" onclick={() => { regenOpen = true; regenCode = ''; totpError = '' }} disabled={totpBusy}>Regenerate recovery codes</button>
+              <button class="btn btn-stamp" onclick={disableTotp} disabled={totpBusy}>Disable two-factor</button>
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <div class="tfa-disabled">
+          <p class="folio">Two-factor is not enabled. Protect your account with a code from an authenticator app.</p>
+          <button class="btn btn-primary" onclick={startEnroll} disabled={totpBusy}>
+            {totpBusy ? 'Preparing…' : 'Enable two-factor'}
+          </button>
+        </div>
+      {/if}
+
+      {#if totpError}<p class="error">{totpError}</p>{/if}
+    </div>
+  </section>
 </div>
 
 <style>
@@ -369,4 +578,25 @@
   .sessions .dev { font-size: var(--text-sm); margin-right: var(--s2); }
   .sessions .ip, .sessions .when { font-size: var(--text-xs); color: var(--ink-faint); }
   .sessions .act { text-align: right; width: 1%; white-space: nowrap; }
+
+  /* two-factor */
+  .tfa-enabled, .tfa-disabled, .enroll { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; }
+  .status-line { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+  .status-line .low { color: var(--vermilion); }
+  .kv { display: flex; flex-direction: column; gap: var(--s1); width: 100%; }
+  .mono-line { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .mono-line code { font-size: var(--text-xs); word-break: break-all; }
+  .mono-line .uri { max-width: 100%; }
+  .code-form { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s2); }
+  .code-form .field-ruled { max-width: 220px; }
+  .codes { list-style: none; width: 100%; border-top: 1px solid var(--rule); }
+  .codes li {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: var(--s3);
+    align-items: center;
+    padding: var(--s2) 0;
+    border-bottom: 1px solid var(--rule-faint);
+  }
+  .codes code { font-size: var(--text-xs); word-break: break-all; }
 </style>
