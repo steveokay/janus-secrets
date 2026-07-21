@@ -1,0 +1,2 @@
+ALTER TABLE sessions DROP COLUMN IF EXISTS user_agent;
+ALTER TABLE sessions DROP COLUMN IF EXISTS ip;

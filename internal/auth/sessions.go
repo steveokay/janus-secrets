@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"errors"
 	"time"
 
@@ -68,7 +69,8 @@ func (s *Service) createSession(ctx context.Context, userID string) (string, err
 		return "", err
 	}
 	defer zeroize(key)
-	if _, err := s.sessions.Create(ctx, userID, mac(key, cookie), time.Now().Add(sessionTTL)); err != nil {
+	meta := sessionMetaFrom(ctx)
+	if _, err := s.sessions.Create(ctx, userID, mac(key, cookie), time.Now().Add(sessionTTL), meta.IP, meta.UserAgent); err != nil {
 		return "", err
 	}
 	return cookie, nil
@@ -155,4 +157,85 @@ func (s *Service) ChangePassword(ctx context.Context, userID string, oldPW, newP
 // SweepExpiredSessions removes all expired sessions (called at boot).
 func (s *Service) SweepExpiredSessions(ctx context.Context) error {
 	return s.sessions.DeleteExpired(ctx)
+}
+
+// SessionInfo describes one active session for the self-service management
+// surface. It carries no credential material — no HMAC, no cookie value — only
+// non-secret metadata and a Current flag marking the requesting session.
+type SessionInfo struct {
+	ID         string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	ExpiresAt  time.Time
+	IP         string
+	UserAgent  string
+	Current    bool
+}
+
+// ListSessions returns a user's non-expired sessions. currentCookie (the
+// caller's own cookie, or "") marks which entry is the requesting session so
+// the UI never lets a user cut the branch they are sitting on by accident.
+func (s *Service) ListSessions(ctx context.Context, userID, currentCookie string) ([]SessionInfo, error) {
+	var currentHMAC []byte
+	if currentCookie != "" {
+		key, err := s.hmacKey(ctx)
+		if err != nil {
+			return nil, err
+		}
+		currentHMAC = mac(key, currentCookie)
+		zeroize(key)
+	}
+	rows, err := s.sessions.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SessionInfo, 0, len(rows))
+	for _, sess := range rows {
+		info := SessionInfo{
+			ID: sess.ID, CreatedAt: sess.CreatedAt, LastSeenAt: sess.LastSeenAt,
+			ExpiresAt: sess.ExpiresAt, Current: hmac.Equal(sess.TokenHMAC, currentHMAC),
+		}
+		if sess.IP != nil {
+			info.IP = *sess.IP
+		}
+		if sess.UserAgent != nil {
+			info.UserAgent = *sess.UserAgent
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// RevokeSession deletes one of the user's own sessions by id. Revoking a
+// session belonging to another user is indistinguishable from a missing one
+// (ErrNotFound) — the store scopes the delete to userID.
+func (s *Service) RevokeSession(ctx context.Context, userID, sessionID string) error {
+	err := s.sessions.DeleteForUser(ctx, sessionID, userID)
+	if errors.Is(err, store.ErrNotFound) {
+		return ErrNotFound
+	}
+	return err
+}
+
+// RevokeOtherSessions deletes all of the user's sessions except the one
+// identified by currentCookie (kept so the caller stays logged in). A "" cookie
+// (e.g. a token-authenticated caller) revokes every session. Returns the count.
+func (s *Service) RevokeOtherSessions(ctx context.Context, userID, currentCookie string) (int, error) {
+	var keepID *string
+	if currentCookie != "" {
+		key, err := s.hmacKey(ctx)
+		if err != nil {
+			return 0, err
+		}
+		sess, err := s.sessions.GetByHMAC(ctx, mac(key, currentCookie))
+		zeroize(key)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return 0, err
+		}
+		if sess != nil {
+			keepID = &sess.ID
+		}
+	}
+	n, err := s.sessions.DeleteOthersForUser(ctx, userID, keepID)
+	return int(n), err
 }

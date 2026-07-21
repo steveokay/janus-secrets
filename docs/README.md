@@ -129,7 +129,7 @@ Running Janus and connecting it to the outside world:
 ## Status
 
 All three build phases (Core, Transit + UI, Rotation + dynamic) have shipped.
-See [`../status.md`](../status.md) for the live milestone tracker and
-[`../gaps.md`](../gaps.md) for the current gap analysis and priority order.
+See [`../status.md`](../status.md) for the open-items tracker (backend/ops
+gaps + the forward product roadmap).
 
-Forward-looking feature proposals live in [roadmap.md](roadmap.md).
+Forward-looking feature proposals also live in [roadmap.md](roadmap.md).

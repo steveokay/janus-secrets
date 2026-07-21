@@ -1776,6 +1776,62 @@ paths:
         "204": { description: Changed. }
         "400": { description: Validation error. }
         "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/sessions:
+    get:
+      tags: [auth]
+      summary: List the current user's active sessions
+      description: >-
+        Self-service. Returns the calling user's non-expired sessions with
+        non-secret client metadata (IP, user-agent) and a flag marking the
+        requesting session. No credential material is returned.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        created_at: { type: string, format: date-time }
+                        last_seen_at: { type: string, format: date-time }
+                        expires_at: { type: string, format: date-time }
+                        ip: { type: string }
+                        user_agent: { type: string }
+                        current: { type: boolean }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [auth]
+      summary: Revoke all other sessions
+      description: Deletes every session of the calling user except the current one.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/sessions/{id}:
+    delete:
+      tags: [auth]
+      summary: Revoke one of the current user's sessions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { description: No such session owned by the caller. }
   /v1/auth/oidc/status:
     get:
       tags: [auth]

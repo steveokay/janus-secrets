@@ -22,6 +22,11 @@ type Session struct {
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	LastSeenAt time.Time
+	// IP and UserAgent are non-secret client metadata captured at mint so the
+	// user can recognize a session in the management surface. Nil when unknown
+	// (pre-migration sessions, non-HTTP mints).
+	IP        *string
+	UserAgent *string
 }
 
 // ServiceToken is a long-lived machine credential. TokenHMAC is the

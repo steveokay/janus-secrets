@@ -1,6 +1,6 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
-  import { api, downloadBackup, errorMessage, type VersionInfo, type MasterKeyStatus } from '../lib/api'
+  import { api, downloadBackup, errorMessage, type VersionInfo, type MasterKeyStatus, type SessionInfo } from '../lib/api'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
 
@@ -21,10 +21,79 @@
   let newShares = $state<string[] | null>(null)
   let rekeyError = $state('')
 
+  /* active sessions */
+  let sessions = $state<SessionInfo[] | null>(null)
+  let sessError = $state('')
+
   $effect(() => {
     api.version().then(v => (version = v)).catch(() => (version = null))
     void loadMk()
+    void loadSessions()
   })
+
+  async function loadSessions() {
+    sessError = ''
+    try {
+      sessions = await api.listSessions()
+    } catch (err) {
+      sessError = errorMessage(err, 'Could not load sessions.')
+      sessions = []
+    }
+  }
+
+  /* A short human label for a session's device from its user-agent. Best-effort,
+     display-only — the raw string stays available in the title attribute. */
+  function deviceLabel(ua: string): string {
+    if (!ua) return 'Unknown device'
+    if (/janus-cli|Go-http-client/i.test(ua)) return 'CLI / API client'
+    let os = ''
+    if (/Windows/i.test(ua)) os = 'Windows'
+    else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macOS'
+    else if (/Android/i.test(ua)) os = 'Android'
+    else if (/iPhone|iPad|iOS/i.test(ua)) os = 'iOS'
+    else if (/Linux/i.test(ua)) os = 'Linux'
+    let br = ''
+    if (/Edg\//i.test(ua)) br = 'Edge'
+    else if (/Chrome\//i.test(ua)) br = 'Chrome'
+    else if (/Firefox\//i.test(ua)) br = 'Firefox'
+    else if (/Safari\//i.test(ua)) br = 'Safari'
+    return [br, os].filter(Boolean).join(' · ') || 'Browser'
+  }
+
+  async function revokeSession(s: SessionInfo) {
+    const ok = await dialog.confirm({
+      title: 'Revoke this session?',
+      body: 'That device will be signed out immediately.',
+      confirmLabel: 'Revoke',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      await api.revokeSession(s.id)
+      flash('Session revoked.')
+      await loadSessions()
+    } catch (err) {
+      flash(errorMessage(err, 'Revoke failed.'))
+    }
+  }
+
+  async function revokeOthers() {
+    const others = (sessions ?? []).filter(s => !s.current).length
+    const ok = await dialog.confirm({
+      title: 'Sign out everywhere else?',
+      body: `Every session except this one will be revoked${others ? ` (${others})` : ''}.`,
+      confirmLabel: 'Revoke all others',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const { revoked } = await api.revokeOtherSessions()
+      flash(revoked === 1 ? '1 other session revoked.' : `${revoked} other sessions revoked.`)
+      await loadSessions()
+    } catch (err) {
+      flash(errorMessage(err, 'Revoke failed.'))
+    }
+  }
 
   async function loadMk() {
     mk = await api.masterKeyStatus().catch(() => null)
@@ -203,6 +272,55 @@
       </form>
     </div>
   </section>
+
+  <section class="op-section rise" style="animation-delay: 190ms">
+    <div class="section-head">
+      <h3>Active sessions</h3>
+      <span class="folio">your signed-in devices · revoke anything you don't recognize</span>
+    </div>
+    <div class="sheet card">
+      {#if sessError}
+        <p class="error">{sessError}</p>
+      {:else if sessions === null}
+        <p class="folio">Loading…</p>
+      {:else if sessions.length === 0}
+        <p class="folio">No active sessions.</p>
+      {:else}
+        <table class="ledger sessions">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>IP</th>
+              <th>Last seen</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each sessions as s (s.id)}
+              <tr>
+                <td>
+                  <span class="dev" title={s.user_agent || ''}>{deviceLabel(s.user_agent)}</span>
+                  {#if s.current}<span class="pill pill-info">this device</span>{/if}
+                </td>
+                <td class="mono ip">{s.ip || '—'}</td>
+                <td class="mono when" title={s.last_seen_at}>{relTime(s.last_seen_at)}</td>
+                <td class="act">
+                  {#if !s.current}
+                    <button class="btn btn-ghost btn-sm" onclick={() => revokeSession(s)}>Revoke</button>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if sessions.some(s => !s.current)}
+          <div class="row" style="margin-top: var(--s4)">
+            <button class="btn" onclick={revokeOthers}>Sign out all other sessions</button>
+          </div>
+        {/if}
+      {/if}
+    </div>
+  </section>
 </div>
 
 <style>
@@ -237,4 +355,18 @@
 
   .pw-form { display: flex; align-items: flex-end; gap: var(--s4); flex-wrap: wrap; }
   .field { display: flex; flex-direction: column; gap: var(--s1); min-width: 220px; }
+
+  .sessions { width: 100%; }
+  .sessions thead th {
+    text-align: left;
+    font-size: var(--text-xs);
+    color: var(--ink-faint);
+    font-weight: 600;
+    padding-bottom: var(--s2);
+    border-bottom: 1px solid var(--rule);
+  }
+  .sessions tbody td { padding: var(--s2) 0; border-bottom: 1px solid var(--rule-faint); vertical-align: middle; }
+  .sessions .dev { font-size: var(--text-sm); margin-right: var(--s2); }
+  .sessions .ip, .sessions .when { font-size: var(--text-xs); color: var(--ink-faint); }
+  .sessions .act { text-align: right; width: 1%; white-space: nowrap; }
 </style>

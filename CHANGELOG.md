@@ -23,6 +23,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- Session management (self-service): `GET /v1/auth/sessions` lists your active
+  sessions with non-secret client metadata (IP, user-agent, last-seen) and a
+  current-session marker; `DELETE /v1/auth/sessions/{id}` revokes one and
+  `DELETE /v1/auth/sessions` signs out everywhere else. Sessions now record the
+  client IP and user-agent at login (migration 000023). Surfaced in the web UI
+  under **Settings → Active sessions** and via the `janus session list/revoke`
+  CLI. No credential material is ever returned; a caller can only see and revoke
+  their own sessions.
 - Typed secrets (value/password/json/ssh_key/certificate/note): per-type editor,
   validation, and generate; type carried through promotion and clone; CLI
   `secrets set --type`.

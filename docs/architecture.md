@@ -138,6 +138,6 @@ inheritance + secret references (`internal/resolve`), per-project KEK rotation
 and master-key rotation, trash/restore, per-key value history, typed secrets,
 an env-to-env promotion pipeline with a four-eyes approval workflow, cursor
 pagination, an `Idempotency-Key` middleware, and an audit event histogram. See
-`../gaps.md` and the per-feature progress notes for the full history.
+`../status.md` for what remains open and git/PR history for the full detail.
 HA/Raft, PKI/CA, SSH signing, HSM, multi-tenancy, and FIPS claims remain
 explicit non-goals.
