@@ -366,8 +366,7 @@ crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
 audit log (hash-chained, tamper-evident) ✅ → REST API ✅ → CLI with `run` ✅ →
-config inheritance + secret references ✅. **Phase 1 complete.** Live tracker:
-[status.md](status.md).
+config inheritance + secret references ✅. **Phase 1 complete.**
 
 **Phase 2 — Transit + UI:** transit/KMS engine ✅ (sub-project A — see
 [docs/transit.md](docs/transit.md)); SPA ✅ (sub-project B — embedded
@@ -383,9 +382,8 @@ webhook) ✅; sync integrations (GitHub Actions, Kubernetes) ✅; dynamic Postgr
 credentials with a lease manager ✅. **Phase 3 complete.**
 
 All three build phases have shipped. Remaining work is polish and further
-feature depth — see the live [state & roadmap](docs/roadmap.md) (the earlier
-per-milestone [status.md](status.md) build log and [gap analysis](gaps.md)
-are kept for history; most of the latter's findings have since shipped).
+feature depth — see the live [state & roadmap](docs/roadmap.md) and the
+[open-items tracker](status.md).
 
 ### Non-goals
 

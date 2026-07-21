@@ -48,3 +48,4 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 | rotation / sync / dynamic creds | Operations ([guide](operations-console.md)) |
 | recover something deleted | Trash ([guide](trash-and-recovery.md)) |
 | rotate/rekey the master key, backups | Settings ([guide](master-key-and-backup.md)) |
+| review or revoke your logged-in devices | Settings → **Active sessions** |

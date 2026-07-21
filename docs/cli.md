@@ -42,6 +42,8 @@ Any error exits non-zero.
 janus login [--email E] [--address URL]                 # password prompt → store session
 janus logout                                            # server logout (best-effort) + clear session
 janus whoami [--json]                                   # show the authenticated principal
+janus session list [--json]                             # your active sessions (current marked *)
+janus session revoke <id> | --others                    # revoke one session, or sign out everywhere else
 janus setup [--project P --env E --config C]            # validate + write ./.janus.yaml
 
 janus secrets list [--json]                             # masked table + ORIGIN (no reveal, no audit)
@@ -234,6 +236,23 @@ Shows the authenticated principal (user email or service token name),
 resolved with the same credential precedence as every other command
 (`--token` > `JANUS_TOKEN` > stored session). Useful for confirming which
 identity a script or CI job is about to act as before it touches secrets.
+
+### `janus session`
+
+```bash
+janus session list                 # active sessions; the current one is marked *
+janus session list --json          # machine-readable
+janus session revoke <id>          # revoke one session by id
+janus session revoke --others      # sign out every other session, keep this one
+```
+
+Self-service management of your own login sessions, over
+`GET/DELETE /v1/auth/sessions`. `list` shows each session's IP, last-seen time,
+and user-agent (non-secret metadata — no cookie or credential material is ever
+returned); the session behind the current credential is flagged. `revoke`
+deletes one of *your* sessions (another user's id is indistinguishable from a
+missing one), and `--others` is the "log out everywhere else" action. The same
+surface is available in the web UI under **Settings → Active sessions**.
 
 ### `janus setup`
 

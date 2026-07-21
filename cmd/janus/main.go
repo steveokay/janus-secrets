@@ -47,6 +47,7 @@ func newRootCmd() *cobra.Command {
 		newDynamicCmd(),
 		newVersionCmd(),
 		newWhoamiCmd(),
+		newSessionCmd(),
 		newCompletionCmd(),
 	)
 	return root

@@ -174,6 +174,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/logout", s.handleLogout)
 				r.Get("/me", s.handleMe)
 				r.With(loginLimiter.middleware).Post("/password", s.handlePasswordChange)
+				r.Get("/sessions", s.handleSessionList)
+				r.Delete("/sessions", s.handleSessionRevokeOthers)
+				r.Delete("/sessions/{id}", s.handleSessionRevoke)
 			})
 		})
 	}

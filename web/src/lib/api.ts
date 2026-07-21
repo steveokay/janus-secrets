@@ -230,6 +230,16 @@ export interface MasterKeyStatus {
   required: number
 }
 
+export interface SessionInfo {
+  id: string
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  ip: string
+  user_agent: string
+  current: boolean
+}
+
 /* ── endpoints ────────────────────────────────────────────────── */
 
 export const api = {
@@ -371,6 +381,9 @@ export const api = {
   // account + master key + backup
   changePassword: (current_password: string, new_password: string) =>
     post<void>('/v1/auth/password', { current_password, new_password }),
+  listSessions: () => get<{ sessions: SessionInfo[] }>('/v1/auth/sessions').then(r => r.sessions),
+  revokeSession: (id: string) => del<void>(`/v1/auth/sessions/${id}`),
+  revokeOtherSessions: () => del<{ revoked: number }>('/v1/auth/sessions'),
   masterKeyStatus: () => get<MasterKeyStatus>('/v1/sys/master-key'),
   rotateMasterKey: () => post<{ master_key_version: number }>('/v1/sys/master-key/rotate', {}),
   rekeyInit: () => post<{ nonce: string; required: number; submitted: number }>('/v1/sys/master-key/rekey/init', {}),

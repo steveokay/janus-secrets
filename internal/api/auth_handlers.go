@@ -22,7 +22,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "email and password are required")
 		return
 	}
-	cookie, err := s.auth.Login(r.Context(), req.Email, []byte(req.Password))
+	cookie, err := s.auth.Login(withSessionMeta(r), req.Email, []byte(req.Password))
 	if err != nil {
 		// Failed login: audit as a denied, anonymous attempt (the attempted
 		// email is an input, not a secret) for brute-force visibility. Audit

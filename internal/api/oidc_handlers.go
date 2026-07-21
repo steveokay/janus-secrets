@@ -87,7 +87,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_oidc_state", "authentication failed")
 		return
 	}
-	cookie, p, err := s.auth.CompleteOIDCLogin(r.Context(), q.Get("state"), q.Get("code"))
+	cookie, p, err := s.auth.CompleteOIDCLogin(withSessionMeta(r), q.Get("state"), q.Get("code"))
 	if err != nil {
 		code, status := "oidc_denied", http.StatusUnauthorized
 		if errors.Is(err, auth.ErrInvalidOIDCState) {
