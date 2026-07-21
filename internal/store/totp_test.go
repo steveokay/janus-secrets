@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -205,5 +206,61 @@ func TestTOTPRepo_ConsumeRecoveryCodeSingleUse(t *testing.T) {
 	}
 	if n, _ := repo.CountUnusedRecoveryCodes(ctx, other); n != 1 {
 		t.Fatalf("other user's code was affected: %d", n)
+	}
+}
+
+// TestTOTPRepo_ConsumeRecoveryCodeConcurrent fires many parallel consumes of the
+// same code and asserts exactly one wins — no double-spend under READ COMMITTED.
+func TestTOTPRepo_ConsumeRecoveryCodeConcurrent(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewTOTPRepo(s)
+	uid := mkTOTPUser(t, s, "race@example.com")
+	if err := repo.Upsert(ctx, uid, []byte("wrapped-secret-race-0000000000000")); err != nil {
+		t.Fatal(err)
+	}
+	code := []byte("code-hmac-race-00000000000000000")
+	if err := repo.ReplaceRecoveryCodes(ctx, uid, [][]byte{code}); err != nil {
+		t.Fatal(err)
+	}
+
+	const goroutines = 16
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make(chan bool, goroutines)
+	errs := make(chan error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // release all at once to maximize contention
+			ok, err := repo.ConsumeRecoveryCode(ctx, uid, code)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- ok
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("concurrent consume error: %v", err)
+	}
+	wins := 0
+	for ok := range results {
+		if ok {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent single-use: %d goroutines succeeded, want exactly 1", wins)
+	}
+	if n, _ := repo.CountUnusedRecoveryCodes(ctx, uid); n != 0 {
+		t.Fatalf("count after concurrent consume = %d, want 0", n)
 	}
 }

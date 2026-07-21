@@ -94,14 +94,19 @@ func (r *TOTPRepo) ReplaceRecoveryCodes(ctx context.Context, userID string, hmac
 }
 
 // ConsumeRecoveryCode marks one unused recovery code (by its HMAC) as spent,
-// returning true iff a matching unused code existed.
+// returning true iff a matching unused code existed. Single-use is enforced
+// unconditionally: the inner SELECT takes a row lock with FOR UPDATE SKIP
+// LOCKED and the outer UPDATE repeats used_at IS NULL, so two concurrent
+// logins presenting the same code can never both succeed — the loser's
+// subquery skips the locked row and matches nothing.
 func (r *TOTPRepo) ConsumeRecoveryCode(ctx context.Context, userID string, codeHMAC []byte) (bool, error) {
 	var id string
 	err := r.s.pool.QueryRow(ctx,
 		`UPDATE user_recovery_codes SET used_at = now()
-		  WHERE id = (SELECT id FROM user_recovery_codes
+		  WHERE used_at IS NULL
+		    AND id = (SELECT id FROM user_recovery_codes
 		              WHERE user_id = $1::uuid AND code_hmac = $2 AND used_at IS NULL
-		              LIMIT 1)
+		              LIMIT 1 FOR UPDATE SKIP LOCKED)
 		  RETURNING id::text`, userID, codeHMAC).Scan(&id)
 	if err != nil {
 		if err == pgx.ErrNoRows {
