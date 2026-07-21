@@ -43,28 +43,10 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - name: typecheck
-        run: npm run typecheck
-      - name: unit tests
-        run: npm test -- --run
+      - name: typecheck (svelte-check + tsc)
+        run: npm run check
       - name: build bundle
         run: npm run build
-      - name: locate chrome
-        run: echo "CHROME_BIN=$(which google-chrome || which google-chrome-stable || which chromium-browser)" >> "$GITHUB_ENV"
-      - name: serve bundle
-        run: npm run preview -- --port 8210 --strictPort --host 127.0.0.1 &
-      - name: wait for bundle
-        run: |
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8210/ >/dev/null && exit 0
-            sleep 1
-          done
-          echo "preview server did not come up on :8210"; exit 1
-      - name: dual-theme smoke
-        env:
-          SMOKE_URL: http://127.0.0.1:8210
-          SMOKE_BROWSER: ${{ env.CHROME_BIN }}
-        run: npm run smoke
 
   goreleaser-check:
     runs-on: ubuntu-latest

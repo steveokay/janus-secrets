@@ -129,6 +129,8 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus seal` | Re-seal a running server — wipes the master key from memory (incident response). Requires an admin (`sys:seal`): authenticates like the secrets commands — `--token` > `JANUS_TOKEN` > the stored session from `janus login` — and its `--address` falls back to the stored login address |
 | `janus backup [--out FILE]` | Stream a key-preserving full-instance backup (JSONL) to stdout or `--out` (written atomically, mode 0600). The dump contains only wrapped keys and ciphertext — useless without the original unseal material. Requires an admin (`sys:backup`): authenticates like `janus seal` — `--token` > `JANUS_TOKEN` > stored session. See the backup & restore runbook (`docs/ops/backup-restore.md`) |
 | `janus restore [file]` | Restore a backup into an **empty** instance (fresh database, before init); reads stdin when no file is given. Unauthenticated by design — it is a pre-init bootstrap operation like `janus init`. Afterwards the instance is sealed: unseal with the ORIGINAL shares/KMS key. See the backup & restore runbook |
+| `janus session list [--json]` | List your own active login sessions (IP, user-agent, last-seen; the current session is marked `*`). Metadata only — no credential material |
+| `janus session revoke <id> \| --others` | Revoke one of your sessions by id, or `--others` to sign out every session except the current one |
 | `janus migrate` | Apply migrations explicitly (`JANUS_DATABASE_URL`) |
 | `janus version` | Print the version |
 | `janus rotation create --config <id> --key <k> --type postgres\|webhook --interval-seconds <n> [...]` | Create a rotation policy on a config's secret key. `postgres` type: `--admin-dsn`, `--role`, `--password-len` (default 32). `webhook` type: `--url`, `--hmac-key`. Either type: optional `--notify-url`/`--notify-hmac-key`. Requires `rotation:manage`. See the rotation runbook (`docs/ops/rotation.md`) |
@@ -184,6 +186,12 @@ These endpoints are HTTP + JSON under `/v1/` and require an unsealed server.
 
 **Authenticating.** Humans log in at `POST /v1/auth/login` (email + password →
 an HTTP-only session cookie); `/v1/auth/{logout,me,password}` manage the session.
+A user can review and revoke their own sessions self-service:
+`GET /v1/auth/sessions` lists active sessions with non-secret client metadata
+(IP, user-agent, last-seen) and a current-session marker (no cookie or
+credential material is returned); `DELETE /v1/auth/sessions/{id}` revokes one and
+`DELETE /v1/auth/sessions` signs out every *other* session. This is surfaced in
+the web UI (**Settings → Active sessions**) and the CLI (`janus session`).
 Machines use **service tokens**: `POST /v1/tokens` mints a `janus_svc_…` token
 (returned exactly once — only its HMAC is stored) scoped to a config or
 environment with `read` or `readwrite` access. Present it as
@@ -491,9 +499,11 @@ type has no value field); the log records key names and paths only.
 **What gets audited.** Mutations: token mint/revoke, user create/disable, member
 grant/revoke, `sys.seal`, and `auth.login` (success, plus failed attempts as a
 `denied`/anonymous event with the attempted email — brute-force visibility),
-`auth.logout`, `auth.password_change`. Every denied (`403`) authorization
-decision on these endpoints is recorded as a `denied` event. **Not** audited:
-masked/metadata reads (token/user/member `LIST`, `/v1/auth/me`, and
+`auth.logout`, `auth.password_change`, and session revocation
+(`auth.session.revoke`, `auth.session.revoke_others`). Every denied (`403`)
+authorization decision on these endpoints is recorded as a `denied` event.
+**Not** audited: masked/metadata reads (token/user/member `LIST`,
+`/v1/auth/me`, the session **list** `/v1/auth/sessions`, and
 `/v1/audit/verify`/`/v1/audit/events`/`/v1/audit/histogram` themselves —
 `/v1/audit/export` is the one audit-log read that IS self-audited, since it's a
 bulk export); `sys.init`/`sys.unseal` (pre-auth bootstrap operations).
