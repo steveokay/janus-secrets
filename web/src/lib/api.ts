@@ -380,7 +380,9 @@ export const api = {
 
   // account + master key + backup
   changePassword: (current_password: string, new_password: string) =>
-    post<void>('/v1/auth/password', { current_password, new_password }),
+    // Wire fields are {old, new} (see internal/api handlePasswordChange +
+    // openapi.yaml). The friendlier parameter names are mapped here.
+    post<void>('/v1/auth/password', { old: current_password, new: new_password }),
   listSessions: () => get<{ sessions: SessionInfo[] }>('/v1/auth/sessions').then(r => r.sessions),
   revokeSession: (id: string) => del<void>(`/v1/auth/sessions/${id}`),
   revokeOtherSessions: () => del<{ revoked: number }>('/v1/auth/sessions'),
