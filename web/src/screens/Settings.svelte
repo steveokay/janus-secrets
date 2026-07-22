@@ -3,6 +3,7 @@
   import { api, downloadBackup, errorMessage, type VersionInfo, type MasterKeyStatus, type SessionInfo } from '../lib/api'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
+  import { renderSVG } from 'uqr'
 
   let version = $state<VersionInfo | null>(null)
   let mk = $state<MasterKeyStatus | null>(null)
@@ -33,6 +34,13 @@
   /* enrollment (shown once, component state only) */
   let enroll = $state<{ secret: string; otpauth_url: string } | null>(null)
   let confirmCode = $state('')
+  /* QR of the otpauth URI, rendered locally (the secret never leaves the
+     browser); colours are theme-invariant tokens so it always scans. */
+  let enrollQr = $derived(
+    enroll
+      ? renderSVG(enroll.otpauth_url, { blackColor: 'var(--qr-ink)', whiteColor: 'var(--qr-paper)', border: 2 })
+      : '',
+  )
   /* recovery codes (shown once, component state only) */
   let recoveryCodes = $state<string[] | null>(null)
   /* regenerate flow */
@@ -462,7 +470,9 @@
       {:else if enroll}
         <!-- Secret + otpauth URI shown once, in component state only. -->
         <div class="enroll">
-          <p class="folio">Add this account to your authenticator app — scan is not available here, so paste the setup link or type the secret manually. Then enter the 6-digit code it shows to finish.</p>
+          <p class="folio">Scan this with your authenticator app — or paste the setup link / type the secret manually. Then enter the 6-digit code it shows to finish.</p>
+          <!-- QR rendered locally from the otpauth URI; the secret never leaves the browser. -->
+          <div class="qr" aria-label="TOTP enrolment QR code" role="img">{@html enrollQr}</div>
           <div class="kv">
             <span class="label">Secret</span>
             <div class="mono-line">
@@ -583,6 +593,16 @@
   .tfa-enabled, .tfa-disabled, .enroll { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; }
   .status-line { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
   .status-line .low { color: var(--vermilion); }
+  .qr {
+    align-self: flex-start;
+    width: 168px;
+    height: 168px;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--qr-paper);
+    padding: var(--s2);
+  }
+  .qr :global(svg) { display: block; width: 100%; height: 100%; }
   .kv { display: flex; flex-direction: column; gap: var(--s1); width: 100%; }
   .mono-line { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
   .mono-line code { font-size: var(--text-xs); word-break: break-all; }

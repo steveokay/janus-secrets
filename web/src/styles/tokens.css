@@ -15,6 +15,12 @@
   --ink-faint:    #857b66;  /* tertiary, captions    */
   --ink-ghost:    #a99f88;  /* disabled, watermarks  */
 
+  /* QR quiet-zone — deliberately theme-invariant (defined only here, not
+     overridden in nightwatch) so the enrolment QR is always dark-on-light
+     and reliably scannable in both themes. */
+  --qr-ink:       #221e15;  /* QR modules            */
+  --qr-paper:     #f7f3e8;  /* QR quiet-zone / bg     */
+
   /* ── Rules & lines ───────────────────────────── */
   --rule:         rgba(34, 30, 21, 0.18);   /* hairline    */
   --rule-strong:  rgba(34, 30, 21, 0.55);   /* heavy rule  */
