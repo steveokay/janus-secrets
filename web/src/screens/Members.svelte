@@ -2,6 +2,7 @@
   import { api, memberScopePath, errorMessage, type UserInfo, type ApiMember, type Role } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
   import { dialog } from '../lib/dialog.svelte'
+  import { relTime } from '../lib/util'
 
   type ScopeKind = 'instance' | 'project' | 'environment'
 
@@ -113,6 +114,24 @@
     }
   }
 
+  async function unlock(u: UserInfo) {
+    const window = u.locked_until ? ` (auto-unlocks ${relTime(u.locked_until)})` : ''
+    const ok = await dialog.confirm({
+      title: `Unlock ${u.email}?`,
+      body: `Clears the temporary lockout so this account can sign in again immediately${window}.`,
+      confirmLabel: 'Unlock account',
+      danger: true,
+    })
+    if (!ok) return
+    error = ''
+    try {
+      await api.unlockUser(u.id)
+      users = await api.listUsers().catch(() => users)
+    } catch (err) {
+      error = errorMessage(err, 'Unlock failed.')
+    }
+  }
+
   const scopeLabel = $derived(
     scopeKind === 'instance'
       ? 'instance'
@@ -192,6 +211,9 @@
             <td class="who">
               <span class="avatar">{row.user.email.slice(0, 2).toUpperCase()}</span>
               <span class="m-name">{row.user.email}</span>
+              {#if row.user.locked}
+                <span class="pill pill-locked" title={row.user.locked_until ? `Auto-unlocks ${relTime(row.user.locked_until)}` : 'Temporarily locked'}>Locked</span>
+              {/if}
             </td>
             <td>
               {#if row.role}
@@ -211,6 +233,9 @@
               </select>
             </td>
             <td class="row-actions">
+              {#if row.user.locked}
+                <button class="btn btn-ghost btn-sm unlock-btn" onclick={() => unlock(row.user)}>Unlock</button>
+              {/if}
               {#if row.role}
                 <button class="btn btn-ghost btn-sm del-btn" onclick={() => removeBinding(row.user.id)}>Remove</button>
               {/if}
@@ -311,8 +336,16 @@
   .guard { display: block; font-size: 0.58rem; }
 
   .select { max-width: 180px; }
-  .row-actions { text-align: right; }
+  .row-actions { text-align: right; display: flex; gap: var(--s2); justify-content: flex-end; }
   .del-btn:hover { color: var(--vermilion); }
+  .unlock-btn { color: var(--vermilion); }
+  .unlock-btn:hover { color: var(--vermilion); text-decoration: underline; }
+
+  .pill-locked {
+    color: var(--vermilion);
+    background: var(--vermilion-wash);
+    margin-left: var(--s2);
+  }
   .empty { text-align: center; padding: var(--s6) !important; }
   .foot-note { margin-top: var(--s3); max-width: 72ch; }
 </style>

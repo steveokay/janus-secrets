@@ -32,6 +32,8 @@ Task-oriented walkthroughs for the common workflows:
   roles at instance / project / environment scope, with the guardrails.
 - [SSO & CI federation](guides/sso-and-federation.md) — configuring OIDC
   login and GitHub Actions trust bindings from the Integrations page.
+- [Two-factor authentication](guides/two-factor-auth.md) — enabling TOTP for
+  password logins, signing in with a code, recovery codes, and disabling.
 - [Master key & backups](guides/master-key-and-backup.md) — master-key
   rotation, the Shamir rekey ceremony, encrypted backup download, passphrase
   change.

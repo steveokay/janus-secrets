@@ -61,6 +61,7 @@ export function errorMessage(e: unknown, fallback = 'Request failed.'): string {
   if (e instanceof ApiError) {
     if (e.status === 403 || e.status === 409) return e.message || fallback
     if (e.code === 'validation') return 'Please check your input.'
+    if (e.code === 'account_locked') return e.message || 'This account is temporarily locked — try again later.'
     if (e.code === 'rate_limited') return 'Too many attempts — try again shortly.'
     if (e.code === 'sealed') return 'The server is sealed.'
   }
@@ -121,7 +122,7 @@ export interface MintTokenResult {
   token: string; id: string; name: string
   scope: { kind: string; id: string }; access: string; expires_at: string | null
 }
-export interface UserInfo { id: string; email: string; disabled: boolean }
+export interface UserInfo { id: string; email: string; disabled: boolean; locked: boolean; locked_until: string | null }
 export type Role = 'viewer' | 'developer' | 'admin' | 'owner'
 export interface ApiMember { user_id: string; role: Role }
 export interface ApiTransitKey {
@@ -347,6 +348,7 @@ export const api = {
   revokeToken: (id: string) => del<void>(`/v1/tokens/${id}`),
   listUsers: () => get<{ users: UserInfo[] }>('/v1/users').then(r => r.users),
   createUser: (email: string) => post<{ id: string; email: string; password: string }>('/v1/users', { email }),
+  unlockUser: (id: string) => post<void>(`/v1/users/${id}/unlock`),
   listInstanceMembers: () => get<{ members: ApiMember[] }>('/v1/instance/members').then(r => r.members),
   putInstanceMember: (uid: string, role: Role) => put<void>(`/v1/instance/members/${uid}`, { role }),
 

@@ -29,8 +29,9 @@ no HSM, no multi-tenancy, no FIPS claims.
 | Feature | Why | Effort |
 |---|---|---|
 | **Native TLS listener** (`JANUS_TLS_CERT/KEY`, optional ACME) | Today TLS is delegated to a reverse proxy; small shops run without one. Already flagged upstream as a later milestone. | M |
-| **TOTP second factor for password logins** (+ recovery codes) | Passwords guard the whole vault; UI login is the widest door. Passkeys/WebAuthn as a follow-up. | M |
-| **Session management** — list active sessions, revoke one/all (upstream gap 1.12) | An admin who suspects a stolen cookie currently has nothing to pull. | S |
+| ~~**TOTP second factor for password logins** (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes, self-service enroll/confirm/disable, login `totp_required` gate, QR enrolment. Passkeys/WebAuthn remains a follow-up. | ~~M~~ |
+| ~~**Account lockout / progressive backoff**~~ **SHIPPED 2026-07-22** — progressive temporary per-account lockout with admin unlock; reveals only to the correct password (no enumeration); `JANUS_LOCKOUT_*`. | ~~S~~ |
+| ~~**Session management** — list active sessions, revoke one/all (upstream gap 1.12)~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions`, Settings UI, `janus session` CLI. | ~~S~~ |
 | **Secret expiry / max-age policy** per key or config, surfaced in the in-tray ("STRIPE_KEY is 180d old") | Rotation exists but nothing nags about stale static secrets — the most common real-world failure. | M |
 | **Break-glass access** — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
 | **Per-token IP allowlists** and token usage anomaly notes (new IP → in-tray) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |

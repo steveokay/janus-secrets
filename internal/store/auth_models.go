@@ -11,6 +11,15 @@ type User struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DisabledAt   *time.Time
+	// Account-lockout state (progressive backoff). FailedLoginCount is the
+	// consecutive-failure count in the current cycle; LockoutLevel drives the
+	// escalating window; LockedUntil (when set and in the future) means the
+	// account is locked and auto-expires; LastFailedLoginAt records the most
+	// recent counted failure. None are secret.
+	FailedLoginCount  int
+	LockoutLevel      int
+	LockedUntil       *time.Time
+	LastFailedLoginAt *time.Time
 }
 
 // Session is a UI login session. TokenHMAC is the HMAC-SHA256 of the cookie

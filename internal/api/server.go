@@ -208,6 +208,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Post("/", s.handleUserCreate)
 			r.Get("/", s.handleUserList)
 			r.Post("/{id}/disable", s.handleUserDisable)
+			r.Post("/{id}/unlock", s.handleUserUnlock)
 		})
 		r.Route("/v1/trash", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))

@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/spf13/cobra"
 	"github.com/steveokay/janus-secrets/internal/api"
+	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/version"
 )
@@ -114,6 +115,43 @@ func runServer(ctx context.Context) error {
 		httpMaxBody = n
 	}
 
+	// Progressive account-lockout policy. Absent/unparseable values fall back to
+	// the defaults with a logged warning (never fail boot on a bad knob).
+	lockout := auth.DefaultLockoutPolicy()
+	if v := os.Getenv("JANUS_LOCKOUT_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			lockout.Enabled = b
+		} else {
+			logger.Warn("invalid JANUS_LOCKOUT_ENABLED; using default", "value", v, "default", lockout.Enabled)
+		}
+	}
+	if v := os.Getenv("JANUS_LOCKOUT_THRESHOLD"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			lockout.Threshold = n
+		} else {
+			logger.Warn("invalid JANUS_LOCKOUT_THRESHOLD; using default", "value", v, "default", lockout.Threshold)
+		}
+	}
+	if v := os.Getenv("JANUS_LOCKOUT_BASE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			lockout.Base = d
+		} else {
+			logger.Warn("invalid JANUS_LOCKOUT_BASE; using default", "value", v, "default", lockout.Base.String())
+		}
+	}
+	if v := os.Getenv("JANUS_LOCKOUT_MAX"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			lockout.Max = d
+		} else {
+			logger.Warn("invalid JANUS_LOCKOUT_MAX; using default", "value", v, "default", lockout.Max.String())
+		}
+	}
+	if lockout.Max < lockout.Base {
+		logger.Warn("JANUS_LOCKOUT_MAX is below JANUS_LOCKOUT_BASE; clamping max up to base",
+			"max", lockout.Max.String(), "base", lockout.Base.String())
+		lockout.Max = lockout.Base
+	}
+
 	bc := api.BootConfig{
 		DatabaseURL:        dsn,
 		ListenAddr:         os.Getenv("JANUS_LISTEN_ADDR"), // "" → :8200 default
@@ -129,6 +167,7 @@ func runServer(ctx context.Context) error {
 		HTTPWriteTimeout:   httpWrite,
 		HTTPIdleTimeout:    httpIdle,
 		HTTPMaxBodyBytes:   httpMaxBody,
+		Lockout:            lockout,
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
 			if arn == "" {

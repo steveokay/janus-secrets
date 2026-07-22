@@ -62,6 +62,11 @@ type BootConfig struct {
 	HTTPWriteTimeout time.Duration
 	HTTPIdleTimeout  time.Duration
 	HTTPMaxBodyBytes int64 // 0 = no limit (consumed by the body-limit middleware)
+	// Lockout is the progressive per-account lockout policy. cmd/janus populates
+	// it from JANUS_LOCKOUT_* (default: enabled, threshold 5, 1m base, 1h cap).
+	// Tests building BootConfig directly get the zero value (Enabled=false), so
+	// lockout is off unless a test opts in.
+	Lockout auth.LockoutPolicy
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -135,6 +140,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	transitSvc := transit.New(kr, st)
 	authSvc := auth.NewService(st, kr)
 	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)
+	authSvc.SetLockoutPolicy(bc.Lockout)
 	authorizer := authz.New(store.NewRoleBindingRepo(st))
 	auditRec := audit.New(store.NewAuditRepo(st))
 	rotationSvc := rotation.New(kr, st, svc, auditRec, logger)

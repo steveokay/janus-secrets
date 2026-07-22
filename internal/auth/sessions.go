@@ -45,11 +45,33 @@ func (s *Service) Login(ctx context.Context, email string, password []byte, totp
 		return "", err
 	}
 	if u.DisabledAt != nil || u.PasswordHash == nil {
+		// Unknown-shape/disabled users are never tracked for lockout (no counter
+		// to reset, and the per-IP limiter plus dummy-hash path cover them).
 		_, _, _ = VerifyPassword(dummyPHC, password)
 		return "", ErrInvalidCredentials
 	}
+
+	// Progressive lockout (opt-in via policy). While the account is already
+	// locked, verify the password only to CHOOSE the response — never increment
+	// or extend the lock:
+	//   correct password → AccountLockedError (reveal, only to the holder)
+	//   wrong password   → ErrInvalidCredentials (no lock/enumeration oracle)
+	if s.lockout.Enabled && u.LockedUntil != nil {
+		if remaining := time.Until(*u.LockedUntil); remaining > 0 {
+			ok, _, vErr := VerifyPassword(*u.PasswordHash, password)
+			if vErr != nil || !ok {
+				return "", ErrInvalidCredentials
+			}
+			return "", &AccountLockedError{RetryAfter: remaining}
+		}
+	}
+
 	ok, needsRehash, err := VerifyPassword(*u.PasswordHash, password)
 	if err != nil || !ok {
+		// Wrong password counts as a failure. Even if this attempt trips the
+		// lock we still return the byte-identical invalid_credentials — never
+		// reveal the lock on a wrong password.
+		s.recordFailure(ctx, u)
 		return "", ErrInvalidCredentials
 	}
 	if needsRehash {
@@ -65,6 +87,7 @@ func (s *Service) Login(ctx context.Context, email string, password []byte, totp
 	}
 	if enabled {
 		if strings.TrimSpace(totpCode) == "" {
+			// A challenge, not a failure — do not count.
 			return "", ErrTOTPRequired
 		}
 		verified, err := s.verifySecondFactor(ctx, u.ID, totpCode)
@@ -72,11 +95,32 @@ func (s *Service) Login(ctx context.Context, email string, password []byte, totp
 			return "", err
 		}
 		if !verified {
+			// Correct password but wrong second factor counts as a failure.
+			s.recordFailure(ctx, u)
 			return "", ErrInvalidCredentials
 		}
 	}
 
+	// Full success resets the counter and escalation level.
+	if s.lockout.Enabled {
+		_ = s.users.ResetLoginFailures(ctx, u.ID) // best-effort
+	}
 	return s.createSession(ctx, u.ID)
+}
+
+// recordFailure records one counted login failure when the policy is enabled,
+// passing the pre-computed window for the level this failure would trip
+// (current level + 1). It is best-effort: a store error must not turn a failed
+// login into a different error (the login already failed). The returned "just
+// locked" signal is surfaced via LoginFailureResult for callers that need it;
+// Login itself ignores it because a wrong-password/ wrong-TOTP failure must not
+// reveal the lock.
+func (s *Service) recordFailure(ctx context.Context, u *store.User) {
+	if !s.lockout.Enabled {
+		return
+	}
+	window := s.lockout.window(u.LockoutLevel + 1)
+	_, _, _ = s.users.RecordFailedLogin(ctx, u.ID, s.lockout.Threshold, window)
 }
 
 // createSession mints a session cookie for an already-authenticated user

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/audit"
@@ -31,6 +32,20 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "totp_required", "a second-factor code is required")
 			return
 		}
+		// Correct password against a locked account: reveal the lock ONLY to the
+		// password-holder (429 + Retry-After). This is itself a denied,
+		// lock-attributed attempt.
+		if locked, ok := auth.AsAccountLocked(err); ok {
+			secs := int(locked.RetryAfter.Seconds())
+			if secs < 1 {
+				secs = 1
+			}
+			_ = s.recordActor(r, audit.Actor{Kind: "anonymous", Name: req.Email}, "auth.lockout", "", "denied", CodeAccountLocked, "")
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			writeError(w, http.StatusTooManyRequests, CodeAccountLocked,
+				"account temporarily locked due to repeated failed logins; try again later")
+			return
+		}
 		// Failed login: audit as a denied, anonymous attempt (the attempted
 		// email is an input, not a secret) for brute-force visibility. Audit
 		// failure must not change M5's byte-identical login error, so this
@@ -40,6 +55,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			code = "error"
 		}
 		_ = s.recordActor(r, audit.Actor{Kind: "anonymous", Name: req.Email}, "auth.login", "", "denied", code, "")
+		// If this failed attempt just tripped the account lock, record the
+		// threshold event too (value-free). The response stays byte-identical
+		// invalid_credentials — the audit trail, not the caller, sees the lock.
+		if s.auth.IsEmailLocked(r.Context(), req.Email) {
+			_ = s.recordActor(r, audit.Actor{Kind: "anonymous", Name: req.Email}, "auth.lockout", "", "denied", CodeAccountLocked, "")
+		}
 		s.writeAuthError(w, err)
 		return
 	}

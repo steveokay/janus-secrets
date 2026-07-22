@@ -23,6 +23,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- Two-factor authentication (TOTP): optional RFC 6238 second factor for
+  password logins, with single-use recovery codes. Self-service enrolment from
+  Settings (scannable QR + copyable secret, both shown once), confirm/disable/
+  regenerate, and a login gate (`401 totp_required`) honoured by the web UI and
+  `janus login`. The 160-bit secret is master-key-wrapped (bound to the user id,
+  re-wrapped by master-key rotation); recovery codes are HMAC-hashed and
+  single-use; codes/secrets never touch logs or the audit log. New
+  `/v1/auth/totp/*` routes; migration 000025.
+- Account lockout / progressive backoff: after repeated failed password logins
+  an account is locked for an escalating, auto-expiring window
+  (`JANUS_LOCKOUT_*`, default 5 failures → `1m→5m→25m→1h`), complementing the
+  per-IP login rate limit. The lock is revealed only to a caller with the
+  correct password (`429 account_locked` + `Retry-After`); a wrong password
+  returns the byte-identical `invalid_credentials`, so account existence is not
+  leaked, and attempts while locked never extend the window. Admins clear a lock
+  via `POST /v1/users/{id}/unlock` (`user:manage`) or the Members page;
+  migration 000026.
 - Notifications (outbound alerting): configurable **webhook** and **Slack**
   channels that subscribe to `rotation.failed`, `sync.failed`,
   `promotion.pending`, and `access.denied` events. A crash-safe dispatcher
