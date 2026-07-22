@@ -23,6 +23,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- SMTP email notification channel: a third channel `type` (`smtp`) alongside
+  webhook and Slack, sending a value-free plain-text summary of an event to one
+  or more recipients over `net/smtp`. Supports STARTTLS / implicit TLS / none,
+  optional PLAIN auth (TLS-only), certificate verification on by default with a
+  per-channel `insecure_skip_verify` opt-out for self-hosted relays, and a
+  write-only master-key-wrapped password. New `janus notifications create --type
+  smtp` flags and Notifications web form; migration 000027.
 - Value generator in the secret editor: a **Gen** popover on the value being
   edited produces a strong random **password** (with include-symbols and
   exclude-ambiguous toggles), **hex**, or **base64**, with a length picker.

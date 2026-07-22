@@ -56,7 +56,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | **More sync providers**: GitLab CI variables, Cloudflare Workers secrets, Vercel/Netlify env, AWS SSM/Secrets Manager (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. Prioritize by demand. | M each |
 | **More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC | The trust-binding model generalizes; only issuer/claims mapping differs. | S each |
 | **Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost; a `janus import` command + wizard screen. | L |
-| **Notifications**: webhook + Slack (and SMTP) for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14) | The in-tray only helps people already looking at it; failures must find humans. | M |
+| ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
 | **Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
 | **Client SDKs** (Go, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. | L |
 | **More rotators**: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. | M each |

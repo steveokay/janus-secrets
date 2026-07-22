@@ -90,8 +90,10 @@ _Nothing in flight._
 
 ## Open — product roadmap
 
-Carried forward from the sibling `janus-atrium` project's status doc (same
-lineage, same backend) and from `docs/roadmap.md`. Effort: **S** ≈ a
+**This section is the canonical tracker and mirrors the five sections of
+[`docs/roadmap.md`](docs/roadmap.md) one-to-one — every roadmap item appears
+here (shipped ones struck through with a date). When you add, ship, or reword a
+roadmap item, update BOTH files so they never drift.** Effort: **S** ≈ a
 session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Security hardening
@@ -101,6 +103,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | Native TLS listener (`JANUS_TLS_CERT/KEY`, optional ACME) | TLS is delegated to a reverse proxy today; small shops run without one. | M |
 | ~~TOTP second factor for password logins (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes; self-service enroll/confirm/disable/regenerate (`/v1/auth/totp/*`), login gains `totp_code` (`401 totp_required` without it), `janus login` prompts + retries, Settings enroll UI. Secret master-key-wrapped (re-wrapped by master-key rotation), recovery codes HMAC-hashed + single-use, value-free audit. Migration 000025. **Note:** OIDC login is not gated by app-level TOTP (the IdP owns MFA) — see follow-ups. Passkeys/WebAuthn + per-account lockout as follow-ups. | ~~M~~ |
 | ~~Session management — list active sessions, revoke one/all~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions` (self-service, IP/user-agent metadata, current-session marker), Settings → Active sessions UI, `janus session list/revoke`. Sessions now record client IP + user-agent (migration 000023). | An admin who suspects a stolen cookie has nothing to pull today. | ~~S~~ |
+| ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22** — see the "Open — backend / ops" entry above (migration 000026, `JANUS_LOCKOUT_*`, admin unlock). | Nothing locked an account out after repeated failed logins. | ~~S~~ |
 | Secret expiry / max-age policy per key or config, surfaced in-app | Rotation exists but nothing nags about stale static secrets — the most common real-world failure. | M |
 | Break-glass access — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
 | Per-token IP allowlists + usage anomaly notes (new IP) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |
@@ -110,6 +113,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 | Feature | Why | Effort |
 |---|---|---|
+| ~~Dotenv / properties import in the editor~~ **SHIPPED 2026-07-19** — Import… paste or pick a `.env`/`.properties` file, preview per-key (new/overwrite/invalid), stage into the dirty buffer, commit as one version. | The first thing a migrating user does is re-key an existing `.env` by hand. | ~~S~~ |
 | ~~Value generator in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG (unbiased rejection sampling), "Gen" popover on the editable value cell: password (symbols / exclude-ambiguous toggles) / hex / base64 + length; value flows through the normal dirty-buffer save, no endpoint/migration. | ~~S~~ |
 | Unused-secret detection — "not read in 90 days" chip from audit data | Dead secrets are silent risk; the data already exists in `audit_events`. | M |
 | Per-key read insights — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
@@ -124,7 +128,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | More sync providers: GitLab CI variables, Cloudflare Workers secrets, Vercel/Netlify env, AWS SSM/Secrets Manager | The sync engine is provider-pluggable; each target is mostly an adapter + creds form. | M each |
 | More CI federation issuers: GitLab, Buildkite, CircleCI OIDC | The trust-binding model generalizes; only issuer/claims mapping differs. | S each |
 | Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost. | L |
-| ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. SMTP still a possible follow-up. | Failures must find humans, not just an in-app tray. | ~~M~~ |
+| ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. **SMTP email channel added 2026-07-23** (`type=smtp`, `net/smtp` STARTTLS/implicit/none, verify-by-default + per-channel `insecure_skip_verify`, write-only password, value-free body; migration 000027). | Failures must find humans, not just an in-app tray. | ~~M~~ |
 | Terraform provider (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
 | Client SDKs (Go, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. | L |
 | More rotators: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. | M each |
@@ -133,9 +137,10 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 | Feature | Why | Effort |
 |---|---|---|
+| ~~Prometheus `/metrics` + health panel~~ **SHIPPED 2026-07-22** — see the "Open — backend / ops" entry above (`JANUS_METRICS_TOKEN`, `GET /v1/sys/status`, Settings → Health). | Self-hosting is a black box until it breaks. | ~~S~~ |
 | Scheduled encrypted backups to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy. | M |
 | Audit shipping — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
-| Health panel in Settings — DB latency, scheduler tick ages, failed-run counts, chain-verify age | The engines are invisible until they fail. | S |
+| ~~Health panel in Settings — DB latency, scheduler tick ages, failed-run counts~~ **SHIPPED 2026-07-22** (with Prometheus metrics — `GET /v1/sys/status` + Settings → Health). | ~~S~~ |
 | First-run onboarding checklist (create project → add secrets → mint token → `janus run`) | The empty state after init is a dead end for newcomers. | S |
 
 ### UI polish
@@ -151,12 +156,21 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Suggested near-term slate
 
-If picking the next five, weighing leverage against effort:
+The previous slate (Prometheus + health panel, TOTP, global key search, account
+lockout, SMTP notifications) is **fully shipped** (2026-07-20 → 07-23). Next
+five, weighing leverage against effort:
 
-1. ~~Prometheus metrics + health panel~~ **SHIPPED 2026-07-22.**
-2. TOTP second factor — the cheapest meaningful hardening now that session
-   management has shipped.
-3. ~~Global key search~~ **SHIPPED 2026-07-22.**
-4. ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22.**
-5. SMTP notification channel + more sync providers — extend the shipped
-   notifications/sync engines.
+1. **JSON/PEM awareness** for file-type secrets (5.3) — small, natural follow-up
+   to multi-line editing.
+2. **Shortcuts help modal (`?`) + `g`-nav chords** (5.4) — cheap discoverability
+   win on top of the existing palette.
+3. **Native TLS listener** (`JANUS_TLS_CERT/KEY`, 1.1) — real hardening for shops
+   without a reverse proxy.
+4. **Secret expiry / max-age policy** (2.3) — nags on stale static secrets, the
+   most common real-world failure.
+5. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
+   provider-pluggable sync engine.
+
+Also outstanding: the two parked decisions above (OIDC-vs-TOTP gating; engine
+audit fail-closed policy) and the small backend/ops items (DB pool tuning,
+token/user last-used tracking, `CONTRIBUTING.md`).

@@ -21,9 +21,10 @@ and a short category detail, never a secret.
 
 ## Create a channel
 
-**Web:** Notifications → *New channel*. Pick webhook or Slack, paste the
-destination URL, tick the events, save. The URL (and optional webhook HMAC key)
-are write-only — Janus stores them encrypted and never shows them again.
+**Web:** Notifications → *New channel*. Pick webhook, Slack, or **email
+(SMTP)**, fill in the destination, tick the events, save. Secrets on the
+channel — the webhook HMAC key and the SMTP password — are write-only: Janus
+stores them encrypted (master-key-wrapped) and never shows them again.
 
 **CLI:**
 
@@ -38,6 +39,15 @@ janus notifications create --name ops-alerts --type webhook \
 janus notifications create --name sec-slack --type slack \
   --url https://hooks.slack.com/services/T000/B000/XXXX \
   --events promotion.pending,access.denied
+
+# Email via SMTP (STARTTLS on 587), authenticated, to two recipients.
+janus notifications create --name ops-email --type smtp \
+  --smtp-host smtp.example.com --smtp-port 587 \
+  --smtp-from janus@example.com \
+  --smtp-to oncall@example.com --smtp-to sec@example.com \
+  --smtp-username janus --smtp-password "$SMTP_PASSWORD" \
+  --smtp-tls starttls \
+  --events rotation.failed,sync.failed,access.denied
 
 janus notifications test <id>          # send a synchronous test
 janus notifications deliveries <id>    # recent delivery history (value-free)
@@ -68,6 +78,32 @@ If the channel has an HMAC key, the body is signed with
 `X-Janus-Signature: sha256=<hex>` (HMAC-SHA256 over the raw body) so you can
 verify it came from your Janus instance. Slack channels instead receive a
 compact `{"text": …}` message.
+
+## Email (SMTP)
+
+An SMTP channel sends a plain-text email — a value-free summary of the event
+(kind, resource path, actor, result), never a secret value — to one or more
+recipients. It carries the same information as the webhook body, formatted for a
+human inbox with a `Janus: <event>` subject.
+
+Connection settings:
+
+- **`smtp_tls_mode`** — `starttls` (default; connect on the submission port, e.g.
+  587, then upgrade with `STARTTLS`), `implicit` (TLS from the first byte, e.g.
+  port 465), or `none` (plaintext — discouraged, and authentication is disabled
+  in this mode).
+- **Auth** is optional: set `smtp_username`/`smtp_password` for relays that
+  require it. The password is sent only over an encrypted connection and is
+  stored write-only.
+- **Certificate verification is on by default.** For a self-hosted relay with a
+  self-signed or private-CA certificate, either add that CA to the host trust
+  store, or set **`smtp_insecure_skip_verify`** on the channel — a deliberate
+  opt-out that disables certificate checking for that channel. Treat it as a
+  footgun: it exposes delivery to a man-in-the-middle and should be limited to a
+  trusted internal network.
+
+Use `janus notifications test <id>` to send a synchronous test email and confirm
+the host, credentials, and TLS mode before relying on the channel.
 
 ## Delivery & reliability
 
