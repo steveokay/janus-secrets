@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- Value generator in the secret editor: a **Gen** popover on the value being
+  edited produces a strong random **password** (with include-symbols and
+  exclude-ambiguous toggles), **hex**, or **base64**, with a length picker.
+  Generation is entirely client-side over the browser CSPRNG (unbiased rejection
+  sampling); the value flows through the normal encrypted save — no new endpoint
+  or dependency.
 - Global key search: the command palette (Ctrl+K) now searches secret **key
   names** across every config as you type — "where is `STRIPE_KEY` set?" — via a
   new `GET /v1/search/keys`. Results are names-only (never values), filtered

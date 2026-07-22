@@ -42,7 +42,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | Feature | Why | Effort |
 |---|---|---|
 | ~~**Dotenv/properties import**~~ **SHIPPED 2026-07-19** — Import… in the editor: paste or choose a `.env`/`.properties` file, preview with per-key selection (new / overwrite / invalid), stage into the dirty buffer, commit as one version | The first thing every migrating user does is re-key an existing `.env` by hand. | ~~S~~ |
-| **Value generator** in the editor (random password / hex / base64, length picker) | Stops people inventing weak values; one button next to the value field. | S |
+| ~~**Value generator** in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG "Gen" popover (password w/ symbols & exclude-ambiguous toggles / hex / base64 + length). | ~~S~~ |
 | **Unused-secret detection** — "not read in 90 days" chip from audit data, with a bulk-review view | Dead secrets are silent risk; all the data is already in `audit_events`. | M |
 | **Per-key read insights** — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
 | **Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked) | Promote covers adjacent stages; "why does staging behave differently from prod" needs an arbitrary diff. | M |
