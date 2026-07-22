@@ -179,6 +179,33 @@ export interface ApiLease {
 }
 export interface OIDCLoginStatus { enabled: boolean; name?: string }
 export interface VersionInfo { version: string; commit?: string }
+
+/* operational health snapshot — value-free (GET /v1/sys/status, admin) */
+export interface SchedulerHealth {
+  enabled: boolean
+  last_tick_age_seconds: number | null
+  interval_seconds: number
+}
+export interface SysStatus {
+  version: string
+  commit: string
+  uptime_seconds: number
+  sealed: boolean
+  seal_type: string
+  db: {
+    reachable: boolean
+    latency_ms: number
+    pool: { total: number; idle: number; acquired: number; max: number }
+  }
+  audit: { head_seq: number; event_count: number }
+  schedulers: {
+    rotation: SchedulerHealth
+    sync: SchedulerHealth
+    dynamic: SchedulerHealth
+  }
+  runs: { rotation_failed: number; sync_failed: number }
+  leases: { active: number }
+}
 export interface InitResult { type: string; shares?: string[]; admin?: { email: string; password: string } }
 
 /* trash — value-free metadata for soft-deleted entities */
@@ -292,6 +319,7 @@ export const api = {
   unsealKms: () => post<SealStatus>('/v1/sys/unseal', {}),
   seal: () => post<{ sealed: boolean }>('/v1/sys/seal'),
   version: () => get<VersionInfo>('/v1/sys/version'),
+  sysStatus: () => get<SysStatus>('/v1/sys/status'),
   me: () => get<Me>('/v1/auth/me'),
   login: (email: string, password: string, totp_code?: string) =>
     post<{ user: { id: string; email: string } }>('/v1/auth/login', {
