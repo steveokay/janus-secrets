@@ -80,8 +80,6 @@ func (s *Server) handleSearchKeys(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	// The store hit its cap → there may be matches we never saw.
-	storeTruncated := len(matches) >= searchStoreCap
 
 	cache := map[string]configDisplay{}
 	results := make([]searchKeyResult, 0, limit)
@@ -113,9 +111,14 @@ func (s *Server) handleSearchKeys(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// `truncated` is derived ONLY from post-authz visible matches (a visible
+	// match beyond the page). It must NOT reflect the raw pre-authz store count:
+	// doing so would leak a coarse global-keyspace cardinality signal to a caller
+	// with no grants (e.g. an unprivileged `q=e` returning truncated:true reveals
+	// the system holds >= the store cap of matches they cannot read).
 	writeJSON(w, http.StatusOK, searchKeysResponse{
 		Results:   results,
-		Truncated: storeTruncated || extraVisible,
+		Truncated: extraVisible,
 	})
 }
 

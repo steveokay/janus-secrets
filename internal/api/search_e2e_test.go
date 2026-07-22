@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/steveokay/janus-secrets/internal/secrets"
@@ -171,6 +172,54 @@ func TestSearchKeysDenyByDefaultE2E(t *testing.T) {
 	}
 	if !adminSawA || !adminSawB {
 		t.Fatalf("admin should see both configs: %+v", radm.Results)
+	}
+}
+
+// TestSearchKeysTruncatedNoCardinalityLeakE2E proves the `truncated` flag is
+// derived from post-authz VISIBLE matches only — never the raw pre-authz store
+// count. A no-grant user querying a term that matches more than the store cap of
+// keys they CANNOT read must get empty results AND truncated:false (a true flag
+// would leak that the global keyspace holds >= the cap of hidden matches). The
+// admin, who can read them all, sees results and truncated:true (visible overflow).
+func TestSearchKeysTruncatedNoCardinalityLeakE2E(t *testing.T) {
+	ts, srv, email, password, _ := authStackFull(t)
+	admin := login(t, ts.URL, email, password)
+
+	// One config with more than the store cap (200) of keys sharing a substring.
+	keys := make([]string, 0, 205)
+	for i := 0; i < 205; i++ {
+		keys = append(keys, "LEAKMARK_"+strconv.Itoa(i))
+	}
+	seedProjectConfig(t, srv, "cardinality", keys...)
+
+	uid, pass := makeUserNoGrant(t, ts.URL, admin, "nogrant@corp.io")
+	_ = uid
+	nogrant := login(t, ts.URL, "nogrant@corp.io", pass)
+
+	type resp struct {
+		Results   []struct{ Key string `json:"key"` } `json:"results"`
+		Truncated bool                                 `json:"truncated"`
+	}
+
+	// No-grant user: cannot read the config, so no results AND no truncated leak.
+	var rn resp
+	if code := doAuthed(t, "GET", ts.URL+"/v1/search/keys?q=LEAKMARK", nogrant, "", "", &rn); code != 200 {
+		t.Fatalf("nogrant search: %d", code)
+	}
+	if len(rn.Results) != 0 {
+		t.Fatalf("no-grant user saw %d results for a config they cannot read", len(rn.Results))
+	}
+	if rn.Truncated {
+		t.Fatal("CARDINALITY LEAK: truncated:true for a no-grant user reveals the hidden global keyspace size")
+	}
+
+	// Admin can read all of them → visible overflow beyond the page → truncated.
+	var ra resp
+	if code := doAuthed(t, "GET", ts.URL+"/v1/search/keys?q=LEAKMARK", admin, "", "", &ra); code != 200 {
+		t.Fatalf("admin search: %d", code)
+	}
+	if !ra.Truncated {
+		t.Fatalf("admin should see truncated:true (>%d visible matches), got %d results", searchMaxResults, len(ra.Results))
 	}
 }
 
