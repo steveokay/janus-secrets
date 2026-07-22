@@ -206,7 +206,8 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Post("/seal", s.handleSeal)
 			r.Get("/backup", s.handleBackup)
 			r.Get("/version", s.handleVersion)
-			r.Get("/status", s.handleSysStatus)
+			// /status is intentionally NOT mounted in the auth-less branch: it
+			// is authz-gated in-handler via s.authorize, which needs s.authz.
 		}
 	})
 	if s.auth != nil {

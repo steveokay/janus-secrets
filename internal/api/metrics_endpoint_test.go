@@ -151,3 +151,30 @@ func TestMetricsRouteIsPatternNotRawPath(t *testing.T) {
 		t.Errorf("raw path id leaked into metrics labels:\n%s", body)
 	}
 }
+
+// TestMetricsMethodLabelIsBounded confirms an arbitrary (RFC-valid) HTTP method
+// collapses to method="other" rather than minting an unbounded series — a
+// pre-auth cardinality/memory-exhaustion guard, since the recording path runs
+// before authentication.
+func TestMetricsMethodLabelIsBounded(t *testing.T) {
+	_, ts := newMetricsTestServer(t, "tok")
+	// "AAAA1"/"AAAA2" are valid RFC 7230 method tokens the net/http server accepts.
+	for _, m := range []string{"AAAA1", "AAAA2"} {
+		req, err := http.NewRequest(m, ts.URL+"/v1/does/not/exist", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	_, body := getWithBearer(t, ts.URL+"/metrics", "tok")
+	if strings.Contains(body, "AAAA1") || strings.Contains(body, "AAAA2") {
+		t.Errorf("unknown method leaked into metrics labels (unbounded cardinality):\n%s", body)
+	}
+	if !strings.Contains(body, `method="other"`) {
+		t.Errorf(`expected unknown methods to collapse to method="other":\n%s`, body)
+	}
+}

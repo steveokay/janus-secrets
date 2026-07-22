@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"runtime"
 	"strconv"
 	"sync"
@@ -92,9 +93,29 @@ func NewAppMetrics(keyring *crypto.Keyring, st *store.Store, ticks *metrics.Tick
 // Registry exposes the underlying registry (for /metrics rendering).
 func (m *AppMetrics) Registry() *metrics.Registry { return m.reg }
 
+// knownMethods bounds the http `method` label. Go's net/http accepts any
+// RFC-compliant token as a method, so an unauthenticated caller could otherwise
+// mint an unbounded series per distinct method string (the recording path runs
+// before auth). Anything outside this set collapses to "other", mirroring the
+// route→"unmatched" and status-class collapses.
+var knownMethods = map[string]struct{}{
+	http.MethodGet: {}, http.MethodHead: {}, http.MethodPost: {},
+	http.MethodPut: {}, http.MethodPatch: {}, http.MethodDelete: {},
+	http.MethodConnect: {}, http.MethodOptions: {}, http.MethodTrace: {},
+}
+
+func boundMethod(method string) string {
+	if _, ok := knownMethods[method]; ok {
+		return method
+	}
+	return "other"
+}
+
 // observeHTTP records one request. route is the chi route pattern (bounded
-// cardinality); callers must never pass the raw path.
+// cardinality); callers must never pass the raw path. method is bounded to a
+// known-method allowlist so the label space cannot be inflated by a caller.
 func (m *AppMetrics) observeHTTP(method, route string, status int, dur time.Duration) {
+	method = boundMethod(method)
 	statusStr := statusClass(status)
 	m.httpReqs.Inc(method, route, statusStr)
 	m.httpDur.Observe(dur.Seconds(), method, route)
