@@ -188,6 +188,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/sessions", s.handleSessionList)
 				r.Delete("/sessions", s.handleSessionRevokeOthers)
 				r.Delete("/sessions/{id}", s.handleSessionRevoke)
+				r.Get("/totp", s.handleTOTPStatus)
+				r.With(loginLimiter.middleware).Post("/totp/enroll", s.handleTOTPEnroll)
+				r.With(loginLimiter.middleware).Post("/totp/confirm", s.handleTOTPConfirm)
+				r.With(loginLimiter.middleware).Post("/totp/disable", s.handleTOTPDisable)
+				r.With(loginLimiter.middleware).Post("/totp/recovery-codes", s.handleTOTPRecoveryCodes)
 			})
 		})
 	}

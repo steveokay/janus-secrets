@@ -28,6 +28,8 @@ var backupTables = []backupTable{
 	{"seal_config", "id"},
 	{"auth_config", "id"},
 	{"users", "created_at, id"},
+	{"user_totp", "user_id"},
+	{"user_recovery_codes", "created_at, id"},
 	{"oidc_providers", "created_at, id"},
 	{"oidc_identities", "created_at, id"},
 	{"oidc_federation_config", "created_at, id"},

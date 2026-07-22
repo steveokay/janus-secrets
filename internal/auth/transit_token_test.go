@@ -8,7 +8,7 @@ import (
 func TestMintTransitToken(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
-	cookie, _ := svc.Login(ctx, email, []byte(password))
+	cookie, _ := svc.Login(ctx, email, []byte(password), "")
 	by, _ := svc.VerifySession(ctx, cookie)
 
 	// All-keys transit token (empty scopeID = all transit keys).

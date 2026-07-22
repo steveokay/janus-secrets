@@ -1,11 +1,13 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
-  import { api, errorMessage, type OIDCLoginStatus } from '../lib/api'
+  import { api, errorMessage, ApiError, type OIDCLoginStatus } from '../lib/api'
   import JanusMark from '../components/JanusMark.svelte'
   import Guilloche from '../components/Guilloche.svelte'
 
   let email = $state('')
   let password = $state('')
+  let totpCode = $state('')
+  let totpRequired = $state(false)
   let error = $state('')
   let busy = $state(false)
   let oidc = $state<OIDCLoginStatus | null>(null)
@@ -19,9 +21,14 @@
     error = ''
     busy = true
     try {
-      await session.login(email.trim(), password)
+      await session.login(email.trim(), password, totpRequired ? totpCode.trim() : undefined)
     } catch (err) {
-      error = errorMessage(err, 'Sign-in failed — check your credentials.')
+      if (err instanceof ApiError && err.code === 'totp_required') {
+        totpRequired = true
+        error = ''
+      } else {
+        error = errorMessage(err, 'Sign-in failed — check your credentials.')
+      }
     } finally {
       busy = false
     }
@@ -56,10 +63,21 @@
           placeholder="••••••••••••" autocomplete="current-password" />
       </div>
 
+      {#if totpRequired}
+        <div class="field">
+          <label class="label" for="totp">Two-factor code</label>
+          <input id="totp" class="field-ruled mono" bind:value={totpCode}
+            placeholder="123456 or a recovery code" autocomplete="one-time-code"
+            inputmode="numeric" autocapitalize="off" spellcheck="false" />
+          <span class="folio hint">From your authenticator app, or a recovery code.</span>
+        </div>
+      {/if}
+
       {#if error}<p class="error">{error}</p>{/if}
 
-      <button class="btn btn-primary wide" type="submit" disabled={busy || !email.trim() || !password}>
-        {busy ? 'Checking the register…' : 'Sign the register'}
+      <button class="btn btn-primary wide" type="submit"
+        disabled={busy || !email.trim() || !password || (totpRequired && !totpCode.trim())}>
+        {busy ? 'Checking the register…' : totpRequired ? 'Verify & sign in' : 'Sign the register'}
       </button>
 
       {#if oidc?.enabled}

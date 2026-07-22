@@ -14,6 +14,7 @@ import (
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	TOTPCode string `json:"totp_code"`
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -22,8 +23,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "email and password are required")
 		return
 	}
-	cookie, err := s.auth.Login(withSessionMeta(r), req.Email, []byte(req.Password))
+	cookie, err := s.auth.Login(withSessionMeta(r), req.Email, []byte(req.Password), req.TOTPCode)
 	if err != nil {
+		// A correct password that still needs a second factor is not a failed
+		// login — signal the UI/CLI to collect the TOTP code (401 totp_required).
+		if errors.Is(err, auth.ErrTOTPRequired) {
+			writeError(w, http.StatusUnauthorized, "totp_required", "a second-factor code is required")
+			return
+		}
 		// Failed login: audit as a denied, anonymous attempt (the attempted
 		// email is an input, not a secret) for brute-force visibility. Audit
 		// failure must not change M5's byte-identical login error, so this

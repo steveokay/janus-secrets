@@ -132,6 +132,27 @@ func (k *Keyring) UnwrapNotificationConfig(channelID string, ct Ciphertext) ([]b
 	return Decrypt(k.master, ct, NotificationChannelAAD(channelID))
 }
 
+// WrapTOTPSecret encrypts a user's TOTP shared secret under the master key,
+// bound to their user id. Instance-scoped, like the OIDC client secret.
+func (k *Keyring) WrapTOTPSecret(userID string, secret []byte) (Ciphertext, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return Ciphertext{}, ErrSealed
+	}
+	return Encrypt(k.master, secret, TOTPSecretAAD(userID))
+}
+
+// UnwrapTOTPSecret decrypts a secret wrapped by WrapTOTPSecret.
+func (k *Keyring) UnwrapTOTPSecret(userID string, ct Ciphertext) ([]byte, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	if k.master == nil {
+		return nil, ErrSealed
+	}
+	return Decrypt(k.master, ct, TOTPSecretAAD(userID))
+}
+
 // NewDEK generates a fresh DEK and wraps it under projectKEK in one call,
 // minimizing the plaintext DEK's lifetime. Refuses to run while sealed.
 //

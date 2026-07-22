@@ -1734,6 +1734,7 @@ paths:
               properties:
                 email: { type: string, format: email }
                 password: { type: string, writeOnly: true, example: "<secret value>" }
+                totp_code: { type: string, writeOnly: true, description: "TOTP or recovery code; required when the user has two-factor enabled." }
       responses:
         "200":
           description: Logged in.
@@ -1748,7 +1749,7 @@ paths:
                       id: { type: string }
                       email: { type: string }
         "400": { description: Validation error. }
-        "401": { description: Invalid credentials. }
+        "401": { description: "Invalid credentials, or (code `totp_required`) a second-factor code is needed." }
   /v1/auth/logout:
     post:
       tags: [auth]
@@ -1846,6 +1847,115 @@ paths:
         "204": { description: Revoked. }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "404": { description: No such session owned by the caller. }
+  /v1/auth/totp:
+    get:
+      tags: [auth]
+      summary: Two-factor (TOTP) status for the current user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  recovery_remaining: { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/totp/enroll:
+    post:
+      tags: [auth]
+      summary: Begin TOTP enrollment
+      description: >-
+        Generates a fresh shared secret and returns it once as a base32 string
+        and an `otpauth://` provisioning URI. Confirm with a code to activate.
+        Fails (409) if TOTP is already enabled.
+      responses:
+        "200":
+          description: OK — secret shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret: { type: string, writeOnly: true, example: "<base32 secret>" }
+                  otpauth_url: { type: string, writeOnly: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "409": { description: TOTP already enabled. }
+  /v1/auth/totp/confirm:
+    post:
+      tags: [auth]
+      summary: Confirm and activate TOTP
+      description: Verifies a code against the pending secret, activates the factor, and returns single-use recovery codes (shown once).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, writeOnly: true }
+      responses:
+        "200":
+          description: Activated — recovery codes shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recovery_codes:
+                    type: array
+                    items: { type: string, writeOnly: true }
+        "400": { description: Missing code. }
+        "401": { description: Invalid code. }
+        "409": { description: No pending enrollment. }
+  /v1/auth/totp/disable:
+    post:
+      tags: [auth]
+      summary: Disable TOTP
+      description: Verifies a current TOTP or recovery code, then removes the factor and its recovery codes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, writeOnly: true }
+      responses:
+        "204": { description: Disabled. }
+        "400": { description: Missing code. }
+        "401": { description: Invalid code. }
+        "409": { description: TOTP not enabled. }
+  /v1/auth/totp/recovery-codes:
+    post:
+      tags: [auth]
+      summary: Regenerate recovery codes
+      description: Verifies a current second factor and re-issues the recovery-code set (invalidating the old set).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, writeOnly: true }
+      responses:
+        "200":
+          description: New recovery codes shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recovery_codes:
+                    type: array
+                    items: { type: string, writeOnly: true }
+        "401": { description: Invalid code. }
+        "409": { description: TOTP not enabled. }
   /v1/auth/oidc/status:
     get:
       tags: [auth]

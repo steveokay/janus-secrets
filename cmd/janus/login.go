@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -32,8 +33,20 @@ func newLoginCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			session, err := doLogin(addr, email, pw)
+			session, err := doLogin(addr, email, pw, "")
+			// If the server requires a second factor, prompt for the code and retry.
+			var ae *apiError
+			if errors.As(err, &ae) && ae.Code == "totp_required" {
+				code, perr := promptLine(cmd, "Two-factor code: ")
+				if perr != nil {
+					return perr
+				}
+				session, err = doLogin(addr, email, pw, strings.TrimSpace(code))
+			}
 			if err != nil {
+				if errors.As(err, &ae) {
+					return rewriteAPIError(ae)
+				}
 				return err
 			}
 			if err := saveAuth(&authState{Address: addr, Session: session, Email: email}); err != nil {
@@ -48,9 +61,15 @@ func newLoginCmd() *cobra.Command {
 	return cmd
 }
 
-// doLogin posts credentials and returns the janus_session cookie value.
-func doLogin(address, email, password string) (string, error) {
-	body, _ := json.Marshal(map[string]string{"email": email, "password": password})
+// doLogin posts credentials and returns the janus_session cookie value. On an
+// API error it returns the raw *apiError so the caller can detect a
+// totp_required challenge; other errors pass through.
+func doLogin(address, email, password, totpCode string) (string, error) {
+	payload := map[string]string{"email": email, "password": password}
+	if totpCode != "" {
+		payload["totp_code"] = totpCode
+	}
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest("POST", address+"/v1/auth/login", bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -63,7 +82,7 @@ func doLogin(address, email, password string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return "", rewriteAPIError(decodeAPIError(resp))
+		return "", decodeAPIError(resp)
 	}
 	for _, ck := range resp.Cookies() {
 		if ck.Name == "janus_session" {

@@ -38,7 +38,7 @@ func mkScope(t *testing.T) (string, string) {
 func TestServiceTokenLifecycle(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
-	cookie, _ := svc.Login(ctx, email, []byte(password))
+	cookie, _ := svc.Login(ctx, email, []byte(password), "")
 	admin, _ := svc.VerifySession(ctx, cookie)
 	_, configID := mkScope(t)
 
@@ -80,7 +80,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 func TestMintValidation(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
-	cookie, _ := svc.Login(ctx, email, []byte(password))
+	cookie, _ := svc.Login(ctx, email, []byte(password), "")
 	admin, _ := svc.VerifySession(ctx, cookie)
 	envID, configID := mkScope(t)
 
@@ -108,7 +108,7 @@ func TestMintValidation(t *testing.T) {
 func TestTokenExpiry(t *testing.T) {
 	svc, email, password := newTestService(t)
 	ctx := context.Background()
-	cookie, _ := svc.Login(ctx, email, []byte(password))
+	cookie, _ := svc.Login(ctx, email, []byte(password), "")
 	admin, _ := svc.VerifySession(ctx, cookie)
 	_, configID := mkScope(t)
 

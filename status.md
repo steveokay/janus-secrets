@@ -40,6 +40,10 @@ signing, no HSM, no multi-tenancy, no FIPS claims.
 
 ---
 
+## In progress
+
+_Nothing in flight._
+
 ## Open — backend / ops
 
 - [ ] **Account lockout / progressive backoff** beyond the per-IP login rate
@@ -56,6 +60,12 @@ signing, no HSM, no multi-tenancy, no FIPS claims.
 - [ ] **docker-compose has no resource limits**, and no WAL-archiving/
       pg-backup guidance beyond the app-level `janus backup` logical dump.
 - [ ] **No `CONTRIBUTING.md`.**
+- [ ] **Decision — OIDC login is not gated by app-level TOTP.** OIDC calls
+      `createSession` directly (the IdP is expected to own MFA). If a user
+      enables TOTP for password login but the same account is also reachable
+      via OIDC, the second factor can be sidestepped through the OIDC path.
+      This is likely intended; confirm and either document it or gate OIDC
+      too. (Surfaced by the TOTP security review, 2026-07-21.)
 - [ ] **Decision needed — audit fail-closed policy for engine-authored action
       endpoints** (rotation `.../rotate`, sync `.../sync`, dynamic
       issue/renew/revoke). Today the *denial* path is fail-closed but the
@@ -78,7 +88,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | Feature | Why | Effort |
 |---|---|---|
 | Native TLS listener (`JANUS_TLS_CERT/KEY`, optional ACME) | TLS is delegated to a reverse proxy today; small shops run without one. | M |
-| TOTP second factor for password logins (+ recovery codes) | Passwords guard the whole vault; UI login is the widest door. Passkeys/WebAuthn as a follow-up. | M |
+| ~~TOTP second factor for password logins (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes; self-service enroll/confirm/disable/regenerate (`/v1/auth/totp/*`), login gains `totp_code` (`401 totp_required` without it), `janus login` prompts + retries, Settings enroll UI. Secret master-key-wrapped (re-wrapped by master-key rotation), recovery codes HMAC-hashed + single-use, value-free audit. Migration 000025. **Note:** OIDC login is not gated by app-level TOTP (the IdP owns MFA) — see follow-ups. Passkeys/WebAuthn + per-account lockout as follow-ups. | ~~M~~ |
 | ~~Session management — list active sessions, revoke one/all~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions` (self-service, IP/user-agent metadata, current-session marker), Settings → Active sessions UI, `janus session list/revoke`. Sessions now record client IP + user-agent (migration 000023). | An admin who suspects a stolen cookie has nothing to pull today. | ~~S~~ |
 | Secret expiry / max-age policy per key or config, surfaced in-app | Rotation exists but nothing nags about stale static secrets — the most common real-world failure. | M |
 | Break-glass access — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
