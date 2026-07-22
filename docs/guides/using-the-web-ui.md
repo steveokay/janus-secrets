@@ -44,6 +44,7 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 | I want to… | Go to |
 |---|---|
 | add/edit/reveal secrets | Projects → project → config tile |
+| generate a strong value | editor → the **Gen** button on a value being edited (random password / hex / base64, length picker; generated in your browser) |
 | move config values between envs | drag the tile, or the editor's *Promote →* ([guide](promoting-environments.md)) |
 | paste an existing `.env` | editor → *Import…* ([guide](import-export.md)) |
 | mint a machine token | Service tokens ([guide](service-tokens.md)) |

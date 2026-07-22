@@ -110,7 +110,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 | Feature | Why | Effort |
 |---|---|---|
-| Value generator in the editor (random password / hex / base64, length picker) | Stops people inventing weak values. | S |
+| ~~Value generator in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG (unbiased rejection sampling), "Gen" popover on the editable value cell: password (symbols / exclude-ambiguous toggles) / hex / base64 + length; value flows through the normal dirty-buffer save, no endpoint/migration. | ~~S~~ |
 | Unused-secret detection — "not read in 90 days" chip from audit data | Dead secrets are silent risk; the data already exists in `audit_events`. | M |
 | Per-key read insights — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
 | Cross-environment diff view — pick any two configs, key-level presence/drift (values masked) | Promote covers adjacent stages; "why does staging differ from prod" needs an arbitrary diff. | M |
