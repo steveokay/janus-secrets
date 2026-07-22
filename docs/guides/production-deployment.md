@@ -107,6 +107,10 @@ All server configuration is environment-only (no config file). These are the
 | Name | Meaning | Default |
 |---|---|---|
 | `JANUS_SESSION_IDLE_TIMEOUT` | UI session idle timeout (Go duration); `0` disables. | `30m` |
+| `JANUS_LOCKOUT_ENABLED` | Master switch for per-account login lockout (progressive backoff after repeated failures). Set `false` to disable entirely. | `true` |
+| `JANUS_LOCKOUT_THRESHOLD` | Consecutive failed logins for an account before the first lockout. Non-positive values fall back to the default. | `5` |
+| `JANUS_LOCKOUT_BASE` | First lockout window (Go duration); each successive lockout escalates from here (`base × 5^(level−1)`, capped at max). | `1m` |
+| `JANUS_LOCKOUT_MAX` | Cap on the lockout window (Go duration). Raised to `JANUS_LOCKOUT_BASE` if set lower. | `1h` |
 | `JANUS_ROTATION_TICK` | In-process static-rotation scheduler interval; `0` disables the ticker. | `60s` |
 | `JANUS_SYNC_TICK` | In-process sync-integrations scheduler interval; `0` disables. | `60s` |
 | `JANUS_DYNAMIC_TICK` | In-process dynamic-lease manager tick (renew/expire sweep); `0` disables. | `60s` |

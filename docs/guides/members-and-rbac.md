@@ -40,3 +40,25 @@ instance settings.
 Service tokens are separate from members: they get least-privilege
 config/environment/transit scopes and can never perform management actions —
 see [Service tokens](service-tokens.md).
+
+## Account lockout and unlocking
+
+To blunt password brute-forcing, Janus locks an account after a run of failed
+password logins (`JANUS_LOCKOUT_THRESHOLD`, default 5) and holds it locked for a
+window that escalates with each successive lockout (`1m → 5m → 25m → 1h`,
+capped). The lock **auto-expires** — no action is needed to recover — and the
+counter resets on the next successful login. A locked account is shown with a
+**Locked** badge on the Members page. See the `JANUS_LOCKOUT_*` variables in
+[production deployment](production-deployment.md) to tune or disable this.
+
+To clear a lock early (a locked-out colleague who can't wait for the window), an
+admin unlocks from the Members page (the **Unlock** action on the row) or via
+`POST /v1/users/{id}/unlock`. Unlocking requires the `user:manage` permission at
+instance scope — the same right as disabling a user — you cannot unlock
+yourself, and every unlock is recorded in the audit ledger.
+
+Lockout complements the per-IP login rate limit and the manual **disable** (a
+deliberate, admin-set block that does not auto-expire): lockout is automatic and
+temporary; disable is manual and sticky. This is distinct from
+[two-factor authentication](two-factor-auth.md), which adds a second credential
+rather than throttling a first one.

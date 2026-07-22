@@ -46,9 +46,15 @@ _Nothing in flight._
 
 ## Open — backend / ops
 
-- [ ] **Account lockout / progressive backoff** beyond the per-IP login rate
-      limiter (10/min). Admin disable exists but nothing locks an account out
-      automatically after repeated failures.
+- [x] ~~**Account lockout / progressive backoff** beyond the per-IP login rate
+      limiter (10/min).~~ **SHIPPED 2026-07-22** — progressive temporary
+      per-account lockout (5 failures → escalating `1m→5m→25m→1h` window,
+      auto-expiring, reset on success; while locked, attempts don't extend the
+      window → no DoS). Reveals the lock only to a correct password (`429
+      account_locked` + `Retry-After`); wrong password stays byte-identical
+      `invalid_credentials` (no enumeration). Admin unlock (`POST
+      /v1/users/{id}/unlock`, `user:manage`) + Members "Locked" badge/Unlock;
+      `JANUS_LOCKOUT_*` env; migration 000026. Adversarial review SHIP.
 - [ ] **DB pool tuning** — `pgx` runs on defaults (no max-conns/lifetime
       config); shutdown grace is fixed at 10s, not configurable.
 - [ ] **Prometheus `/metrics`** (request rates/latency, seal state, lease
@@ -146,6 +152,6 @@ If picking the next five, weighing leverage against effort:
 2. TOTP second factor — the cheapest meaningful hardening now that session
    management has shipped.
 3. Global key search — daily-use quality of life.
-4. Account lockout / progressive backoff — closes the last auth-hardening gap.
+4. ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22.**
 5. SMTP notification channel + more sync providers — extend the shipped
    notifications/sync engines.
