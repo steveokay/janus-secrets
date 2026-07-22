@@ -217,6 +217,18 @@ export interface Trash { projects: TrashProject[]; environments: TrashEnvironmen
 /* per-key value history */
 export interface KeyVersionMeta { value_version: number; created_at: string }
 
+/* global key-name search (metadata only — never a value) */
+export interface KeySearchResult {
+  key: string
+  project_id: string
+  project_name: string
+  project_slug: string
+  environment_id: string
+  environment_slug: string
+  config_id: string
+  config_name: string
+}
+
 /* promotion — wire types mirror the Go handler JSON exactly */
 export type PromoteStatus = 'add' | 'change' | 'remove' | 'same'
 export interface DiffEntry { key: string; status: PromoteStatus; source_value: string; target_value: string; locked: boolean }
@@ -368,6 +380,12 @@ export const api = {
     return get<{ buckets: HistBucket[] }>(`/v1/audit/histogram?${q}`).then(r => r.buckets)
   },
   metricsReads24h: () => get<Reads24h>('/v1/metrics/reads-24h'),
+
+  // global key-name search (metadata only; authz-filtered server-side)
+  searchKeys: (q: string, limit?: number) =>
+    get<{ results: KeySearchResult[]; truncated: boolean }>(
+      `/v1/search/keys?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ''}`,
+    ),
 
   // tokens / users / members
   listTokens: () => get<{ tokens: TokenMeta[] }>('/v1/tokens').then(r => r.tokens),

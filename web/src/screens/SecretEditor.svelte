@@ -60,7 +60,10 @@
     showVersions = false
     showPromote = false
     historyFor = null
-    filter = ''
+    // Deep-link: the command palette navigates here with ?key=<name> to
+    // pre-filter the editor to that key. Harmless metadata (a key name); if
+    // absent the filter stays empty.
+    filter = new URLSearchParams(window.location.search).get('key') ?? ''
     try {
       const [masked, vers, users, locked] = await Promise.all([
         api.maskedSecrets(cid),
