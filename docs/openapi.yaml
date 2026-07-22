@@ -3317,6 +3317,65 @@ paths:
                   commit: { type: string }
                   date: { type: string }
         "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/sys/status:
+    get:
+      tags: [sys]
+      summary: Admin operational health snapshot (value-free)
+      description: >
+        Returns a value-free operational snapshot for the health panel: version,
+        uptime, seal state, DB reachability/latency/pool, audit head, per-engine
+        scheduler status, failed-run counts, and active-lease count. No secrets
+        or per-user data. Requires instance-level audit:read. An unreachable
+        database yields db.reachable=false and still returns 200.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  commit: { type: string }
+                  uptime_seconds: { type: integer }
+                  sealed: { type: boolean }
+                  seal_type: { type: string }
+                  db:
+                    type: object
+                    properties:
+                      reachable: { type: boolean }
+                      latency_ms: { type: integer }
+                      pool:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          idle: { type: integer }
+                          acquired: { type: integer }
+                          max: { type: integer }
+                  audit:
+                    type: object
+                    properties:
+                      head_seq: { type: integer }
+                      event_count: { type: integer }
+                  schedulers:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        enabled: { type: boolean }
+                        last_tick_age_seconds: { type: integer, nullable: true }
+                        interval_seconds: { type: integer }
+                  runs:
+                    type: object
+                    properties:
+                      rotation_failed: { type: integer }
+                      sync_failed: { type: integer }
+                  leases:
+                    type: object
+                    properties:
+                      active: { type: integer }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
   /v1/sys/oidc:
     get:
       tags: [sys]

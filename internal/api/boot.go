@@ -67,6 +67,9 @@ type BootConfig struct {
 	// Tests building BootConfig directly get the zero value (Enabled=false), so
 	// lockout is off unless a test opts in.
 	Lockout auth.LockoutPolicy
+	// MetricsToken, when non-empty, enables GET /metrics gated by this static
+	// bearer token (cmd/janus reads JANUS_METRICS_TOKEN). Empty → /metrics 404s.
+	MetricsToken string
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -166,8 +169,20 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		HTTPWriteTimeout: bc.HTTPWriteTimeout,
 		HTTPIdleTimeout:  bc.HTTPIdleTimeout,
 		HTTPMaxBodyBytes: bc.HTTPMaxBodyBytes,
+		RotationTick:     bc.RotationTick,
+		SyncTick:         bc.SyncTick,
+		DynamicTick:      bc.DynamicTick,
+		MetricsToken:     bc.MetricsToken,
 	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
+
+	// Wire the shared scheduler tick tracker into each engine so every RunDue
+	// pass stamps its "last tick" time (read by janus_scheduler_last_tick_seconds
+	// + /v1/sys/status). Done unconditionally: even a zero-tick (test) engine
+	// that never schedules leaves the hook harmlessly unused.
+	rotationSvc.SetTickHook(func() { srv.ticks.MarkTick("rotation") })
+	syncSvc.SetTickHook(func() { srv.ticks.MarkTick("sync") })
+	dynamicSvc.SetTickHook(func() { srv.ticks.MarkTick("dynamic") })
 
 	// Start the rotation scheduler tied to the boot ctx (runServer's shutdown
 	// context), so it stops cleanly on SIGTERM. Zero tick (tests) disables it.

@@ -45,7 +45,13 @@ type Service struct {
 	logger   *slog.Logger
 	st       *store.Store
 	now      func() time.Time
+	tickHook func() // optional; called at the top of each RunDue (metrics/health)
 }
+
+// SetTickHook installs a callback invoked at the top of every RunDue pass. Used
+// to stamp the shared scheduler "last tick" time for metrics + /v1/sys/status.
+// nil is a no-op.
+func (s *Service) SetTickHook(h func()) { s.tickHook = h }
 
 func New(kr *crypto.Keyring, st *store.Store, aud *audit.Recorder, logger *slog.Logger) *Service {
 	if logger == nil {
