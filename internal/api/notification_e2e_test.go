@@ -151,6 +151,103 @@ func TestNotificationsE2E(t *testing.T) {
 	}
 }
 
+// TestNotificationsSMTPChannel creates an smtp channel and asserts the SMTP
+// password is write-only (never echoed in create/get/list responses) and that
+// validation errors surface as 4xx.
+func TestNotificationsSMTPChannel(t *testing.T) {
+	ts, _, _, ownerPw, _ := authStackFull(t)
+	owner := login(t, ts.URL, "root@corp.io", ownerPw)
+
+	const smtpPassword = "smtp-write-only-p@ssw0rd"
+
+	// Validation: missing recipients → 400.
+	badBody := `{"name":"bad-smtp","type":"smtp","events":["sync.failed"],` +
+		`"smtp_host":"smtp.corp.io","smtp_port":587,"smtp_from":"janus@corp.io","smtp_to":[]}`
+	if code := doAuthed(t, "POST", ts.URL+"/v1/notifications/channels", owner, "", badBody, nil); code != 400 {
+		t.Fatalf("expected 400 for smtp channel with no recipients, got %d", code)
+	}
+
+	// Validation: bad tls_mode → 400.
+	badTLS := `{"name":"bad-tls","type":"smtp","events":["sync.failed"],` +
+		`"smtp_host":"smtp.corp.io","smtp_port":587,"smtp_from":"janus@corp.io",` +
+		`"smtp_to":["ops@corp.io"],"smtp_tls_mode":"ssl"}`
+	if code := doAuthed(t, "POST", ts.URL+"/v1/notifications/channels", owner, "", badTLS, nil); code != 400 {
+		t.Fatalf("expected 400 for bad tls_mode, got %d", code)
+	}
+
+	// Create a valid smtp channel with a username + password.
+	var created struct {
+		ID           string `json:"id"`
+		Type         string `json:"type"`
+		SMTPPassword string `json:"smtp_password"` // must never be populated
+		SMTPUsername string `json:"smtp_username"` // must never be populated
+	}
+	body := fmt.Sprintf(`{"name":"email-alerts","type":"smtp","events":["sync.failed","access.denied"],`+
+		`"smtp_host":"smtp.corp.io","smtp_port":587,"smtp_from":"janus@corp.io",`+
+		`"smtp_to":["ops@corp.io","sec@corp.io"],"smtp_username":"mailer",`+
+		`"smtp_password":%q,"smtp_tls_mode":"starttls"}`, smtpPassword)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/notifications/channels", owner, "", body, &created); code != 201 {
+		t.Fatalf("create smtp channel: %d", code)
+	}
+	if created.ID == "" || created.Type != "smtp" {
+		t.Fatalf("unexpected create response: %+v", created)
+	}
+	if created.SMTPPassword != "" || created.SMTPUsername != "" {
+		t.Fatalf("smtp create response leaked credentials: %+v", created)
+	}
+
+	// Get + list must not carry the password, but MUST return the non-secret SMTP
+	// fields so an edit form can prefill.
+	var got map[string]any
+	if code := doAuthed(t, "GET", ts.URL+"/v1/notifications/channels/"+created.ID, owner, "", "", &got); code != 200 {
+		t.Fatalf("get: %d", code)
+	}
+	rawGet, _ := json.Marshal(got)
+	if strings.Contains(string(rawGet), smtpPassword) {
+		t.Fatalf("get leaked smtp password: %s", rawGet)
+	}
+	if _, present := got["smtp_password"]; present {
+		t.Fatalf("get response must not include an smtp_password field: %s", rawGet)
+	}
+	if got["smtp_host"] != "smtp.corp.io" {
+		t.Fatalf("get did not return smtp_host for prefill: %s", rawGet)
+	}
+	if got["smtp_from"] != "janus@corp.io" || got["smtp_username"] != "mailer" ||
+		got["smtp_tls_mode"] != "starttls" {
+		t.Fatalf("get did not return non-secret smtp fields for prefill: %s", rawGet)
+	}
+	// smtp_port arrives as a JSON number → float64.
+	if p, ok := got["smtp_port"].(float64); !ok || int(p) != 587 {
+		t.Fatalf("get did not return smtp_port for prefill: %s", rawGet)
+	}
+	if to, ok := got["smtp_to"].([]any); !ok || len(to) != 2 || to[0] != "ops@corp.io" {
+		t.Fatalf("get did not return smtp_to for prefill: %s", rawGet)
+	}
+
+	var listResp struct {
+		Channels []map[string]any `json:"channels"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/notifications/channels", owner, "", "", &listResp); code != 200 {
+		t.Fatalf("list: %d", code)
+	}
+	rawList, _ := json.Marshal(listResp)
+	if strings.Contains(string(rawList), smtpPassword) {
+		t.Fatalf("list leaked smtp password: %s", rawList)
+	}
+	if len(listResp.Channels) != 1 || listResp.Channels[0]["smtp_host"] != "smtp.corp.io" {
+		t.Fatalf("list did not return non-secret smtp fields for prefill: %s", rawList)
+	}
+	if _, present := listResp.Channels[0]["smtp_password"]; present {
+		t.Fatalf("list response must not include an smtp_password field: %s", rawList)
+	}
+
+	// The smtp password never appears in the audit export.
+	exp := auditExport(t, ts.URL, owner)
+	if strings.Contains(exp, smtpPassword) {
+		t.Fatal("smtp password leaked into the audit export")
+	}
+}
+
 func auditExport(t *testing.T, base, cookie string) string {
 	t.Helper()
 	req, _ := http.NewRequest("GET", base+"/v1/audit/export", nil)

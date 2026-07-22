@@ -40,20 +40,58 @@ func newNotificationsCmd() *cobra.Command {
 
 	// create
 	var name, ctype, url, hmacKey, events string
+	var smtpHost, smtpFrom, smtpUser, smtpPass, smtpTLS string
+	var smtpTo []string
+	var smtpPort int
+	var smtpInsecure bool
 	create := &cobra.Command{
 		Use:   "create",
-		Short: "Create a notification channel",
+		Short: "Create a notification channel (webhook / slack / smtp)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := newClient()
 			if err != nil {
 				return err
 			}
 			body := map[string]any{
-				"name": name, "type": ctype, "url": url,
+				"name":   name,
+				"type":   ctype,
 				"events": splitCSV(events),
 			}
-			if hmacKey != "" {
-				body["hmac_key"] = hmacKey
+			if ctype == "smtp" {
+				// Recipients: repeatable --smtp-to and/or comma-separated tokens.
+				var to []string
+				for _, t := range smtpTo {
+					to = append(to, splitCSV(t)...)
+				}
+				// Password: flag, else prompt on stdin (never echoed).
+				pw := smtpPass
+				if pw == "" && smtpUser != "" {
+					pw, err = promptHidden(cmd, "SMTP password: ")
+					if err != nil {
+						return err
+					}
+				}
+				body["smtp_host"] = smtpHost
+				body["smtp_port"] = smtpPort
+				body["smtp_from"] = smtpFrom
+				body["smtp_to"] = to
+				if smtpUser != "" {
+					body["smtp_username"] = smtpUser
+				}
+				if pw != "" {
+					body["smtp_password"] = pw
+				}
+				if smtpTLS != "" {
+					body["smtp_tls_mode"] = smtpTLS
+				}
+				if smtpInsecure {
+					body["smtp_insecure_skip_verify"] = true
+				}
+			} else {
+				body["url"] = url
+				if hmacKey != "" {
+					body["hmac_key"] = hmacKey
+				}
 			}
 			var out notifChannelView
 			if err := c.call("POST", "/v1/notifications/channels", body, &out); err != nil {
@@ -64,12 +102,19 @@ func newNotificationsCmd() *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&name, "name", "", "channel name (required)")
-	create.Flags().StringVar(&ctype, "type", "webhook", "channel type: webhook or slack")
-	create.Flags().StringVar(&url, "url", "", "destination URL (required)")
+	create.Flags().StringVar(&ctype, "type", "webhook", "channel type: webhook, slack or smtp")
+	create.Flags().StringVar(&url, "url", "", "destination URL (webhook/slack; required for those types)")
 	create.Flags().StringVar(&hmacKey, "hmac-key", "", "webhook HMAC signing key (optional)")
 	create.Flags().StringVar(&events, "events", "", "comma-separated event kinds: rotation.failed,sync.failed,promotion.pending,access.denied")
+	create.Flags().StringVar(&smtpHost, "smtp-host", "", "SMTP server host (type=smtp)")
+	create.Flags().IntVar(&smtpPort, "smtp-port", 587, "SMTP server port (type=smtp)")
+	create.Flags().StringVar(&smtpFrom, "smtp-from", "", "envelope/from address (type=smtp)")
+	create.Flags().StringArrayVar(&smtpTo, "smtp-to", nil, "recipient address (repeatable or comma-separated; type=smtp)")
+	create.Flags().StringVar(&smtpUser, "smtp-username", "", "SMTP auth username (type=smtp; optional)")
+	create.Flags().StringVar(&smtpPass, "smtp-password", "", "SMTP auth password (type=smtp; prefer stdin prompt over a flag visible in shell history)")
+	create.Flags().StringVar(&smtpTLS, "smtp-tls", "", "SMTP TLS mode: starttls (default), implicit or none")
+	create.Flags().BoolVar(&smtpInsecure, "smtp-insecure-skip-verify", false, "skip SMTP TLS certificate verification (footgun; self-hosted relays only)")
 	_ = create.MarkFlagRequired("name")
-	_ = create.MarkFlagRequired("url")
 	_ = create.MarkFlagRequired("events")
 
 	// list

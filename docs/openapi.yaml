@@ -24,11 +24,15 @@ components:
   schemas:
     NotificationChannel:
       type: object
-      description: Masked notification channel — never carries the destination URL or HMAC key.
+      description: >-
+        Masked notification channel — never carries the destination URL, HMAC
+        key, or SMTP password. Non-secret SMTP fields (host/port/from/to/username/
+        tls_mode/insecure_skip_verify) are returned for type=smtp so an edit form
+        can prefill; smtp_password is write-only and is never present.
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        type: { type: string, enum: [webhook, slack] }
+        type: { type: string, enum: [webhook, slack, smtp] }
         enabled: { type: boolean }
         events:
           type: array
@@ -36,6 +40,16 @@ components:
         created_by: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        smtp_host: { type: string, description: "SMTP server host (type=smtp)." }
+        smtp_port: { type: integer, description: "SMTP server port (type=smtp)." }
+        smtp_from: { type: string, description: "Envelope/From address (type=smtp)." }
+        smtp_to:
+          type: array
+          items: { type: string }
+          description: "Recipient addresses (type=smtp)."
+        smtp_username: { type: string, description: "SMTP auth username (type=smtp)." }
+        smtp_tls_mode: { type: string, enum: [starttls, implicit, none], description: "TLS mode (type=smtp)." }
+        smtp_insecure_skip_verify: { type: boolean, description: "Skip TLS cert verification (type=smtp)." }
     Error:
       type: object
       required: [error]
@@ -2828,25 +2842,38 @@ paths:
       tags: [notifications]
       summary: Create a notification channel
       description: >-
-        Requires `notification:manage` (admin/owner). The destination URL and
-        optional webhook HMAC key are write-only — never returned. Subscribes to
-        one or more event kinds: rotation.failed, sync.failed, promotion.pending,
-        access.denied.
+        Requires `notification:manage` (admin/owner). The destination URL, the
+        optional webhook HMAC key, and the SMTP password are write-only — never
+        returned. Subscribes to one or more event kinds: rotation.failed,
+        sync.failed, promotion.pending, access.denied. For `webhook`/`slack`
+        provide `url` (+ optional `hmac_key` for webhook); for `smtp` provide the
+        `smtp_*` fields instead (`url`/`hmac_key` are ignored/rejected).
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [name, type, url, events]
+              required: [name, type, events]
               properties:
                 name: { type: string }
-                type: { type: string, enum: [webhook, slack] }
+                type: { type: string, enum: [webhook, slack, smtp] }
                 url: { type: string, writeOnly: true, example: "https://hooks.example.com/..." }
                 hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
                 events:
                   type: array
                   items: { type: string, enum: [rotation.failed, sync.failed, promotion.pending, access.denied] }
+                smtp_host: { type: string, description: "SMTP server host (type=smtp)." }
+                smtp_port: { type: integer, minimum: 1, maximum: 65535, description: "SMTP server port (type=smtp)." }
+                smtp_from: { type: string, description: "Envelope/From address (type=smtp)." }
+                smtp_to:
+                  type: array
+                  items: { type: string }
+                  description: "One or more recipient addresses (type=smtp)."
+                smtp_username: { type: string, description: "SMTP auth username (type=smtp; optional)." }
+                smtp_password: { type: string, writeOnly: true, example: "<secret value>", description: "SMTP auth password (type=smtp; write-only)." }
+                smtp_tls_mode: { type: string, enum: [starttls, implicit, none], default: starttls, description: "TLS mode (type=smtp)." }
+                smtp_insecure_skip_verify: { type: boolean, default: false, description: "Skip SMTP TLS certificate verification (footgun; self-hosted relays only)." }
       responses:
         "201": { description: Created (masked channel view). }
         "400": { description: Validation error. }
@@ -2890,7 +2917,11 @@ paths:
     patch:
       tags: [notifications]
       summary: Update a channel
-      description: Selectively update enabled state, subscribed events, or the destination URL / HMAC key (write-only).
+      description: >-
+        Selectively update enabled state, subscribed events, or the transport
+        config (write-only). For webhook/slack supply `url` (+ optional
+        `hmac_key`); for smtp supply `smtp_host` (which signals a full SMTP
+        config replacement) with the other `smtp_*` fields.
       requestBody:
         required: true
         content:
@@ -2904,6 +2935,16 @@ paths:
                   items: { type: string }
                 url: { type: string, writeOnly: true }
                 hmac_key: { type: string, writeOnly: true }
+                smtp_host: { type: string, description: "Present ⇒ replace the full SMTP config (type=smtp)." }
+                smtp_port: { type: integer, minimum: 1, maximum: 65535 }
+                smtp_from: { type: string }
+                smtp_to:
+                  type: array
+                  items: { type: string }
+                smtp_username: { type: string }
+                smtp_password: { type: string, writeOnly: true }
+                smtp_tls_mode: { type: string, enum: [starttls, implicit, none] }
+                smtp_insecure_skip_verify: { type: boolean }
       responses:
         "200": { description: Updated (masked channel view). }
         "400": { description: Validation error. }

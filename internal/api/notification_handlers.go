@@ -31,6 +31,16 @@ type createNotificationReq struct {
 	Events  []string `json:"events"`
 	URL     string   `json:"url"`
 	HMACKey string   `json:"hmac_key"`
+
+	// SMTP fields (type == "smtp"). smtp_password is write-only (never returned).
+	SMTPHost               string   `json:"smtp_host"`
+	SMTPPort               int      `json:"smtp_port"`
+	SMTPFrom               string   `json:"smtp_from"`
+	SMTPTo                 []string `json:"smtp_to"`
+	SMTPUsername           string   `json:"smtp_username"`
+	SMTPPassword           string   `json:"smtp_password"`
+	SMTPTLSMode            string   `json:"smtp_tls_mode"`
+	SMTPInsecureSkipVerify bool     `json:"smtp_insecure_skip_verify"`
 }
 
 func (s *Server) handleNotificationCreate(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +54,15 @@ func (s *Server) handleNotificationCreate(w http.ResponseWriter, r *http.Request
 	}
 	v, err := s.notification.CreateChannel(r.Context(), notification.ChannelInput{
 		Name: req.Name, Type: req.Type, Events: req.Events, URL: req.URL, HMACKey: req.HMACKey,
-		CreatedBy: principalName(r),
+		CreatedBy:              principalName(r),
+		SMTPHost:               req.SMTPHost,
+		SMTPPort:               req.SMTPPort,
+		SMTPFrom:               req.SMTPFrom,
+		SMTPTo:                 req.SMTPTo,
+		SMTPUsername:           req.SMTPUsername,
+		SMTPPassword:           req.SMTPPassword,
+		SMTPTLSMode:            req.SMTPTLSMode,
+		SMTPInsecureSkipVerify: req.SMTPInsecureSkipVerify,
 	})
 	if err != nil {
 		s.writeNotificationError(w, err)
@@ -86,6 +104,17 @@ type updateNotificationReq struct {
 	Events  *[]string `json:"events"`
 	URL     *string   `json:"url"`
 	HMACKey string    `json:"hmac_key"`
+
+	// SMTP config replacement (type == "smtp"). Presence of smtp_host signals a
+	// full SMTP config replacement.
+	SMTPHost               *string  `json:"smtp_host"`
+	SMTPPort               int      `json:"smtp_port"`
+	SMTPFrom               string   `json:"smtp_from"`
+	SMTPTo                 []string `json:"smtp_to"`
+	SMTPUsername           string   `json:"smtp_username"`
+	SMTPPassword           string   `json:"smtp_password"`
+	SMTPTLSMode            string   `json:"smtp_tls_mode"`
+	SMTPInsecureSkipVerify bool     `json:"smtp_insecure_skip_verify"`
 }
 
 func (s *Server) handleNotificationUpdate(w http.ResponseWriter, r *http.Request) {
@@ -98,12 +127,25 @@ func (s *Server) handleNotificationUpdate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, CodeValidation, "invalid request body")
 		return
 	}
-	urlSet := req.URL != nil
-	u := ""
-	if urlSet {
-		u = *req.URL
+	var cfg notification.ChannelConfigUpdate
+	switch {
+	case req.SMTPHost != nil:
+		cfg = notification.ChannelConfigUpdate{
+			Set:                    true,
+			HMACKey:                req.HMACKey,
+			SMTPHost:               *req.SMTPHost,
+			SMTPPort:               req.SMTPPort,
+			SMTPFrom:               req.SMTPFrom,
+			SMTPTo:                 req.SMTPTo,
+			SMTPUsername:           req.SMTPUsername,
+			SMTPPassword:           req.SMTPPassword,
+			SMTPTLSMode:            req.SMTPTLSMode,
+			SMTPInsecureSkipVerify: req.SMTPInsecureSkipVerify,
+		}
+	case req.URL != nil:
+		cfg = notification.ChannelConfigUpdate{Set: true, URL: *req.URL, HMACKey: req.HMACKey}
 	}
-	v, err := s.notification.UpdateChannel(r.Context(), id, req.Enabled, req.Events, urlSet, u, req.HMACKey)
+	v, err := s.notification.UpdateChannel(r.Context(), id, req.Enabled, req.Events, cfg)
 	if err != nil {
 		s.writeNotificationError(w, err)
 		return

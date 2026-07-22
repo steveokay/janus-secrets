@@ -13,7 +13,7 @@ import (
 type NotificationChannel struct {
 	ID        string
 	Name      string
-	Type      string // "webhook" | "slack"
+	Type      string // "webhook" | "slack" | "smtp"
 	Enabled   bool
 	Events    []string // subscribed event kinds
 	ConfigCT  []byte
