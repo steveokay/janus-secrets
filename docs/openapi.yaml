@@ -1624,6 +1624,8 @@ paths:
                         id: { type: string }
                         email: { type: string }
                         disabled: { type: boolean }
+                        locked: { type: boolean, description: "True when the account is currently locked out (progressive backoff)." }
+                        locked_until: { type: [string, "null"], format: date-time, description: "Lock expiry; present only when locked." }
                         created_at: { type: string, format: date-time }
                   next_cursor: { type: [string, "null"] }
         "403": { $ref: '#/components/responses/Forbidden' }
@@ -1663,6 +1665,21 @@ paths:
         "204": { description: Disabled. }
         "403": { $ref: '#/components/responses/Forbidden' }
         "409": { description: Cannot disable yourself or the last instance owner. }
+  /v1/users/{id}/unlock:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [members]
+      summary: Clear a user's account-lockout state (admin early-unlock; cannot unlock yourself)
+      description: >
+        Resets the failed-login counter, escalation level, and locked_until so a
+        progressively-locked account can log in immediately, without waiting for
+        the lock to auto-expire.
+      responses:
+        "204": { description: Unlocked. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Cannot unlock yourself. }
   /v1/instance/members:
     get:
       tags: [members]
@@ -1750,6 +1767,7 @@ paths:
                       email: { type: string }
         "400": { description: Validation error. }
         "401": { description: "Invalid credentials, or (code `totp_required`) a second-factor code is needed." }
+        "429": { description: "Account temporarily locked (code `account_locked`) after repeated failed logins. Only returned to a caller who supplied the correct password; a `Retry-After` header carries the remaining lock window in seconds. A per-IP rate limit can also produce 429." }
   /v1/auth/logout:
     post:
       tags: [auth]

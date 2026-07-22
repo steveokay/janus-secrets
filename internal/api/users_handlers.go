@@ -87,3 +87,29 @@ func (s *Server) handleUserDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// handleUserUnlock clears an account's lockout state (an admin early-unlock).
+// Mirrors handleUserDisable: instance-scoped UserManage, cannot target self.
+func (s *Server) handleUserUnlock(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r, authz.UserManage, authz.Instance(), "user.unlock", "users") {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	p, _ := PrincipalFrom(r.Context())
+	if id == p.ID {
+		// A caller who could reach this endpoint is not themselves locked out
+		// (they authenticated), so self-unlock is meaningless — reject for
+		// symmetry with disable and to keep the surface tight.
+		writeError(w, http.StatusConflict, CodeValidation, "cannot unlock yourself")
+		return
+	}
+	if err := s.auth.AdminUnlock(r.Context(), id); err != nil {
+		s.writeAuthError(w, err) // ErrNotFound → 404
+		return
+	}
+	if err := s.record(r, "user.unlock", "users/"+id, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

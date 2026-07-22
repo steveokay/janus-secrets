@@ -1,6 +1,35 @@
 package auth
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
+
+// AccountLockedError is returned by Login when a caller supplies the CORRECT
+// password for an account that is currently locked out. It carries the remaining
+// window so the API layer can set a Retry-After header. It is only ever revealed
+// to the password-holder — a wrong password against a locked account still
+// returns the byte-identical ErrInvalidCredentials (no enumeration/lock oracle).
+type AccountLockedError struct {
+	// RetryAfter is the remaining lock window (rounded up to whole seconds by the
+	// API layer). Always > 0 when the error is returned.
+	RetryAfter time.Duration
+}
+
+func (e *AccountLockedError) Error() string {
+	return fmt.Sprintf("auth: account locked; retry in %s", e.RetryAfter.Round(time.Second))
+}
+
+// AsAccountLocked reports whether err is (or wraps) an *AccountLockedError and,
+// if so, returns it. Convenience over errors.As at call sites.
+func AsAccountLocked(err error) (*AccountLockedError, bool) {
+	var e *AccountLockedError
+	if errors.As(err, &e) {
+		return e, true
+	}
+	return nil, false
+}
 
 var (
 	// ErrInvalidCredentials covers wrong password, unknown user, and disabled

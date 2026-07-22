@@ -39,6 +39,11 @@ type Service struct {
 	// idleTimeout is the session inactivity window; 0 disables enforcement.
 	idleTimeout time.Duration
 
+	// lockout is the progressive per-account lockout policy. The zero value has
+	// Enabled=false, so a Service built without SetLockoutPolicy behaves as if
+	// lockout is off (matching pre-feature behaviour and keeping tests opt-in).
+	lockout LockoutPolicy
+
 	oidcProviders  *store.OIDCProviderRepo
 	oidcIdentities *store.OIDCIdentityRepo
 	oidcAuthReqs   *store.OIDCAuthRequestRepo
@@ -79,6 +84,14 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 // SetSessionIdleTimeout configures the session inactivity window (0 disables).
 // Called once during boot, before the server serves requests.
 func (s *Service) SetSessionIdleTimeout(d time.Duration) { s.idleTimeout = d }
+
+// SetLockoutPolicy configures progressive per-account lockout. Called once
+// during boot, before the server serves requests.
+func (s *Service) SetLockoutPolicy(p LockoutPolicy) { s.lockout = p }
+
+// LockoutPolicy returns the active lockout policy (used by tests and callers
+// that need to reason about the window schedule).
+func (s *Service) LockoutPolicy() LockoutPolicy { return s.lockout }
 
 // zeroize overwrites b with zeros (best-effort, GC may have copied).
 func zeroize(b []byte) {
@@ -196,6 +209,11 @@ type UserInfo struct {
 	ID       string `json:"id"`
 	Email    string `json:"email"`
 	Disabled bool   `json:"disabled"`
+	// Locked reports whether the account is currently locked out (locked_until in
+	// the future). LockedUntil is the expiry when Locked, else nil. Both are
+	// non-secret and let the Members UI render a badge.
+	Locked      bool       `json:"locked"`
+	LockedUntil *time.Time `json:"locked_until,omitempty"`
 }
 
 // ListUsersPage returns a page of user summaries plus the keyset cursor for the
@@ -206,9 +224,15 @@ func (s *Service) ListUsersPage(ctx context.Context, limit int, after *store.Cur
 	if err != nil {
 		return nil, nil, err
 	}
+	now := time.Now()
 	out := make([]UserInfo, 0, len(rows))
 	for _, u := range rows {
-		out = append(out, UserInfo{ID: u.ID, Email: u.Email, Disabled: u.DisabledAt != nil})
+		info := UserInfo{ID: u.ID, Email: u.Email, Disabled: u.DisabledAt != nil}
+		if u.LockedUntil != nil && u.LockedUntil.After(now) {
+			info.Locked = true
+			info.LockedUntil = u.LockedUntil
+		}
+		out = append(out, info)
 	}
 	var next *store.Cursor
 	if limit > 0 && len(rows) == limit {
@@ -227,6 +251,32 @@ func (s *Service) ListUsers(ctx context.Context) ([]UserInfo, error) {
 // DisableUser marks a user disabled (sessions/logins stop working).
 func (s *Service) DisableUser(ctx context.Context, id string) error {
 	return s.users.SetDisabled(ctx, id, true)
+}
+
+// IsEmailLocked reports whether the account for email is currently locked out
+// (locked_until in the future). It is a server-side check used by the API to
+// decide whether to emit an auth.lockout audit event after a failed login; it
+// is never reflected in a response, so it is not an enumeration oracle. An
+// unknown email, a disabled user, or a disabled policy all report false.
+func (s *Service) IsEmailLocked(ctx context.Context, email string) bool {
+	if !s.lockout.Enabled {
+		return false
+	}
+	u, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
+		return false
+	}
+	return u.LockedUntil != nil && u.LockedUntil.After(time.Now())
+}
+
+// AdminUnlock clears an account's lockout state (counter, level, locked_until),
+// letting the user log in immediately. Returns ErrNotFound for a missing user.
+func (s *Service) AdminUnlock(ctx context.Context, id string) error {
+	err := s.users.AdminUnlock(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return ErrNotFound
+	}
+	return err
 }
 
 // userByEmailForTest exposes a user id lookup for integration tests.
