@@ -186,6 +186,13 @@ func (s *Service) sendSMTP(ctx context.Context, cfg channelConfig, p eventPayloa
 	if deadline, ok := ctx.Deadline(); ok {
 		dialer.Deadline = deadline
 	}
+	// Bound the connect attempt even when the request ctx has no deadline (the
+	// /test endpoint runs with HTTPWriteTimeout=0), so a dial to an unreachable
+	// host can't block the goroutine indefinitely. Webhook/Slack are already
+	// bounded by the http client timeout; this gives SMTP the same guarantee.
+	if dialer.Deadline.IsZero() {
+		dialer.Timeout = 15 * time.Second
+	}
 
 	var client *smtp.Client
 	var err error

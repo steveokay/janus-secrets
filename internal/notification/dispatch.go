@@ -134,7 +134,16 @@ func (s *Service) deliver(ctx context.Context) {
 			_ = s.repo.FailDelivery(ctx, d.ID, "channel disabled")
 			continue
 		}
-		if err := s.send(ctx, ch.Type, configs[d.ChannelID], eventPayload{}, d.Payload); err != nil {
+		// The stored payload is a marshalled eventPayload (see fanOut). Decode it so
+		// the SMTP/Slack renderers — which render exclusively from p — produce a
+		// populated message; a zero-value eventPayload{} would render an empty
+		// subject and body. (The raw bytes are still passed as body for webhook.)
+		var p eventPayload
+		if err := json.Unmarshal(d.Payload, &p); err != nil {
+			s.reschedule(ctx, d, "payload decode failed")
+			continue
+		}
+		if err := s.send(ctx, ch.Type, configs[d.ChannelID], p, d.Payload); err != nil {
 			s.reschedule(ctx, d, sanitize(err))
 			continue
 		}

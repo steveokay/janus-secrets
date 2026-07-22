@@ -24,11 +24,15 @@ components:
   schemas:
     NotificationChannel:
       type: object
-      description: Masked notification channel — never carries the destination URL or HMAC key.
+      description: >-
+        Masked notification channel — never carries the destination URL, HMAC
+        key, or SMTP password. Non-secret SMTP fields (host/port/from/to/username/
+        tls_mode/insecure_skip_verify) are returned for type=smtp so an edit form
+        can prefill; smtp_password is write-only and is never present.
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        type: { type: string, enum: [webhook, slack] }
+        type: { type: string, enum: [webhook, slack, smtp] }
         enabled: { type: boolean }
         events:
           type: array
@@ -36,6 +40,16 @@ components:
         created_by: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        smtp_host: { type: string, description: "SMTP server host (type=smtp)." }
+        smtp_port: { type: integer, description: "SMTP server port (type=smtp)." }
+        smtp_from: { type: string, description: "Envelope/From address (type=smtp)." }
+        smtp_to:
+          type: array
+          items: { type: string }
+          description: "Recipient addresses (type=smtp)."
+        smtp_username: { type: string, description: "SMTP auth username (type=smtp)." }
+        smtp_tls_mode: { type: string, enum: [starttls, implicit, none], description: "TLS mode (type=smtp)." }
+        smtp_insecure_skip_verify: { type: boolean, description: "Skip TLS cert verification (type=smtp)." }
     Error:
       type: object
       required: [error]

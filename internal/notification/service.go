@@ -89,7 +89,9 @@ type ChannelInput struct {
 }
 
 // ChannelView is the masked, value-free projection returned to callers — never
-// the URL or HMAC key.
+// the destination URL, HMAC key, or SMTP password. The non-secret SMTP fields
+// are surfaced so an edit form can prefill; smtp_password is deliberately absent
+// (write-only) and MUST NOT be added to this struct.
 type ChannelView struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -99,6 +101,17 @@ type ChannelView struct {
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Non-secret SMTP fields (type == "smtp"), populated on Get/List so the edit
+	// form can prefill. Empty/omitted for webhook/slack. smtp_password is NEVER
+	// included — it stays write-only.
+	SMTPHost               string   `json:"smtp_host,omitempty"`
+	SMTPPort               int      `json:"smtp_port,omitempty"`
+	SMTPFrom               string   `json:"smtp_from,omitempty"`
+	SMTPTo                 []string `json:"smtp_to,omitempty"`
+	SMTPUsername           string   `json:"smtp_username,omitempty"`
+	SMTPTLSMode            string   `json:"smtp_tls_mode,omitempty"`
+	SMTPInsecureSkipVerify bool     `json:"smtp_insecure_skip_verify,omitempty"`
 }
 
 func view(c *store.NotificationChannel) *ChannelView {
@@ -110,6 +123,30 @@ func view(c *store.NotificationChannel) *ChannelView {
 		ID: c.ID, Name: c.Name, Type: c.Type, Enabled: c.Enabled, Events: ev,
 		CreatedBy: c.CreatedBy, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
+}
+
+// smtpView returns the masked view with the NON-SECRET SMTP fields populated
+// from the decrypted config. The password is intentionally never copied.
+func (s *Service) smtpView(c *store.NotificationChannel) *ChannelView {
+	v := view(c)
+	if c.Type != "smtp" {
+		return v
+	}
+	cfg, err := s.unwrapConfig(c)
+	if err != nil {
+		// Degrade gracefully: return the channel without the smtp fields rather
+		// than erroring the whole Get/List.
+		s.logger.Warn("notification smtp view decrypt failed", "channel", c.ID, "err", err)
+		return v
+	}
+	v.SMTPHost = cfg.Host
+	v.SMTPPort = cfg.Port
+	v.SMTPFrom = cfg.From
+	v.SMTPTo = cfg.To
+	v.SMTPUsername = cfg.Username
+	v.SMTPTLSMode = cfg.TLSMode
+	v.SMTPInsecureSkipVerify = cfg.InsecureSkipVerify
+	return v
 }
 
 // validateType enforces the allowed channel types.
@@ -269,10 +306,10 @@ func (s *Service) GetChannel(ctx context.Context, id string) (*ChannelView, erro
 	if err != nil {
 		return nil, mapStoreErr(err)
 	}
-	return view(c), nil
+	return s.smtpView(c), nil
 }
 
-// ListChannels returns all channels, masked.
+// ListChannels returns all channels, masked (non-secret smtp fields populated).
 func (s *Service) ListChannels(ctx context.Context) ([]*ChannelView, error) {
 	cs, err := s.repo.ListChannels(ctx)
 	if err != nil {
@@ -280,7 +317,7 @@ func (s *Service) ListChannels(ctx context.Context) ([]*ChannelView, error) {
 	}
 	out := make([]*ChannelView, 0, len(cs))
 	for _, c := range cs {
-		out = append(out, view(c))
+		out = append(out, s.smtpView(c))
 	}
 	return out, nil
 }

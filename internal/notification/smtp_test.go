@@ -3,6 +3,7 @@ package notification
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -99,6 +100,63 @@ func TestBuildMessageHeaderInjectionGuard(t *testing.T) {
 	// From line collapses onto one header line (CR/LF removed).
 	if !strings.Contains(msg, "From: evil@corp.ioBcc: attacker@evil.io\r\n") {
 		t.Fatalf("expected CR/LF-stripped From:\n%s", msg)
+	}
+}
+
+// TestOutboxPayloadDecodeRendersNonEmpty is a focused regression for the bug
+// where deliver() passed a zero-value eventPayload{} to send(), so outbox-
+// dispatched SMTP emails and Slack messages rendered empty (Subject "Janus: ",
+// no body). It marshals a real payloadFor(...) payload exactly as fanOut stores
+// it, unmarshals it exactly as the fixed deliver() does, and asserts the decoded
+// payload produces a POPULATED message where eventPayload{} would not.
+func TestOutboxPayloadDecodeRendersNonEmpty(t *testing.T) {
+	// Build the stored payload the way fanOut does: json.Marshal(payloadFor(...)).
+	det := "apply failed"
+	row := store.AuditRow{
+		Seq: 7, Action: "rotation.rotate", Result: "failure",
+		Resource: "configs/x/secrets/STRIPE_KEY", ActorName: "rotation:policy-1",
+		Detail: &det, OccurredAt: time.Unix(1000, 0),
+	}
+	stored, err := json.Marshal(payloadFor(EventRotationFailed, row))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Decode exactly as the fixed deliver() does.
+	var decoded eventPayload
+	if err := json.Unmarshal(stored, &decoded); err != nil {
+		t.Fatalf("payload decode failed: %v", err)
+	}
+
+	cfg := channelConfig{From: "janus@corp.io", To: []string{"ops@corp.io"}}
+
+	// The decoded payload yields a populated subject (with the event kind) and a
+	// body carrying the resource.
+	msg := string(buildMessage(cfg, decoded))
+	if !strings.Contains(msg, "Subject: Janus: rotation failed\r\n") {
+		t.Fatalf("decoded payload did not render event kind in subject:\n%s", msg)
+	}
+	if !strings.Contains(msg, "resource: configs/x/secrets/STRIPE_KEY") {
+		t.Fatalf("decoded payload did not render resource in body:\n%s", msg)
+	}
+
+	// Proof of the bug: a zero-value payload (what the old code passed) renders an
+	// empty subject and a body without the resource.
+	empty := string(buildMessage(cfg, eventPayload{}))
+	if strings.Contains(empty, "rotation failed") || strings.Contains(empty, "STRIPE_KEY") {
+		t.Fatalf("zero-value payload unexpectedly rendered content:\n%s", empty)
+	}
+	if !strings.Contains(empty, "Subject: Janus: \r\n") {
+		t.Fatalf("expected empty subject for zero payload, got:\n%s", empty)
+	}
+
+	// The same bug affected Slack: the decoded payload renders a non-empty,
+	// content-bearing message; the zero payload does not.
+	if slack := slackText(decoded); !strings.Contains(slack, "rotation failed") || !strings.Contains(slack, "configs/x/secrets/STRIPE_KEY") {
+		t.Fatalf("decoded payload produced an empty/contentless Slack message: %q", slack)
+	}
+	if slack := slackText(eventPayload{}); strings.Contains(slack, "rotation failed") || strings.Contains(slack, "STRIPE_KEY") {
+		t.Fatalf("zero-value payload unexpectedly produced Slack content: %q", slack)
 	}
 }
 

@@ -196,7 +196,8 @@ func TestNotificationsSMTPChannel(t *testing.T) {
 		t.Fatalf("smtp create response leaked credentials: %+v", created)
 	}
 
-	// Get + list must not carry the password.
+	// Get + list must not carry the password, but MUST return the non-secret SMTP
+	// fields so an edit form can prefill.
 	var got map[string]any
 	if code := doAuthed(t, "GET", ts.URL+"/v1/notifications/channels/"+created.ID, owner, "", "", &got); code != 200 {
 		t.Fatalf("get: %d", code)
@@ -204,6 +205,23 @@ func TestNotificationsSMTPChannel(t *testing.T) {
 	rawGet, _ := json.Marshal(got)
 	if strings.Contains(string(rawGet), smtpPassword) {
 		t.Fatalf("get leaked smtp password: %s", rawGet)
+	}
+	if _, present := got["smtp_password"]; present {
+		t.Fatalf("get response must not include an smtp_password field: %s", rawGet)
+	}
+	if got["smtp_host"] != "smtp.corp.io" {
+		t.Fatalf("get did not return smtp_host for prefill: %s", rawGet)
+	}
+	if got["smtp_from"] != "janus@corp.io" || got["smtp_username"] != "mailer" ||
+		got["smtp_tls_mode"] != "starttls" {
+		t.Fatalf("get did not return non-secret smtp fields for prefill: %s", rawGet)
+	}
+	// smtp_port arrives as a JSON number → float64.
+	if p, ok := got["smtp_port"].(float64); !ok || int(p) != 587 {
+		t.Fatalf("get did not return smtp_port for prefill: %s", rawGet)
+	}
+	if to, ok := got["smtp_to"].([]any); !ok || len(to) != 2 || to[0] != "ops@corp.io" {
+		t.Fatalf("get did not return smtp_to for prefill: %s", rawGet)
 	}
 
 	var listResp struct {
@@ -215,6 +233,12 @@ func TestNotificationsSMTPChannel(t *testing.T) {
 	rawList, _ := json.Marshal(listResp)
 	if strings.Contains(string(rawList), smtpPassword) {
 		t.Fatalf("list leaked smtp password: %s", rawList)
+	}
+	if len(listResp.Channels) != 1 || listResp.Channels[0]["smtp_host"] != "smtp.corp.io" {
+		t.Fatalf("list did not return non-secret smtp fields for prefill: %s", rawList)
+	}
+	if _, present := listResp.Channels[0]["smtp_password"]; present {
+		t.Fatalf("list response must not include an smtp_password field: %s", rawList)
 	}
 
 	// The smtp password never appears in the audit export.
