@@ -65,10 +65,10 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 | Feature | Why | Effort |
 |---|---|---|
-| **Prometheus `/metrics`** — request rates/latency, seal state, lease counts, rotation/sync failure gauges, audit head seq | Self-hosted means someone else's dashboard; today the only signal is logs. | S |
+| ~~**Prometheus `/metrics`** — request rates/latency, seal state, lease counts, rotation/sync failure gauges, audit head seq~~ **SHIPPED 2026-07-22** — hand-rolled zero-dep, `JANUS_METRICS_TOKEN`-gated; + `JANUS_LOG_LEVEL`/`FORMAT`. | ~~S~~ |
 | **Scheduled encrypted backups** to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy; the sealed-material export already exists. | M |
 | **Audit shipping** — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
-| **Health panel in Settings** — DB latency, scheduler tick ages, failed-run counts, chain-verify age | The engines are invisible until they fail; surfacing tick staleness catches wedged schedulers. | S |
+| ~~**Health panel in Settings** — DB latency, scheduler tick ages, failed-run counts~~ **SHIPPED 2026-07-22** — admin `GET /v1/sys/status` + Settings → Health (DB latency/pool, seal, audit head, per-engine tick staleness, failed-run counts). | ~~S~~ |
 | **First-run onboarding checklist** on the dashboard (create project → add secrets → mint token → `janus run`) (upstream gap 1.13) | The empty state after init is a dead end for newcomers. | S |
 
 ### 5. UI polish

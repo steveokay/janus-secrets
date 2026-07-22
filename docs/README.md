@@ -34,6 +34,8 @@ Task-oriented walkthroughs for the common workflows:
   login and GitHub Actions trust bindings from the Integrations page.
 - [Two-factor authentication](guides/two-factor-auth.md) — enabling TOTP for
   password logins, signing in with a code, recovery codes, and disabling.
+- [Observability](guides/observability.md) — the Prometheus `/metrics`
+  endpoint, the Settings health panel, and log level/format env vars.
 - [Master key & backups](guides/master-key-and-backup.md) — master-key
   rotation, the Shamir rekey ceremony, encrypted backup download, passphrase
   change.

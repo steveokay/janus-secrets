@@ -57,9 +57,14 @@ _Nothing in flight._
       `JANUS_LOCKOUT_*` env; migration 000026. Adversarial review SHIP.
 - [ ] **DB pool tuning** — `pgx` runs on defaults (no max-conns/lifetime
       config); shutdown grace is fixed at 10s, not configurable.
-- [ ] **Prometheus `/metrics`** (request rates/latency, seal state, lease
+- [x] ~~**Prometheus `/metrics`** (request rates/latency, seal state, lease
       counts, rotation/sync failure gauges, audit head seq) + a
-      `JANUS_LOG_LEVEL`/format env var. "Reads 24h" is the only metric today.
+      `JANUS_LOG_LEVEL`/format env var.~~ **SHIPPED 2026-07-22** — hand-rolled
+      zero-dep exposition, token-gated (`JANUS_METRICS_TOKEN`, off by default),
+      HTTP metrics keyed by chi route pattern (bounded cardinality) + engine/DB/
+      audit/runtime gauges. Plus an admin **health panel** (Settings, backed by
+      `GET /v1/sys/status`) and `JANUS_LOG_LEVEL`/`JANUS_LOG_FORMAT`. Adversarial
+      review SHIP. See [observability guide](docs/guides/observability.md).
 - [ ] **Token `last_used` / user `last_login` not tracked** (only OIDC
       identities carry a `last_login_at`) — blocks a stale-token warning on
       Tokens and a "last login" column on Members.
@@ -148,7 +153,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 If picking the next five, weighing leverage against effort:
 
-1. Prometheus metrics + health panel — makes self-hosting operable.
+1. ~~Prometheus metrics + health panel~~ **SHIPPED 2026-07-22.**
 2. TOTP second factor — the cheapest meaningful hardening now that session
    management has shipped.
 3. Global key search — daily-use quality of life.
