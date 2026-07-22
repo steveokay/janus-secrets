@@ -282,16 +282,40 @@ export interface SessionInfo {
 }
 
 export type NotificationEventKind = 'rotation.failed' | 'sync.failed' | 'promotion.pending' | 'access.denied'
+export type NotificationChannelType = 'webhook' | 'slack' | 'smtp'
+export type SmtpTlsMode = 'starttls' | 'implicit' | 'none'
+
+/* SMTP settings shared by create/update inputs. All optional; the password is
+   write-only (send-only) and is NEVER returned by the API, so it never appears
+   on NotificationChannel. */
+export interface SmtpChannelFields {
+  smtp_host?: string
+  smtp_port?: number
+  smtp_from?: string
+  smtp_to?: string[]
+  smtp_username?: string
+  smtp_password?: string
+  smtp_tls_mode?: SmtpTlsMode
+  smtp_insecure_skip_verify?: boolean
+}
 
 export interface NotificationChannel {
   id: string
   name: string
-  type: 'webhook' | 'slack'
+  type: NotificationChannelType
   enabled: boolean
   events: NotificationEventKind[]
   created_by: string
   created_at: string
   updated_at: string
+  /* non-secret SMTP settings echoed back by the API (never the password) */
+  smtp_host?: string
+  smtp_port?: number
+  smtp_from?: string
+  smtp_to?: string[]
+  smtp_username?: string
+  smtp_tls_mode?: SmtpTlsMode
+  smtp_insecure_skip_verify?: boolean
 }
 
 export interface NotificationDelivery {
@@ -305,15 +329,15 @@ export interface NotificationDelivery {
   delivered_at?: string
 }
 
-export interface CreateChannelInput {
+export interface CreateChannelInput extends SmtpChannelFields {
   name: string
-  type: 'webhook' | 'slack'
+  type: NotificationChannelType
   url: string
   hmac_key?: string
   events: NotificationEventKind[]
 }
 
-export interface UpdateChannelInput {
+export interface UpdateChannelInput extends SmtpChannelFields {
   enabled?: boolean
   events?: NotificationEventKind[]
   url?: string
