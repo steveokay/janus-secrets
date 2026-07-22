@@ -5,6 +5,7 @@
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
   import PromotePanel from '../components/PromotePanel.svelte'
+  import GenerateMenu from '../components/GenerateMenu.svelte'
   import NotFound from './NotFound.svelte'
 
   let { projectId, configId }: { projectId: string; configId: string } = $props()
@@ -141,6 +142,20 @@
   function commitEdit(row: Row) {
     row.editing = false
     row.dirty = row.added || row.draft !== (row.value ?? '')
+  }
+
+  // Recompute a row's dirty flag after its draft changes (e.g. the value
+  // generator writes into row.draft). Keeps the row editing/revealed so the
+  // user sees the generated value in the normal value input.
+  function markDirty(row: Row) {
+    row.dirty = row.added || row.draft !== (row.value ?? '')
+  }
+
+  function applyGenerated(row: Row, value: string) {
+    row.draft = value
+    row.revealed = true
+    row.editing = true
+    markDirty(row)
   }
 
   function toggleDelete(row: Row) {
@@ -573,16 +588,19 @@
                 {#if row.editing}
                   <!-- textarea: values may be JSON, PEM, whole files. Enter inserts a
                        newline; Ctrl/Cmd+Enter or blur commits into the dirty buffer. -->
-                  <textarea
-                    class="input inline-input val-edit mono"
-                    rows={Math.min(Math.max(row.draft.split('\n').length, 1), 14)}
-                    spellcheck="false"
-                    autocomplete="off"
-                    bind:value={row.draft}
-                    onblur={() => commitEdit(row)}
-                    onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitEdit(row) } }}
-                    placeholder="value — paste JSON, PEM, or any file content; Ctrl+Enter to apply"
-                  ></textarea>
+                  <div class="val-editrow">
+                    <textarea
+                      class="input inline-input val-edit mono"
+                      rows={Math.min(Math.max(row.draft.split('\n').length, 1), 14)}
+                      spellcheck="false"
+                      autocomplete="off"
+                      bind:value={row.draft}
+                      onblur={() => commitEdit(row)}
+                      onkeydown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitEdit(row) } }}
+                      placeholder="value — paste JSON, PEM, or any file content; Ctrl+Enter to apply"
+                    ></textarea>
+                    <GenerateMenu onGenerate={(value) => applyGenerated(row, value)} />
+                  </div>
                 {:else if row.revealed}
                   <button class="val revealed mono" onclick={() => beginEdit(row)} title="Click to edit">
                     {(row.draft.split('\n')[0] || '(empty)')}{#if row.draft.includes('\n')}<span class="more-lines"> ⏎ {row.draft.split('\n').length} lines</span>{/if}
@@ -776,6 +794,8 @@
   .val.revealed:hover { outline: 1px solid var(--rule-strong); }
 
   .inline-input { padding: 0.25rem 0.5rem; font-size: var(--text-sm); }
+  .val-editrow { display: flex; align-items: flex-start; gap: var(--s2); }
+  .val-editrow textarea { flex: 1; }
   .val-edit {
     resize: vertical;
     min-height: 1.9rem;
