@@ -10,6 +10,9 @@ import (
 // creatingGrace. No-op while sealed. Per-lease errors are logged and never abort
 // the pass.
 func (s *Service) RunDue(ctx context.Context) {
+	if s.tickHook != nil {
+		s.tickHook()
+	}
 	if s.kr.Sealed() {
 		return
 	}

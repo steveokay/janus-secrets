@@ -8,6 +8,9 @@ import (
 // RunDue syncs every currently-due target once. No-op while sealed. Per-target
 // errors are handled inside attempt (logged + backoff) and never abort the pass.
 func (s *Service) RunDue(ctx context.Context) {
+	if s.tickHook != nil {
+		s.tickHook()
+	}
 	if s.kr.Sealed() {
 		return
 	}

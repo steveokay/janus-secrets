@@ -111,6 +111,9 @@ All server configuration is environment-only (no config file). These are the
 | `JANUS_LOCKOUT_THRESHOLD` | Consecutive failed logins for an account before the first lockout. Non-positive values fall back to the default. | `5` |
 | `JANUS_LOCKOUT_BASE` | First lockout window (Go duration); each successive lockout escalates from here (`base × 5^(level−1)`, capped at max). | `1m` |
 | `JANUS_LOCKOUT_MAX` | Cap on the lockout window (Go duration). Raised to `JANUS_LOCKOUT_BASE` if set lower. | `1h` |
+| `JANUS_METRICS_TOKEN` | Enables the Prometheus `/metrics` endpoint and the bearer token scrapers must present. Unset ⇒ `/metrics` returns `404` (disabled). See [observability](observability.md). | *(none — disabled)* |
+| `JANUS_LOG_LEVEL` | `slog` level: `debug`, `info`, `warn`, `error`. Invalid values warn and fall back. | `info` |
+| `JANUS_LOG_FORMAT` | Log handler format: `text` or `json`. | `text` |
 | `JANUS_ROTATION_TICK` | In-process static-rotation scheduler interval; `0` disables the ticker. | `60s` |
 | `JANUS_SYNC_TICK` | In-process sync-integrations scheduler interval; `0` disables. | `60s` |
 | `JANUS_DYNAMIC_TICK` | In-process dynamic-lease manager tick (renew/expire sweep); `0` disables. | `60s` |

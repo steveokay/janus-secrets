@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,7 +36,7 @@ func runServer(ctx context.Context) error {
 	if dsn == "" {
 		return errors.New("JANUS_DATABASE_URL is not set")
 	}
-	logger := slog.Default()
+	logger := buildLogger()
 
 	idle := 30 * time.Minute // production default; 0 disables
 	if v := os.Getenv("JANUS_SESSION_IDLE_TIMEOUT"); v != "" {
@@ -168,6 +169,8 @@ func runServer(ctx context.Context) error {
 		HTTPIdleTimeout:    httpIdle,
 		HTTPMaxBodyBytes:   httpMaxBody,
 		Lockout:            lockout,
+		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
+
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
 			if arn == "" {
@@ -201,4 +204,36 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// buildLogger constructs the process slog.Logger from JANUS_LOG_LEVEL
+// (debug|info|warn|error, default info) and JANUS_LOG_FORMAT (text|json,
+// default text). Invalid values warn (to stderr, via the default handler) and
+// fall back to the defaults — a bad knob never fails boot.
+func buildLogger() *slog.Logger {
+	level := slog.LevelInfo
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("JANUS_LOG_LEVEL"))); v {
+	case "", "info":
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		slog.Default().Warn("invalid JANUS_LOG_LEVEL; using default", "value", v, "default", "info")
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("JANUS_LOG_FORMAT"))); v {
+	case "", "text":
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	case "json":
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	default:
+		slog.Default().Warn("invalid JANUS_LOG_FORMAT; using default", "value", v, "default", "text")
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	}
+	return slog.New(handler)
 }

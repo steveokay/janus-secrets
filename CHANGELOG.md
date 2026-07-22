@@ -23,6 +23,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- Observability: a Prometheus **`/metrics`** endpoint (hand-rolled zero-dependency
+  exposition — HTTP request rate/latency by route pattern, seal state, audit head
+  seq, per-engine scheduler tick + failed-run gauges, active leases, DB pool, and
+  Go runtime), gated by `JANUS_METRICS_TOKEN` and disabled (404) until it is set.
+  A new admin **health panel** (Settings → Health, backed by `GET /v1/sys/status`)
+  surfaces DB latency + pool, seal state, uptime/version, audit head, and
+  per-engine tick staleness / failed-run counts. Log level and format are now
+  configurable via `JANUS_LOG_LEVEL` and `JANUS_LOG_FORMAT`.
 - Two-factor authentication (TOTP): optional RFC 6238 second factor for
   password logins, with single-use recovery codes. Self-service enrolment from
   Settings (scannable QR + copyable secret, both shown once), confirm/disable/

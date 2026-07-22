@@ -41,9 +41,15 @@ type Service struct {
 	st       *store.Store
 	hc       *http.Client
 	now      func() time.Time // injectable clock (tests)
+	tickHook func()           // optional; called at the top of each RunDue (metrics/health)
 
 	githubBaseURL string // GitHub API base; overridden in tests to point at a fake
 }
+
+// SetTickHook installs a callback invoked at the top of every RunDue pass. Used
+// to stamp the shared scheduler "last tick" time for metrics + /v1/sys/status.
+// nil is a no-op.
+func (s *Service) SetTickHook(h func()) { s.tickHook = h }
 
 // New wires the engine.
 func New(kr *crypto.Keyring, st *store.Store, sec *secrets.Service, aud *audit.Recorder, logger *slog.Logger) *Service {

@@ -14,6 +14,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/masterkeys"
+	"github.com/steveokay/janus-secrets/internal/metrics"
 	"github.com/steveokay/janus-secrets/internal/notification"
 	"github.com/steveokay/janus-secrets/internal/projectkeys"
 	"github.com/steveokay/janus-secrets/internal/promote"
@@ -40,6 +41,14 @@ type Config struct {
 	HTTPWriteTimeout time.Duration
 	HTTPIdleTimeout  time.Duration
 	HTTPMaxBodyBytes int64 // 0 = no limit (consumed by the body-limit middleware)
+	// Scheduler tick intervals, surfaced by /v1/sys/status as each engine's
+	// interval_seconds and enabled flag. Zero = disabled.
+	RotationTick time.Duration
+	SyncTick     time.Duration
+	DynamicTick  time.Duration
+	// MetricsToken, when non-empty, enables the /metrics endpoint gated by this
+	// static bearer token. Empty → /metrics returns 404.
+	MetricsToken string
 }
 
 // Server is Janus's HTTP server. The keyring is the single source of truth
@@ -72,11 +81,21 @@ type Server struct {
 	// without a real store.
 	notification *notification.Service
 	auth         *auth.Service   // nil only in unit tests that exercise no auth path
-	authz   *authz.Engine   // nil only in unit-test servers that exercise no authz path
-	st      *store.Store    // for scope-chain resolution + membership/user handlers
-	audit   *audit.Recorder // nil in unit-test servers; Boot always wires a real one
-	logger  *slog.Logger
-	router  chi.Router
+	authz        *authz.Engine   // nil only in unit-test servers that exercise no authz path
+	st           *store.Store    // for scope-chain resolution + membership/user handlers
+	audit        *audit.Recorder // nil in unit-test servers; Boot always wires a real one
+	logger       *slog.Logger
+	router       chi.Router
+	// metrics is the janus_ Prometheus metric set + HTTP instrumentation. Always
+	// constructed in New (even when nil-token, so instrumentation still records).
+	metrics *AppMetrics
+	// metricsToken gates GET /metrics; empty → the endpoint 404s.
+	metricsToken string
+	// ticks is the shared scheduler last-tick tracker feeding both
+	// janus_scheduler_last_tick_seconds and /v1/sys/status.
+	ticks *metrics.TickTracker
+	// startTime is the process/server start, for uptime + janus_start_time_seconds.
+	startTime time.Time
 	// initMu serializes POST /v1/sys/init: the unsealer's Init is
 	// get-then-put, so unserialized concurrent inits could both report
 	// success while only one share set matches the stored seal.
@@ -95,6 +114,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	}
 	s := &Server{cfg: cfg, keyring: kr, unsealer: u, seals: seals, service: svc, transit: tr, rotation: rot,
 		sync: syncSvc, dynamic: dyn, auth: authSvc, authz: authorizer, st: st, audit: auditRec, logger: logger}
+	// Metrics + scheduler tick tracking. The tick tracker is shared with the
+	// three schedulers (wired via SetTickHook in Boot) and read by
+	// /v1/sys/status. AppMetrics registers scrape-time collectors that degrade
+	// gracefully when kr/st are nil (unit-test servers).
+	s.startTime = time.Now()
+	s.metricsToken = cfg.MetricsToken
+	s.ticks = metrics.NewTickTracker()
+	s.metrics = NewAppMetrics(kr, st, s.ticks, s.startTime)
 	// Project-KEK rotation service: available whenever a real keyring and store
 	// are wired (production and full e2e). Unit-test servers built with a nil
 	// store leave it nil and simply don't mount the /kek routes.
@@ -123,6 +150,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
+	r.Use(s.instrument)
 	r.Use(RequireUnsealed(kr))
 	if cfg.HTTPMaxBodyBytes > 0 {
 		r.Use(bodyLimit(cfg.HTTPMaxBodyBytes))
@@ -130,6 +158,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	if st != nil && authSvc != nil {
 		r.Use(idempotencyMiddleware(idemRepoAdapter{repo: store.NewIdempotencyRepo(st)}, authSvc))
 	}
+	// GET /metrics at ROOT (outside /v1). metricsAuth 404s when no token is
+	// configured; otherwise requires the static bearer token. Registered after
+	// all r.Use middlewares (chi requires middleware before routes); excluded
+	// from instrumentation inside instrument.
+	r.With(s.metricsAuth).Get("/metrics", s.handleMetrics)
 	r.Route("/v1/sys", func(r chi.Router) {
 		r.Get("/health", s.handleHealth)
 		r.Get("/live", s.handleLive)
@@ -166,10 +199,15 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.With(RequireAuth(s.auth)).Delete("/master-key/rekey", s.handleMasterKeyRekeyCancel)
 			}
 			r.With(RequireAuth(s.auth)).Get("/version", s.handleVersion)
+			// Admin health snapshot. Instance AuditRead is enforced in-handler
+			// via s.authorize, so only RequireAuth is applied here.
+			r.With(RequireAuth(s.auth)).Get("/status", s.handleSysStatus)
 		} else {
 			r.Post("/seal", s.handleSeal)
 			r.Get("/backup", s.handleBackup)
 			r.Get("/version", s.handleVersion)
+			// /status is intentionally NOT mounted in the auth-less branch: it
+			// is authz-gated in-handler via s.authorize, which needs s.authz.
 		}
 	})
 	if s.auth != nil {
