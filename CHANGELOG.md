@@ -23,6 +23,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stays immutable).
 
 ### Added
+- Global key search: the command palette (Ctrl+K) now searches secret **key
+  names** across every config as you type — "where is `STRIPE_KEY` set?" — via a
+  new `GET /v1/search/keys`. Results are names-only (never values), filtered
+  deny-by-default to the configs the caller can read, bounded, and emit no audit
+  event (a metadata list view). Picking a hit opens that config's editor
+  pre-filtered to the key.
 - Observability: a Prometheus **`/metrics`** endpoint (hand-rolled zero-dependency
   exposition — HTTP request rate/latency by route pattern, seal state, audit head
   seq, per-engine scheduler tick + failed-run gauges, active leases, DB pool, and

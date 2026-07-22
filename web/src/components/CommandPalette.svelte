@@ -2,14 +2,20 @@
   import { router } from '../lib/router.svelte'
   import { registry } from '../lib/registry.svelte'
   import { theme } from '../lib/theme.svelte'
-  import { api } from '../lib/api'
+  import { api, type KeySearchResult } from '../lib/api'
 
-  interface Item { id: string; group: string; label: string; sublabel?: string; keywords: string; run: () => void }
+  interface Item { id: string; group: string; label: string; sublabel?: string; keywords: string; hint?: boolean; run: () => void }
 
   let open = $state(false)
   let query = $state('')
   let cursor = $state(0)
   let inputEl = $state<HTMLInputElement | null>(null)
+
+  // Async "Secret keys" group — key NAMES only, never values. Streams in.
+  let keyHits = $state<KeySearchResult[]>([])
+  let keysTruncated = $state(false)
+  let searchSeq = 0
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
   const NAV: Array<[string, string, string]> = [
     ['Go to Overview', '/', 'home dashboard overview'],
@@ -25,6 +31,35 @@
     ['Go to Settings', '/settings', 'settings master key backup password'],
     ['Go to Trash', '/trash', 'trash deleted restore bin'],
   ]
+
+  // Debounced global key search. Only ≥2 chars fire a request; stale responses
+  // (a slower fetch for an older query) are dropped via searchSeq. Errors show
+  // no key results. State clears when the query drops below 2 chars or closes.
+  $effect(() => {
+    const q = query.trim()
+    if (debounceTimer) clearTimeout(debounceTimer)
+    if (!open || q.length < 2) {
+      searchSeq++            // invalidate any in-flight request
+      keyHits = []
+      keysTruncated = false
+      return
+    }
+    const seq = ++searchSeq
+    debounceTimer = setTimeout(() => {
+      api.searchKeys(q)
+        .then(r => {
+          if (seq !== searchSeq) return   // a newer query superseded this one
+          keyHits = r.results
+          keysTruncated = r.truncated
+        })
+        .catch(() => {
+          if (seq !== searchSeq) return
+          keyHits = []
+          keysTruncated = false
+        })
+    }, 150)
+    return () => { if (debounceTimer) clearTimeout(debounceTimer) }
+  })
 
   const items = $derived.by((): Item[] => {
     const out: Item[] = []
@@ -54,13 +89,38 @@
     return out
   })
 
+  // Server-filtered "Secret keys" group. These are NOT re-filtered locally (the
+  // API already substring-matched the query); they stream in and participate in
+  // the same keyboard-navigable match list.
+  const keyItems = $derived.by((): Item[] => {
+    const out: Item[] = []
+    for (const r of keyHits) {
+      out.push({
+        id: `k:${r.config_id}:${r.key}`, group: 'Secret keys', label: r.key,
+        sublabel: `${r.project_name} · ${r.environment_slug} / ${r.config_name}`,
+        keywords: '',
+        run: () => router.go(`/projects/${r.project_id}/configs/${r.config_id}?key=${encodeURIComponent(r.key)}`),
+      })
+    }
+    if (keysTruncated)
+      out.push({
+        id: 'k:truncated', group: 'Secret keys', label: 'Refine to see more…',
+        keywords: '', hint: true, run: () => {},
+      })
+    return out
+  })
+
   const matches = $derived.by(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return items.slice(0, 12)
-    const terms = q.split(/\s+/)
-    return items
-      .filter(i => terms.every(t => (i.label + ' ' + i.keywords).toLowerCase().includes(t)))
-      .slice(0, 12)
+    const local = !q
+      ? items.slice(0, 12)
+      : (() => {
+          const terms = q.split(/\s+/)
+          return items
+            .filter(i => terms.every(t => (i.label + ' ' + i.keywords).toLowerCase().includes(t)))
+            .slice(0, 12)
+        })()
+    return [...local, ...keyItems]
   })
 
   $effect(() => {
@@ -83,6 +143,7 @@
   }
 
   function pick(i: Item) {
+    if (i.hint) return   // non-interactive "Refine to see more…" row
     open = false
     i.run()
   }
@@ -102,11 +163,18 @@
       <ol class="results">
         {#each matches as m, i (m.id)}
           <li>
-            <button class="result" class:hot={i === cursor} onclick={() => pick(m)} onmouseenter={() => (cursor = i)}>
-              <span class="grp folio">{m.group}</span>
-              <span class="lbl">{m.label}</span>
-              {#if m.sublabel}<span class="sub folio">{m.sublabel}</span>{/if}
-            </button>
+            {#if m.hint}
+              <div class="result hint folio">
+                <span class="grp folio">{m.group}</span>
+                <span class="lbl">{m.label}</span>
+              </div>
+            {:else}
+              <button class="result" class:hot={i === cursor} onclick={() => pick(m)} onmouseenter={() => (cursor = i)}>
+                <span class="grp folio">{m.group}</span>
+                <span class="lbl">{m.label}</span>
+                {#if m.sublabel}<span class="sub folio">{m.sublabel}</span>{/if}
+              </button>
+            {/if}
           </li>
         {:else}
           <li class="none folio">Nothing matches “{query}”.</li>
@@ -167,6 +235,7 @@
     font-size: var(--text-sm);
   }
   .result.hot { background: var(--archivist-wash); box-shadow: inset 3px 0 0 var(--archivist); }
+  .result.hint { cursor: default; color: var(--ink-ghost); font-style: italic; }
   .grp { font-size: 0.6rem; }
   .lbl { font-weight: 560; }
   .none { padding: var(--s4) var(--s5); }

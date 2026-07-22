@@ -75,7 +75,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 | Feature | Why | Effort |
 |---|---|---|
-| **Global key search** in the command palette (search masked key names across configs) | "Where is STRIPE_KEY set?" is a daily question; names are metadata, safe to index. | S |
+| ~~**Global key search** in the command palette (search masked key names across configs)~~ **SHIPPED 2026-07-22** — `GET /v1/search/keys`, names-only, deny-by-default per-config filter; palette "Secret keys" group + `?key=` editor deep-link. | ~~S~~ |
 | **Bulk row selection** in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
 | **JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor | Multi-line editing landed; format validation is the natural next step. | S |
 | **Shortcuts help modal** (`?`) + `g`-prefixed nav chords | The palette exists; discoverability doesn't. | S |

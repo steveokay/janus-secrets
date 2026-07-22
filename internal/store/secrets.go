@@ -3,9 +3,75 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// KeyMatch is a single key-name hit from SearchKeys: the config it lives in and
+// the matching key. It carries NO secret value — key names are metadata.
+type KeyMatch struct {
+	ConfigID string
+	Key      string
+}
+
+// SearchKeys returns key-name matches for the latest live config version of
+// each non-soft-deleted config whose key matches q case-insensitively
+// (substring, ILIKE '%q%'). Tombstoned keys (removed in the latest version) are
+// excluded. Results are ordered by (key, config_id) and capped at limit.
+//
+// q is matched literally: the LIKE metacharacters %, _ and the escape char (\)
+// are escaped so a query of "100%" or "a_b" is treated as text, not a wildcard.
+// An empty or whitespace-only q returns an empty slice without querying.
+//
+// Value-free: this reads only key names + config ids from metadata tables; it
+// never touches ciphertext, DEKs, or nonces.
+func (r *SecretRepo) SearchKeys(ctx context.Context, q string, limit int) ([]KeyMatch, error) {
+	if strings.TrimSpace(q) == "" {
+		return nil, nil
+	}
+	pattern := "%" + escapeLike(q) + "%"
+
+	// Per config, the max version is its latest. Join that version's non-tombstone
+	// entries and ILIKE on the key. Soft-deleted configs are excluded by the
+	// deleted_at guard. \ is the explicit escape char (matched by escapeLike).
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT e.key, c.id::text
+		 FROM configs c
+		 JOIN LATERAL (
+		   SELECT id FROM config_versions cv
+		   WHERE cv.config_id = c.id
+		   ORDER BY cv.version DESC
+		   LIMIT 1
+		 ) latest ON true
+		 JOIN config_version_entries e
+		   ON e.config_version_id = latest.id AND NOT e.tombstone
+		 WHERE c.deleted_at IS NULL
+		   AND e.key ILIKE $1 ESCAPE '\'
+		 ORDER BY e.key, c.id
+		 LIMIT $2`, pattern, limit)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+
+	var out []KeyMatch
+	for rows.Next() {
+		var m KeyMatch
+		if err := rows.Scan(&m.Key, &m.ConfigID); err != nil {
+			return nil, mapError(err)
+		}
+		out = append(out, m)
+	}
+	return out, mapError(rows.Err())
+}
+
+// escapeLike escapes the LIKE metacharacters (%, _) and the escape character
+// itself (\) so q is matched as a literal substring under `ESCAPE '\'`.
+func escapeLike(q string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(q)
+}
 
 // SecretRepo persists secret values and config versions.
 //

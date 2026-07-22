@@ -142,7 +142,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 | Feature | Why | Effort |
 |---|---|---|
-| Global key search in the command palette (search masked key names across configs) | "Where is STRIPE_KEY set?" is a daily question; names are metadata, safe to index. | S |
+| ~~Global key search in the command palette (search masked key names across configs)~~ **SHIPPED 2026-07-22** — `GET /v1/search/keys` (names-only, deny-by-default per-config `SecretRead` filter, no audit/no value, bounded) + palette "Secret keys" group with `?key=` editor deep-link. Adversarial review SHIP. | ~~S~~ |
 | Bulk row selection in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
 | JSON/PEM awareness for file-type secrets — pretty-print, validate, syntax hint | Format validation is the natural next step after multi-line editing. | S |
 | Shortcuts help modal (`?`) + `g`-prefixed nav chords | The palette exists; discoverability doesn't. | S |
@@ -156,7 +156,7 @@ If picking the next five, weighing leverage against effort:
 1. ~~Prometheus metrics + health panel~~ **SHIPPED 2026-07-22.**
 2. TOTP second factor — the cheapest meaningful hardening now that session
    management has shipped.
-3. Global key search — daily-use quality of life.
+3. ~~Global key search~~ **SHIPPED 2026-07-22.**
 4. ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22.**
 5. SMTP notification channel + more sync providers — extend the shipped
    notifications/sync engines.

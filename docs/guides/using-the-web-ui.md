@@ -23,7 +23,11 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 ## Daily driving
 
 - **Ctrl+K** — command palette: jump to any project, config, or page; toggle
-  the theme; export the audit ledger.
+  the theme; export the audit ledger. Typing two or more characters also runs a
+  **global key search** — "where is `STRIPE_KEY` set?" — matching secret **key
+  names** (never values) across every config, and results are filtered to the
+  configs you can read. Picking a hit opens that config's editor pre-filtered to
+  the key.
 - **Day / Night** in the top bar switches Daylight ↔ Nightwatch, persisted
   per browser.
 - The **Overview** in-tray surfaces what needs a human: failing rotations,
