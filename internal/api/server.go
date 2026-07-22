@@ -453,6 +453,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/metrics/reads-24h", s.handleMetricsReads)
 			r.Get("/v1/projects/{pid}/metrics/reads-24h", s.handleProjectMetricsReads)
 		})
+		// Global key-name search. Any authenticated principal; results are
+		// authz-filtered per config (deny-by-default) inside the handler.
+		r.Route("/v1/search", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth))
+			r.Get("/keys", s.handleSearchKeys)
+		})
 	}
 	s.router = r
 	return s

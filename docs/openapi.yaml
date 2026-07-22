@@ -355,6 +355,7 @@ tags:
   - { name: dynamic }
   - { name: sys }
   - { name: trash }
+  - { name: search }
   - { name: promote }
   - { name: pipeline }
   - { name: kek }
@@ -2153,6 +2154,48 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Reads24h' }
         "403": { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------------
+  # search
+  # ---------------------------------------------------------------------
+  /v1/search/keys:
+    get:
+      tags: [search]
+      summary: Cross-config search over secret KEY NAMES (metadata; never values)
+      description: >
+        Substring, case-insensitive search over secret key names across the
+        latest live config version of every config. Results are authz-filtered
+        per config (deny-by-default): a config the caller cannot read is
+        silently dropped, so search never leaks the existence of keys in
+        projects the caller cannot see. Never reads, returns, or logs a secret
+        value; emits no audit event (metadata list view). Bounded: at most 50
+        results are returned and `truncated` indicates more were available.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 }, description: Substring to match against key names (min 2 chars). }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 50 }, description: Max results (clamped to 50). }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        project_id: { type: string, format: uuid }
+                        project_name: { type: string }
+                        project_slug: { type: string }
+                        environment_id: { type: string, format: uuid }
+                        environment_slug: { type: string }
+                        config_id: { type: string, format: uuid }
+                        config_name: { type: string }
+                  truncated: { type: boolean }
+        "400": { description: Validation error (q shorter than 2 chars, or bad limit). }
 
   # ---------------------------------------------------------------------
   # transit
