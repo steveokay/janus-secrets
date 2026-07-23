@@ -76,6 +76,15 @@ func validateInput(provider string, addr Addr, creds Creds) error {
 			addr.Region == "" || addr.PathPrefix == "" {
 			return ErrInvalidConfig
 		}
+	case ProviderCloudflare:
+		if creds.APIToken == "" || addr.AccountID == "" || addr.ScriptName == "" {
+			return ErrInvalidConfig
+		}
+	case ProviderAWSSecrets:
+		if creds.AccessKeyID == "" || creds.SecretAccessKey == "" ||
+			addr.Region == "" || addr.PathPrefix == "" {
+			return ErrInvalidConfig
+		}
 	default:
 		return ErrInvalidType
 	}

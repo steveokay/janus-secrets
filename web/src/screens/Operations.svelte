@@ -38,7 +38,7 @@
 
   let showNewSync = $state(false)
   let sConfigId = $state('')
-  let sProvider = $state<'github' | 'k8s' | 'gitlab' | 'aws_ssm'>('github')
+  let sProvider = $state<'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets'>('github')
   let sIntervalMin = $state(15)
   let sOwner = $state('')
   let sRepo = $state('')
@@ -60,6 +60,16 @@
   let sAwsAccessKeyId = $state('')
   let sAwsSecretAccessKey = $state('')
   let sAwsSessionToken = $state('')
+  // cloudflare
+  let sCfAccountId = $state('')
+  let sCfScriptName = $state('')
+  let sCfApiToken = $state('')
+  // aws_secrets
+  let sSmRegion = $state('')
+  let sSmPathPrefix = $state('')
+  let sSmAccessKeyId = $state('')
+  let sSmSecretAccessKey = $state('')
+  let sSmSessionToken = $state('')
   let sError = $state('')
 
   let showNewRole = $state(false)
@@ -199,12 +209,22 @@
           ...(sGlEnvScope.trim() ? { environment_scope: sGlEnvScope.trim() } : {}),
         }
         creds = { token: sGlToken }
-      } else {
+      } else if (sProvider === 'aws_ssm') {
         addr = { region: sAwsRegion.trim(), path_prefix: sAwsPathPrefix.trim() }
         creds = {
           access_key_id: sAwsAccessKeyId.trim(),
           secret_access_key: sAwsSecretAccessKey,
           ...(sAwsSessionToken.trim() ? { session_token: sAwsSessionToken.trim() } : {}),
+        }
+      } else if (sProvider === 'cloudflare') {
+        addr = { account_id: sCfAccountId.trim(), script_name: sCfScriptName.trim() }
+        creds = { api_token: sCfApiToken }
+      } else {
+        addr = { region: sSmRegion.trim(), path_prefix: sSmPathPrefix.trim() }
+        creds = {
+          access_key_id: sSmAccessKeyId.trim(),
+          secret_access_key: sSmSecretAccessKey,
+          ...(sSmSessionToken.trim() ? { session_token: sSmSessionToken.trim() } : {}),
         }
       }
       await api.createSyncTarget({
@@ -218,6 +238,8 @@
       sOwner = ''; sRepo = ''; sEnvName = ''; sPat = ''; sApiUrl = ''; sNamespace = ''; sSecretName = ''; sToken = ''; sCaCert = ''
       sGitlabUrl = ''; sGlProject = ''; sGlEnvScope = ''; sGlToken = ''
       sAwsRegion = ''; sAwsPathPrefix = ''; sAwsAccessKeyId = ''; sAwsSecretAccessKey = ''; sAwsSessionToken = ''
+      sCfAccountId = ''; sCfScriptName = ''; sCfApiToken = ''
+      sSmRegion = ''; sSmPathPrefix = ''; sSmAccessKeyId = ''; sSmSecretAccessKey = ''; sSmSessionToken = ''
       flash('Sync target created.')
       await load()
     } catch (err) {
@@ -331,6 +353,8 @@
     if (s.provider === 'github') return `gh:${s.addr.owner}/${s.addr.repo}${s.addr.environment ? ` · ${s.addr.environment}` : ''}`
     if (s.provider === 'gitlab') return `gl:${s.addr.project}${s.addr.environment_scope ? ` · ${s.addr.environment_scope}` : ''}`
     if (s.provider === 'aws_ssm') return `ssm:${s.addr.region}${s.addr.path_prefix ?? ''}`
+    if (s.provider === 'cloudflare') return `cf:${s.addr.account_id}/${s.addr.script_name}`
+    if (s.provider === 'aws_secrets') return `sm:${s.addr.region}/${s.addr.path_prefix ?? ''}`
     return `k8s:${s.addr.namespace}/${s.addr.secret_name}`
   }
 
@@ -338,6 +362,8 @@
     if (p === 'github') return 'GitHub'
     if (p === 'gitlab') return 'GitLab'
     if (p === 'aws_ssm') return 'AWS SSM'
+    if (p === 'cloudflare') return 'Cloudflare'
+    if (p === 'aws_secrets') return 'AWS Secrets'
     return 'K8s'
   }
 
@@ -478,6 +504,8 @@
             <option value="k8s">Kubernetes</option>
             <option value="gitlab">GitLab CI/CD</option>
             <option value="aws_ssm">AWS SSM Parameter Store</option>
+            <option value="cloudflare">Cloudflare Workers</option>
+            <option value="aws_secrets">AWS Secrets Manager</option>
           </select></label>
         <label class="field"><span class="label">Every (minutes)</span>
           <input class="input" type="number" min="1" bind:value={sIntervalMin} /></label>
@@ -505,7 +533,7 @@
             <input class="input mono" bind:value={sGlEnvScope} placeholder="*" /></label>
           <label class="field grow"><span class="label">Access token — api scope (write-only)</span>
             <input class="input mono" type="password" bind:value={sGlToken} required /></label>
-        {:else}
+        {:else if sProvider === 'aws_ssm'}
           <label class="field"><span class="label">AWS region</span>
             <input class="input mono" bind:value={sAwsRegion} placeholder="us-east-1" required /></label>
           <label class="field grow"><span class="label">Parameter path prefix</span>
@@ -516,6 +544,24 @@
             <input class="input mono" type="password" bind:value={sAwsSecretAccessKey} required /></label>
           <label class="field grow"><span class="label">Session token (optional, write-only)</span>
             <input class="input mono" type="password" bind:value={sAwsSessionToken} /></label>
+        {:else if sProvider === 'cloudflare'}
+          <label class="field"><span class="label">Account ID</span>
+            <input class="input mono" bind:value={sCfAccountId} placeholder="a1b2c3d4…" required /></label>
+          <label class="field"><span class="label">Worker script name</span>
+            <input class="input mono" bind:value={sCfScriptName} placeholder="atlas-api" required /></label>
+          <label class="field grow"><span class="label">API token — Workers Scripts Edit (write-only)</span>
+            <input class="input mono" type="password" bind:value={sCfApiToken} required /></label>
+        {:else}
+          <label class="field"><span class="label">AWS region</span>
+            <input class="input mono" bind:value={sSmRegion} placeholder="us-east-1" required /></label>
+          <label class="field grow"><span class="label">Secret name prefix (billed per secret)</span>
+            <input class="input mono" bind:value={sSmPathPrefix} placeholder="janus/atlas/prod" required /></label>
+          <label class="field grow"><span class="label">Access key ID</span>
+            <input class="input mono" bind:value={sSmAccessKeyId} required /></label>
+          <label class="field grow"><span class="label">Secret access key (write-only)</span>
+            <input class="input mono" type="password" bind:value={sSmSecretAccessKey} required /></label>
+          <label class="field grow"><span class="label">Session token (optional, write-only)</span>
+            <input class="input mono" type="password" bind:value={sSmSessionToken} /></label>
         {/if}
         {#if sError}<p class="error wide">{sError}</p>{/if}
         <div class="form-actions wide">

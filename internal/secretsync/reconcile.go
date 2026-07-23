@@ -57,6 +57,10 @@ func (s *Service) providerFor(name string) (Provider, error) {
 		return gitlabProvider{hc: s.hc}, nil
 	case ProviderAWSSSM:
 		return awsssmProvider{}, nil
+	case ProviderCloudflare:
+		return cloudflareProvider{hc: s.hc}, nil
+	case ProviderAWSSecrets:
+		return awssecretsProvider{}, nil
 	default:
 		return nil, ErrInvalidType
 	}

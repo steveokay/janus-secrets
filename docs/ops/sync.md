@@ -2,7 +2,7 @@
 
 A sync target replicates one config's **resolved** secrets (references
 expanded, inheritance merged — the same view `?reveal=true` returns) to an
-external store on an interval, or on demand. Four providers ship today:
+external store on an interval, or on demand. Six providers ship today:
 
 - **`github`** — writes GitHub Actions secrets (repo- or
   environment-scoped) via the GitHub REST API.
@@ -15,6 +15,11 @@ external store on an interval, or on demand. Four providers ship today:
 - **`aws_ssm`** — writes AWS SSM Parameter Store `SecureString`
   parameters under a path prefix (SSM encrypts them with the account KMS
   key).
+- **`cloudflare`** — writes secret bindings on a deployed Cloudflare
+  Worker script via the Workers Scripts API (`Bearer` API-token auth).
+- **`aws_secrets`** — writes individually-named secrets in AWS Secrets
+  Manager under a name prefix. Note Secrets Manager **bills per secret**
+  (unlike SSM standard parameters) — choose it deliberately.
 
 Sync is **one-way**: Janus → external store. It never reads back from the
 destination except to fetch the GitHub public key needed to encrypt a
@@ -152,6 +157,73 @@ id, or value never leaks.
 - **Creds:** `access_key_id`, `secret_access_key`, optional
   `session_token`.
 
+### Cloudflare Workers
+
+Mint a **Cloudflare API token** (not a legacy global API key) scoped to
+the target account with the **Workers Scripts: Edit** permission and
+nothing else, and supply it as `--cf-api-token`. Janus sends it as a
+`Bearer` token on every call; it is never logged and never echoed back
+by the API.
+
+Each config key becomes a **secret binding** (`type=secret_text`) on the
+named, already-deployed Worker script. Janus upserts each key via
+`PUT .../accounts/{account_id}/workers/scripts/{script_name}/secrets` —
+that endpoint creates-or-updates by name, so no separate list/create step
+is needed. Prune deletes previously-managed bindings no longer present in
+the config (`DELETE .../secrets/{name}`); a `404` on delete is treated as
+already-gone (idempotent). The `account_id` and `script_name` are
+validated against a strict path-segment charset (`[A-Za-z0-9._-]`) before
+they are interpolated into the request URL, so a malformed value is
+rejected rather than smuggled into the request target.
+
+Cloudflare wraps every response in a `{success, errors, result}`
+envelope. On `success:false` (or any non-2xx status) Janus fails the
+reconcile with a **value-free** category — the response body, which may
+carry request context, is never echoed into `last_error` or the audit
+log. TLS is verified against the system root store (default `net/http`
+transport), correct for `api.cloudflare.com`.
+
+The Worker script must already exist/be deployed; this provider sets its
+secrets, it does not create or deploy the script itself.
+
+- **Addr:** `account_id`, `script_name`.
+- **Creds:** `api_token`.
+
+### AWS Secrets Manager
+
+Create an IAM principal (user or role) with permission to
+`secretsmanager:PutSecretValue`, `secretsmanager:CreateSecret`, and
+`secretsmanager:DeleteSecret` under the target name prefix (and
+`kms:Encrypt`/`kms:GenerateDataKey` on the KMS key Secrets Manager uses).
+Supply its static credentials as `--sm-access-key-id` /
+`--sm-secret-access-key` (and, for temporary credentials,
+`--sm-session-token`). As with the SSM provider, Janus builds the SDK
+client from **only** these static credentials — it never falls back to
+the host's ambient environment or instance-profile credentials.
+
+Each config key becomes a **separate secret** named
+`<path_prefix>/<KEY>` with a `SecretString` value. Janus upserts by
+trying `PutSecretValue` first and, on `ResourceNotFoundException`,
+falling back to `CreateSecret`. Prune uses `DeleteSecret` with
+**`ForceDeleteWithoutRecovery=true`**: a sync target is a full mirror, so
+a pruned key should be removed immediately rather than lingering in a
+recovery window where it would shadow a later re-create of the same name.
+A `ResourceNotFoundException` on delete is treated as an idempotent
+success. AWS error messages are **sanitized** to a value-free category
+before they reach `last_error` or the audit log — an ARN, account id, or
+value never leaks.
+
+> **Billing note.** Unlike SSM **standard** parameters (no per-parameter
+> charge), AWS Secrets Manager bills **per secret per month** plus per
+> API call. A config with many keys becomes many billed secrets. Prefer
+> `aws_ssm` for high-cardinality configs where you don't need Secrets
+> Manager-specific features (rotation, cross-account resource policies);
+> choose `aws_secrets` deliberately.
+
+- **Addr:** `region`, `path_prefix` (e.g. `janus/app/prod`).
+- **Creds:** `access_key_id`, `secret_access_key`, optional
+  `session_token`.
+
 ## GitHub key-name constraint
 
 GitHub Actions secret names must match `^[A-Za-z_][A-Za-z0-9_]*$`, be
@@ -271,6 +343,20 @@ janus sync create --config $CONFIG --provider aws_ssm \
   --aws-region us-east-1 --path-prefix /janus/atlas/prod \
   --aws-access-key-id $AWS_ACCESS_KEY_ID \
   --aws-secret-access-key $AWS_SECRET_ACCESS_KEY \
+  --interval-seconds 900
+
+# Cloudflare: set a deployed Worker script's secret bindings, every 15 min.
+janus sync create --config $CONFIG --provider cloudflare \
+  --cf-account-id $CF_ACCOUNT_ID --cf-script-name atlas-api \
+  --cf-api-token $CF_API_TOKEN \
+  --interval-seconds 900
+
+# AWS Secrets Manager: mirror a config into named secrets under a prefix.
+# (Billed per secret — see the billing note above.)
+janus sync create --config $CONFIG --provider aws_secrets \
+  --sm-region us-east-1 --sm-path-prefix janus/atlas/prod \
+  --sm-access-key-id $AWS_ACCESS_KEY_ID \
+  --sm-secret-access-key $AWS_SECRET_ACCESS_KEY \
   --interval-seconds 900
 
 # List, inspect, update, sync now, delete.
