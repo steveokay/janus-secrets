@@ -29,6 +29,7 @@
     ['Go to Integrations', '/integrations', 'integrations oidc sso federation github kubernetes'],
     ['Go to Service tokens', '/tokens', 'tokens service machine api'],
     ['Go to Members', '/members', 'members users roles rbac team'],
+    ['Go to Break-glass', '/break-glass', 'break glass emergency access elevation escalation incident'],
     ['Go to Notifications', '/notifications', 'notifications alerts webhook slack channels'],
     ['Go to Settings', '/settings', 'settings master key backup password'],
     ['Go to Trash', '/trash', 'trash deleted restore bin'],

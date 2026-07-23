@@ -184,6 +184,17 @@ func runServer(ctx context.Context) error {
 		}
 	}
 
+	// Break-glass TTL ceiling. A grant's requested TTL is clamped to this max.
+	// Non-positive/invalid → the api package default (1h). Never fail boot on it.
+	breakGlassMaxTTL := time.Duration(0) // 0 → api default (1h)
+	if v := os.Getenv("JANUS_BREAKGLASS_MAX_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			breakGlassMaxTTL = d
+		} else {
+			logger.Warn("invalid JANUS_BREAKGLASS_MAX_TTL; using default (1h)", "value", v)
+		}
+	}
+
 	// Native TLS listener (optional). Static certs and ACME are mutually
 	// exclusive; validation is enforced in the api package at serve time, but we
 	// catch the both-halves-of-static-cert and both-modes cases early for a clear
@@ -210,6 +221,7 @@ func runServer(ctx context.Context) error {
 		HTTPMaxBodyBytes:   httpMaxBody,
 		Lockout:            lockout,
 		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
+		BreakGlassMaxTTL:   breakGlassMaxTTL,                 // 0 → default 1h
 		UnusedSecretDays:   unusedSecretDays,                 // 0 → default 90 days
 		TLS:                tlsCfg,
 		Pool:               pool,

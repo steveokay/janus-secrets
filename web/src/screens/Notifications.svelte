@@ -12,6 +12,7 @@
     { kind: 'sync.failed', label: 'Sync failed' },
     { kind: 'promotion.pending', label: 'Promotion awaiting approval' },
     { kind: 'access.denied', label: 'Access denied' },
+    { kind: 'breakglass.activated', label: 'Break-glass activated' },
   ]
 
   let channels = $state<NotificationChannel[]>([])

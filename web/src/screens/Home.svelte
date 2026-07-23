@@ -1,8 +1,7 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
   import { registry } from '../lib/registry.svelte'
-  import type { RotationPolicy, SyncTargetApi, ApiLease } from '../lib/api'
-  import { api } from '../lib/api'
+  import { api, type RotationPolicy, type SyncTargetApi, type ApiLease, type BreakGlassGrant } from '../lib/api'
   import { listAllRotations, listAllSyncs, listAllDynamicRoles, listAllLeases, countAllStaleKeys, countAllUnusedKeys } from '../lib/ops'
   import { relTime } from '../lib/util'
   import Sparkline from '../components/Sparkline.svelte'
@@ -23,12 +22,16 @@
     ])
     const roles = await listAllDynamicRoles(registry.projects).catch(() => [])
     const leases = await listAllLeases(roles).catch(() => [] as ApiLease[])
-    const [staleKeys, unusedKeys, newIPs] = await Promise.all([
+    const [staleKeys, unusedKeys, newIPs, breakGlass] = await Promise.all([
       countAllStaleKeys(registry.projects).catch(() => 0),
       countAllUnusedKeys(registry.projects).catch(() => 0),
       api.tokenNewIPs().then(r => r.count).catch(() => 0),
+      api.listBreakGlass().catch(() => [] as BreakGlassGrant[]),
     ])
     const items: TrayItem[] = []
+    // Active break-glass is the loudest signal — surface it first.
+    if (breakGlass.length > 0)
+      items.push({ kind: 'breakglass', text: `${breakGlass.length} active break-glass grant${breakGlass.length === 1 ? '' : 's'}`, href: '/break-glass', when: new Date().toISOString() })
     if (staleKeys > 0)
       items.push({ kind: 'stale', text: `${staleKeys} secret${staleKeys === 1 ? '' : 's'} past max-age`, href: '/projects', when: new Date().toISOString() })
     if (unusedKeys > 0)
@@ -280,6 +283,7 @@
   .tray-mark.unused { background: var(--ochre); }
   .tray-mark.denied { background: var(--vermilion); }
   .tray-mark.newip { background: var(--vermilion); }
+  .tray-mark.breakglass { background: var(--vermilion); box-shadow: 0 0 0 3px var(--vermilion-wash); }
   .tray-mark.ok { background: var(--verdigris); }
 
   /* ── project cards ──────────────────────────── */

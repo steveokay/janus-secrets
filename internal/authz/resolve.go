@@ -57,6 +57,22 @@ func bindingApplies(b *store.RoleBinding, res Resource) bool {
 	}
 }
 
+// grantApplies reports whether a break-glass grant's scope covers res. It uses
+// exactly the same scope-matching as bindingApplies, so a grant can never apply
+// to a different scope than the one it was activated on (deny-by-default).
+func grantApplies(g *store.BreakGlassGrant, res Resource) bool {
+	switch g.ScopeLevel {
+	case "instance":
+		return true
+	case "project":
+		return g.ProjectID != nil && res.ProjectID != "" && *g.ProjectID == res.ProjectID
+	case "environment":
+		return g.EnvironmentID != nil && res.EnvID != "" && *g.EnvironmentID == res.EnvID
+	default:
+		return false
+	}
+}
+
 // userAllows reports whether any applicable binding's role grants action.
 func userAllows(bindings []*store.RoleBinding, action Action, res Resource) bool {
 	for _, b := range bindings {

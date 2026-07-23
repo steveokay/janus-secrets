@@ -334,7 +334,7 @@ export interface SessionInfo {
   current: boolean
 }
 
-export type NotificationEventKind = 'rotation.failed' | 'sync.failed' | 'promotion.pending' | 'access.denied'
+export type NotificationEventKind = 'rotation.failed' | 'sync.failed' | 'promotion.pending' | 'access.denied' | 'breakglass.activated'
 export type NotificationChannelType = 'webhook' | 'slack' | 'smtp'
 export type SmtpTlsMode = 'starttls' | 'implicit' | 'none'
 
@@ -395,6 +395,32 @@ export interface UpdateChannelInput extends SmtpChannelFields {
   events?: NotificationEventKind[]
   url?: string
   hmac_key?: string
+}
+
+/* Break-glass: guarded, time-boxed emergency role elevation. Value-safe: the
+   reason is operator-entered justification text, never a secret. */
+export type BreakGlassScopeLevel = 'instance' | 'project' | 'environment'
+
+export interface BreakGlassGrant {
+  id: string
+  user_id: string
+  scope_level: BreakGlassScopeLevel
+  project_id?: string
+  environment_id?: string
+  elevated_role: Role
+  reason: string
+  activated_at: string
+  expires_at: string
+  revoked_at?: string
+}
+
+export interface BreakGlassActivateInput {
+  scope_level: BreakGlassScopeLevel
+  project_id?: string
+  environment_id?: string
+  role: Role
+  reason: string
+  ttl?: string
 }
 
 /* ── endpoints ────────────────────────────────────────────────── */
@@ -584,6 +610,12 @@ export const api = {
   deleteChannel: (id: string) => del<void>(`/v1/notifications/channels/${id}`),
   testChannel: (id: string) => post<{ delivered: boolean }>(`/v1/notifications/channels/${id}/test`),
   listDeliveries: (id: string) => get<{ deliveries: NotificationDelivery[] }>(`/v1/notifications/channels/${id}/deliveries`).then(r => r.deliveries),
+
+  // break-glass (guarded, time-boxed emergency role elevation)
+  listBreakGlass: () => get<{ grants: BreakGlassGrant[] }>('/v1/break-glass').then(r => r.grants ?? []),
+  activateBreakGlass: (input: BreakGlassActivateInput) => post<BreakGlassGrant>('/v1/break-glass', input),
+  revokeBreakGlass: (id: string) => del<void>(`/v1/break-glass/${id}`),
+
   masterKeyStatus: () => get<MasterKeyStatus>('/v1/sys/master-key'),
   rotateMasterKey: () => post<{ master_key_version: number }>('/v1/sys/master-key/rotate', {}),
   rekeyInit: () => post<{ nonce: string; required: number; submitted: number }>('/v1/sys/master-key/rekey/init', {}),

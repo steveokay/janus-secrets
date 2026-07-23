@@ -56,8 +56,33 @@ func (e *Engine) CountInstanceOwners(ctx context.Context) (int, error) {
 }
 
 // EffectiveRole returns the highest-ranked role the user holds that applies to
-// res (for the delegation constraint), or "" if none.
+// res, INCLUDING any active break-glass grant on that scope (max of bound role
+// and active grant role), or "" if none.
 func (e *Engine) EffectiveRole(ctx context.Context, userID string, res Resource) (Role, error) {
+	best, err := e.BoundRole(ctx, userID, res)
+	if err != nil {
+		return "", err
+	}
+	if e.grants != nil {
+		now := e.now()
+		gs, err := e.grants.ListActiveForUser(ctx, userID, now)
+		if err != nil {
+			return "", err
+		}
+		for _, g := range gs {
+			if g.Active(now) && grantApplies(g, res) && roleRank[Role(g.ElevatedRole)] > roleRank[best] {
+				best = Role(g.ElevatedRole)
+			}
+		}
+	}
+	return best, nil
+}
+
+// BoundRole returns the highest-ranked role the user holds from role BINDINGS
+// alone (excluding any break-glass grant) that applies to res, or "" if none.
+// The break-glass guard uses this so a user cannot chain one grant into a
+// higher one: activation is measured against the durable bound role.
+func (e *Engine) BoundRole(ctx context.Context, userID string, res Resource) (Role, error) {
 	bindings, err := e.bindings.ListForUser(ctx, userID)
 	if err != nil {
 		return "", err
