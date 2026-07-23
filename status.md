@@ -55,8 +55,12 @@ _Nothing in flight._
       `invalid_credentials` (no enumeration). Admin unlock (`POST
       /v1/users/{id}/unlock`, `user:manage`) + Members "Locked" badge/Unlock;
       `JANUS_LOCKOUT_*` env; migration 000026. Adversarial review SHIP.
-- [ ] **DB pool tuning** — `pgx` runs on defaults (no max-conns/lifetime
-      config); shutdown grace is fixed at 10s, not configurable.
+- [x] ~~**DB pool tuning** — `pgx` runs on defaults; shutdown grace fixed at
+      10s.~~ **SHIPPED 2026-07-23** (ops-hardening bundle) — `JANUS_DB_MAX_CONNS`
+      / `JANUS_DB_MIN_CONNS` / `JANUS_DB_MAX_CONN_LIFETIME` /
+      `JANUS_DB_MAX_CONN_IDLE_TIME` (via `pgxpool.ParseConfig`+`NewWithConfig`,
+      unset = pgx defaults) + configurable `JANUS_SHUTDOWN_GRACE` (default 10s,
+      used for the main + aux-listener drains). No migration.
 - [x] ~~**Prometheus `/metrics`** (request rates/latency, seal state, lease
       counts, rotation/sync failure gauges, audit head seq) + a
       `JANUS_LOG_LEVEL`/format env var.~~ **SHIPPED 2026-07-22** — hand-rolled
@@ -73,9 +77,14 @@ _Nothing in flight._
       (covers both password + OIDC login). `GET /v1/tokens` → `last_used_at`,
       `GET /v1/users` → `last_login_at`; Tokens screen "Last used" column +
       stale-token badge (never / 90d+), Members "Last login" column. Value-free.
-- [ ] **docker-compose has no resource limits**, and no WAL-archiving/
-      pg-backup guidance beyond the app-level `janus backup` logical dump.
-- [ ] **No `CONTRIBUTING.md`.**
+- [x] ~~**docker-compose has no resource limits**, and no WAL-archiving/
+      pg-backup guidance.~~ **SHIPPED 2026-07-23** (ops-hardening bundle) —
+      `deploy.resources` limits+reservations on app + postgres; new
+      [backup-and-restore guide](docs/guides/backup-and-restore.md)
+      (`pg_dump`/`pg_restore` + WAL/PITR, distinguished from the sealed-material
+      `janus backup`).
+- [x] ~~**No `CONTRIBUTING.md`.**~~ **SHIPPED 2026-07-23** (ops-hardening
+      bundle) — build/test/gate/migration/crypto/PR conventions.
 - [x] ~~**Decision — OIDC login is not gated by app-level TOTP.**~~ **RESOLVED
       2026-07-23 — intended; documented.** OIDC delegates MFA to the IdP (the
       standard relying-party posture); Janus TOTP gates only the password path.
@@ -119,7 +128,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Dotenv / properties import in the editor~~ **SHIPPED 2026-07-19** — Import… paste or pick a `.env`/`.properties` file, preview per-key (new/overwrite/invalid), stage into the dirty buffer, commit as one version. | The first thing a migrating user does is re-key an existing `.env` by hand. | ~~S~~ |
 | ~~Value generator in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG (unbiased rejection sampling), "Gen" popover on the editable value cell: password (symbols / exclude-ambiguous toggles) / hex / base64 + length; value flows through the normal dirty-buffer save, no endpoint/migration. | ~~S~~ |
 | ~~Unused-secret detection — "not read in 90 days" chip from audit data~~ **SHIPPED 2026-07-23** — **advisory** (blocks nothing): per-key last-read = `MAX(occurred_at)` over `secret.reveal` audit events; masked list gains `last_read_at`+`unused`; editor "not read 90d+ / never read" chip + Overview in-tray count; threshold `JANUS_UNUSED_SECRET_DAYS` (default 90); migration 000029 (partial index on reveal events). Value-free. Bulk raw reads aren't per-key attributable (documented); inherited keys read as never-read on the leaf. | ~~M~~ |
-| Per-key read insights — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
+| ~~Per-key read insights — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/read-insights` (per key: `last_read_at` + 30-int `daily` reveal counts) from `secret.reveal` audit events, reusing the 000029 partial index (no migration); editor row Reads panel with the `Sparkline` component. Rides `secret:read`, unaudited like the masked list. | ~~M~~ |
 | ~~Cross-environment diff view — pick any two configs, key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — `GET /v1/configs/{cid}/compare?against={cid}` returns **booleans only** (in_a/in_b/differs + per-side origin), never a value; requires `secret:read` on BOTH configs (each authorized independently, denial audited) + one value-free `config.compare` audit event; generalizes the promotion preview. New Compare screen + nav + palette entry. No migration. | ~~M~~ |
 | Secret annotations — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today. | M |
 | Require-approval-for-prod-edits toggle — direct saves to protected configs become a promotion-style request | Extends the existing four-eyes approval machinery to close its biggest bypass (raw prod edits). | M |
@@ -128,8 +137,8 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 | Feature | Why | Effort |
 |---|---|---|
-| More sync providers: ~~GitLab CI variables~~, Cloudflare Workers secrets, Vercel/Netlify env, ~~AWS SSM~~/Secrets Manager | The sync engine is provider-pluggable; each target is mostly an adapter + creds form. **GitLab CI (`gitlab`) + AWS SSM Parameter Store (`aws_ssm`) SHIPPED 2026-07-23** — GitLab via net/http (create-then-update, prune, `masked=false` default caveat); AWS SSM SecureString via aws-sdk-go-v2 (static creds only, sanitized errors, 10-cap prune); no migration. Cloudflare Workers / Vercel / Netlify / AWS Secrets Manager remain. | M each |
-| More CI federation issuers: GitLab, Buildkite, CircleCI OIDC | The trust-binding model generalizes; only issuer/claims mapping differs. | S each |
+| More sync providers: ~~GitLab CI variables~~, ~~Cloudflare Workers secrets~~, Vercel/Netlify env, ~~AWS SSM~~/~~Secrets Manager~~ | The sync engine is provider-pluggable; each target is mostly an adapter + creds form. Now **6 providers**: `github`, `k8s`, + **`gitlab`, `aws_ssm` (07-23)**, + **`cloudflare` (Workers secrets, net/http, charset-validated URLs) + `aws_secrets` (AWS Secrets Manager, put-or-create, force-delete prune, per-secret billing note) — SHIPPED 2026-07-23**. No migration. **Vercel / Netlify env remain.** | M each |
+| ~~More CI federation issuers: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule (replaces the hardcoded GitHub `repository` requirement: GitHub→`repository`, GitLab→`project_path`, Buildkite→`organization_slug`, CircleCI→org/project claim; unknown issuer → any non-empty claim), issuer presets + URL validation, single-active-issuer model, `web/src/lib/federation.ts` preset dropdown. No migration. | ~~S each~~ |
 | Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost. | L |
 | ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. **SMTP email channel added 2026-07-23** (`type=smtp`, `net/smtp` STARTTLS/implicit/none, verify-by-default + per-channel `insecure_skip_verify`, write-only password, value-free body; migration 000027). | Failures must find humans, not just an in-app tray. | ~~M~~ |
 | Terraform provider (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
@@ -151,7 +160,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | Feature | Why | Effort |
 |---|---|---|
 | ~~Global key search in the command palette (search masked key names across configs)~~ **SHIPPED 2026-07-22** — `GET /v1/search/keys` (names-only, deny-by-default per-config `SecretRead` filter, no audit/no value, bounded) + palette "Secret keys" group with `?key=` editor deep-link. Adversarial review SHIP. | ~~S~~ |
-| Bulk row selection in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
+| ~~Bulk row selection in the editor — multi-select → delete / promote / export~~ **SHIPPED 2026-07-23** — per-row checkboxes + select-all (filter-aware), bulk-action bar: Delete selected (stages into the dirty buffer), Reveal selected (audited per-key), Export selected (confirm-gated `.env` of the selection). Frontend-only, reuses existing audited-reveal/download flows. | ~~M~~ |
 | ~~JSON/PEM awareness for file-type secrets — pretty-print, validate, syntax hint~~ **SHIPPED 2026-07-23** — client-side format sniff (content first, declared `type` as fallback) on the value being edited: JSON/PEM badge, well-formedness check (JSON parse error, PEM label/base64 faults) surfaced inline, one-click Pretty-print for valid JSON. Advisory only — never blocks a save; nothing leaves the browser. | ~~S~~ |
 | ~~Shortcuts help modal (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` opens a shortcuts modal (palette action too); `g` + letter jumps to any screen (`g p` Projects, `g a` Audit, …). Chords are suppressed while typing, with modifiers, or while a dialog is open; a pending-chord hint shows after `g`. | ~~S~~ |
 | Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit | A deliberate pass would close the remaining gaps. | M |
@@ -159,21 +168,22 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Suggested near-term slate
 
-The previous slates (through mid-2026-07) are **fully shipped** — most recently
-native TLS, secret max-age, first-run onboarding, GitLab + AWS SSM sync,
-unused-secret detection, and now **cross-environment diff**, **GCP/Azure
-auto-unseal**, and **token/user last-used tracking** (2026-07-23). Next five,
-weighing leverage against effort:
+The previous slates (through 2026-07-23) are **fully shipped** — most recently
+cross-environment diff, GCP/Azure auto-unseal, token/user last-used, and now the
+**ops-hardening bundle**, **Cloudflare + AWS Secrets Manager sync**, **GitLab /
+Buildkite / CircleCI CI federation**, and **editor bulk-select + read insights**.
+Next five, weighing leverage against effort:
 
-1. **Even more sync providers** (3.1) — Cloudflare Workers secrets, Vercel /
-   Netlify env, or AWS Secrets Manager on the now-4-provider engine.
-2. **Ops hardening bundle** — docker-compose resource limits + DB pool tuning
-   (`JANUS_DB_*`) + pg-backup guidance + `CONTRIBUTING.md` (small, cohesive).
-3. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory
+1. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory
    reason, stamped into the audit chain.
-4. **Per-token IP allowlists** (1.6) + new-IP anomaly note — cheap containment
+2. **Per-token IP allowlists** (1.6) + new-IP anomaly note — cheap containment
    for exfiltrated tokens; IPs are already in every audit event.
-5. **Secret annotations** (2.7) — owner + note metadata per key (never values).
+3. **Secret annotations** (2.7) — owner + note metadata per key (never values).
+4. **Require-approval-for-prod-edits** (2.8) — extend the four-eyes machinery to
+   raw prod saves.
+5. **Accessibility pass** (5.5) — modal focus traps, ARIA on tables, reduced-
+   motion audit. (Vercel/Netlify sync + scheduled S3 backups + audit shipping
+   also remain.)
 
 Both parked decisions are **resolved**. Still outstanding among the small
 backend/ops items: DB pool tuning, docker-compose resource limits, and

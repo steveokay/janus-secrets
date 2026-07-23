@@ -44,7 +44,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Dotenv/properties import**~~ **SHIPPED 2026-07-19** — Import… in the editor: paste or choose a `.env`/`.properties` file, preview with per-key selection (new / overwrite / invalid), stage into the dirty buffer, commit as one version | The first thing every migrating user does is re-key an existing `.env` by hand. | ~~S~~ |
 | ~~**Value generator** in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG "Gen" popover (password w/ symbols & exclude-ambiguous toggles / hex / base64 + length). | ~~S~~ |
 | ~~**Unused-secret detection** — "not read in 90 days" chip from audit data~~ **SHIPPED 2026-07-23** — advisory per-key last-read from `secret.reveal` audit events; `last_read_at`+`unused` on the masked list, editor chip + Overview in-tray count, `JANUS_UNUSED_SECRET_DAYS` (default 90), migration 000029. Value-free. | ~~M~~ |
-| **Per-key read insights** — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
+| ~~**Per-key read insights** — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET .../read-insights` (last-read + 30-day daily reveal counts) from audit events, reusing the 000029 index; editor Sparkline panel. | ~~M~~ |
 | ~~**Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/compare?against=` (booleans + origins only), dual `secret:read`, audited `config.compare`; new Compare screen. | ~~M~~ |
 | **Secret annotations** — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today; helps rotation triage. | M |
 | **Require-approval-for-prod-edits** toggle — direct saves to protected configs create a promotion-style request instead | The approvals machinery exists; extending four-eyes review to raw prod edits closes its biggest bypass. | M |
@@ -53,8 +53,8 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 | Feature | Why | Effort |
 |---|---|---|
-| **More sync providers**: ~~GitLab CI variables~~, Cloudflare Workers secrets, Vercel/Netlify env, ~~AWS SSM~~/Secrets Manager (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. **GitLab CI + AWS SSM Parameter Store SHIPPED 2026-07-23**; Cloudflare / Vercel / Netlify / AWS Secrets Manager remain. | M each |
-| **More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC | The trust-binding model generalizes; only issuer/claims mapping differs. | S each |
+| **More sync providers**: ~~GitLab CI~~, ~~Cloudflare Workers secrets~~, Vercel/Netlify env, ~~AWS SSM~~/~~Secrets Manager~~ (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. **6 providers now** — `gitlab` + `aws_ssm` + **`cloudflare` + `aws_secrets` SHIPPED 2026-07-23**. Vercel / Netlify remain. | M each |
+| ~~**More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule + issuer presets, single-active-issuer model. No migration. | ~~S each~~ |
 | **Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost; a `janus import` command + wizard screen. | L |
 | ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
 | **Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
@@ -76,7 +76,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | Feature | Why | Effort |
 |---|---|---|
 | ~~**Global key search** in the command palette (search masked key names across configs)~~ **SHIPPED 2026-07-22** — `GET /v1/search/keys`, names-only, deny-by-default per-config filter; palette "Secret keys" group + `?key=` editor deep-link. | ~~S~~ |
-| **Bulk row selection** in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
+| ~~**Bulk row selection** in the editor — multi-select → delete / promote / export~~ **SHIPPED 2026-07-23** — checkboxes + select-all (filter-aware), bulk Delete (dirty-buffer) / Reveal (audited) / Export (confirm-gated). Frontend-only. | ~~M~~ |
 | ~~**JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor~~ **SHIPPED 2026-07-23** — format badge + client-side well-formedness check while editing (JSON parse errors, PEM label/base64 faults), one-click Pretty-print for valid JSON; advisory, never blocks a save. | ~~S~~ |
 | ~~**Shortcuts help modal** (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` help modal + `g`-chord navigation to every screen; suppressed while typing / in dialogs. | ~~S~~ |
 | **Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit | The bones are semantic; a deliberate pass would close the gaps. | M |
@@ -87,18 +87,18 @@ no HSM, no multi-tenancy, no FIPS claims.
 ## Suggested near-term slate
 
 If I picked the next five, weighing leverage against effort (the earlier slates
-are all shipped, most recently cross-environment diff, GCP/Azure auto-unseal,
-and token/user last-used tracking):
+are all shipped, most recently the ops-hardening bundle, Cloudflare + AWS
+Secrets Manager sync, GitLab/Buildkite/CircleCI CI federation, and editor
+bulk-select + read insights):
 
-1. **Even more sync providers** (3.1) — Cloudflare Workers / Vercel / Netlify /
-   AWS Secrets Manager on the now-4-provider engine.
-2. **Ops hardening bundle** — docker-compose limits + `JANUS_DB_*` pool tuning +
-   pg-backup guidance + `CONTRIBUTING.md`.
-3. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory,
+1. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory,
    audited reason.
-4. **Per-token IP allowlists** (1.6) + new-IP anomaly note.
-5. **Secret annotations** (2.7) — owner + note metadata per key (never values).
+2. **Per-token IP allowlists** (1.6) + new-IP anomaly note.
+3. **Secret annotations** (2.7) — owner + note metadata per key (never values).
+4. **Require-approval-for-prod-edits** (2.8) — extend four-eyes to raw prod saves.
+5. **Accessibility pass** (5.5) — modal focus traps, ARIA, reduced-motion.
 
-(Native TLS, secret max-age, first-run onboarding, GitLab + AWS SSM sync,
-unused-secret detection, cross-environment diff, GCP/Azure auto-unseal, and
-token/user last-used tracking all shipped 2026-07-23.)
+(Everything through the four 2026-07-23 batches — up to Cloudflare/AWS-SM sync,
+GitLab/Buildkite/CircleCI federation, ops-hardening, and editor bulk-select +
+read insights — is shipped. Vercel/Netlify sync, scheduled S3 backups, and audit
+shipping remain among the larger items.)
