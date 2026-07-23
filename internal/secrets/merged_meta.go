@@ -17,6 +17,13 @@ import (
 // requested config, else the config default), nil when no policy applies.
 // Stale is true when the key's age (now - CreatedAt) exceeds MaxAgeSeconds.
 // Purely advisory — never blocks any operation.
+//
+// LastReadAt/Unused describe ADVISORY unused-secret detection (see
+// last_read.go): LastReadAt is the most recent per-key reveal timestamp
+// (nil = never read per-key). Unused is true when the key has had no per-key
+// reveal within the configured threshold window (JANUS_UNUSED_SECRET_DAYS,
+// default 90 days) — either never read, or last read older than the window.
+// Purely advisory — never blocks any operation. Value-free (timestamps only).
 type MergedMeta struct {
 	Key           string
 	ValueVersion  int
@@ -25,6 +32,8 @@ type MergedMeta struct {
 	Type          string
 	MaxAgeSeconds *int64
 	Stale         bool
+	LastReadAt    *time.Time
+	Unused        bool
 }
 
 type storeMetaEntry struct {
@@ -102,7 +111,17 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 			perKey[e.Key] = e.MaxAgeSeconds
 		}
 	}
+
+	// Advisory unused-secret detection: last per-key reveal timestamp for each
+	// key, from one grouped audit query (value-free — resource paths + times).
+	// Attributed to the requested (leaf) config only; inherited keys have no
+	// last-read on this config and so read as "never read" here. Never blocks.
+	lastReads, err := s.lastRead.LastReadByKey(ctx, configID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
 	now := time.Now()
+	unusedCutoff := now.Add(-s.unusedWindow())
 
 	out := make([]MergedMeta, 0, len(merged))
 	for k, e := range merged {
@@ -123,6 +142,13 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 		}
 		if m.MaxAgeSeconds != nil {
 			m.Stale = now.Sub(e.at) > time.Duration(*m.MaxAgeSeconds)*time.Second
+		}
+		if at, ok := lastReads[k]; ok {
+			v := at
+			m.LastReadAt = &v
+			m.Unused = at.Before(unusedCutoff) // read, but outside the window (stale read)
+		} else {
+			m.Unused = true // never read per-key
 		}
 		out = append(out, m)
 	}

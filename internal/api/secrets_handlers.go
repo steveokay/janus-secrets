@@ -81,9 +81,19 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 			// Advisory max-age policy (see internal/secrets/max_age.go). Never
 			// blocks anything — the UI renders a stale chip from these fields.
 			"stale": m.Stale,
+			// Advisory unused-secret detection (see internal/secrets/last_read.go).
+			// last_read_at is the most recent per-key reveal (null = never read
+			// per-key); unused flags keys not read within the threshold window.
+			// Value-free; never blocks anything.
+			"unused": m.Unused,
 		}
 		if m.MaxAgeSeconds != nil {
 			entry["max_age_seconds"] = *m.MaxAgeSeconds
+		}
+		if m.LastReadAt != nil {
+			entry["last_read_at"] = m.LastReadAt.UTC().Format(time.RFC3339)
+		} else {
+			entry["last_read_at"] = nil
 		}
 		masked[m.Key] = entry
 	}

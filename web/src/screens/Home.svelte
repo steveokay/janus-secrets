@@ -2,7 +2,7 @@
   import { session } from '../lib/session.svelte'
   import { registry } from '../lib/registry.svelte'
   import type { RotationPolicy, SyncTargetApi, ApiLease } from '../lib/api'
-  import { listAllRotations, listAllSyncs, listAllDynamicRoles, listAllLeases, countAllStaleKeys } from '../lib/ops'
+  import { listAllRotations, listAllSyncs, listAllDynamicRoles, listAllLeases, countAllStaleKeys, countAllUnusedKeys } from '../lib/ops'
   import { relTime } from '../lib/util'
   import Sparkline from '../components/Sparkline.svelte'
   import Guilloche from '../components/Guilloche.svelte'
@@ -22,10 +22,15 @@
     ])
     const roles = await listAllDynamicRoles(registry.projects).catch(() => [])
     const leases = await listAllLeases(roles).catch(() => [] as ApiLease[])
-    const staleKeys = await countAllStaleKeys(registry.projects).catch(() => 0)
+    const [staleKeys, unusedKeys] = await Promise.all([
+      countAllStaleKeys(registry.projects).catch(() => 0),
+      countAllUnusedKeys(registry.projects).catch(() => 0),
+    ])
     const items: TrayItem[] = []
     if (staleKeys > 0)
       items.push({ kind: 'stale', text: `${staleKeys} secret${staleKeys === 1 ? '' : 's'} past max-age`, href: '/projects', when: new Date().toISOString() })
+    if (unusedKeys > 0)
+      items.push({ kind: 'unused', text: `${unusedKeys} secret${unusedKeys === 1 ? '' : 's'} not read in 90d`, href: '/projects', when: new Date().toISOString() })
     for (const r of rots.filter(r => r.failure_count > 0 || r.status === 'failed'))
       items.push({ kind: 'failed', text: `Rotation ${r.secret_key} failing on ${registry.configLabel(r.config_id)}`, href: '/operations', when: r.last_rotated_at ?? r.created_at })
     for (const s of syncs.filter(s => s.failure_count > 0 || s.status === 'error'))
@@ -268,6 +273,7 @@
   .tray-mark.drift { background: var(--ochre); }
   .tray-mark.expiring { background: var(--ochre); }
   .tray-mark.stale { background: var(--ochre); }
+  .tray-mark.unused { background: var(--ochre); }
   .tray-mark.denied { background: var(--vermilion); }
   .tray-mark.ok { background: var(--verdigris); }
 

@@ -21,6 +21,8 @@
     createdAt: string
     maxAgeSeconds: number | null  // effective advisory max-age (null = no policy)
     stale: boolean                // past effective max-age (advisory; never blocks)
+    lastReadAt: string | null     // most recent per-key reveal (null = never read)
+    unused: boolean               // not read within the unused window (advisory)
     revealed: boolean
     value: string | null   // plaintext once revealed
     draft: string
@@ -100,6 +102,8 @@
           createdAt: m.created_at,
           maxAgeSeconds: m.max_age_seconds ?? null,
           stale: m.stale ?? false,
+          lastReadAt: m.last_read_at ?? null,
+          unused: m.unused ?? false,
           revealed: false,
           value: null,
           draft: '',
@@ -187,7 +191,7 @@
   function addRow() {
     rows.push({
       key: '', origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
-      maxAgeSeconds: null, stale: false,
+      maxAgeSeconds: null, stale: false, lastReadAt: null, unused: false,
       revealed: true, value: null, draft: '', dirty: false, deleted: false, added: true, editing: true,
     })
   }
@@ -458,7 +462,7 @@
       } else {
         rows.push({
           key: e.key, origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
-          maxAgeSeconds: null, stale: false,
+          maxAgeSeconds: null, stale: false, lastReadAt: null, unused: false,
           revealed: true, value: null, draft: e.value, dirty: true, deleted: false, added: true, editing: false,
         })
         added++
@@ -688,6 +692,13 @@
                   {/if}
                   {#if row.stale && row.maxAgeSeconds != null}
                     <span class="stamp flat maxage-chip" title={`Advisory: past its max-age of ${humanizeDuration(row.maxAgeSeconds)} (age ${relTime(row.createdAt)}). Nothing is blocked.`}>past max-age</span>
+                  {/if}
+                  {#if row.unused && !row.added}
+                    {#if row.lastReadAt}
+                      <span class="stamp flat unused-chip" title={`Advisory: not read since ${row.lastReadAt} (${relTime(row.lastReadAt)}), past the unused threshold. Nothing is blocked.`}>not read 90d+</span>
+                    {:else}
+                      <span class="stamp flat unused-chip" title="Advisory: no per-key reveal on record. Nothing is blocked. (Bulk raw reads are not per-key attributable.)">never read</span>
+                    {/if}
                   {/if}
                   {#if row.key && !isEnvVarKey(row.key)}
                     <span class="file-badge" title="Not an env-var identifier — janus run skips it; janus secrets download --format files materializes it to disk">file</span>
@@ -1000,6 +1011,14 @@
     margin-left: 0.35rem;
     color: var(--vermilion);
     border-color: var(--vermilion);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+  }
+  /* advisory unused-secret detection — ochre "not read"/"never read" chip */
+  .unused-chip {
+    margin-left: 0.35rem;
+    color: var(--ochre);
+    border-color: var(--ochre);
     font-size: 0.6rem;
     letter-spacing: 0.04em;
   }

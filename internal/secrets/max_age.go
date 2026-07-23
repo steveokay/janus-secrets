@@ -91,3 +91,20 @@ func (s *Service) CountStaleKeys(ctx context.Context, configID string) (int, err
 	}
 	return n, nil
 }
+
+// CountUnusedKeys returns the number of keys in the config's merged masked view
+// that have not been read per-key within the advisory unused-secret window
+// (never read, or last read older than the threshold). Value-free (metadata only).
+func (s *Service) CountUnusedKeys(ctx context.Context, configID string) (int, error) {
+	metas, err := s.ListSecretsMerged(ctx, configID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, m := range metas {
+		if m.Unused {
+			n++
+		}
+	}
+	return n, nil
+}

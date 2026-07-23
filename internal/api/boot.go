@@ -70,6 +70,10 @@ type BootConfig struct {
 	// MetricsToken, when non-empty, enables GET /metrics gated by this static
 	// bearer token (cmd/janus reads JANUS_METRICS_TOKEN). Empty → /metrics 404s.
 	MetricsToken string
+	// UnusedSecretDays is the advisory "not read in N days" threshold for
+	// unused-secret detection (cmd/janus reads JANUS_UNUSED_SECRET_DAYS). Zero or
+	// negative → the secrets service default (90 days). Purely advisory.
+	UnusedSecretDays int
 	// TLS configures the optional native HTTPS listener (static certs or ACME).
 	// Zero value → plain HTTP (TLS delegated to a reverse proxy, the default).
 	TLS TLSConfig
@@ -143,6 +147,9 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	}
 
 	svc := secrets.NewService(st, kr)
+	if bc.UnusedSecretDays > 0 {
+		svc.SetUnusedSecretDays(bc.UnusedSecretDays)
+	}
 	transitSvc := transit.New(kr, st)
 	authSvc := auth.NewService(st, kr)
 	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)
