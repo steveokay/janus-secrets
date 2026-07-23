@@ -3694,7 +3694,16 @@ paths:
             schema:
               type: object
               properties:
-                issuer: { type: string, example: "https://token.actions.githubusercontent.com" }
+                issuer:
+                  type: string
+                  description: >-
+                    OIDC issuer URL (well-formed absolute http(s) URL). One CI
+                    provider is active at a time. Known issuers: GitHub Actions
+                    `https://token.actions.githubusercontent.com`, GitLab
+                    `https://gitlab.com`, Buildkite `https://agent.buildkite.com`,
+                    CircleCI `https://oidc.circleci.com/org/<ORG_ID>`. Empty
+                    defaults to GitHub Actions.
+                  example: "https://token.actions.githubusercontent.com"
                 audience: { type: string }
                 enabled: { type: boolean }
       responses:
@@ -3741,6 +3750,12 @@ paths:
                 match_claims:
                   type: object
                   additionalProperties: { type: string }
+                  description: >-
+                    Exact claim conditions (all AND-ed). Must constrain at least
+                    one strong identifying claim for the configured issuer
+                    (GitHub `repository`, GitLab `project_path`, Buildkite
+                    `organization_slug`, CircleCI project-id; any non-empty claim
+                    for a custom issuer). Empty values are rejected.
                   example: { repository: "acme/web" }
                 scope_kind: { type: string, enum: [config, environment] }
                 scope_id: { type: string, format: uuid }

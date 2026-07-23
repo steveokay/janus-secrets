@@ -20,21 +20,32 @@ Password login keeps working alongside SSO.
 
 ## CI federation (machines, no long-lived secret)
 
-Lets a GitHub Actions workflow exchange its runtime OIDC JWT for a
-short-lived scoped `janus_svc_…` token — nothing stored in CI.
+Lets a CI pipeline exchange its runtime OIDC JWT for a short-lived scoped
+`janus_svc_…` token — nothing stored in CI. **GitHub Actions, GitLab CI/CD,
+Buildkite, and CircleCI** are supported; **one provider is active at a time**.
 
-1. **CI federation → Configure**: issuer
-   (`https://token.actions.githubusercontent.com`) and the audience your
-   workflows will request (commonly your Janus URL).
-2. **+ Trust binding**: name, the exact `owner/repo` the JWT must claim,
-   scope (a config or environment), access (read / read-write), TTL
-   (≤ 1 hour). A workflow can only federate if **exactly one** enabled
-   binding matches its claims.
-3. In the workflow, request an ID token and exchange it at
-   `POST /v1/auth/oidc/federate` — full YAML in the
+1. **CI federation → Configure**: pick a **provider preset** (fills the issuer
+   URL and hints the claim to bind), then set the audience your pipelines will
+   request (commonly your Janus URL). Issuers:
+
+   | Provider | Issuer | Strong claim to bind |
+   |---|---|---|
+   | GitHub Actions | `https://token.actions.githubusercontent.com` | `repository` |
+   | GitLab CI/CD | `https://gitlab.com` (or self-hosted URL) | `project_path` |
+   | Buildkite | `https://agent.buildkite.com` | `organization_slug` |
+   | CircleCI | `https://oidc.circleci.com/org/<ORG_ID>` | `oidc.circleci.com/project-id` |
+
+2. **+ Trust binding**: name, the provider's strong identifying claim value the
+   JWT must carry, scope (a config or environment), access (read / read-write),
+   TTL (≤ 1 hour). Every binding must constrain at least one strong claim for
+   the configured provider (a claim-less binding is rejected). A pipeline can
+   federate only if **exactly one** enabled binding matches its claims.
+3. In the pipeline, request an ID token and exchange it at
+   `POST /v1/auth/oidc/federate` — full YAML per provider in the
+   [CI federation reference](../ci-federation.md); the GitHub flow is also in the
    [GitHub Actions guide](github-actions.md).
 
-Delete a binding to cut that repo off immediately; disable the federation
+Delete a binding to cut that pipeline off immediately; disable the federation
 config to stop all exchanges.
 
 ## Outbound sync summary
