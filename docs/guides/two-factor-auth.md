@@ -152,3 +152,21 @@ log; enrolment, confirmation, and disabling each write a value-free audit event.
   intervene: an admin can disable the account (`POST /v1/users/{id}/disable`)
   and re-provision it. Keep at least one recovery code somewhere you can reach
   without your phone.
+
+## Scope: password logins only, not OIDC (decided 2026-07-23)
+
+Janus's TOTP factor gates the **email + password** login path. It does **not**
+gate **OIDC** logins: an OIDC sign-in calls `createSession` directly once the
+identity provider has authenticated the user, on the deliberate assumption that
+**the IdP owns multi-factor for the identities it issues** (this is the whole
+point of delegating authentication to Google, GitHub, Okta, etc. — configure MFA
+there). This is standard for OIDC relying parties and is the intended design.
+
+The practical consequence: if an account can sign in **both** ways — a local
+password *and* a federated OIDC identity mapped to it — then enabling Janus TOTP
+hardens only the password path; the OIDC path still depends on the IdP's own
+MFA. If you want a hard second factor on every path to an account, either (a)
+enforce MFA at the IdP and route all human logins through OIDC, or (b) do not map
+an OIDC identity onto an account that relies on Janus TOTP as its sole second
+factor. A future release may add an opt-in "require app-level 2FA even for OIDC"
+switch; today it is not enforced by design.
