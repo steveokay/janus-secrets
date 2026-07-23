@@ -11,6 +11,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auditship"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
+	"github.com/steveokay/janus-secrets/internal/backupsched"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/rotation"
@@ -58,6 +59,10 @@ type BootConfig struct {
 	// NotificationTick is the notification dispatcher's tick interval. Zero
 	// disables the dispatcher (tests); cmd/janus applies the production default.
 	NotificationTick time.Duration
+	// BackupSchedule configures the scheduled-encrypted-S3-backup engine. Zero
+	// value (empty bucket / zero tick) disables it; cmd/janus populates it from
+	// JANUS_BACKUP_* env. Never enabled in tests that build BootConfig directly.
+	BackupSchedule backupsched.Config
 	// AuditShip configures the audit-log SIEM shipper (webhook/syslog). The zero
 	// value (Mode="") disables it. cmd/janus populates it from JANUS_AUDIT_SHIP_*.
 	AuditShip auditship.Config
@@ -201,20 +206,21 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// by timestamp) and emit a loud breakglass.expire audit event per grant.
 	sweepExpiredBreakGlass(ctx, st, auditRec, logger)
 	srv := New(Config{
-		ListenAddr:        bc.ListenAddr,
-		SealType:          sealType,
-		Version:           bc.Version,
-		HTTPReadTimeout:   bc.HTTPReadTimeout,
-		HTTPWriteTimeout:  bc.HTTPWriteTimeout,
-		HTTPIdleTimeout:   bc.HTTPIdleTimeout,
-		HTTPMaxBodyBytes:  bc.HTTPMaxBodyBytes,
-		HTTPShutdownGrace: bc.HTTPShutdownGrace,
-		RotationTick:      bc.RotationTick,
-		SyncTick:          bc.SyncTick,
-		DynamicTick:       bc.DynamicTick,
-		MetricsToken:      bc.MetricsToken,
-		BreakGlassMaxTTL:  bc.BreakGlassMaxTTL,
-		TLS:               bc.TLS,
+		ListenAddr:         bc.ListenAddr,
+		SealType:           sealType,
+		Version:            bc.Version,
+		HTTPReadTimeout:    bc.HTTPReadTimeout,
+		HTTPWriteTimeout:   bc.HTTPWriteTimeout,
+		HTTPIdleTimeout:    bc.HTTPIdleTimeout,
+		HTTPMaxBodyBytes:   bc.HTTPMaxBodyBytes,
+		HTTPShutdownGrace:  bc.HTTPShutdownGrace,
+		RotationTick:       bc.RotationTick,
+		SyncTick:           bc.SyncTick,
+		DynamicTick:        bc.DynamicTick,
+		BackupSchedEnabled: bc.BackupSchedule.Enabled(),
+		MetricsToken:       bc.MetricsToken,
+		BreakGlassMaxTTL:   bc.BreakGlassMaxTTL,
+		TLS:                bc.TLS,
 	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 
@@ -255,6 +261,31 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		if bc.AuditShipTick > 0 {
 			go shipper.RunScheduler(ctx, bc.AuditShipTick)
 		}
+	}
+
+	// Scheduled encrypted S3 backups. Enabled only when a bucket + positive tick
+	// are configured (cmd/janus reads JANUS_BACKUP_*). The verifier reuses the
+	// live keyring to prove wrapped material decrypts under the current unseal.
+	if bc.BackupSchedule.Enabled() {
+		verifier := backupsched.StructVerifier{
+			KnownTables:   store.BackupTableSet(),
+			SchemaVersion: 0, // set below once known
+			UnwrapKEK: func(wrapped []byte, projectID string) error {
+				ct, err := crypto.ParseCiphertext(wrapped)
+				if err != nil {
+					return err
+				}
+				_, err = kr.UnwrapProjectKEK(ct, projectID)
+				return err
+			},
+		}
+		if v, err := st.SchemaVersion(ctx); err == nil {
+			verifier.SchemaVersion = v
+		}
+		backupSvc := backupsched.New(bc.BackupSchedule, st, func() bool { return kr.Sealed() }, verifier, logger)
+		backupSvc.SetTickHook(func() { srv.ticks.MarkTick("backup") })
+		go backupSvc.RunScheduler(ctx)
+		srv.backupSched = backupSvc
 	}
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and

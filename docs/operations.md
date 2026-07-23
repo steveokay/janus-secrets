@@ -47,6 +47,14 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_NOTIFY_TICK` | no | notification dispatcher tick interval; 0 disables (Go duration, default `30s`) |
+| `JANUS_BACKUP_TICK` | no | scheduled encrypted **S3 backup** interval; unset/`0` disables the engine (Go duration, e.g. `6h`). When set, the S3 bucket/region/credentials below become required or boot fails. See [backup & restore](guides/backup-and-restore.md#scheduled-encrypted-backups-to-s3-built-in) |
+| `JANUS_BACKUP_RETENTION` | no | keep the N most recent backup objects under the prefix; prune the rest after each upload (non-negative int; `0`/unset = keep all) |
+| `JANUS_BACKUP_S3_BUCKET` | when `JANUS_BACKUP_TICK` set | destination S3 bucket for scheduled backups |
+| `JANUS_BACKUP_S3_PREFIX` | no | key prefix under the bucket (e.g. `prod/`); objects are `<prefix>/janus-backup-<timestamp>.jsonl` |
+| `JANUS_BACKUP_S3_REGION` | when `JANUS_BACKUP_TICK` set | S3 region |
+| `JANUS_BACKUP_S3_ENDPOINT` | no | custom endpoint for **S3-compatible** stores (MinIO, Cloudflare R2, Backblaze B2, …); empty = real AWS S3. Uses path-style addressing |
+| `JANUS_BACKUP_S3_ACCESS_KEY_ID` | when `JANUS_BACKUP_TICK` set | **static** S3 access key id (never the host's ambient AWS identity) |
+| `JANUS_BACKUP_S3_SECRET_ACCESS_KEY` | when `JANUS_BACKUP_TICK` set | static S3 secret access key (write-only; never logged) |
 | `JANUS_AUDIT_SHIP_MODE` | no | Audit-log SIEM shipper destination: `off` (default), `webhook`, or `syslog`. A configured mode with a missing/invalid destination is a **fatal boot error** |
 | `JANUS_AUDIT_SHIP_TICK` | no | Audit-shipper tick interval; 0 disables (Go duration, default `30s`) |
 | `JANUS_AUDIT_SHIP_WEBHOOK_URL` | for `webhook` | Absolute `http(s)` URL the JSONL batch is POSTed to (`application/x-ndjson`) |

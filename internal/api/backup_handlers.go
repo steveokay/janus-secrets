@@ -3,11 +3,13 @@ package api
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/audit"
+	"github.com/steveokay/janus-secrets/internal/backupsched"
 )
 
 // backupHeader is line 1 of a dump; restore validates it before any insert.
@@ -188,4 +190,58 @@ func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"restored": true, "sealed": true})
+}
+
+// rehearseRequest is the optional body for POST /v1/sys/backup/rehearse. An
+// empty/absent object_key rehearses the most recent scheduled backup.
+type rehearseRequest struct {
+	ObjectKey string `json:"object_key"`
+}
+
+// handleBackupRehearse downloads a scheduled S3 backup and verifies it restores
+// WITHOUT touching the live instance: the artifact is streamed through a
+// structural + decryptability verifier and discarded. It writes nothing to the
+// database or S3. Requires the same SysBackup authority as GET /v1/sys/backup.
+// The response and the audit event are value-free (object path, record/table
+// counts, verified flag — never key material).
+func (s *Server) handleBackupRehearse(w http.ResponseWriter, r *http.Request) {
+	if s.backupSched == nil {
+		writeError(w, http.StatusServiceUnavailable, CodeValidation,
+			"scheduled S3 backups are not configured on this instance")
+		return
+	}
+	var req rehearseRequest
+	// Body is optional; ignore a decode error on an empty body.
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	res, err := s.backupSched.Rehearse(r.Context(), req.ObjectKey)
+	if err != nil {
+		if errors.Is(err, backupsched.ErrNoBackups) {
+			writeError(w, http.StatusNotFound, CodeValidation,
+				"no backup objects found under the configured prefix")
+			return
+		}
+		// Sanitized already by the engine; log the generic message and audit the
+		// failed rehearsal (value-free).
+		s.logger.Warn("backup rehearsal failed", "err", err)
+		if aerr := s.record(r, "sys.backup.rehearse", res.ObjectKey, "failure", "", "verify_failed"); aerr != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		writeError(w, http.StatusUnprocessableEntity, CodeValidation,
+			"backup rehearsal failed: "+err.Error())
+		return
+	}
+	result := "success"
+	if !res.Verified {
+		result = "failure"
+	}
+	if aerr := s.record(r, "sys.backup.rehearse", res.ObjectKey, result, "",
+		fmt.Sprintf("verified=%t records=%d decryptable=%t", res.Verified, res.Records, res.Decryptable)); aerr != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }

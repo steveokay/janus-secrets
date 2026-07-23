@@ -67,6 +67,16 @@ type sysStatusWire struct {
 	Leases struct {
 		Active int64 `json:"active"`
 	} `json:"leases"`
+	Backup struct {
+		Enabled bool `json:"enabled"`
+		Last    *struct {
+			Status        string `json:"status"`
+			AgeSeconds    int64  `json:"age_seconds"`
+			ObjectKey     string `json:"object_key"`
+			SizeBytes     int64  `json:"size_bytes"`
+			ErrorCategory string `json:"error_category"`
+		} `json:"last"`
+	} `json:"backup"`
 }
 
 // TestSysStatusAdminShape drives GET /v1/sys/status against the full stack: an
@@ -103,6 +113,15 @@ func TestSysStatusAdminShape(t *testing.T) {
 		if sc.Enabled {
 			t.Errorf("scheduler %q enabled, want disabled (zero tick)", eng)
 		}
+	}
+
+	// Scheduled-S3-backup block present + value-free: disabled here (no
+	// BackupSchedule in authStackFull), and no run recorded yet.
+	if st.Backup.Enabled {
+		t.Errorf("backup.enabled = true, want false (not configured)")
+	}
+	if st.Backup.Last != nil {
+		t.Errorf("backup.last = %+v, want null (no backup run yet)", st.Backup.Last)
 	}
 
 	// Config-scoped read token → no instance audit:read → 403.

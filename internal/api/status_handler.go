@@ -25,9 +25,27 @@ type sysStatusResponse struct {
 	Schedulers    map[string]schedulerStatus `json:"schedulers"`
 	Runs          runsStatus                 `json:"runs"`
 	Leases        leasesStatus               `json:"leases"`
+	Backup        backupStatus               `json:"backup"`
 	// AuditShip is the audit-shipper snapshot, present only when a destination is
 	// configured (JANUS_AUDIT_SHIP_MODE=webhook|syslog). Value-free.
 	AuditShip *auditShipStatus `json:"audit_ship,omitempty"`
+}
+
+// backupStatus is the value-free scheduled-S3-backup health summary: whether the
+// engine is configured, and the last recorded attempt (time, status, object path
+// — never key material or credentials).
+type backupStatus struct {
+	Enabled bool `json:"enabled"`
+	// Last is nil when no scheduled backup has run yet.
+	Last *lastBackup `json:"last"`
+}
+
+type lastBackup struct {
+	Status        string `json:"status"`
+	AgeSeconds    int64  `json:"age_seconds"`
+	ObjectKey     string `json:"object_key,omitempty"`
+	SizeBytes     int64  `json:"size_bytes,omitempty"`
+	ErrorCategory string `json:"error_category,omitempty"`
 }
 
 // auditShipStatus mirrors auditship.Status — mode, destination label, current
@@ -133,7 +151,24 @@ func (s *Server) handleSysStatus(w http.ResponseWriter, r *http.Request) {
 		if v, err := h.DynamicLeasesActive(aggCtx); err == nil {
 			resp.Leases.Active = v
 		}
+		if run, err := h.LatestBackupRun(aggCtx); err == nil && run != nil {
+			lb := &lastBackup{
+				Status:     run.Status,
+				AgeSeconds: int64(time.Since(run.FinishedAt).Seconds()),
+			}
+			if run.ObjectKey != nil {
+				lb.ObjectKey = *run.ObjectKey
+			}
+			if run.SizeBytes != nil {
+				lb.SizeBytes = *run.SizeBytes
+			}
+			if run.Error != nil {
+				lb.ErrorCategory = *run.Error
+			}
+			resp.Backup.Last = lb
+		}
 	}
+	resp.Backup.Enabled = s.backupSchedEnabled
 
 	// Per-engine scheduler status: enabled when its tick interval > 0.
 	for _, eng := range []struct {

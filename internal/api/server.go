@@ -17,6 +17,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auditship"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
+	"github.com/steveokay/janus-secrets/internal/backupsched"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
 	"github.com/steveokay/janus-secrets/internal/masterkeys"
@@ -57,6 +58,9 @@ type Config struct {
 	RotationTick time.Duration
 	SyncTick     time.Duration
 	DynamicTick  time.Duration
+	// BackupSchedEnabled reports whether the scheduled-S3-backup engine is
+	// configured (bucket + positive tick). Surfaced value-free in /v1/sys/status.
+	BackupSchedEnabled bool
 	// MetricsToken, when non-empty, enables the /metrics endpoint gated by this
 	// static bearer token. Empty → /metrics returns 404.
 	MetricsToken string
@@ -165,17 +169,27 @@ type Server struct {
 	// in Boot only when JANUS_AUDIT_SHIP_MODE is a real destination; nil otherwise
 	// (and in unit-test servers). Read by /v1/sys/status for a value-free snapshot.
 	auditShip *auditship.Service
-	auth         *auth.Service   // nil only in unit tests that exercise no auth path
-	authz        *authz.Engine   // nil only in unit-test servers that exercise no authz path
-	st           *store.Store    // for scope-chain resolution + membership/user handlers
+	auth         *auth.Service // nil only in unit tests that exercise no auth path
+	authz        *authz.Engine // nil only in unit-test servers that exercise no authz path
+	st           *store.Store  // for scope-chain resolution + membership/user handlers
 	// breakGlass persists time-boxed emergency role elevations. Wired in New from
 	// the store; nil in unit-test servers built without a real store (the
 	// /break-glass routes are then not mounted).
 	breakGlass       *store.BreakGlassRepo
 	breakGlassMaxTTL time.Duration
-	audit        *audit.Recorder // nil in unit-test servers; Boot always wires a real one
-	logger       *slog.Logger
-	router       chi.Router
+	// backupRuns reads scheduled-S3-backup run history for /v1/sys/status.
+	// Wired in New from the store; nil in unit-test servers built without a real
+	// store.
+	backupRuns *store.BackupRunRepo
+	// backupSchedEnabled reflects whether the scheduled-S3-backup engine is
+	// configured (bucket + tick), surfaced value-free in /v1/sys/status.
+	backupSchedEnabled bool
+	// backupSched is the scheduled-S3-backup engine (nil unless configured). It
+	// backs the restore-rehearsal endpoint.
+	backupSched *backupsched.Service
+	audit       *audit.Recorder // nil in unit-test servers; Boot always wires a real one
+	logger      *slog.Logger
+	router      chi.Router
 	// metrics is the janus_ Prometheus metric set + HTTP instrumentation. Always
 	// constructed in New (even when nil-token, so instrumentation still records).
 	metrics *AppMetrics
@@ -245,7 +259,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// list, and revoke grants.
 	if st != nil {
 		s.breakGlass = store.NewBreakGlassRepo(st)
+		s.backupRuns = store.NewBackupRunRepo(st)
 	}
+	s.backupSchedEnabled = cfg.BackupSchedEnabled
 	s.breakGlassMaxTTL = cfg.BreakGlassMaxTTL
 	if s.breakGlassMaxTTL <= 0 {
 		s.breakGlassMaxTTL = time.Hour
@@ -282,6 +298,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		if s.auth != nil && s.authz != nil {
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.SysBackup, "sys.backup", "")).Get("/backup", s.handleBackup)
+			// Restore-rehearsal: downloads a scheduled S3 backup and verifies it
+			// restores WITHOUT touching the live instance. Same SysBackup authority.
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.SysBackup, "sys.backup.rehearse", "")).Post("/backup/rehearse", s.handleBackupRehearse)
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Get("/oidc", s.handleOIDCConfigGet)
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Put("/oidc", s.handleOIDCConfigPut)
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Delete("/oidc", s.handleOIDCConfigDelete)

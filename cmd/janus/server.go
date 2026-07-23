@@ -21,6 +21,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/api"
 	"github.com/steveokay/janus-secrets/internal/auditship"
 	"github.com/steveokay/janus-secrets/internal/auth"
+	"github.com/steveokay/janus-secrets/internal/backupsched"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/version"
@@ -88,6 +89,12 @@ func runServer(ctx context.Context) error {
 		notifyTick = d
 	}
 
+	// Scheduled encrypted S3 backups (off by default: unset JANUS_BACKUP_TICK or
+	// unset bucket disables the engine). See docs/guides/backup-and-restore.md.
+	backupSchedule, err := parseBackupSchedule(version.Version)
+	if err != nil {
+		return err
+	}
 	// Audit-log SIEM shipper. Destination comes from JANUS_AUDIT_SHIP_* (parsed +
 	// validated here so a typo is a fatal startup error, not a silent drop). The
 	// tick defaults on (production) but a zero tick or mode=off disables it.
@@ -231,6 +238,7 @@ func runServer(ctx context.Context) error {
 		SyncTick:           syncTick,
 		DynamicTick:        dynamicTick,
 		NotificationTick:   notifyTick,
+		BackupSchedule:     backupSchedule,
 		AuditShip:          auditShipCfg,
 		AuditShipTick:      auditShipTick,
 		Version:            version.Version,
@@ -403,6 +411,74 @@ func parsePoolConfig() (store.PoolConfig, error) {
 		pc.MaxConnIdleTime = d
 	}
 	return pc, nil
+}
+
+// parseBackupSchedule reads the JANUS_BACKUP_* environment into a
+// backupsched.Config. The engine is OFF unless both a bucket and a positive tick
+// are set. Static S3 credentials are required when a bucket is configured (a
+// backup destination's identity is explicit, never the host's ambient AWS
+// identity). Endpoint is optional for S3-compatible stores (MinIO/R2/etc.).
+//
+// Env vars:
+//   - JANUS_BACKUP_TICK:                 scheduler interval (Go duration; 0/unset = disabled).
+//   - JANUS_BACKUP_RETENTION:            keep the N most recent objects (non-negative int; 0 = keep all).
+//   - JANUS_BACKUP_S3_BUCKET:            destination bucket (required to enable).
+//   - JANUS_BACKUP_S3_PREFIX:            key prefix under the bucket (optional).
+//   - JANUS_BACKUP_S3_REGION:            S3 region (required to enable).
+//   - JANUS_BACKUP_S3_ENDPOINT:          custom endpoint for S3-compatible storage (optional).
+//   - JANUS_BACKUP_S3_ACCESS_KEY_ID:     static access key id (required to enable).
+//   - JANUS_BACKUP_S3_SECRET_ACCESS_KEY: static secret access key (required to enable).
+func parseBackupSchedule(ver string) (backupsched.Config, error) {
+	cfg := backupsched.Config{Version: ver}
+	cfg.S3.Bucket = strings.TrimSpace(os.Getenv("JANUS_BACKUP_S3_BUCKET"))
+	cfg.S3.Prefix = strings.TrimSpace(os.Getenv("JANUS_BACKUP_S3_PREFIX"))
+	cfg.S3.Region = strings.TrimSpace(os.Getenv("JANUS_BACKUP_S3_REGION"))
+	cfg.S3.Endpoint = strings.TrimSpace(os.Getenv("JANUS_BACKUP_S3_ENDPOINT"))
+	cfg.S3.AccessKeyID = strings.TrimSpace(os.Getenv("JANUS_BACKUP_S3_ACCESS_KEY_ID"))
+	cfg.S3.SecretAccessKey = os.Getenv("JANUS_BACKUP_S3_SECRET_ACCESS_KEY")
+
+	if v := os.Getenv("JANUS_BACKUP_TICK"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return backupsched.Config{}, fmt.Errorf("invalid JANUS_BACKUP_TICK %q: use a Go duration like 6h, or 0 to disable", v)
+		}
+		cfg.Tick = d
+	}
+	if v := os.Getenv("JANUS_BACKUP_RETENTION"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return backupsched.Config{}, fmt.Errorf("invalid JANUS_BACKUP_RETENTION %q: use a non-negative integer (0 = keep all)", v)
+		}
+		cfg.Retention = n
+	}
+
+	// Not enabling? (no bucket and no tick) → return the zero-ish config; disabled.
+	if cfg.S3.Bucket == "" && cfg.Tick == 0 {
+		return backupsched.Config{Version: ver}, nil
+	}
+	// Enabling requires a complete, coherent config. Fail boot on a half-set one
+	// rather than silently running (or silently not running) a DR backup.
+	if cfg.Tick > 0 {
+		var missing []string
+		if cfg.S3.Bucket == "" {
+			missing = append(missing, "JANUS_BACKUP_S3_BUCKET")
+		}
+		if cfg.S3.Region == "" {
+			missing = append(missing, "JANUS_BACKUP_S3_REGION")
+		}
+		if cfg.S3.AccessKeyID == "" {
+			missing = append(missing, "JANUS_BACKUP_S3_ACCESS_KEY_ID")
+		}
+		if cfg.S3.SecretAccessKey == "" {
+			missing = append(missing, "JANUS_BACKUP_S3_SECRET_ACCESS_KEY")
+		}
+		if len(missing) > 0 {
+			return backupsched.Config{}, fmt.Errorf(
+				"JANUS_BACKUP_TICK is set (scheduled S3 backups enabled) but required config is missing: %s",
+				strings.Join(missing, ", "))
+		}
+	}
+	return cfg, nil
 }
 
 // tlsMode returns a short human label for the startup log line.

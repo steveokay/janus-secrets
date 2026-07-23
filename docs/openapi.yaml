@@ -3793,6 +3793,50 @@ paths:
               schema: { type: string }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/backup/rehearse:
+    post:
+      tags: [sys]
+      summary: Restore-rehearsal — verify a scheduled S3 backup restores without touching the live instance
+      description: >
+        Downloads a scheduled S3 backup (the latest, or the given object_key)
+        and verifies it restores: validates the archive structure and — best
+        effort — that its wrapped key material decrypts under the current unseal,
+        then discards it. It NEVER writes to the database or S3 and never
+        overwrites live data. Requires the same instance-level sys:backup
+        authority as GET /v1/sys/backup. The response is value-free (object path,
+        counts, verified flag — no key material). Returns 503 when scheduled S3
+        backups are not configured on the instance.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                object_key:
+                  type: string
+                  description: Verify a specific object key. Omit to rehearse the most recent backup.
+      responses:
+        "200":
+          description: Rehearsal outcome (value-free).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object_key: { type: string }
+                  verified: { type: boolean }
+                  records: { type: integer }
+                  tables: { type: integer }
+                  size_bytes: { type: integer }
+                  schema_version: { type: integer }
+                  decryptable: { type: boolean }
+                  note: { type: string }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { description: No backup object found under the configured prefix. }
+        "422": { description: Rehearsal failed (structure invalid or material did not decrypt). }
+        "503": { description: Scheduled S3 backups are not configured on this instance. }
   /v1/sys/version:
     get:
       tags: [sys]

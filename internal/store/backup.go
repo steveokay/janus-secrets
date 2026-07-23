@@ -2,12 +2,58 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
+
+// BackupHeader is line 1 of a dump; restore validates it before any insert. It
+// lives here so both the HTTP backup handler and the scheduled-S3 backup engine
+// produce byte-identical artifacts (same format the on-demand backup writes).
+type BackupHeader struct {
+	JanusBackup      int    `json:"janus_backup"`
+	MigrationVersion int64  `json:"migration_version"`
+	JanusVersion     string `json:"janus_version"`
+	CreatedAt        string `json:"created_at"`
+}
+
+// WriteBackup writes a complete key-preserving dump to w: the header line
+// followed by the JSONL table stream (exactly what GET /v1/sys/backup emits).
+// Rows are emitted as stored — wrapped keys and ciphertext stay wrapped — so the
+// output contains no plaintext secrets by construction. janusVersion is stamped
+// into the header. It pre-flights the schema (dirty migrations / missing tables)
+// so a scheduled backup fails cleanly before writing a truncated artifact.
+func (s *Store) WriteBackup(ctx context.Context, w io.Writer, janusVersion string) error {
+	ver, err := s.SchemaVersion(ctx)
+	if err != nil {
+		return err
+	}
+	missing, err := s.MissingBackupTables(ctx)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("store: schema inconsistent: %d expected table(s) missing at migration version %d", len(missing), ver)
+	}
+	now := time.Now().UTC()
+	hdr, err := json.Marshal(BackupHeader{
+		JanusBackup:      1,
+		MigrationVersion: ver,
+		JanusVersion:     janusVersion,
+		CreatedAt:        now.Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(append(hdr, '\n')); err != nil {
+		return err
+	}
+	return s.DumpBackup(ctx, w)
+}
 
 // backupTable names one table in the logical dump. The slice order is
 // FK-safe for insertion (parents before children); restore enforces it.
@@ -49,6 +95,17 @@ var backupTables = []backupTable{
 	{"transit_keys", "created_at, id"},
 	{"transit_key_versions", "transit_key_id, version"},
 	{"audit_events", "seq"},
+}
+
+// BackupTableSet returns the set of table names a valid backup may contain (the
+// dump's table list). The restore-rehearsal verifier uses it to reject a backup
+// naming an unknown table without importing the private backupTables slice.
+func BackupTableSet() map[string]bool {
+	m := make(map[string]bool, len(backupTables))
+	for _, t := range backupTables {
+		m[t.name] = true
+	}
+	return m
 }
 
 // SchemaVersion returns the applied golang-migrate version. A dirty
