@@ -11,6 +11,9 @@ type User struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DisabledAt   *time.Time
+	// LastLoginAt is the most recent successful session mint (password or OIDC
+	// login). Nil means the user has never logged in. Value-free metadata.
+	LastLoginAt *time.Time
 	// Account-lockout state (progressive backoff). FailedLoginCount is the
 	// consecutive-failure count in the current cycle; LockoutLevel drives the
 	// escalating window; LockedUntil (when set and in the future) means the
@@ -52,6 +55,10 @@ type ServiceToken struct {
 	CreatedAt time.Time
 	ExpiresAt *time.Time
 	RevokedAt *time.Time
+	// LastUsedAt is the most recent successful authentication with this token,
+	// updated best-effort and throttled (never within 60s of the last stamp). Nil
+	// means the token has never authenticated a request. Value-free metadata.
+	LastUsedAt *time.Time
 	// FederationBinding is the OIDC federation binding that minted this token
 	// via CI federation, or "" for a human-minted token (CreatedBy set instead).
 	FederationBinding string

@@ -89,6 +89,13 @@
   }
 
   const active = $derived(tokens.filter(t => !t.revoked_at))
+
+  const STALE_MS = 90 * 24 * 3600_000 // 90 days
+  // A token is stale if it has never authenticated or its last use is 90d+ old.
+  function isStale(t: TokenMeta): boolean {
+    if (!t.last_used_at) return true
+    return Date.now() - new Date(t.last_used_at).getTime() >= STALE_MS
+  }
 </script>
 
 <div class="page-n">
@@ -163,6 +170,7 @@
           <th>Token</th>
           <th>Scope</th>
           <th style="width: 110px">Access</th>
+          <th style="width: 160px">Last used</th>
           <th style="width: 150px">Expiry</th>
           <th style="width: 90px"></th>
         </tr>
@@ -181,6 +189,16 @@
               {:else}<span class="pill pill-info">read / write</span>{/if}
             </td>
             <td>
+              {#if !t.last_used_at}
+                <span class="pill pill-stale" title="This token has never authenticated a request">never used</span>
+              {:else}
+                <span class="folio">{relTime(t.last_used_at)}</span>
+                {#if isStale(t)}
+                  <span class="pill pill-stale" title="No use in 90+ days">stale</span>
+                {/if}
+              {/if}
+            </td>
+            <td>
               {#if !t.expires_at}
                 <span class="folio">non-expiring</span>
               {:else if new Date(t.expires_at).getTime() - Date.now() < 3600_000}
@@ -194,7 +212,7 @@
             </td>
           </tr>
         {:else}
-          <tr><td colspan="5" class="empty folio">{loading ? 'Reading…' : 'No service tokens minted yet.'}</td></tr>
+          <tr><td colspan="6" class="empty folio">{loading ? 'Reading…' : 'No service tokens minted yet.'}</td></tr>
         {/each}
       </tbody>
     </table>
@@ -233,6 +251,7 @@
   .t-name { display: block; font-weight: 620; }
   .scope { font-size: var(--text-xs); color: var(--ink-soft); }
   .expiring { color: var(--ochre); font-size: var(--text-xs); font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; }
+  .pill-stale { color: var(--ochre); background: var(--ochre-wash); margin-left: var(--s2); }
   .row-actions { text-align: right; }
   .revoke:hover { color: var(--vermilion); }
   .empty { text-align: center; padding: var(--s6) !important; }

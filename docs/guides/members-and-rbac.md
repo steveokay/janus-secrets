@@ -41,6 +41,15 @@ Service tokens are separate from members: they get least-privilege
 config/environment/transit scopes and can never perform management actions —
 see [Service tokens](service-tokens.md).
 
+## Last login
+
+Every user carries a `last_login_at` timestamp: the most recent successful login
+(password or OIDC session). It is **value-free** (a timestamp only) and shown as
+a *Last login* column on the Members page — relative (e.g. "2d ago"), or
+**never** for a member who has been invited but has not yet signed in. The field
+is exposed on `GET /v1/users` as `last_login_at` (`null` until the first login).
+Use it to spot dormant accounts that may be candidates for disabling.
+
 ## Account lockout and unlocking
 
 To blunt password brute-forcing, Janus locks an account after a run of failed

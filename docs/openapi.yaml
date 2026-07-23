@@ -151,6 +151,13 @@ components:
         scope_id: { type: string, format: uuid }
         access: { type: string, enum: [read, readwrite] }
         expires_at: { type: [string, "null"], format: date-time }
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            Most recent successful authentication with this token, updated
+            best-effort and throttled (never rewritten within 60s). Null/absent
+            when the token has never authenticated a request. Value-free.
     VersionResponse:
       type: object
       description: Reference to a newly created config version (value-free).
@@ -1741,6 +1748,7 @@ paths:
                         disabled: { type: boolean }
                         locked: { type: boolean, description: "True when the account is currently locked out (progressive backoff)." }
                         locked_until: { type: [string, "null"], format: date-time, description: "Lock expiry; present only when locked." }
+                        last_login_at: { type: [string, "null"], format: date-time, description: "Most recent successful login (password or OIDC); null/absent if the user has never logged in. Value-free." }
                         created_at: { type: string, format: date-time }
                   next_cursor: { type: [string, "null"] }
         "403": { $ref: '#/components/responses/Forbidden' }

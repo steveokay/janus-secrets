@@ -13,13 +13,13 @@ type UserRepo struct{ s *Store }
 func NewUserRepo(s *Store) *UserRepo { return &UserRepo{s: s} }
 
 const userCols = `id::text, email, password_hash, created_at, updated_at, disabled_at, ` +
-	`failed_login_count, lockout_level, locked_until, last_failed_login_at`
+	`failed_login_count, lockout_level, locked_until, last_failed_login_at, last_login_at`
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash,
 		&u.CreatedAt, &u.UpdatedAt, &u.DisabledAt,
-		&u.FailedLoginCount, &u.LockoutLevel, &u.LockedUntil, &u.LastFailedLoginAt); err != nil {
+		&u.FailedLoginCount, &u.LockoutLevel, &u.LockedUntil, &u.LastFailedLoginAt, &u.LastLoginAt); err != nil {
 		return nil, mapError(err)
 	}
 	return &u, nil
@@ -52,6 +52,15 @@ func (r *UserRepo) UpdatePassword(ctx context.Context, id, passwordHash string) 
 	return r.s.execAffectingOne(ctx,
 		`UPDATE users SET password_hash = $2, updated_at = now()
 		 WHERE id = $1::uuid`, id, passwordHash)
+}
+
+// TouchLastLogin stamps last_login_at=now() on a successful session mint
+// (password or OIDC login). now() is evaluated in SQL to avoid client clock
+// skew. A missing row is a no-op error; callers treat any error as non-fatal
+// (a failed login-timestamp update must never fail an authenticated login).
+func (r *UserRepo) TouchLastLogin(ctx context.Context, id string) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE users SET last_login_at = now() WHERE id = $1::uuid`, id)
 }
 
 // Count returns the number of users (bootstrap idempotency check).
