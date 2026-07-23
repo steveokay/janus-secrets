@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,10 +18,56 @@ type Store struct {
 	dsn  string
 }
 
-// Open connects to Postgres and verifies the connection. dsn is a
-// postgres://... URL.
+// PoolConfig tunes the pgx connection pool. Every field is optional: a zero
+// value means "leave pgx's own default in place" (which is what Open uses).
+// cmd/janus populates this from the JANUS_DB_* environment; tests construct it
+// directly.
+type PoolConfig struct {
+	// MaxConns caps the pool size. <= 0 keeps pgx's default (max(4, NumCPU)).
+	MaxConns int32
+	// MinConns is the number of idle connections the pool keeps warm. <= 0
+	// keeps pgx's default (0).
+	MinConns int32
+	// MaxConnLifetime bounds how long a connection may live before it is
+	// retired. <= 0 keeps pgx's default (1h).
+	MaxConnLifetime time.Duration
+	// MaxConnIdleTime bounds how long an idle connection may sit before it is
+	// closed. <= 0 keeps pgx's default (30m).
+	MaxConnIdleTime time.Duration
+}
+
+// apply overlays the non-zero PoolConfig fields onto a parsed pgxpool.Config.
+func (pc PoolConfig) apply(cfg *pgxpool.Config) {
+	if pc.MaxConns > 0 {
+		cfg.MaxConns = pc.MaxConns
+	}
+	if pc.MinConns > 0 {
+		cfg.MinConns = pc.MinConns
+	}
+	if pc.MaxConnLifetime > 0 {
+		cfg.MaxConnLifetime = pc.MaxConnLifetime
+	}
+	if pc.MaxConnIdleTime > 0 {
+		cfg.MaxConnIdleTime = pc.MaxConnIdleTime
+	}
+}
+
+// Open connects to Postgres with pgx's default pool settings and verifies the
+// connection. dsn is a postgres://... URL. It is shorthand for
+// OpenWithConfig(ctx, dsn, PoolConfig{}).
 func Open(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	return OpenWithConfig(ctx, dsn, PoolConfig{})
+}
+
+// OpenWithConfig connects to Postgres applying any non-zero PoolConfig tuning
+// on top of the DSN-derived defaults, then verifies the connection.
+func OpenWithConfig(ctx context.Context, dsn string, pc PoolConfig) (*Store, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("store: parse dsn: %w", err)
+	}
+	pc.apply(cfg)
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("store: open pool: %w", err)
 	}

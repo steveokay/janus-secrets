@@ -160,6 +160,19 @@ certs and ACME are mutually exclusive; see
 | `JANUS_HTTP_WRITE_TIMEOUT` | `net/http` server `WriteTimeout`; `0` disables. | `0` (disabled) — kept off by default so long `GET /v1/audit/export` streams aren't cut off |
 | `JANUS_HTTP_IDLE_TIMEOUT` | `net/http` server `IdleTimeout` for keep-alive connections. | `120s` |
 | `JANUS_HTTP_MAX_BODY_BYTES` | Max request body size in bytes, enforced via `http.MaxBytesReader`; `0` disables the cap. Restore (`janus restore`) is exempt since backup files can be large. | `10485760` (10 MiB) |
+| `JANUS_SHUTDOWN_GRACE` | Graceful-drain window on `SIGTERM`/`SIGINT` (Go duration, must be positive). Bounds how long in-flight requests have to finish before the main server and any auxiliary listeners (ACME `:80`, HTTP→HTTPS redirect) are force-closed. | `10s` |
+
+### Database connection pool (`pgx`)
+
+All optional. When a variable is unset, `pgx`'s own default is kept (shown in
+the Default column). Invalid values fail boot with a clear error.
+
+| Name | Meaning | Default |
+|---|---|---|
+| `JANUS_DB_MAX_CONNS` | Maximum size of the connection pool (`pgxpool.Config.MaxConns`; positive integer). | *(pgx default: `max(4, NumCPU)`)* |
+| `JANUS_DB_MIN_CONNS` | Minimum number of idle connections kept warm (`pgxpool.Config.MinConns`; non-negative integer). | *(pgx default: `0`)* |
+| `JANUS_DB_MAX_CONN_LIFETIME` | Max lifetime of a pooled connection before it is retired (Go duration, positive). | *(pgx default: `1h`)* |
+| `JANUS_DB_MAX_CONN_IDLE_TIME` | Max time an idle connection may sit before it is closed (Go duration, positive). | *(pgx default: `30m`)* |
 
 ### Session & scheduler ticks
 
@@ -329,11 +342,13 @@ it and ship the file offsite. Full procedure, including restore, is in
 [Backup & restore](../ops/backup-restore.md).
 
 That app-level backup is **not a substitute for Postgres-level backups**.
-Also run standard Postgres backup practice for the underlying store — base
-backups plus WAL archiving (e.g. `pg_basebackup` + continuous WAL shipping,
-or your managed Postgres provider's point-in-time-recovery feature) — so you
-can restore to an arbitrary point in time, not just to the moment of the
-last `janus backup`.
+Also run standard Postgres backup practice for the underlying store — logical
+`pg_dump`/`pg_restore` plus base backups and WAL archiving (e.g.
+`pg_basebackup` + continuous WAL shipping, or your managed Postgres
+provider's point-in-time-recovery feature) — so you can restore to an
+arbitrary point in time, not just to the moment of the last `janus backup`.
+Full commands, a side-by-side of **what each backup covers**, and a PITR
+walkthrough are in [Postgres backup & restore](backup-and-restore.md).
 
 Whichever path you restore from, remember: **a restored instance is useless
 without the original unseal material.** Neither backup format stores the

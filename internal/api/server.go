@@ -47,6 +47,10 @@ type Config struct {
 	HTTPWriteTimeout time.Duration
 	HTTPIdleTimeout  time.Duration
 	HTTPMaxBodyBytes int64 // 0 = no limit (consumed by the body-limit middleware)
+	// HTTPShutdownGrace bounds the graceful-drain window on ctx cancel for the
+	// main server and any auxiliary listeners. Zero → New applies the 10s
+	// default (New normalizes it so ListenAndServe always sees a positive value).
+	HTTPShutdownGrace time.Duration
 	// Scheduler tick intervals, surfaced by /v1/sys/status as each engine's
 	// interval_seconds and enabled flag. Zero = disabled.
 	RotationTick time.Duration
@@ -181,6 +185,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	authorizer *authz.Engine, st *store.Store, auditRec *audit.Recorder, logger *slog.Logger) *Server {
 	if cfg.ListenAddr == "" {
 		cfg.ListenAddr = ":8200"
+	}
+	if cfg.HTTPShutdownGrace <= 0 {
+		cfg.HTTPShutdownGrace = 10 * time.Second
 	}
 	if logger == nil {
 		logger = slog.Default()
@@ -573,7 +580,8 @@ func (s *Server) buildHTTPServer() *http.Server {
 	}
 }
 
-// ListenAndServe serves until ctx is canceled, then drains for up to 10s.
+// ListenAndServe serves until ctx is canceled, then drains for up to
+// s.cfg.HTTPShutdownGrace (default 10s, normalized in New).
 // It serves plain HTTP by default, or native HTTPS when s.cfg.TLS is configured
 // (static certs or ACME/Let's Encrypt). Any auxiliary listeners it starts (the
 // ACME HTTP-01 :80 handler, or an optional static-cert HTTP→HTTPS redirect
@@ -647,7 +655,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.HTTPShutdownGrace)
 		defer cancel()
 		for _, a := range aux {
 			// Best-effort drain of auxiliary listeners; errors are non-fatal.

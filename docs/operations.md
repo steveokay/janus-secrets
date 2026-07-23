@@ -51,6 +51,11 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
 | `JANUS_HTTP_WRITE_TIMEOUT` | no | HTTP server write timeout (Go duration, default `0` = disabled — deliberate, so `/v1/audit/export` can stream long-running responses) |
 | `JANUS_HTTP_MAX_BODY_BYTES` | no | Max request body size in bytes (default `10485760` = 10 MiB; `0` disables the cap). Not applied to the restore endpoint |
+| `JANUS_SHUTDOWN_GRACE` | no | Graceful-drain window on `SIGTERM`/`SIGINT` (Go duration, positive, default `10s`); bounds how long in-flight requests get before the server force-closes |
+| `JANUS_DB_MAX_CONNS` | no | pgx pool max size (positive int; unset ⇒ pgx default `max(4, NumCPU)`) |
+| `JANUS_DB_MIN_CONNS` | no | pgx pool min idle connections (non-negative int; unset ⇒ pgx default `0`) |
+| `JANUS_DB_MAX_CONN_LIFETIME` | no | pgx max connection lifetime (Go duration, positive; unset ⇒ pgx default `1h`) |
+| `JANUS_DB_MAX_CONN_IDLE_TIME` | no | pgx max idle time before a connection is closed (Go duration, positive; unset ⇒ pgx default `30m`) |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
