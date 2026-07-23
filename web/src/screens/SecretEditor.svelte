@@ -2,6 +2,7 @@
   import { registry } from '../lib/registry.svelte'
   import { api, errorMessage, type VersionMeta, type VersionDiff, type SecretChange, type KeyVersionMeta } from '../lib/api'
   import { relTime, stampDate, isValidKey, isEnvVarKey, parseEnvOrProps, type ImportedEntry } from '../lib/util'
+  import { checkFormat, prettyJson } from '../lib/format'
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
   import PromotePanel from '../components/PromotePanel.svelte'
@@ -15,6 +16,7 @@
   interface Row {
     key: string
     origin: 'own' | 'inherited' | 'overridden'
+    type?: string          // declared secret type (json/certificate/…) — a display hint
     valueVersion: number
     createdAt: string
     revealed: boolean
@@ -80,6 +82,7 @@
         .map(([key, m]) => ({
           key,
           origin: m.origin,
+          type: m.type,
           valueVersion: m.value_version,
           createdAt: m.created_at,
           revealed: false,
@@ -586,6 +589,7 @@
               </td>
               <td class="val-cell">
                 {#if row.editing}
+                  {@const fc = checkFormat(row.draft, row.type)}
                   <!-- textarea: values may be JSON, PEM, whole files. Enter inserts a
                        newline; Ctrl/Cmd+Enter or blur commits into the dirty buffer. -->
                   <div class="val-editrow">
@@ -601,6 +605,25 @@
                     ></textarea>
                     <GenerateMenu onGenerate={(value) => applyGenerated(row, value)} />
                   </div>
+                  <!-- JSON/PEM awareness: sniffed client-side from the draft (or the
+                       declared type); advisory only — an invalid value still saves. -->
+                  {#if fc}
+                    <div class="fmt-row">
+                      <span class="fmt-badge mono" class:bad={!fc.ok}>
+                        {fc.format === 'json' ? 'JSON' : `PEM · ${fc.label ?? '?'}`}{#if fc.extraBlocks} +{fc.extraBlocks}{/if}
+                      </span>
+                      {#if fc.ok}
+                        <span class="fmt-ok">✓ well-formed</span>
+                        {#if fc.format === 'json' && prettyJson(row.draft) !== row.draft}
+                          <button class="btn btn-ghost btn-sm" onclick={() => { row.draft = prettyJson(row.draft) ?? row.draft; markDirty(row) }}>
+                            Pretty-print
+                          </button>
+                        {/if}
+                      {:else}
+                        <span class="fmt-err" title="Advisory only — saving is not blocked">{fc.error}</span>
+                      {/if}
+                    </div>
+                  {/if}
                 {:else if row.revealed}
                   <button class="val revealed mono" onclick={() => beginEdit(row)} title="Click to edit">
                     {(row.draft.split('\n')[0] || '(empty)')}{#if row.draft.includes('\n')}<span class="more-lines"> ⏎ {row.draft.split('\n').length} lines</span>{/if}
@@ -805,6 +828,22 @@
     overflow-x: auto;
   }
   .more-lines { color: var(--archivist); font-size: var(--text-xs); }
+
+  /* format hint under the value textarea — advisory, never blocks */
+  .fmt-row { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s1); }
+  .fmt-badge {
+    font-size: 0.58rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--archivist);
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 0.05rem 0.35rem;
+  }
+  .fmt-badge.bad { color: var(--ochre); }
+  .fmt-ok { color: var(--verdigris); font-size: var(--text-xs); font-weight: 620; }
+  .fmt-err { color: var(--ochre); font-size: var(--text-xs); }
   .amended { white-space: nowrap; }
 
   tr.dirty td { background: var(--ochre-wash); }

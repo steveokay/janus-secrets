@@ -57,7 +57,10 @@ The app fronts the full server lifecycle:
 | `/trash` | Soft-deleted projects/envs/configs — restore or destroy |
 
 `Ctrl+K` opens the command palette (projects, configs, pages, actions like
-theme toggle and audit export).
+theme toggle and audit export). `?` opens a **keyboard-shortcuts help modal**,
+and `g`-prefixed chords jump anywhere (`g p` Projects, `g a` Audit, `g s`
+Settings, … — the full table lives in the `?` modal). Chords never fire while
+typing in a field or while a dialog is open.
 
 ## The secret editor
 
@@ -74,6 +77,12 @@ else is explicit:
 - **Multi-line values** — the value editor is a growing textarea; paste JSON,
   PEM blocks, whole files. `Ctrl+Enter` or blur commits to the buffer.
   Collapsed rows show the first line plus a `⏎ n lines` marker.
+- **JSON/PEM awareness** — while editing, values that look like JSON (or are
+  typed `json`) or contain PEM blocks (or are typed `certificate`/`ssh_key`)
+  get a format badge and a client-side well-formedness check: JSON parse
+  errors and malformed PEM blocks (label mismatch, bad base64) are surfaced
+  inline, and valid JSON offers a one-click **Pretty-print**. Advisory only —
+  an invalid value still saves; nothing leaves the browser.
 - **Filename-style keys** — keys may be filenames (`service-account.json`);
   invalid keys are rejected inline with the same rule as the server, and
   non-env-var keys carry a `file` badge ("skipped by `janus run` — use

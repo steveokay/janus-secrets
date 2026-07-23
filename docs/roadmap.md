@@ -77,8 +77,8 @@ no HSM, no multi-tenancy, no FIPS claims.
 |---|---|---|
 | ~~**Global key search** in the command palette (search masked key names across configs)~~ **SHIPPED 2026-07-22** — `GET /v1/search/keys`, names-only, deny-by-default per-config filter; palette "Secret keys" group + `?key=` editor deep-link. | ~~S~~ |
 | **Bulk row selection** in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
-| **JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor | Multi-line editing landed; format validation is the natural next step. | S |
-| **Shortcuts help modal** (`?`) + `g`-prefixed nav chords | The palette exists; discoverability doesn't. | S |
+| ~~**JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor~~ **SHIPPED 2026-07-23** — format badge + client-side well-formedness check while editing (JSON parse errors, PEM label/base64 faults), one-click Pretty-print for valid JSON; advisory, never blocks a save. | ~~S~~ |
+| ~~**Shortcuts help modal** (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` help modal + `g`-chord navigation to every screen; suppressed while typing / in dialogs. | ~~S~~ |
 | **Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit | The bones are semantic; a deliberate pass would close the gaps. | M |
 | **Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
@@ -86,10 +86,13 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 ## Suggested near-term slate
 
-If I picked the next five, weighing leverage against effort:
+If I picked the next five, weighing leverage against effort (the earlier
+slates — dotenv import, metrics + health, notifications, session management +
+TOTP, global key search, JSON/PEM awareness, shortcuts help — are all shipped):
 
-1. **Dotenv import** (2.1) — biggest onboarding unlock, smallest cost.
-2. **Prometheus metrics + health panel** (4.1, 4.4) — makes self-hosting operable.
-3. **Notifications via webhook/Slack** (3.4) — failures must reach humans.
-4. **Session management + TOTP** (1.2, 1.3) — the cheapest meaningful hardening.
-5. **Global key search** (5.1) — daily-use quality of life.
+1. **Native TLS listener** (1.1) — real hardening for shops without a reverse proxy.
+2. **Secret expiry / max-age policy** (1.5) — nags on stale static secrets.
+3. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the
+   provider-pluggable sync engine.
+4. **First-run onboarding checklist** (4.5) — closes the post-init dead end.
+5. **Unused-secret detection** (2.3) — the data is already in `audit_events`.
