@@ -25,6 +25,20 @@ type sysStatusResponse struct {
 	Schedulers    map[string]schedulerStatus `json:"schedulers"`
 	Runs          runsStatus                 `json:"runs"`
 	Leases        leasesStatus               `json:"leases"`
+	// AuditShip is the audit-shipper snapshot, present only when a destination is
+	// configured (JANUS_AUDIT_SHIP_MODE=webhook|syslog). Value-free.
+	AuditShip *auditShipStatus `json:"audit_ship,omitempty"`
+}
+
+// auditShipStatus mirrors auditship.Status — mode, destination label, current
+// high-water seq, and last ship time/count/error. No URL/host, no secret.
+type auditShipStatus struct {
+	Mode          string     `json:"mode"`
+	Destination   string     `json:"destination,omitempty"`
+	HighWaterSeq  int64      `json:"high_water_seq"`
+	LastShipAt    *time.Time `json:"last_ship_at,omitempty"`
+	LastShipCount int        `json:"last_ship_count"`
+	LastError     string     `json:"last_error,omitempty"`
 }
 
 type dbStatus struct {
@@ -141,6 +155,19 @@ func (s *Server) handleSysStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp.Schedulers[eng.name] = st
+	}
+
+	// Audit shipper: present only when a destination is configured. Value-free.
+	if s.auditShip != nil {
+		ss := s.auditShip.Status()
+		resp.AuditShip = &auditShipStatus{
+			Mode:          ss.Mode,
+			Destination:   ss.Destination,
+			HighWaterSeq:  ss.HighWaterSeq,
+			LastShipAt:    ss.LastShipAt,
+			LastShipCount: ss.LastShipCount,
+			LastError:     ss.LastError,
+		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)

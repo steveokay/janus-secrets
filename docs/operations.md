@@ -47,6 +47,12 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_NOTIFY_TICK` | no | notification dispatcher tick interval; 0 disables (Go duration, default `30s`) |
+| `JANUS_AUDIT_SHIP_MODE` | no | Audit-log SIEM shipper destination: `off` (default), `webhook`, or `syslog`. A configured mode with a missing/invalid destination is a **fatal boot error** |
+| `JANUS_AUDIT_SHIP_TICK` | no | Audit-shipper tick interval; 0 disables (Go duration, default `30s`) |
+| `JANUS_AUDIT_SHIP_WEBHOOK_URL` | for `webhook` | Absolute `http(s)` URL the JSONL batch is POSTed to (`application/x-ndjson`) |
+| `JANUS_AUDIT_SHIP_WEBHOOK_HMAC_KEY` | no | Optional HMAC-SHA256 signing key; when set the shipper adds `X-Janus-Signature: sha256=<hex>` over the body. Env-only, never logged or persisted |
+| `JANUS_AUDIT_SHIP_SYSLOG_ADDR` | for `syslog` | `host:port` of the syslog collector |
+| `JANUS_AUDIT_SHIP_SYSLOG_NETWORK` | no | `udp` (default) or `tcp` (RFC 6587 octet-framed) for syslog |
 | `JANUS_BREAKGLASS_MAX_TTL` | no | Ceiling a break-glass grant's requested TTL is clamped to (Go duration, positive, default `1h`) |
 | `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
@@ -516,6 +522,37 @@ Slack channels receive a compact `{"text": …}` message. `POST
 shows recent (value-free) delivery history. The dispatcher is a clean no-op
 while the server is sealed. Notification channels are **not** included in a
 backup — reconfigure them after a restore.
+
+## Audit shipping (SIEM)
+
+The **audit shipper** streams the append-only audit log to an external SIEM as
+newline-delimited JSON (JSONL / NDJSON) — one JSON object per event with the
+canonical fields (`seq`, `occurred_at`, `actor_*`, `action`, `resource`,
+`result`, `ip`, hex-encoded `prev_hash`/`hash`). Like notifications it **tails
+the audit log**, but with its **own durable high-water mark** (Postgres table
+`audit_ship_state`, seeded at migration time to the current audit head so
+enabling it never replays history). Each tick (interval `JANUS_AUDIT_SHIP_TICK`,
+default `30s`) it reads events past the mark, sends the batch, and **advances the
+mark only on a successful send** — a failed send leaves the mark so the next tick
+retries the same events: **at-least-once** delivery with **no gaps** (a SIEM
+dedupes on `seq`). The shipper is a clean no-op until a destination is
+configured, and its status (mode, destination label, high-water seq, last ship
+time/count, and a sanitized last error — never a URL or secret) is surfaced under
+`audit_ship` in `GET /v1/sys/status`.
+
+Two destinations (env-configured, so no destination secret is ever persisted):
+
+- **webhook** (`JANUS_AUDIT_SHIP_MODE=webhook`): POSTs the batch as
+  `application/x-ndjson` to `JANUS_AUDIT_SHIP_WEBHOOK_URL`; when
+  `JANUS_AUDIT_SHIP_WEBHOOK_HMAC_KEY` is set the body is signed
+  `X-Janus-Signature: sha256=<hex>` (HMAC-SHA256) so the receiver can verify
+  origin. TLS is verified.
+- **syslog** (`JANUS_AUDIT_SHIP_MODE=syslog`): sends one RFC 5424 message per
+  event to `JANUS_AUDIT_SHIP_SYSLOG_ADDR` over UDP (default) or TCP
+  (`JANUS_AUDIT_SHIP_SYSLOG_NETWORK`), the JSON event as the `MSG` field.
+
+Audit events have **no value field by construction**, so the stream carries no
+secret values. See the [audit-shipping how-to](guides/audit-shipping.md).
 
 ## Secrets CLI (developer & CI flows)
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/steveokay/janus-secrets/internal/audit"
+	"github.com/steveokay/janus-secrets/internal/auditship"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -160,6 +161,10 @@ type Server struct {
 	// Constructed in New from the keyring + store; nil in unit-test servers built
 	// without a real store.
 	notification *notification.Service
+	// auditShip streams the audit log to an external SIEM (webhook/syslog). Wired
+	// in Boot only when JANUS_AUDIT_SHIP_MODE is a real destination; nil otherwise
+	// (and in unit-test servers). Read by /v1/sys/status for a value-free snapshot.
+	auditShip *auditship.Service
 	auth         *auth.Service   // nil only in unit tests that exercise no auth path
 	authz        *authz.Engine   // nil only in unit-test servers that exercise no authz path
 	st           *store.Store    // for scope-chain resolution + membership/user handlers
@@ -582,6 +587,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	s.router = r
 	return s
 }
+
+// SetAuditShip attaches the audit-shipping service so /v1/sys/status can surface
+// its value-free status. Wired in Boot only when a real destination is
+// configured; a nil argument leaves the status block absent.
+func (s *Server) SetAuditShip(a *auditship.Service) { s.auditShip = a }
 
 // Handler exposes the router (used by tests and ListenAndServe).
 func (s *Server) Handler() http.Handler { return s.router }
