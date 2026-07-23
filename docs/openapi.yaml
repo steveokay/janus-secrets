@@ -255,7 +255,7 @@ components:
         id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         config_id: { type: string, format: uuid }
-        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets] }
+        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets, vercel, netlify] }
         prune: { type: boolean }
         interval_seconds: { type: integer }
         addr:
@@ -273,6 +273,11 @@ components:
             path_prefix: { type: string }
             account_id: { type: string }
             script_name: { type: string }
+            vercel_project: { type: string }
+            vercel_team_id: { type: string }
+            vercel_targets: { type: array, items: { type: string } }
+            netlify_account_id: { type: string }
+            netlify_site_id: { type: string }
         status: { type: string, enum: [active, paused, failed] }
         failure_count: { type: integer }
         last_error: { type: string, nullable: true }
@@ -2913,7 +2918,7 @@ paths:
               required: [config_id, provider]
               properties:
                 config_id: { type: string, format: uuid }
-                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets] }
+                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets, vercel, netlify] }
                 prune: { type: boolean, nullable: true, description: "Defaults to true when omitted." }
                 interval_seconds: { type: integer }
                 addr:
@@ -2931,6 +2936,11 @@ paths:
                     path_prefix: { type: string, description: "SSM parameter path prefix (aws_ssm) or Secrets Manager name prefix (aws_secrets), e.g. /janus/app/prod." }
                     account_id: { type: string, description: Cloudflare account id (cloudflare provider). }
                     script_name: { type: string, description: Cloudflare Worker script name (cloudflare provider). }
+                    vercel_project: { type: string, description: "Vercel project id or name (vercel provider)." }
+                    vercel_team_id: { type: string, description: "Vercel team id (vercel provider, optional)." }
+                    vercel_targets: { type: array, items: { type: string, enum: [production, preview, development] }, description: "Vercel target env(s) (vercel provider, optional; defaults to [production])." }
+                    netlify_account_id: { type: string, description: "Netlify account id or slug (netlify provider)." }
+                    netlify_site_id: { type: string, description: "Netlify site id (netlify provider, optional; account-level variable when omitted)." }
                 creds:
                   type: object
                   description: Provider credentials; all fields write-only.
@@ -2942,7 +2952,7 @@ paths:
                     access_key_id: { type: string, writeOnly: true, example: "<secret value>", description: "AWS access key id (aws_ssm and aws_secrets providers)." }
                     secret_access_key: { type: string, writeOnly: true, example: "<secret value>", description: "AWS secret access key (aws_ssm and aws_secrets providers)." }
                     session_token: { type: string, writeOnly: true, example: "<secret value>", description: "AWS session token (aws_ssm and aws_secrets providers, optional)." }
-                    api_token: { type: string, writeOnly: true, example: "<secret value>", description: "Cloudflare API token with Workers Scripts Edit (cloudflare provider)." }
+                    api_token: { type: string, writeOnly: true, example: "<secret value>", description: "Bearer API token: Cloudflare (Workers Scripts Edit), Vercel API token, or Netlify personal access token." }
       responses:
         "201":
           description: Created (masked; no creds/fingerprint in the response).

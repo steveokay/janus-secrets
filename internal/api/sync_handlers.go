@@ -16,16 +16,19 @@ type syncCredsReq struct {
 	APIURL string `json:"api_url,omitempty"`
 	CACert string `json:"ca_cert,omitempty"`
 	Token  string `json:"token,omitempty"`
-	// aws_ssm
+	// aws_ssm / aws_secrets
 	AccessKeyID     string `json:"access_key_id,omitempty"`
 	SecretAccessKey string `json:"secret_access_key,omitempty"`
 	SessionToken    string `json:"session_token,omitempty"`
+	// cloudflare / vercel / netlify — Bearer API token
+	APIToken string `json:"api_token,omitempty"`
 }
 
 func (c syncCredsReq) toEngine() secretsync.Creds {
 	return secretsync.Creds{
 		PAT: c.PAT, APIURL: c.APIURL, CACert: c.CACert, Token: c.Token,
 		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken,
+		APIToken: c.APIToken,
 	}
 }
 
@@ -39,9 +42,19 @@ type syncAddrReq struct {
 	GitLabURL        string `json:"gitlab_url,omitempty"`
 	Project          string `json:"project,omitempty"`
 	EnvironmentScope string `json:"environment_scope,omitempty"`
-	// aws_ssm
+	// aws_ssm / aws_secrets
 	Region     string `json:"region,omitempty"`
 	PathPrefix string `json:"path_prefix,omitempty"`
+	// cloudflare
+	AccountID  string `json:"account_id,omitempty"`
+	ScriptName string `json:"script_name,omitempty"`
+	// vercel
+	VercelProject string   `json:"vercel_project,omitempty"`
+	VercelTeamID  string   `json:"vercel_team_id,omitempty"`
+	VercelTargets []string `json:"vercel_targets,omitempty"`
+	// netlify
+	NetlifyAccountID string `json:"netlify_account_id,omitempty"`
+	NetlifySiteID    string `json:"netlify_site_id,omitempty"`
 }
 
 func (a syncAddrReq) toEngine() secretsync.Addr {
@@ -50,6 +63,9 @@ func (a syncAddrReq) toEngine() secretsync.Addr {
 		Namespace: a.Namespace, SecretName: a.SecretName,
 		GitLabURL: a.GitLabURL, Project: a.Project, EnvironmentScope: a.EnvironmentScope,
 		Region: a.Region, PathPrefix: a.PathPrefix,
+		AccountID: a.AccountID, ScriptName: a.ScriptName,
+		VercelProject: a.VercelProject, VercelTeamID: a.VercelTeamID, VercelTargets: a.VercelTargets,
+		NetlifyAccountID: a.NetlifyAccountID, NetlifySiteID: a.NetlifySiteID,
 	}
 }
 
@@ -105,6 +121,9 @@ func toSyncView(v secretsync.TargetView) syncView {
 			Namespace: v.Addr.Namespace, SecretName: v.Addr.SecretName,
 			GitLabURL: v.Addr.GitLabURL, Project: v.Addr.Project, EnvironmentScope: v.Addr.EnvironmentScope,
 			Region: v.Addr.Region, PathPrefix: v.Addr.PathPrefix,
+			AccountID: v.Addr.AccountID, ScriptName: v.Addr.ScriptName,
+			VercelProject: v.Addr.VercelProject, VercelTeamID: v.Addr.VercelTeamID, VercelTargets: v.Addr.VercelTargets,
+			NetlifyAccountID: v.Addr.NetlifyAccountID, NetlifySiteID: v.Addr.NetlifySiteID,
 		},
 	}
 	if v.LastSyncedAt != nil {

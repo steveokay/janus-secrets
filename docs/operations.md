@@ -170,7 +170,7 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus rotation update <id> [--interval-seconds <n>] [--status active\|paused]` | Update a policy's interval or status. Requires `rotation:manage` |
 | `janus rotation rotate <id>` | Rotate a policy immediately; also clears a `failed` status and retries. Requires `rotation:manage` |
 | `janus rotation delete <id>` | Delete a rotation policy. Requires `rotation:manage` |
-| `janus sync create --config <id> --provider github\|k8s\|gitlab\|aws_ssm --interval-seconds <n> [...]` | Create a sync target on a config. `github`: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s`: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. `gitlab`: `--project`, `--gitlab-token`, `--gitlab-url`/`--environment-scope` (optional). `aws_ssm`: `--aws-region`, `--path-prefix`, `--aws-access-key-id`, `--aws-secret-access-key`, `--aws-session-token` (optional). Any type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
+| `janus sync create --config <id> --provider github\|k8s\|gitlab\|aws_ssm\|cloudflare\|aws_secrets\|vercel\|netlify --interval-seconds <n> [...]` | Create a sync target on a config. `github`: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s`: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. `gitlab`: `--project`, `--gitlab-token`, `--gitlab-url`/`--environment-scope` (optional). `aws_ssm`: `--aws-region`, `--path-prefix`, `--aws-access-key-id`, `--aws-secret-access-key`, `--aws-session-token` (optional). `cloudflare`: `--cf-account-id`, `--cf-script-name`, `--cf-api-token`. `aws_secrets`: `--sm-region`, `--sm-path-prefix`, `--sm-access-key-id`, `--sm-secret-access-key`, `--sm-session-token` (optional). `vercel`: `--vercel-project`, `--vercel-target` (optional, repeatable), `--vercel-team-id` (optional), `--vercel-api-token`. `netlify`: `--netlify-account-id`, `--netlify-site-id` (optional), `--netlify-api-token`. Any type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
 | `janus sync list --project <id>` | List sync targets for a project. Requires `sync:manage` |
 | `janus sync get <id>` | Show one sync target (masked config). Requires `sync:manage` |
 | `janus sync update <id> [--interval-seconds <n>] [--prune] [--status active\|paused] [...]` | Update a target's interval, prune toggle, status, destination address, or credentials. Requires `sync:manage` |
@@ -453,8 +453,10 @@ expanded) one-way to an external store — `github` (GitHub Actions secrets,
 repo- or environment-scoped), `k8s` (a Kubernetes `Secret`, via
 server-side apply), `gitlab` (GitLab CI/CD variables), `aws_ssm` (AWS
 SSM Parameter Store `SecureString` parameters), `cloudflare` (secret
-bindings on a deployed Cloudflare Worker script), or `aws_secrets` (AWS
-Secrets Manager named secrets — **billed per secret**) — on an interval
+bindings on a deployed Cloudflare Worker script), `aws_secrets` (AWS
+Secrets Manager named secrets — **billed per secret**), `vercel` (a Vercel
+project's `encrypted` Environment Variables), or `netlify` (a Netlify
+site's environment variables) — on an interval
 or on demand, managed via
 `janus sync …` above (`sync:manage`, project admin/owner) or
 `/v1/sync/targets`. A per-target `prune` toggle keeps the destination a

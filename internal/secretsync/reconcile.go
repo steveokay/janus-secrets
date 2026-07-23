@@ -61,6 +61,10 @@ func (s *Service) providerFor(name string) (Provider, error) {
 		return cloudflareProvider{hc: s.hc}, nil
 	case ProviderAWSSecrets:
 		return awssecretsProvider{}, nil
+	case ProviderVercel:
+		return vercelProvider{hc: s.hc}, nil
+	case ProviderNetlify:
+		return netlifyProvider{hc: s.hc}, nil
 	default:
 		return nil, ErrInvalidType
 	}

@@ -9,6 +9,8 @@ const (
 	ProviderAWSSSM     = "aws_ssm"
 	ProviderCloudflare = "cloudflare"
 	ProviderAWSSecrets = "aws_secrets"
+	ProviderVercel     = "vercel"
+	ProviderNetlify    = "netlify"
 )
 
 // Creds is the decrypted provider credential blob (never logged/persisted clear).
@@ -23,8 +25,8 @@ type Creds struct {
 	SecretAccessKey string `json:"secret_access_key,omitempty"`
 	SessionToken    string `json:"session_token,omitempty"`
 
-	// cloudflare
-	APIToken string `json:"api_token,omitempty"` // Cloudflare API token (Workers Scripts Edit)
+	// cloudflare / vercel / netlify — Bearer API token
+	APIToken string `json:"api_token,omitempty"`
 }
 
 // Addr is the non-secret destination coordinates (stored as jsonb).
@@ -47,6 +49,15 @@ type Addr struct {
 	// cloudflare
 	AccountID  string `json:"account_id,omitempty"`
 	ScriptName string `json:"script_name,omitempty"`
+
+	// vercel
+	VercelProject string   `json:"vercel_project,omitempty"` // project id or name
+	VercelTeamID  string   `json:"vercel_team_id,omitempty"` // optional team scope
+	VercelTargets []string `json:"vercel_targets,omitempty"` // production|preview|development (default production)
+
+	// netlify
+	NetlifyAccountID string `json:"netlify_account_id,omitempty"` // account id or slug
+	NetlifySiteID    string `json:"netlify_site_id,omitempty"`    // optional; scope var to one site
 }
 
 // ApplyResult reports what a provider did.

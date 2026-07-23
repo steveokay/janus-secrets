@@ -85,6 +85,16 @@ func validateInput(provider string, addr Addr, creds Creds) error {
 			addr.Region == "" || addr.PathPrefix == "" {
 			return ErrInvalidConfig
 		}
+	case ProviderVercel:
+		// team_id and targets are optional (targets default to production).
+		if creds.APIToken == "" || addr.VercelProject == "" {
+			return ErrInvalidConfig
+		}
+	case ProviderNetlify:
+		// site_id is optional (account-level var when empty).
+		if creds.APIToken == "" || addr.NetlifyAccountID == "" {
+			return ErrInvalidConfig
+		}
 	default:
 		return ErrInvalidType
 	}
