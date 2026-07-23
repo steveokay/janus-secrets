@@ -246,6 +246,13 @@ export interface Trash { projects: TrashProject[]; environments: TrashEnvironmen
 /* per-key value history */
 export interface KeyVersionMeta { value_version: number; created_at: string }
 
+/* Per-key advisory read insights (value-free: counts + timestamps only).
+   last_read_at is the most recent per-key reveal (null = never read per-key);
+   daily is window_days reveal counts, oldest bucket first (last element = today).
+   Keys never revealed per-key are ABSENT from ReadInsights.keys. */
+export interface KeyReadInsight { last_read_at: string | null; daily: number[] }
+export interface ReadInsights { window_days: number; keys: Record<string, KeyReadInsight> }
+
 /* global key-name search (metadata only — never a value) */
 export interface KeySearchResult {
   key: string
@@ -495,6 +502,8 @@ export const api = {
   revealKeyVersion: (cid: string, key: string, version: number) =>
     get<{ key: string; value: string; value_version: number }>(
       `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?version=${version}`),
+  // per-key advisory read insights (value-free: last-read + 30-day sparkline; not audited)
+  readInsights: (cid: string) => get<ReadInsights>(`/v1/configs/${cid}/read-insights`),
 
   // promotion
   getPipeline: (pid: string) => get<{ environment_ids: string[] }>(`/v1/projects/${pid}/pipeline`),

@@ -95,6 +95,15 @@ else is explicit:
 - **Download .env** — confirm-gated export: every value is revealed (audited
   per key) and serialized as a properly quoted dotenv file; file-keys are
   skipped with a comment.
+- **Bulk selection** — a checkbox per persisted row plus a select-all header
+  checkbox (which selects only the currently *visible* rows, so a filter
+  narrows the set). When one or more rows are selected a bulk-action bar
+  appears with **Reveal selected** (audited per-key reveal of each row),
+  **Export selected .env** (the same confirm-gated, audited dotenv export
+  scoped to just the selection), and **Delete selected** (stages soft deletes
+  into the dirty buffer, confirmed via the in-app dialog, committed on Save).
+  Selection clears after any action and on save. All reveals/exports go
+  through the existing audited reveal path.
 - **Per-key history** — value-free version list per key, with audited reveal
   of any historical value.
 - **Locked keys** — lock/unlock per key (`⚿`); locked keys cannot be
@@ -110,6 +119,12 @@ else is explicit:
   reveals. Purely advisory — nothing is blocked; the overview In tray also
   surfaces "N secrets not read in 90d". Bulk raw reads are not per-key
   attributable, so a bulk-only key still reads as "never read".
+- **Read insights (advisory)** — a per-row **Reads…** control expands a panel
+  showing the key's **last-read** relative time and a **30-day daily reveal
+  sparkline**, derived from audit reveals (`GET /v1/configs/{cid}/read-insights`,
+  loaded once per editor open). Value-free — counts and timestamps only, never
+  a value. Only per-key reveals are attributed (bulk raw reads are not), so a
+  bulk-only key shows "never read per-key".
 - **Promote →** — key-level diff against the next pipeline stage; apply
   directly or file an approval request. See
   [Promoting between environments](guides/promoting-environments.md).
