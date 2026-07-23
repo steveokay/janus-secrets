@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte'
   import { router } from '../lib/router.svelte'
   import { session } from '../lib/session.svelte'
+  import { sealTypeLabel } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
   import { theme } from '../lib/theme.svelte'
   import { dialog } from '../lib/dialog.svelte'
@@ -106,7 +107,7 @@
     <div class="cover-foot">
       <div class="seal-line">
         <span class="seal-dot" aria-hidden="true"></span>
-        <span>Unsealed · {session.sealType === 'shamir' ? `Shamir ${session.threshold}-of-${session.totalShares}` : 'AWS KMS'}</span>
+        <span>Unsealed · {session.sealType === 'shamir' ? `Shamir ${session.threshold}-of-${session.totalShares}` : sealTypeLabel(session.sealType)}</span>
       </div>
       <div class="foot-stats">
         <span class="mono">{registry.totalReads24h.toLocaleString()}</span> reads · 24 h

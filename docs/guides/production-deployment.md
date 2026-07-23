@@ -145,8 +145,12 @@ certs and ACME are mutually exclusive; see
 
 | Name | Meaning | Default |
 |---|---|---|
-| `JANUS_SEAL_TYPE` | `shamir` or `awskms`. Required before first `janus init`; after init the stored type is authoritative and this must keep matching it on every boot. | *(none — required before first init)* |
+| `JANUS_SEAL_TYPE` | `shamir`, `awskms`, `gcpkms`, or `azurekv`. Required before first `janus init`; after init the stored type is authoritative and this must keep matching it on every boot. | *(none — required before first init)* |
 | `JANUS_AWS_KMS_KEY_ARN` | The KMS key ARN used to wrap/unwrap the master key when `JANUS_SEAL_TYPE=awskms`. Standard AWS SDK credential/region env vars (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, etc.) apply as usual. | *(none — required when `JANUS_SEAL_TYPE=awskms`)* |
+| `JANUS_GCP_KMS_KEY` | The GCP KMS crypto-key resource name (`projects/P/locations/L/keyRings/R/cryptoKeys/K`) used to wrap/unwrap the master key when `JANUS_SEAL_TYPE=gcpkms`. Credentials come from ambient GCP **application-default credentials** (`GOOGLE_APPLICATION_CREDENTIALS`, workload identity, or the metadata server). | *(none — required when `JANUS_SEAL_TYPE=gcpkms`)* |
+| `JANUS_AZURE_KEYVAULT_URL` | The Azure Key Vault URL (`https://<vault>.vault.azure.net/`) when `JANUS_SEAL_TYPE=azurekv`. Credentials come from ambient `DefaultAzureCredential` (env vars, managed identity, or Azure CLI login). | *(none — required when `JANUS_SEAL_TYPE=azurekv`)* |
+| `JANUS_AZURE_KEY_NAME` | The Key Vault key name that wraps the master key (an RSA/RSA-HSM key; wrapping uses RSA-OAEP-256) when `JANUS_SEAL_TYPE=azurekv`. | *(none — required when `JANUS_SEAL_TYPE=azurekv`)* |
+| `JANUS_AZURE_KEY_VERSION` | Optional specific Key Vault key version; empty selects the key's current enabled version. | *(none — uses current version)* |
 
 ### HTTP server timeouts & limits
 
@@ -207,13 +211,27 @@ keep matching it):
   stdin with echo off) until the threshold is met. This is a manual
   ceremony by design — no single operator, config file, or secret holds the
   whole key.
-- **Cloud KMS auto-unseal (`JANUS_SEAL_TYPE=awskms`)** — the master key is
-  wrapped by an AWS KMS key (`JANUS_AWS_KMS_KEY_ARN`) and unwrapped
-  automatically at startup with a single KMS decrypt call, no manual
-  ceremony. This removes the human-in-the-loop unseal step but means the
-  server needs working AWS credentials and network access to KMS at boot,
-  and your KMS key's IAM policy becomes part of your security perimeter for
-  the master key.
+- **Cloud KMS auto-unseal** — the master key is wrapped by a cloud KMS key and
+  unwrapped automatically at startup with a single KMS decrypt call, no manual
+  ceremony. This removes the human-in-the-loop unseal step but means the server
+  needs working cloud credentials and network access to the KMS at boot, and
+  the KMS key's access policy becomes part of your security perimeter for the
+  master key. Three providers are supported, each pinned to a single key and
+  relying on that cloud's ambient credential model:
+  - **AWS KMS (`JANUS_SEAL_TYPE=awskms`)** — key via `JANUS_AWS_KMS_KEY_ARN`;
+    credentials/region from the standard AWS SDK default chain
+    (`AWS_REGION`, `AWS_ACCESS_KEY_ID`/role, etc.).
+  - **GCP KMS (`JANUS_SEAL_TYPE=gcpkms`)** — key via `JANUS_GCP_KMS_KEY` (the
+    `projects/…/cryptoKeys/…` resource name, a symmetric ENCRYPT_DECRYPT key);
+    credentials from GCP **application-default credentials** (service-account
+    JSON via `GOOGLE_APPLICATION_CREDENTIALS`, GKE workload identity, or the
+    GCE metadata server). No key material is stored by Janus; encrypt uses the
+    key's primary version and decrypt resolves the version from the ciphertext.
+  - **Azure Key Vault (`JANUS_SEAL_TYPE=azurekv`)** — vault via
+    `JANUS_AZURE_KEYVAULT_URL`, key via `JANUS_AZURE_KEY_NAME` (an RSA/RSA-HSM
+    key; wrapping uses RSA-OAEP-256), and optional `JANUS_AZURE_KEY_VERSION`
+    (empty = current version); credentials from ambient `DefaultAzureCredential`
+    (environment vars, managed identity, or `az login`).
 
 Either way, `janus seal-status` (or `GET /v1/sys/seal-status`) reports
 `initialized`/`sealed`/`type`/`threshold`/submission progress, so you can

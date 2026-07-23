@@ -9,8 +9,10 @@ import (
 
 // Seal types recorded in SealConfig.
 const (
-	SealTypeShamir = "shamir"
-	SealTypeAWSKMS = "awskms"
+	SealTypeShamir  = "shamir"
+	SealTypeAWSKMS  = "awskms"
+	SealTypeGCPKMS  = "gcpkms"
+	SealTypeAzureKV = "azurekv"
 )
 
 // Unsealer recovers the master key at startup. Implementations: Shamir

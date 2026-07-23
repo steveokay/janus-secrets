@@ -29,9 +29,11 @@ type BootConfig struct {
 	// a fatal misconfiguration.
 	SealType string
 	// NewKMSClient lazily builds the KMS client, called only when the
-	// effective seal type is awskms. cmd/janus supplies the real AWS
-	// implementation; tests supply fakes.
-	NewKMSClient func(context.Context) (crypto.KMSClient, error)
+	// effective seal type is a cloud-KMS type (awskms / gcpkms / azurekv). It
+	// receives the resolved seal type so it can pick the right provider even
+	// when JANUS_SEAL_TYPE is unset and the type came from storage. cmd/janus
+	// supplies the real provider implementations; tests supply fakes.
+	NewKMSClient func(ctx context.Context, sealType string) (crypto.KMSClient, error)
 	Logger       *slog.Logger
 	// SessionIdleTimeout is the session-cookie inactivity window (web UI and
 	// CLI login sessions). Zero disables
@@ -123,7 +125,10 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 			return nil, nil, errors.New("JANUS_SEAL_TYPE is required before the seal is initialized")
 		}
 	}
-	if sealType != crypto.SealTypeShamir && sealType != crypto.SealTypeAWSKMS {
+	if sealType != crypto.SealTypeShamir &&
+		sealType != crypto.SealTypeAWSKMS &&
+		sealType != crypto.SealTypeGCPKMS &&
+		sealType != crypto.SealTypeAzureKV {
 		st.Close()
 		return nil, nil, fmt.Errorf("unknown seal type %q", sealType)
 	}
@@ -133,17 +138,17 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	switch sealType {
 	case crypto.SealTypeShamir:
 		unsealer = crypto.NewShamirUnsealer(seals, 0, 0)
-	case crypto.SealTypeAWSKMS:
+	case crypto.SealTypeAWSKMS, crypto.SealTypeGCPKMS, crypto.SealTypeAzureKV:
 		if bc.NewKMSClient == nil {
 			st.Close()
 			return nil, nil, errors.New("kms seal requires a KMS client")
 		}
-		client, err := bc.NewKMSClient(ctx)
+		client, err := bc.NewKMSClient(ctx, sealType)
 		if err != nil {
 			st.Close()
 			return nil, nil, err
 		}
-		unsealer = crypto.NewKMSUnsealer(seals, client)
+		unsealer = crypto.NewKMSUnsealerFor(seals, client, sealType)
 	}
 
 	svc := secrets.NewService(st, kr)

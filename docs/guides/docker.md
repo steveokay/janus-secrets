@@ -98,8 +98,10 @@ The ones that matter for a container:
 | Variable | Required | Meaning |
 |---|---|---|
 | `JANUS_DATABASE_URL` | yes | Postgres DSN, e.g. `postgres://janus:pw@postgres:5432/janus?sslmode=disable` |
-| `JANUS_SEAL_TYPE` | before first init | `shamir` or `awskms`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** |
+| `JANUS_SEAL_TYPE` | before first init | `shamir`, `awskms`, `gcpkms`, or `azurekv`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** |
 | `JANUS_AWS_KMS_KEY_ARN` | for `awskms` | KMS key id/ARN/alias (plus the standard AWS SDK env for credentials/region) |
+| `JANUS_GCP_KMS_KEY` | for `gcpkms` | GCP KMS key resource `projects/P/locations/L/keyRings/R/cryptoKeys/K` (ambient GCP application-default credentials) |
+| `JANUS_AZURE_KEYVAULT_URL` + `JANUS_AZURE_KEY_NAME` | for `azurekv` | Key Vault URL + RSA key name (ambient `DefaultAzureCredential`; optional `JANUS_AZURE_KEY_VERSION`) |
 | `JANUS_LISTEN_ADDR` | no | HTTP listen address, default `:8200` |
 | `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (default `30m`; `0` disables) |
 | `JANUS_ROTATION_TICK` | no | Rotation scheduler tick; `0` disables (default `60s`) |
@@ -126,10 +128,14 @@ for a container:
   `janus unseal` against `http://127.0.0.1:8210` (the host-mapped port).
   This is a manual step on each restart — acceptable for a single node
   you tend by hand, painful for autoscaling or unattended reboots.
-- **AWS KMS auto-unseal** (`JANUS_SEAL_TYPE=awskms`): the server unseals
-  itself with one KMS `Decrypt` call at every boot. This is the right
-  choice for containers that must come back up unattended after a crash,
-  redeploy, or host reboot. You still `janus init` **once** (no shares);
+- **Cloud KMS auto-unseal** (`JANUS_SEAL_TYPE=awskms` | `gcpkms` | `azurekv`):
+  the server unseals itself with one KMS `Decrypt` call at every boot. This is
+  the right choice for containers that must come back up unattended after a
+  crash, redeploy, or host reboot. Each provider uses that cloud's ambient
+  credentials (AWS default chain, GCP application-default credentials, Azure
+  `DefaultAzureCredential`) and its key env var (`JANUS_AWS_KMS_KEY_ARN`,
+  `JANUS_GCP_KMS_KEY`, or `JANUS_AZURE_KEYVAULT_URL` + `JANUS_AZURE_KEY_NAME`).
+  You still `janus init` **once** (no shares);
   from then on restarts are hands-off. If KMS is unreachable at boot the
   container stays up but sealed and logs a warning; `janus unseal` (no
   share) retries.

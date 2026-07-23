@@ -1,6 +1,6 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
-  import { errorMessage } from '../lib/api'
+  import { errorMessage, sealTypeLabel } from '../lib/api'
   import JanusMark from '../components/JanusMark.svelte'
   import Guilloche from '../components/Guilloche.svelte'
 
@@ -110,7 +110,7 @@
     {/if}
 
     <footer class="folio ceremony-foot">
-      SYS/UNSEAL · {session.sealType === 'shamir' ? `Shamir ${threshold}-of-${session.totalShares}` : 'AWS KMS auto-unseal'} · all routes return 503 until unsealed
+      SYS/UNSEAL · {session.sealType === 'shamir' ? `Shamir ${threshold}-of-${session.totalShares}` : `${sealTypeLabel(session.sealType)} auto-unseal`} · all routes return 503 until unsealed
     </footer>
   </div>
 </div>
