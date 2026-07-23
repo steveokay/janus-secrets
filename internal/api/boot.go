@@ -79,6 +79,13 @@ type BootConfig struct {
 	// TLS configures the optional native HTTPS listener (static certs or ACME).
 	// Zero value → plain HTTP (TLS delegated to a reverse proxy, the default).
 	TLS TLSConfig
+	// Pool tunes the pgx connection pool (JANUS_DB_* in cmd/janus). Zero fields
+	// keep pgx's DSN-derived defaults, so the zero value reproduces plain Open.
+	Pool store.PoolConfig
+	// HTTPShutdownGrace bounds the graceful-drain window on shutdown for the
+	// main server and any auxiliary listeners. Zero → New applies the 10s
+	// default.
+	HTTPShutdownGrace time.Duration
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -90,7 +97,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		logger = slog.Default()
 	}
 
-	st, err := store.Open(ctx, bc.DatabaseURL)
+	st, err := store.OpenWithConfig(ctx, bc.DatabaseURL, bc.Pool)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,18 +184,19 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
 	srv := New(Config{
-		ListenAddr:       bc.ListenAddr,
-		SealType:         sealType,
-		Version:          bc.Version,
-		HTTPReadTimeout:  bc.HTTPReadTimeout,
-		HTTPWriteTimeout: bc.HTTPWriteTimeout,
-		HTTPIdleTimeout:  bc.HTTPIdleTimeout,
-		HTTPMaxBodyBytes: bc.HTTPMaxBodyBytes,
-		RotationTick:     bc.RotationTick,
-		SyncTick:         bc.SyncTick,
-		DynamicTick:      bc.DynamicTick,
-		MetricsToken:     bc.MetricsToken,
-		TLS:              bc.TLS,
+		ListenAddr:        bc.ListenAddr,
+		SealType:          sealType,
+		Version:           bc.Version,
+		HTTPReadTimeout:   bc.HTTPReadTimeout,
+		HTTPWriteTimeout:  bc.HTTPWriteTimeout,
+		HTTPIdleTimeout:   bc.HTTPIdleTimeout,
+		HTTPMaxBodyBytes:  bc.HTTPMaxBodyBytes,
+		HTTPShutdownGrace: bc.HTTPShutdownGrace,
+		RotationTick:      bc.RotationTick,
+		SyncTick:          bc.SyncTick,
+		DynamicTick:       bc.DynamicTick,
+		MetricsToken:      bc.MetricsToken,
+		TLS:               bc.TLS,
 	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 

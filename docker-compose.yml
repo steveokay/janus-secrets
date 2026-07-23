@@ -1,3 +1,7 @@
+# Resource limits below are conservative *starting points* for a small
+# single-node deployment. Tune them to your host and workload — measure real
+# memory/CPU use under load and adjust. `deploy.resources` is honored by
+# `docker compose up` (Compose v2 applies limits without Swarm).
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,6 +18,14 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+        reservations:
+          cpus: "0.25"
+          memory: 256m
 
   janus:
     build: .
@@ -31,6 +43,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m
+        reservations:
+          cpus: "0.25"
+          memory: 128m
 
 volumes:
   pgdata:

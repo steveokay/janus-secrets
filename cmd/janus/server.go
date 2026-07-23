@@ -12,15 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	gcpkms "cloud.google.com/go/kms/apiv1"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
-	gcpkms "cloud.google.com/go/kms/apiv1"
 	"github.com/spf13/cobra"
 	"github.com/steveokay/janus-secrets/internal/api"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/version"
 )
 
@@ -119,6 +120,22 @@ func runServer(ctx context.Context) error {
 		httpMaxBody = n
 	}
 
+	shutdownGrace := 10 * time.Second // graceful-drain window on SIGTERM
+	if v := os.Getenv("JANUS_SHUTDOWN_GRACE"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("invalid JANUS_SHUTDOWN_GRACE %q: use a positive Go duration like 10s", v)
+		}
+		shutdownGrace = d
+	}
+
+	// pgx connection-pool tuning. Each knob is optional; unset leaves pgx's own
+	// default in place. Invalid values fail boot with a clear error.
+	pool, err := parsePoolConfig()
+	if err != nil {
+		return err
+	}
+
 	// Progressive account-lockout policy. Absent/unparseable values fall back to
 	// the defaults with a logged warning (never fail boot on a bad knob).
 	lockout := auth.DefaultLockoutPolicy()
@@ -193,8 +210,10 @@ func runServer(ctx context.Context) error {
 		HTTPMaxBodyBytes:   httpMaxBody,
 		Lockout:            lockout,
 		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
-		UnusedSecretDays:   unusedSecretDays,                // 0 → default 90 days
+		UnusedSecretDays:   unusedSecretDays,                 // 0 → default 90 days
 		TLS:                tlsCfg,
+		Pool:               pool,
+		HTTPShutdownGrace:  shutdownGrace,
 
 		NewKMSClient: newKMSClient,
 	}
@@ -308,6 +327,51 @@ func buildTLSConfig() (api.TLSConfig, error) {
 		return api.TLSConfig{}, fmt.Errorf("invalid JANUS_TLS_* configuration: %w", err)
 	}
 	return cfg, nil
+}
+
+// parsePoolConfig reads the JANUS_DB_* environment into a store.PoolConfig.
+// Every knob is optional; an unset var leaves pgx's own default in place (the
+// zero field is a no-op in store). Invalid values fail boot with a clear error,
+// mirroring the JANUS_HTTP_* parsing style.
+//
+// Env vars:
+//   - JANUS_DB_MAX_CONNS:          max pool size (positive int).
+//   - JANUS_DB_MIN_CONNS:          idle connections kept warm (non-negative int).
+//   - JANUS_DB_MAX_CONN_LIFETIME:  max connection lifetime (Go duration).
+//   - JANUS_DB_MAX_CONN_IDLE_TIME: max idle time before close (Go duration).
+func parsePoolConfig() (store.PoolConfig, error) {
+	var pc store.PoolConfig
+	if v := os.Getenv("JANUS_DB_MAX_CONNS"); v != "" {
+		// ParseInt with bitSize 32 rejects values that would overflow int32,
+		// so the conversion below is always in range.
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n <= 0 {
+			return store.PoolConfig{}, fmt.Errorf("invalid JANUS_DB_MAX_CONNS %q: use a positive integer", v)
+		}
+		pc.MaxConns = int32(n)
+	}
+	if v := os.Getenv("JANUS_DB_MIN_CONNS"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil || n < 0 {
+			return store.PoolConfig{}, fmt.Errorf("invalid JANUS_DB_MIN_CONNS %q: use a non-negative integer", v)
+		}
+		pc.MinConns = int32(n)
+	}
+	if v := os.Getenv("JANUS_DB_MAX_CONN_LIFETIME"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return store.PoolConfig{}, fmt.Errorf("invalid JANUS_DB_MAX_CONN_LIFETIME %q: use a positive Go duration like 1h", v)
+		}
+		pc.MaxConnLifetime = d
+	}
+	if v := os.Getenv("JANUS_DB_MAX_CONN_IDLE_TIME"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return store.PoolConfig{}, fmt.Errorf("invalid JANUS_DB_MAX_CONN_IDLE_TIME %q: use a positive Go duration like 30m", v)
+		}
+		pc.MaxConnIdleTime = d
+	}
+	return pc, nil
 }
 
 // tlsMode returns a short human label for the startup log line.
