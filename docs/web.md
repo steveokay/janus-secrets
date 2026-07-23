@@ -114,6 +114,12 @@ else is explicit:
   default). A per-row **Max-age** control sets/clears a key's override and
   a toolbar control sets the config default. Purely advisory — nothing is
   blocked; the overview In tray also surfaces "N secrets past max-age".
+- **Annotations (advisory)** — a per-row **Owner…** control opens a popover
+  to set an **owner** label and a free-text **note** on a key ("what is this
+  and who do I ask"). When set, an **owner · note** line renders under the
+  key. Value-free metadata (no secret value); purely informational — nothing
+  is blocked. Setting/clearing is a `secret:write` and emits a value-free
+  audit event.
 - **Unused (advisory)** — an ochre "not read 90d+" / "never read" chip
   appears on any key with no per-key reveal within the unused window
   (default 90 days, `JANUS_UNUSED_SECRET_DAYS`), computed from audit

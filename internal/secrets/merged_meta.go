@@ -34,6 +34,12 @@ type MergedMeta struct {
 	Stale         bool
 	LastReadAt    *time.Time
 	Unused        bool
+	// Owner/Note are the ADVISORY per-key annotation (see annotations.go): a
+	// human-facing owner label and free-text note. nil when unset. Value-free
+	// (metadata only) and, like max-age, scoped to the requested (leaf) config —
+	// NOT inherited. Purely informational; never blocks any operation.
+	Owner *string
+	Note  *string
 }
 
 type storeMetaEntry struct {
@@ -112,6 +118,20 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 		}
 	}
 
+	// Advisory per-key annotations (owner + note) — one query for the whole
+	// config, no N+1. Scoped to the requested (leaf) config, NOT inherited
+	// (mirrors max-age / locked-keys). Value-free metadata; never blocks anything.
+	annEntries, err := s.annots.List(ctx, configID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	annOwner := map[string]*string{}
+	annNote := map[string]*string{}
+	for _, e := range annEntries {
+		annOwner[e.Key] = e.Owner
+		annNote[e.Key] = e.Note
+	}
+
 	// Advisory unused-secret detection: last per-key reveal timestamp for each
 	// key, from one grouped audit query (value-free — resource paths + times).
 	// Attributed to the requested (leaf) config only; inherited keys have no
@@ -150,6 +170,8 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 		} else {
 			m.Unused = true // never read per-key
 		}
+		m.Owner = annOwner[k]
+		m.Note = annNote[k]
 		out = append(out, m)
 	}
 	return out, nil
