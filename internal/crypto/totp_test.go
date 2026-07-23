@@ -63,6 +63,10 @@ func TestVerifyTOTPWindowAndRejections(t *testing.T) {
 	if VerifyTOTP(secret, code, time.Unix(0, 0), 1) && code != TOTPCodeAt(secret, time.Unix(0, 0)) {
 		t.Error("near-epoch verification mishandled")
 	}
+	// Pre-epoch times clamp to counter 0 rather than wrapping to a huge uint64.
+	if got, want := TOTPCodeAt(secret, time.Unix(-1000, 0)), TOTPCodeAt(secret, time.Unix(0, 0)); got != want {
+		t.Errorf("pre-epoch code = %s, want counter-0 code %s", got, want)
+	}
 }
 
 func TestTOTPSecretWrapRoundTrip(t *testing.T) {
