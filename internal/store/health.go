@@ -56,6 +56,13 @@ func (r *HealthRepo) AuditEventCount(ctx context.Context) (int64, error) {
 	return n, mapError(err)
 }
 
+// LatestBackupRun returns the most recent scheduled-backup run for the health
+// snapshot (last backup time/status), or (nil, nil) when none exist. Value-free:
+// timestamp, status, and object path only.
+func (r *HealthRepo) LatestBackupRun(ctx context.Context) (*BackupRun, error) {
+	return NewBackupRunRepo(r.s).LatestRun(ctx)
+}
+
 // PoolStat exposes the pgx pool statistics for the DB-pool metrics + the health
 // snapshot. Value-free: connection counts only.
 func (s *Store) PoolStat() *pgxpool.Stat { return s.pool.Stat() }

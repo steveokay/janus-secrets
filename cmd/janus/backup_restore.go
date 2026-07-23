@@ -43,6 +43,64 @@ func newBackupCmd() *cobra.Command {
 	cmd.Flags().StringVar(&address, "address", "", "server address (default: stored login address)")
 	cmd.Flags().StringVar(&token, "token", "", "service token (overrides stored session)")
 	cmd.Flags().StringVar(&out, "out", "", "write to file instead of stdout (created 0600, written atomically)")
+	cmd.AddCommand(newBackupRehearseCmd())
+	return cmd
+}
+
+// newBackupRehearseCmd verifies a scheduled S3 backup restores WITHOUT touching
+// the live instance. It POSTs /v1/sys/backup/rehearse: the server downloads the
+// backup (latest, or --object-key) and streams it through a structural +
+// decryptability check, then discards it. Nothing live is overwritten.
+func newBackupRehearseCmd() *cobra.Command {
+	var address, token, objectKey string
+	cmd := &cobra.Command{
+		Use:   "rehearse",
+		Short: "Verify a scheduled S3 backup restores, without touching the live instance",
+		Long: "POSTs /v1/sys/backup/rehearse. The server downloads the latest scheduled\n" +
+			"S3 backup (or --object-key) and verifies it restores — validating the\n" +
+			"archive structure and that its wrapped key material decrypts under the\n" +
+			"current unseal — then discards it. It NEVER overwrites live data.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := newAPIClient(address, token)
+			if err != nil {
+				return err
+			}
+			body := map[string]string{}
+			if objectKey != "" {
+				body["object_key"] = objectKey
+			}
+			var res struct {
+				ObjectKey   string `json:"object_key"`
+				Verified    bool   `json:"verified"`
+				Records     int    `json:"records"`
+				Tables      int    `json:"tables"`
+				SizeBytes   int64  `json:"size_bytes"`
+				SchemaVer   int64  `json:"schema_version"`
+				Decryptable bool   `json:"decryptable"`
+				Note        string `json:"note"`
+			}
+			if err := c.call("POST", "/v1/sys/backup/rehearse", body, &res); err != nil {
+				return err
+			}
+			status := "VERIFIED"
+			if !res.Verified {
+				status = "NOT VERIFIED"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"%s  object=%s  records=%d tables=%d bytes=%d schema=%d decryptable=%t\n",
+				status, res.ObjectKey, res.Records, res.Tables, res.SizeBytes, res.SchemaVer, res.Decryptable)
+			if res.Note != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "note: %s\n", res.Note)
+			}
+			if !res.Verified {
+				return fmt.Errorf("backup rehearsal did not verify")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&address, "address", "", "server address (default: stored login address)")
+	cmd.Flags().StringVar(&token, "token", "", "service token (overrides stored session)")
+	cmd.Flags().StringVar(&objectKey, "object-key", "", "verify a specific object key (default: the latest backup)")
 	return cmd
 }
 

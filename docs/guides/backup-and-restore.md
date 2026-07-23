@@ -105,12 +105,90 @@ WAL archiving**:
    Postgres. See the PostgreSQL docs on
    [continuous archiving and PITR](https://www.postgresql.org/docs/16/continuous-archiving.html).
 
+## Scheduled encrypted backups to S3 (built-in)
+
+Instead of (or alongside) an external cron running `janus backup`, the server can
+**produce and upload the app-level backup on a schedule** to any
+S3-compatible object store (AWS S3, MinIO, Cloudflare R2, Backblaze B2, …). It
+uploads the **exact same sealed artifact** `GET /v1/sys/backup` streams — a
+key-preserving logical dump in which wrapped KEKs and ciphertext stay wrapped.
+**No plaintext secret and no unseal material ever leave the process**; the S3
+object is useless without the origin's Shamir shares or KMS key.
+
+> **Protect the bucket.** The object is ciphertext + wrapped keys + secret
+> **metadata** (names, paths, actors, timestamps). Treat it like any sensitive
+> backup: a private bucket, encryption-at-rest (SSE), least-privilege IAM
+> (`s3:PutObject`/`ListBucket`/`GetObject`/`DeleteObject` on the prefix only),
+> and — as always — your unseal shares stored **separately**.
+
+### Enable it
+
+The engine is **off by default**. Set a positive `JANUS_BACKUP_TICK` plus the S3
+destination and static credentials:
+
+```sh
+JANUS_BACKUP_TICK=6h                          # interval; unset/0 = disabled
+JANUS_BACKUP_RETENTION=14                      # keep the 14 most recent; 0 = keep all
+JANUS_BACKUP_S3_BUCKET=my-janus-backups
+JANUS_BACKUP_S3_PREFIX=prod/                   # optional key prefix
+JANUS_BACKUP_S3_REGION=us-east-1
+JANUS_BACKUP_S3_ACCESS_KEY_ID=AKIA...          # STATIC creds (never the host's ambient identity)
+JANUS_BACKUP_S3_SECRET_ACCESS_KEY=...
+# JANUS_BACKUP_S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com  # optional: S3-compatible stores
+```
+
+Each tick uploads `s3://<bucket>/<prefix>/janus-backup-<UTC-timestamp>.jsonl`.
+If `JANUS_BACKUP_TICK` is set but the bucket/region/credentials are incomplete,
+the server **fails to boot** with a clear error rather than silently not backing
+up. The dump uses a single consistent snapshot, so the artifact is FK-consistent.
+
+Every attempt (success or failure) is recorded in a bounded `backup_runs` history
+table (value-free: object path, byte count, and a **sanitized** error category —
+never key material or credentials). The last attempt is surfaced value-free under
+`GET /v1/sys/status` → `backup` (`enabled`, and `last` = status/age/object/size),
+so the Settings health panel can show "last backup" at a glance.
+
+### Retention (keep N / prune older)
+
+After each successful upload the engine lists objects under the prefix, keeps the
+`JANUS_BACKUP_RETENTION` most recent `janus-backup-*.jsonl` objects, and deletes
+the rest. Objects that don't match that name shape are **never** pruned, so it is
+safe to share the prefix. `JANUS_BACKUP_RETENTION=0` (or unset) keeps everything.
+
+### Restore-rehearsal (verify a backup restores — without clobbering anything)
+
+An untested backup is a hope, not a plan. `janus backup rehearse` downloads the
+latest scheduled backup (or `--object-key <k>`) and **verifies it restores
+without touching the live instance**: it validates the archive structure (a
+version-1 header, only known tables, every row well-formed) and — best-effort —
+that the wrapped project-KEK material **decrypts under the current unseal**, then
+discards the download. It **never** writes to the database or to S3.
+
+```sh
+# Verify the most recent backup (server must be unsealed for the decryptability probe).
+janus backup rehearse
+
+# Verify a specific object.
+janus backup rehearse --object-key prod/janus-backup-20260723T010000Z.jsonl
+```
+
+A `VERIFIED` line means the artifact parsed cleanly, matches the current schema
+version, and its wrapped material decrypts here. `decryptable=false` with a note
+means the backup was written by a **different** instance (a foreign backup won't
+unwrap under this keyring) — expected when rehearsing against a fresh instance,
+not corruption. The same check is available over the API at
+`POST /v1/sys/backup/rehearse` (instance `sys:backup` authority; value-free
+response).
+
 ## Recommended routine
 
 - **Nightly** `pg_dump` (custom format), shipped offsite and encrypted.
 - **Continuous** WAL archiving (or a managed-Postgres equivalent) for PITR.
 - **Periodic** `janus backup` as a second, application-level copy that a
-  fresh Janus server can ingest directly (handy for migrating instances).
+  fresh Janus server can ingest directly (handy for migrating instances) — or
+  enable the built-in **scheduled encrypted S3 backup** (`JANUS_BACKUP_TICK`
+  + `JANUS_BACKUP_S3_*`, with `JANUS_BACKUP_RETENTION`) to have the server do
+  this for you, and periodically `janus backup rehearse` to prove it restores.
 - **Separately stored** unseal shares (or documented KMS key + IAM access).
 - **Test restores** on a throwaway instance regularly — an untested backup is
   a hope, not a plan.

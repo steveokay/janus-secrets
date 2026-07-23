@@ -101,6 +101,36 @@ func TestBackupForbiddenForNonAdminToken(t *testing.T) {
 	}
 }
 
+// TestBackupRehearseUnconfigured verifies POST /v1/sys/backup/rehearse returns a
+// clean 503 (never a 500 / panic) when the scheduled-S3-backup engine is not
+// configured — the default for a stack booted without JANUS_BACKUP_* — and that
+// the route requires the same SysBackup authority as GET /v1/sys/backup.
+func TestBackupRehearseUnconfigured(t *testing.T) {
+	ts, _, email, password, cid := authStackFull(t)
+	cookie := login(t, ts.URL, email, password)
+
+	var env errEnvelope
+	if code := doAuthed(t, "POST", ts.URL+"/v1/sys/backup/rehearse", cookie, "", "{}", &env); code != 503 {
+		t.Fatalf("rehearse unconfigured = %d, want 503", code)
+	}
+	if env.Error.Code != CodeValidation {
+		t.Fatalf("rehearse error code = %q, want %q", env.Error.Code, CodeValidation)
+	}
+
+	// A config-scoped read token lacks instance SysBackup → 403 (authz gate runs
+	// before the not-configured check).
+	var mint struct {
+		Token string `json:"token"`
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/tokens", cookie, "",
+		`{"name":"ro","scope":{"kind":"config","id":"`+cid+`"},"access":"read"}`, &mint); code != 200 {
+		t.Fatalf("mint: %d", code)
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/sys/backup/rehearse", "", mint.Token, "{}", nil); code != 403 {
+		t.Fatalf("rehearse with scoped token = %d, want 403", code)
+	}
+}
+
 func TestRestoreRefusedWithZeroRecords(t *testing.T) {
 	// Fresh EMPTY stack: boot without init, so the emptiness gate passes and
 	// the zero-record guard is what rejects the request. A header-only body
