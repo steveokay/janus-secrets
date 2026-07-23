@@ -57,7 +57,7 @@ func kmsMasterKeyStack(t *testing.T) (*httptest.Server, *Server, string, string)
 	t.Helper()
 	dsn := bootPostgres(t)
 	ctx := context.Background()
-	factory := func(context.Context) (crypto.KMSClient, error) { return &fakeKMS{}, nil }
+	factory := func(context.Context, string) (crypto.KMSClient, error) { return &fakeKMS{}, nil }
 	srv, st, err := Boot(ctx, BootConfig{
 		DatabaseURL: dsn, SealType: crypto.SealTypeAWSKMS, NewKMSClient: factory,
 	})

@@ -70,10 +70,22 @@ export function errorMessage(e: unknown, fallback = 'Request failed.'): string {
 
 /* ── API shapes (mirror internal/api) ─────────────────────────── */
 
+export type SealTypeName = 'shamir' | 'awskms' | 'gcpkms' | 'azurekv'
+
+/** Human-readable label for an auto-unseal seal type (any provider). */
+export function sealTypeLabel(type: string): string {
+  switch (type) {
+    case 'awskms': return 'AWS KMS'
+    case 'gcpkms': return 'GCP KMS'
+    case 'azurekv': return 'Azure Key Vault'
+    case 'shamir': return 'Shamir'
+    default: return type
+  }
+}
 export interface SealStatus {
   initialized: boolean
   sealed: boolean
-  type: 'shamir' | 'awskms'
+  type: SealTypeName
   threshold?: number
   shares?: number
   progress?: { submitted: number; required: number }
@@ -276,7 +288,7 @@ export type FederationBindingInput = Omit<FederationBindingView, 'id'>
 
 /* master-key rotation */
 export interface MasterKeyStatus {
-  unseal_type: 'shamir' | 'awskms'
+  unseal_type: SealTypeName
   master_key_version: number
   rotated_at: string | null
   rekey_in_progress: boolean

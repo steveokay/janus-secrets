@@ -12,8 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	gcpkms "cloud.google.com/go/kms/apiv1"
 	"github.com/spf13/cobra"
 	"github.com/steveokay/janus-secrets/internal/api"
 	"github.com/steveokay/janus-secrets/internal/auth"
@@ -193,17 +196,7 @@ func runServer(ctx context.Context) error {
 		UnusedSecretDays:   unusedSecretDays,                // 0 → default 90 days
 		TLS:                tlsCfg,
 
-		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
-			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
-			if arn == "" {
-				return nil, errors.New("JANUS_AWS_KMS_KEY_ARN is not set")
-			}
-			cfg, err := awsconfig.LoadDefaultConfig(ctx)
-			if err != nil {
-				return nil, err
-			}
-			return crypto.NewAWSKMSClient(kms.NewFromConfig(cfg), arn), nil
-		},
+		NewKMSClient: newKMSClient,
 	}
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
@@ -227,6 +220,61 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// newKMSClient builds the cloud-KMS client for auto-unseal based on the
+// resolved seal type. Each provider relies on that cloud's ambient credentials
+// (AWS default credential chain, GCP application-default credentials, Azure
+// DefaultAzureCredential) and is pinned to a single operator-configured key.
+func newKMSClient(ctx context.Context, sealType string) (crypto.KMSClient, error) {
+	switch sealType {
+	case crypto.SealTypeAWSKMS:
+		arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
+		if arn == "" {
+			return nil, errors.New("JANUS_AWS_KMS_KEY_ARN is not set")
+		}
+		cfg, err := awsconfig.LoadDefaultConfig(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return crypto.NewAWSKMSClient(kms.NewFromConfig(cfg), arn), nil
+
+	case crypto.SealTypeGCPKMS:
+		keyName := os.Getenv("JANUS_GCP_KMS_KEY")
+		if keyName == "" {
+			return nil, errors.New("JANUS_GCP_KMS_KEY is not set")
+		}
+		// Uses GCP application-default credentials from the ambient environment.
+		gcpClient, err := gcpkms.NewKeyManagementClient(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return crypto.NewGCPKMSClient(gcpClient, keyName), nil
+
+	case crypto.SealTypeAzureKV:
+		vaultURL := os.Getenv("JANUS_AZURE_KEYVAULT_URL")
+		if vaultURL == "" {
+			return nil, errors.New("JANUS_AZURE_KEYVAULT_URL is not set")
+		}
+		keyName := os.Getenv("JANUS_AZURE_KEY_NAME")
+		if keyName == "" {
+			return nil, errors.New("JANUS_AZURE_KEY_NAME is not set")
+		}
+		// Optional; empty means "current version".
+		keyVersion := os.Getenv("JANUS_AZURE_KEY_VERSION")
+		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		if err != nil {
+			return nil, err
+		}
+		azClient, err := azkeys.NewClient(vaultURL, cred, nil)
+		if err != nil {
+			return nil, err
+		}
+		return crypto.NewAzureKeyVaultClient(azClient, keyName, keyVersion), nil
+
+	default:
+		return nil, fmt.Errorf("seal type %q does not use a KMS client", sealType)
+	}
 }
 
 // buildTLSConfig reads the JANUS_TLS_* environment into an api.TLSConfig and

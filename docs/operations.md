@@ -36,8 +36,12 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 |---|---|---|
 | `JANUS_DATABASE_URL` | yes (`server`, `migrate`) | Postgres DSN, e.g. `postgres://janus:pw@host:5432/janus?sslmode=disable` |
 | `JANUS_LISTEN_ADDR` | no | HTTP listen address, default `:8200` |
-| `JANUS_SEAL_TYPE` | before first init | `shamir` or `awskms`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** (misconfiguration is never guessed around) |
+| `JANUS_SEAL_TYPE` | before first init | `shamir`, `awskms`, `gcpkms`, or `azurekv`. After init the stored type is authoritative; a conflicting env value is a **fatal boot error** (misconfiguration is never guessed around) |
 | `JANUS_AWS_KMS_KEY_ARN` | for `awskms` | KMS key id/ARN/alias (plus the standard AWS SDK env for credentials/region) |
+| `JANUS_GCP_KMS_KEY` | for `gcpkms` | GCP KMS key resource name `projects/P/locations/L/keyRings/R/cryptoKeys/K` (uses ambient GCP application-default credentials) |
+| `JANUS_AZURE_KEYVAULT_URL` | for `azurekv` | Key Vault URL `https://<vault>.vault.azure.net/` (uses ambient `DefaultAzureCredential`) |
+| `JANUS_AZURE_KEY_NAME` | for `azurekv` | Key Vault key name (RSA/RSA-HSM; wrapping via RSA-OAEP-256) |
+| `JANUS_AZURE_KEY_VERSION` | no | optional Key Vault key version; empty = current version |
 | `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
 | `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
@@ -95,21 +99,41 @@ shares, so one mistyped share poisons the attempt — the server reports
 `key_check_failed`. Run `janus unseal --reset` to discard the submitted set and
 resubmit from scratch.
 
-## Production flow (AWS KMS auto-unseal)
+## Production flow (cloud KMS auto-unseal)
+
+Auto-unseal wraps the master key with a cloud KMS key and unwraps it at boot
+with a single decrypt call — no shares, no ceremony. Pick one provider; each
+relies on that cloud's ambient credentials:
 
 ```sh
+# AWS KMS
 JANUS_DATABASE_URL=postgres://... \
 JANUS_SEAL_TYPE=awskms \
 JANUS_AWS_KMS_KEY_ARN=arn:aws:kms:...:key/... \
+janus server
+
+# GCP KMS (ambient application-default credentials)
+JANUS_DATABASE_URL=postgres://... \
+JANUS_SEAL_TYPE=gcpkms \
+JANUS_GCP_KMS_KEY=projects/P/locations/L/keyRings/R/cryptoKeys/K \
+janus server
+
+# Azure Key Vault (ambient DefaultAzureCredential; RSA key wrapped via RSA-OAEP-256)
+JANUS_DATABASE_URL=postgres://... \
+JANUS_SEAL_TYPE=azurekv \
+JANUS_AZURE_KEYVAULT_URL=https://<vault>.vault.azure.net/ \
+JANUS_AZURE_KEY_NAME=janus-unseal \
 janus server
 
 janus init      # no shares; the server unseals itself immediately
 ```
 
 At every subsequent boot the server auto-unseals via one KMS `Decrypt` call.
-If KMS is unreachable at boot (outage, IAM), the server **stays up but
-sealed** and logs a warning; `janus unseal` (no share) retries. The IAM
-identity needs `kms:Encrypt` and `kms:Decrypt` on the key.
+If the KMS is unreachable at boot (outage, permissions), the server **stays up
+but sealed** and logs a warning; `janus unseal` (no share) retries. The
+identity Janus runs as needs encrypt+decrypt on the key: `kms:Encrypt` /
+`kms:Decrypt` (AWS), `cloudkms.cryptoKeyVersions.useToEncrypt` /
+`useToDecrypt` (GCP), or `keys/encrypt` + `keys/decrypt` (Azure).
 
 A **key check value** (a known constant encrypted under the master key at
 init) guards both seal types: a wrong-but-well-formed master key — a bad

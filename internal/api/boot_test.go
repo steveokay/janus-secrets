@@ -88,7 +88,7 @@ func TestBootKMSAutoUnseal(t *testing.T) {
 	dsn := bootPostgres(t)
 	ctx := context.Background()
 	client := &fakeKMS{}
-	factory := func(context.Context) (crypto.KMSClient, error) { return client, nil }
+	factory := func(context.Context, string) (crypto.KMSClient, error) { return client, nil }
 
 	// Boot 1: uninitialized; init via the unsealer, which auto-wraps.
 	srv1, st1, err := Boot(ctx, BootConfig{
@@ -157,7 +157,7 @@ func TestBootWiresDynamicSweepOnUnseal(t *testing.T) {
 	dsn := bootPostgres(t)
 	ctx := context.Background()
 	client := &fakeKMS{}
-	factory := func(context.Context) (crypto.KMSClient, error) { return client, nil }
+	factory := func(context.Context, string) (crypto.KMSClient, error) { return client, nil }
 
 	// Boot 1: uninitialized; init via the unsealer, which auto-wraps.
 	srv1, st1, err := Boot(ctx, BootConfig{

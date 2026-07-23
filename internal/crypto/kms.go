@@ -19,13 +19,29 @@ type KMSClient interface {
 // KMSUnsealer implements Unsealer via a cloud KMS: the master key is
 // generated locally, stored wrapped by the KMS key, and recovered with a
 // single Decrypt call at startup — no operator interaction.
+//
+// It is provider-agnostic: the KMSClient does the wrap/unwrap, and sealType
+// records which provider produced the config (SealTypeAWSKMS / SealTypeGCPKMS
+// / SealTypeAzureKV) so Unseal can reject a config written by a different
+// provider.
 type KMSUnsealer struct {
-	store  SealConfigStore
-	client KMSClient
+	store    SealConfigStore
+	client   KMSClient
+	sealType string
 }
 
+// NewKMSUnsealer builds an AWS KMS unsealer. Retained for backward
+// compatibility; equivalent to NewKMSUnsealerFor(store, client, SealTypeAWSKMS).
 func NewKMSUnsealer(store SealConfigStore, client KMSClient) *KMSUnsealer {
-	return &KMSUnsealer{store: store, client: client}
+	return NewKMSUnsealerFor(store, client, SealTypeAWSKMS)
+}
+
+// NewKMSUnsealerFor builds a cloud-KMS unsealer tagged with the given seal
+// type (one of SealTypeAWSKMS / SealTypeGCPKMS / SealTypeAzureKV). The seal
+// type is stamped into every SealConfig this unsealer writes and enforced on
+// Unseal.
+func NewKMSUnsealerFor(store SealConfigStore, client KMSClient, sealType string) *KMSUnsealer {
+	return &KMSUnsealer{store: store, client: client, sealType: sealType}
 }
 
 // Init generates the master key, wraps it via the KMS, and persists the seal
@@ -57,7 +73,7 @@ func (u *KMSUnsealer) Init(ctx context.Context) (*InitResult, error) {
 		return nil, err
 	}
 	cfg := &SealConfig{
-		Type:             SealTypeAWSKMS,
+		Type:             u.sealType,
 		KeyCheckValue:    kcv,
 		WrappedMasterKey: wrapped,
 	}
@@ -81,7 +97,7 @@ func (u *KMSUnsealer) Reseal(ctx context.Context, newMaster []byte) (*SealConfig
 		return nil, nil, err
 	}
 	return &SealConfig{
-		Type:             SealTypeAWSKMS,
+		Type:             u.sealType,
 		KeyCheckValue:    kcv,
 		WrappedMasterKey: wrapped,
 	}, nil, nil
@@ -92,7 +108,7 @@ func (u *KMSUnsealer) Unseal(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Type != SealTypeAWSKMS {
+	if cfg.Type != u.sealType {
 		return nil, ErrInvalidSealConfig
 	}
 	master, err := u.client.Decrypt(ctx, cfg.WrappedMasterKey)

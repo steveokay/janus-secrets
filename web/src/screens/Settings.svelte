@@ -1,6 +1,6 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
-  import { api, downloadBackup, errorMessage, type VersionInfo, type MasterKeyStatus, type SessionInfo, type SysStatus } from '../lib/api'
+  import { api, downloadBackup, errorMessage, sealTypeLabel, type VersionInfo, type MasterKeyStatus, type SessionInfo, type SysStatus } from '../lib/api'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
   import { renderSVG } from 'uqr'
@@ -357,7 +357,7 @@
   }
 
   const rows = $derived([
-    { k: 'Seal', v: session.sealType === 'shamir' ? `shamir · ${session.threshold}-of-${session.totalShares}` : 'awskms auto-unseal' },
+    { k: 'Seal', v: session.sealType === 'shamir' ? `shamir · ${session.threshold}-of-${session.totalShares}` : `${sealTypeLabel(session.sealType)} auto-unseal` },
     { k: 'Server version', v: version ? `janus ${version.version}${version.commit ? ` · ${version.commit.slice(0, 8)}` : ''}` : '—' },
     { k: 'Signed in as', v: `${session.me?.name ?? '—'} (${session.me?.kind ?? ''})` },
     { k: 'Master key', v: mk ? `v${mk.master_key_version} · rotated ${mk.rotated_at ? relTime(mk.rotated_at) : 'never'}` : '—' },
