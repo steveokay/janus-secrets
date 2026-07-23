@@ -161,6 +161,7 @@ export interface SyncTargetApi {
     owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string
     gitlab_url?: string; project?: string; environment_scope?: string
     region?: string; path_prefix?: string
+    account_id?: string; script_name?: string
   }
 }
 export interface DynamicRole {
@@ -182,17 +183,19 @@ export interface RotationCreateInput {
     url?: string; hmac_key?: string; notify_url?: string; notify_hmac_key?: string
   }
 }
-export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm'
+export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets'
 export interface SyncCreateInput {
   config_id: string; provider: SyncProvider; prune?: boolean; interval_seconds: number
   addr: {
     owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string
     gitlab_url?: string; project?: string; environment_scope?: string
     region?: string; path_prefix?: string
+    account_id?: string; script_name?: string
   }
   creds: {
     pat?: string; api_url?: string; ca_cert?: string; token?: string
     access_key_id?: string; secret_access_key?: string; session_token?: string
+    api_token?: string
   }
 }
 export interface DynamicRoleCreateInput {

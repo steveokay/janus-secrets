@@ -239,7 +239,7 @@ components:
         id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         config_id: { type: string, format: uuid }
-        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm] }
+        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets] }
         prune: { type: boolean }
         interval_seconds: { type: integer }
         addr:
@@ -255,6 +255,8 @@ components:
             environment_scope: { type: string }
             region: { type: string }
             path_prefix: { type: string }
+            account_id: { type: string }
+            script_name: { type: string }
         status: { type: string, enum: [active, paused, failed] }
         failure_count: { type: integer }
         last_error: { type: string, nullable: true }
@@ -2852,7 +2854,7 @@ paths:
               required: [config_id, provider]
               properties:
                 config_id: { type: string, format: uuid }
-                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm] }
+                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets] }
                 prune: { type: boolean, nullable: true, description: "Defaults to true when omitted." }
                 interval_seconds: { type: integer }
                 addr:
@@ -2866,8 +2868,10 @@ paths:
                     gitlab_url: { type: string, description: "GitLab base URL (gitlab provider; defaults to https://gitlab.com)." }
                     project: { type: string, description: "GitLab project id or URL-encoded group/proj path (gitlab provider)." }
                     environment_scope: { type: string, description: "GitLab CI/CD variable environment scope (gitlab provider, optional)." }
-                    region: { type: string, description: AWS region (aws_ssm provider). }
-                    path_prefix: { type: string, description: "SSM parameter path prefix, e.g. /janus/app/prod (aws_ssm provider)." }
+                    region: { type: string, description: "AWS region (aws_ssm and aws_secrets providers)." }
+                    path_prefix: { type: string, description: "SSM parameter path prefix (aws_ssm) or Secrets Manager name prefix (aws_secrets), e.g. /janus/app/prod." }
+                    account_id: { type: string, description: Cloudflare account id (cloudflare provider). }
+                    script_name: { type: string, description: Cloudflare Worker script name (cloudflare provider). }
                 creds:
                   type: object
                   description: Provider credentials; all fields write-only.
@@ -2876,9 +2880,10 @@ paths:
                     api_url: { type: string, description: Kubernetes API server URL. }
                     ca_cert: { type: string, writeOnly: true, example: "<secret value>", description: Kubernetes cluster CA cert. }
                     token: { type: string, writeOnly: true, example: "<secret value>", description: "Kubernetes bearer token (k8s), or GitLab access token with api scope (gitlab)." }
-                    access_key_id: { type: string, writeOnly: true, example: "<secret value>", description: AWS access key id (aws_ssm provider). }
-                    secret_access_key: { type: string, writeOnly: true, example: "<secret value>", description: AWS secret access key (aws_ssm provider). }
-                    session_token: { type: string, writeOnly: true, example: "<secret value>", description: "AWS session token (aws_ssm provider, optional)." }
+                    access_key_id: { type: string, writeOnly: true, example: "<secret value>", description: "AWS access key id (aws_ssm and aws_secrets providers)." }
+                    secret_access_key: { type: string, writeOnly: true, example: "<secret value>", description: "AWS secret access key (aws_ssm and aws_secrets providers)." }
+                    session_token: { type: string, writeOnly: true, example: "<secret value>", description: "AWS session token (aws_ssm and aws_secrets providers, optional)." }
+                    api_token: { type: string, writeOnly: true, example: "<secret value>", description: "Cloudflare API token with Workers Scripts Edit (cloudflare provider)." }
       responses:
         "201":
           description: Created (masked; no creds/fingerprint in the response).

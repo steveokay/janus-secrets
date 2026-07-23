@@ -424,9 +424,11 @@ and backoff/failure semantics — is in the rotation runbook
 Sync targets replicate one config's **resolved** secrets (references
 expanded) one-way to an external store — `github` (GitHub Actions secrets,
 repo- or environment-scoped), `k8s` (a Kubernetes `Secret`, via
-server-side apply), `gitlab` (GitLab CI/CD variables), or `aws_ssm` (AWS
-SSM Parameter Store `SecureString` parameters) — on an interval or on
-demand, managed via
+server-side apply), `gitlab` (GitLab CI/CD variables), `aws_ssm` (AWS
+SSM Parameter Store `SecureString` parameters), `cloudflare` (secret
+bindings on a deployed Cloudflare Worker script), or `aws_secrets` (AWS
+Secrets Manager named secrets — **billed per secret**) — on an interval
+or on demand, managed via
 `janus sync …` above (`sync:manage`, project admin/owner) or
 `/v1/sync/targets`. A per-target `prune` toggle keeps the destination a
 full mirror by deleting keys Janus previously wrote but no longer sees in

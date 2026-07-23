@@ -3,10 +3,12 @@ package secretsync
 import "context"
 
 const (
-	ProviderGitHub = "github"
-	ProviderK8s    = "k8s"
-	ProviderGitLab = "gitlab"
-	ProviderAWSSSM = "aws_ssm"
+	ProviderGitHub     = "github"
+	ProviderK8s        = "k8s"
+	ProviderGitLab     = "gitlab"
+	ProviderAWSSSM     = "aws_ssm"
+	ProviderCloudflare = "cloudflare"
+	ProviderAWSSecrets = "aws_secrets"
 )
 
 // Creds is the decrypted provider credential blob (never logged/persisted clear).
@@ -16,10 +18,13 @@ type Creds struct {
 	CACert string `json:"ca_cert,omitempty"` // k8s
 	Token  string `json:"token,omitempty"`   // k8s / gitlab (gitlab: PRIVATE-TOKEN)
 
-	// aws_ssm
+	// aws_ssm / aws_secrets
 	AccessKeyID     string `json:"access_key_id,omitempty"`
 	SecretAccessKey string `json:"secret_access_key,omitempty"`
 	SessionToken    string `json:"session_token,omitempty"`
+
+	// cloudflare
+	APIToken string `json:"api_token,omitempty"` // Cloudflare API token (Workers Scripts Edit)
 }
 
 // Addr is the non-secret destination coordinates (stored as jsonb).
@@ -35,9 +40,13 @@ type Addr struct {
 	Project          string `json:"project,omitempty"`           // numeric id or URL-encoded group/proj
 	EnvironmentScope string `json:"environment_scope,omitempty"` // optional
 
-	// aws_ssm
+	// aws_ssm / aws_secrets
 	Region     string `json:"region,omitempty"`
 	PathPrefix string `json:"path_prefix,omitempty"` // e.g. /janus/myapp/prod
+
+	// cloudflare
+	AccountID  string `json:"account_id,omitempty"`
+	ScriptName string `json:"script_name,omitempty"`
 }
 
 // ApplyResult reports what a provider did.

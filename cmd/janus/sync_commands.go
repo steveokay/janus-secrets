@@ -23,6 +23,8 @@ func newSyncCmd() *cobra.Command {
 	var apiURL, caCert, k8sToken, namespace, secretName string
 	var gitlabURL, glProject, glEnvScope, glToken string
 	var awsRegion, awsPathPrefix, awsAccessKeyID, awsSecretAccessKey, awsSessionToken string
+	var cfAccountID, cfScriptName, cfAPIToken string
+	var smRegion, smPathPrefix, smAccessKeyID, smSecretAccessKey, smSessionToken string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a sync target",
@@ -30,6 +32,14 @@ func newSyncCmd() *cobra.Command {
 			c, err := newAPIClient(address, token)
 			if err != nil {
 				return err
+			}
+			// aws_secrets shares the region/path_prefix addr fields and
+			// access_key_id/secret_access_key/session_token creds with aws_ssm.
+			region, pathPrefix := awsRegion, awsPathPrefix
+			accessKeyID, secretAccessKey, sessionToken := awsAccessKeyID, awsSecretAccessKey, awsSessionToken
+			if provider == "aws_secrets" {
+				region, pathPrefix = smRegion, smPathPrefix
+				accessKeyID, secretAccessKey, sessionToken = smAccessKeyID, smSecretAccessKey, smSessionToken
 			}
 			body := map[string]any{
 				"config_id":        configID,
@@ -40,12 +50,14 @@ func newSyncCmd() *cobra.Command {
 					"owner": owner, "repo": repo, "environment": environment,
 					"namespace": namespace, "secret_name": secretName,
 					"gitlab_url": gitlabURL, "project": glProject, "environment_scope": glEnvScope,
-					"region": awsRegion, "path_prefix": awsPathPrefix,
+					"region": region, "path_prefix": pathPrefix,
+					"account_id": cfAccountID, "script_name": cfScriptName,
 				},
 				"creds": map[string]any{
 					"pat": pat, "api_url": apiURL, "ca_cert": caCert, "token": k8sToken,
-					"access_key_id": awsAccessKeyID, "secret_access_key": awsSecretAccessKey,
-					"session_token": awsSessionToken,
+					"access_key_id": accessKeyID, "secret_access_key": secretAccessKey,
+					"session_token": sessionToken,
+					"api_token":     cfAPIToken,
 				},
 			}
 			// GitLab uses the shared `token` creds field (PRIVATE-TOKEN).
@@ -61,7 +73,7 @@ func newSyncCmd() *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&configID, "config", "", "target config id (required)")
-	create.Flags().StringVar(&provider, "provider", "", "sync provider: github|k8s|gitlab|aws_ssm (required)")
+	create.Flags().StringVar(&provider, "provider", "", "sync provider: github|k8s|gitlab|aws_ssm|cloudflare|aws_secrets (required)")
 	create.Flags().BoolVar(&prune, "prune", true, "prune remote keys not present in the config")
 	create.Flags().Int64Var(&intervalSeconds, "interval-seconds", 0, "sync interval in seconds (required)")
 	create.Flags().StringVar(&owner, "owner", "", "GitHub repo owner (github type)")
@@ -82,6 +94,14 @@ func newSyncCmd() *cobra.Command {
 	create.Flags().StringVar(&awsAccessKeyID, "aws-access-key-id", "", "AWS access key id (aws_ssm type)")
 	create.Flags().StringVar(&awsSecretAccessKey, "aws-secret-access-key", "", "AWS secret access key (aws_ssm type)")
 	create.Flags().StringVar(&awsSessionToken, "aws-session-token", "", "AWS session token (aws_ssm type, optional)")
+	create.Flags().StringVar(&cfAccountID, "cf-account-id", "", "Cloudflare account id (cloudflare type)")
+	create.Flags().StringVar(&cfScriptName, "cf-script-name", "", "Cloudflare Worker script name (cloudflare type)")
+	create.Flags().StringVar(&cfAPIToken, "cf-api-token", "", "Cloudflare API token with Workers Scripts Edit (cloudflare type)")
+	create.Flags().StringVar(&smRegion, "sm-region", "", "AWS region (aws_secrets type)")
+	create.Flags().StringVar(&smPathPrefix, "sm-path-prefix", "", "Secrets Manager name prefix, e.g. janus/app/prod (aws_secrets type)")
+	create.Flags().StringVar(&smAccessKeyID, "sm-access-key-id", "", "AWS access key id (aws_secrets type)")
+	create.Flags().StringVar(&smSecretAccessKey, "sm-secret-access-key", "", "AWS secret access key (aws_secrets type)")
+	create.Flags().StringVar(&smSessionToken, "sm-session-token", "", "AWS session token (aws_secrets type, optional)")
 
 	// list
 	var projectID string
@@ -138,6 +158,8 @@ func newSyncCmd() *cobra.Command {
 	var setAPIURL, setCACert, setK8sToken, setNamespace, setSecretName string
 	var setGitlabURL, setGLProject, setGLEnvScope, setGLToken string
 	var setAWSRegion, setAWSPathPrefix, setAWSAccessKeyID, setAWSSecretAccessKey, setAWSSessionToken string
+	var setCFAccountID, setCFScriptName, setCFAPIToken string
+	var setSMRegion, setSMPathPrefix, setSMAccessKeyID, setSMSecretAccessKey, setSMSessionToken string
 	update := &cobra.Command{
 		Use: "update <id>", Short: "Update a sync target", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -155,25 +177,45 @@ func newSyncCmd() *cobra.Command {
 			if cmd.Flags().Changed("status") {
 				body["status"] = setStatus
 			}
+			// aws_secrets reuses the shared region/path_prefix + AWS creds fields.
+			setRegion, setPathPrefix := setAWSRegion, setAWSPathPrefix
+			if setSMRegion != "" {
+				setRegion = setSMRegion
+			}
+			if setSMPathPrefix != "" {
+				setPathPrefix = setSMPathPrefix
+			}
+			setAKID, setSAK, setST := setAWSAccessKeyID, setAWSSecretAccessKey, setAWSSessionToken
+			if setSMAccessKeyID != "" {
+				setAKID = setSMAccessKeyID
+			}
+			if setSMSecretAccessKey != "" {
+				setSAK = setSMSecretAccessKey
+			}
+			if setSMSessionToken != "" {
+				setST = setSMSessionToken
+			}
 			if setOwner != "" || setRepo != "" || setEnvironment != "" || setNamespace != "" || setSecretName != "" ||
-				setGitlabURL != "" || setGLProject != "" || setGLEnvScope != "" || setAWSRegion != "" || setAWSPathPrefix != "" {
+				setGitlabURL != "" || setGLProject != "" || setGLEnvScope != "" || setRegion != "" || setPathPrefix != "" ||
+				setCFAccountID != "" || setCFScriptName != "" {
 				body["addr"] = map[string]any{
 					"owner": setOwner, "repo": setRepo, "environment": setEnvironment,
 					"namespace": setNamespace, "secret_name": setSecretName,
 					"gitlab_url": setGitlabURL, "project": setGLProject, "environment_scope": setGLEnvScope,
-					"region": setAWSRegion, "path_prefix": setAWSPathPrefix,
+					"region": setRegion, "path_prefix": setPathPrefix,
+					"account_id": setCFAccountID, "script_name": setCFScriptName,
 				}
 			}
 			if setPAT != "" || setAPIURL != "" || setCACert != "" || setK8sToken != "" || setGLToken != "" ||
-				setAWSAccessKeyID != "" || setAWSSecretAccessKey != "" || setAWSSessionToken != "" {
+				setAKID != "" || setSAK != "" || setST != "" || setCFAPIToken != "" {
 				token := setK8sToken
 				if setGLToken != "" {
 					token = setGLToken // gitlab reuses the shared token creds field
 				}
 				body["creds"] = map[string]any{
 					"pat": setPAT, "api_url": setAPIURL, "ca_cert": setCACert, "token": token,
-					"access_key_id": setAWSAccessKeyID, "secret_access_key": setAWSSecretAccessKey,
-					"session_token": setAWSSessionToken,
+					"access_key_id": setAKID, "secret_access_key": setSAK,
+					"session_token": setST, "api_token": setCFAPIToken,
 				}
 			}
 			if err := c.call("PATCH", "/v1/sync/targets/"+args[0], body, nil); err != nil {
@@ -204,6 +246,14 @@ func newSyncCmd() *cobra.Command {
 	update.Flags().StringVar(&setAWSAccessKeyID, "aws-access-key-id", "", "AWS access key id (aws_ssm type)")
 	update.Flags().StringVar(&setAWSSecretAccessKey, "aws-secret-access-key", "", "AWS secret access key (aws_ssm type)")
 	update.Flags().StringVar(&setAWSSessionToken, "aws-session-token", "", "AWS session token (aws_ssm type)")
+	update.Flags().StringVar(&setCFAccountID, "cf-account-id", "", "Cloudflare account id (cloudflare type)")
+	update.Flags().StringVar(&setCFScriptName, "cf-script-name", "", "Cloudflare Worker script name (cloudflare type)")
+	update.Flags().StringVar(&setCFAPIToken, "cf-api-token", "", "Cloudflare API token (cloudflare type)")
+	update.Flags().StringVar(&setSMRegion, "sm-region", "", "AWS region (aws_secrets type)")
+	update.Flags().StringVar(&setSMPathPrefix, "sm-path-prefix", "", "Secrets Manager name prefix (aws_secrets type)")
+	update.Flags().StringVar(&setSMAccessKeyID, "sm-access-key-id", "", "AWS access key id (aws_secrets type)")
+	update.Flags().StringVar(&setSMSecretAccessKey, "sm-secret-access-key", "", "AWS secret access key (aws_secrets type)")
+	update.Flags().StringVar(&setSMSessionToken, "sm-session-token", "", "AWS session token (aws_secrets type)")
 
 	// delete
 	del := &cobra.Command{
