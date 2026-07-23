@@ -158,6 +158,15 @@ components:
             Most recent successful authentication with this token, updated
             best-effort and throttled (never rewritten within 60s). Null/absent
             when the token has never authenticated a request. Value-free.
+        ip_allowlist:
+          type: array
+          items: { type: string }
+          description: >-
+            Optional list of CIDRs (IPv4 or IPv6). When non-empty, a request
+            authenticated with this token whose client IP is outside every
+            listed CIDR is rejected (403). Empty/absent means any IP.
+            Value-free.
+          example: ["10.0.0.0/8", "2001:db8::/32"]
     VersionResponse:
       type: object
       description: Reference to a newly created config version (value-free).
@@ -1781,6 +1790,14 @@ paths:
                     id: { type: string, format: uuid }
                 access: { type: string, enum: [read, readwrite] }
                 ttl_seconds: { type: integer, nullable: true, minimum: 1 }
+                ip_allowlist:
+                  type: array
+                  items: { type: string }
+                  description: >-
+                    Optional list of CIDRs (IPv4 or IPv6) validated at the API
+                    boundary. When non-empty, requests from a client IP outside
+                    every listed CIDR are rejected (403). Value-free.
+                  example: ["10.0.0.0/8"]
       responses:
         "200":
           description: Minted. `token` is the raw secret, shown once.
@@ -1799,12 +1816,59 @@ paths:
                       id: { type: string }
                   access: { type: string }
                   expires_at: { type: [string, "null"], format: date-time }
-        "400": { description: Validation error. }
+                  ip_allowlist:
+                    type: array
+                    items: { type: string }
+                    description: Effective (canonicalized) CIDR allowlist, empty = any IP.
+        "400": { description: Validation error (includes an invalid CIDR in ip_allowlist). }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+  /v1/tokens/new-ips:
+    get:
+      tags: [tokens]
+      summary: Count service tokens seen from a new IP recently (value-free aggregate)
+      description: >-
+        Number of distinct (token, IP) first-sightings within the last 24h.
+        Backs the Overview in-tray "token used from a new IP" item. Instance
+        token:read. Names/counts only — never a secret or token value.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  window_hours: { type: integer, example: 24 }
+        "403": { $ref: '#/components/responses/Forbidden' }
   /v1/tokens/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [tokens]
+      summary: Update a service token's IP allowlist (value-free)
+      description: >-
+        Replaces the token's CIDR allowlist. An empty array clears it (any IP).
+        Omitting ip_allowlist leaves it unchanged. Never touches the token
+        value/HMAC.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ip_allowlist:
+                  type: array
+                  items: { type: string }
+                  description: New CIDR allowlist (empty = clear). Validated with net.ParseCIDR.
+                  example: ["10.0.0.0/8"]
+      responses:
+        "204": { description: Updated. }
+        "400": { description: Validation error (invalid CIDR in ip_allowlist). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [tokens]
       summary: Revoke a service token

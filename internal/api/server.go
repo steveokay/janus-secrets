@@ -257,31 +257,31 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		// Production always wires a non-nil auth service (Boot does), so seal is
 		// authenticated. Unit-test servers pass nil and hit the route directly.
 		if s.auth != nil && s.authz != nil {
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.SysBackup, "sys.backup", "")).Get("/backup", s.handleBackup)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Get("/oidc", s.handleOIDCConfigGet)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Put("/oidc", s.handleOIDCConfigPut)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Delete("/oidc", s.handleOIDCConfigDelete)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation", s.handleFederationConfigGet)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Put("/oidc/federation", s.handleFederationConfigPut)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation", s.handleFederationConfigDelete)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation/bindings", s.handleFederationBindingsList)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Post("/oidc/federation/bindings", s.handleFederationBindingCreate)
-			r.With(RequireAuth(s.auth), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/bindings/{id}", s.handleFederationBindingDelete)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.SysSeal, "sys.seal", "")).Post("/seal", s.handleSeal)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.SysBackup, "sys.backup", "")).Get("/backup", s.handleBackup)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Get("/oidc", s.handleOIDCConfigGet)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Put("/oidc", s.handleOIDCConfigPut)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.config", "oidc")).Delete("/oidc", s.handleOIDCConfigDelete)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation", s.handleFederationConfigGet)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Put("/oidc/federation", s.handleFederationConfigPut)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation", s.handleFederationConfigDelete)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation/bindings", s.handleFederationBindingsList)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Post("/oidc/federation/bindings", s.handleFederationBindingCreate)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/bindings/{id}", s.handleFederationBindingDelete)
 			// Master-key rotation + Shamir rekey ceremony (owner-only). Owner-only
 			// is enforced in-handler via s.authorize/s.can (authz.SysMasterKey), so
 			// only RequireAuth is applied here. Mounted when the service is wired.
 			if s.masterKeys != nil {
-				r.With(RequireAuth(s.auth)).Get("/master-key", s.handleMasterKeyStatus)
-				r.With(RequireAuth(s.auth)).Post("/master-key/rotate", s.handleMasterKeyRotate)
-				r.With(RequireAuth(s.auth)).Post("/master-key/rekey/init", s.handleMasterKeyRekeyInit)
-				r.With(RequireAuth(s.auth)).Post("/master-key/rekey/submit", s.handleMasterKeyRekeySubmit)
-				r.With(RequireAuth(s.auth)).Delete("/master-key/rekey", s.handleMasterKeyRekeyCancel)
+				r.With(RequireAuth(s.auth, s)).Get("/master-key", s.handleMasterKeyStatus)
+				r.With(RequireAuth(s.auth, s)).Post("/master-key/rotate", s.handleMasterKeyRotate)
+				r.With(RequireAuth(s.auth, s)).Post("/master-key/rekey/init", s.handleMasterKeyRekeyInit)
+				r.With(RequireAuth(s.auth, s)).Post("/master-key/rekey/submit", s.handleMasterKeyRekeySubmit)
+				r.With(RequireAuth(s.auth, s)).Delete("/master-key/rekey", s.handleMasterKeyRekeyCancel)
 			}
-			r.With(RequireAuth(s.auth)).Get("/version", s.handleVersion)
+			r.With(RequireAuth(s.auth, s)).Get("/version", s.handleVersion)
 			// Admin health snapshot. Instance AuditRead is enforced in-handler
 			// via s.authorize, so only RequireAuth is applied here.
-			r.With(RequireAuth(s.auth)).Get("/status", s.handleSysStatus)
+			r.With(RequireAuth(s.auth, s)).Get("/status", s.handleSysStatus)
 		} else {
 			r.Post("/seal", s.handleSeal)
 			r.Get("/backup", s.handleBackup)
@@ -299,7 +299,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(loginLimiter.middleware).Get("/oidc/callback", s.handleOIDCCallback)
 			r.With(loginLimiter.middleware).Post("/oidc/federate", s.handleOIDCFederate)
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/logout", s.handleLogout)
 				r.Get("/me", s.handleMe)
 				r.With(loginLimiter.middleware).Post("/password", s.handlePasswordChange)
@@ -316,24 +316,26 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	}
 	if s.auth != nil && s.authz != nil {
 		r.Route("/v1/tokens", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Post("/", s.handleTokenMint)
 			r.Get("/", s.handleTokenList)
+			r.Get("/new-ips", s.handleTokenNewIPs)
+			r.Patch("/{id}", s.handleTokenUpdate)
 			r.Delete("/{id}", s.handleTokenRevoke)
 		})
 		r.Route("/v1/users", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Post("/", s.handleUserCreate)
 			r.Get("/", s.handleUserList)
 			r.Post("/{id}/disable", s.handleUserDisable)
 			r.Post("/{id}/unlock", s.handleUserUnlock)
 		})
 		r.Route("/v1/trash", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/", s.handleTrashList)
 		})
 		r.Route("/v1/instance/members", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.instanceScope()) })
 			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) {
 				s.memberPut(w, r, s.instanceScope(), chi.URLParam(r, "uid"))
@@ -343,7 +345,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			})
 		})
 		r.Route("/v1/projects/{pid}/members", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.projectScope(r)) })
 			r.Put("/{uid}", func(w http.ResponseWriter, r *http.Request) {
 				s.memberPut(w, r, s.projectScope(r), chi.URLParam(r, "uid"))
@@ -353,7 +355,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			})
 		})
 		r.Route("/v1/projects/{pid}/environments/{eid}/members", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 				spec, err := s.envScope(r)
 				if err != nil {
@@ -380,7 +382,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			})
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Post("/v1/projects", s.handleProjectCreate)
 			r.Get("/v1/projects", s.handleProjectList)
 			r.Get("/v1/projects/{pid}", s.handleProjectGet)
@@ -390,7 +392,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		})
 		if s.projectKeys != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/v1/projects/{pid}/kek/rotate", s.handleKEKRotate)
 				r.Post("/v1/projects/{pid}/kek/rewrap", s.handleKEKRewrap)
 				r.Get("/v1/projects/{pid}/kek", s.handleKEKStatus)
@@ -398,7 +400,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		}
 		if s.promote != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Get("/v1/projects/{pid}/pipeline", s.handlePipelineGet)
 				r.Put("/v1/projects/{pid}/pipeline", s.handlePipelinePut)
 				r.Get("/v1/configs/{cid}/locked-keys", s.handleLockedKeysList)
@@ -415,7 +417,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			})
 		}
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Post("/v1/projects/{pid}/environments", s.handleEnvCreate)
 			r.Get("/v1/projects/{pid}/environments", s.handleEnvList)
 			r.Get("/v1/projects/{pid}/environments/{eid}", s.handleEnvGet)
@@ -425,7 +427,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Post("/v1/projects/{pid}/environments/{eid}/clone", s.handleEnvClone)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Post("/v1/projects/{pid}/environments/{eid}/configs", s.handleConfigCreate)
 			r.Get("/v1/projects/{pid}/environments/{eid}/configs", s.handleConfigList)
 			r.Get("/v1/configs/{cid}", s.handleConfigGet)
@@ -433,7 +435,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Post("/v1/configs/{cid}/restore", s.handleConfigRestore)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/v1/configs/{cid}/secrets", s.handleSecretsList)
 			r.Get("/v1/configs/{cid}/secrets/{key}", s.handleSecretGet)
 			r.Get("/v1/configs/{cid}/secrets/{key}/history", s.handleKeyHistory)
@@ -441,27 +443,27 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/configs/{cid}/compare", s.handleConfigCompare)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Put("/v1/configs/{cid}/secrets", s.handleSecretsBatchWrite)
 			r.Put("/v1/configs/{cid}/secrets/{key}", s.handleSecretPut)
 			r.Delete("/v1/configs/{cid}/secrets/{key}", s.handleSecretDelete)
 		})
 		r.Group(func(r chi.Router) {
 			// Advisory secret max-age / expiry policy (value-free metadata).
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/v1/configs/{cid}/max-age", s.handleMaxAgeList)
 			r.Put("/v1/configs/{cid}/max-age", s.handleConfigMaxAgePut)
 			r.Put("/v1/configs/{cid}/secrets/{key}/max-age", s.handleKeyMaxAgePut)
 		})
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/v1/configs/{cid}/versions", s.handleVersionList)
 			r.Get("/v1/configs/{cid}/versions/diff", s.handleVersionDiff)
 			r.Post("/v1/configs/{cid}/rollback", s.handleRollback)
 		})
 		if s.transit != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/v1/transit/keys", s.handleTransitCreate)
 				r.Get("/v1/transit/keys", s.handleTransitList)
 				r.Get("/v1/transit/keys/{name}", s.handleTransitGet)
@@ -480,7 +482,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		}
 		if s.rotation != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/v1/rotation/policies", s.handleRotationCreate)
 				r.Get("/v1/rotation/policies", s.handleRotationList)
 				r.Get("/v1/rotation/policies/{id}", s.handleRotationGet)
@@ -492,7 +494,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		}
 		if s.sync != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/v1/sync/targets", s.handleSyncCreate)
 				r.Get("/v1/sync/targets", s.handleSyncList)
 				r.Get("/v1/sync/targets/{id}", s.handleSyncGet)
@@ -504,7 +506,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		}
 		if s.dynamic != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/v1/dynamic/roles", s.handleDynamicRoleCreate)
 				r.Get("/v1/dynamic/roles", s.handleDynamicRoleList)
 				r.Get("/v1/dynamic/roles/{id}", s.handleDynamicRoleGet)
@@ -518,7 +520,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		}
 		if s.audit != nil {
 			r.Route("/v1/audit", func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Get("/verify", s.handleAuditVerify)
 				r.Get("/export", s.handleAuditExport)
 				r.Get("/events", s.handleAuditEvents)
@@ -527,7 +529,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		}
 		if s.notification != nil {
 			r.Group(func(r chi.Router) {
-				r.Use(RequireAuth(s.auth))
+				r.Use(RequireAuth(s.auth, s))
 				r.Post("/v1/notifications/channels", s.handleNotificationCreate)
 				r.Get("/v1/notifications/channels", s.handleNotificationList)
 				r.Get("/v1/notifications/channels/{id}", s.handleNotificationGet)
@@ -538,14 +540,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			})
 		}
 		r.Group(func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/v1/metrics/reads-24h", s.handleMetricsReads)
 			r.Get("/v1/projects/{pid}/metrics/reads-24h", s.handleProjectMetricsReads)
 		})
 		// Global key-name search. Any authenticated principal; results are
 		// authz-filtered per config (deny-by-default) inside the handler.
 		r.Route("/v1/search", func(r chi.Router) {
-			r.Use(RequireAuth(s.auth))
+			r.Use(RequireAuth(s.auth, s))
 			r.Get("/keys", s.handleSearchKeys)
 		})
 	}

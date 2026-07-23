@@ -62,4 +62,8 @@ type ServiceToken struct {
 	// FederationBinding is the OIDC federation binding that minted this token
 	// via CI federation, or "" for a human-minted token (CreatedBy set instead).
 	FederationBinding string
+	// IPAllowlist is an optional list of CIDRs (IPv4 or IPv6). When non-empty, a
+	// request authenticated with this token whose client IP is outside every
+	// listed CIDR is rejected. Empty/nil means "any IP". Value-free.
+	IPAllowlist []string
 }

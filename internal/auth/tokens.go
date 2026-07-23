@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"time"
 
@@ -25,6 +26,9 @@ type TokenScope struct {
 	Kind   string // scope_kind: "config" | "environment" | "transit"
 	ID     string // scope_id ("" for a transit token targeting all keys)
 	Access string // "read" | "readwrite" (config/env); "use" | "manage" (transit)
+	// IPAllowlist is the token's optional CIDR allowlist. Empty means any IP.
+	// The API auth middleware enforces it against the client IP. Value-free.
+	IPAllowlist []string
 }
 
 // TokenMeta is service-token metadata. It has no raw-token field by design —
@@ -42,6 +46,9 @@ type TokenMeta struct {
 	// LastUsedAt is the most recent successful authentication with this token
 	// (throttled), or nil if it has never authenticated a request. Value-free.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	// IPAllowlist is the token's optional CIDR allowlist (empty = any IP).
+	// Value-free (CIDRs only).
+	IPAllowlist []string `json:"ip_allowlist,omitempty"`
 }
 
 func metaOf(t *store.ServiceToken) TokenMeta {
@@ -49,17 +56,48 @@ func metaOf(t *store.ServiceToken) TokenMeta {
 		ID: t.ID, Name: t.Name, ScopeKind: t.ScopeKind, ScopeID: t.ScopeID,
 		Access: t.Access, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt,
 		ExpiresAt: t.ExpiresAt, RevokedAt: t.RevokedAt, LastUsedAt: t.LastUsedAt,
+		IPAllowlist: t.IPAllowlist,
 	}
+}
+
+// ValidateCIDRs parses each entry with net.ParseCIDR and returns the
+// canonicalized (masked-network) CIDR strings, or ErrValidation on the first
+// unparseable entry. An empty input is valid (any IP). Exposed so the API
+// boundary can validate the allowlist on both create and update. Value-free.
+func ValidateCIDRs(cidrs []string) ([]string, error) {
+	out := make([]string, 0, len(cidrs))
+	for _, c := range cidrs {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			return nil, ErrValidation
+		}
+		_, ipnet, err := net.ParseCIDR(c)
+		if err != nil {
+			return nil, ErrValidation
+		}
+		out = append(out, ipnet.String())
+	}
+	return out, nil
 }
 
 // MintServiceToken creates a scoped token. The raw value is returned exactly
 // once; only its HMAC is stored. Scope existence is validated here;
-// enforcement is the RBAC/API milestones' job. ttl nil means long-lived.
+// enforcement is the RBAC/API milestones' job. ttl nil means long-lived. An
+// empty ipAllowlist means "any IP"; a non-empty list is enforced by the API
+// auth middleware against the client IP. CIDRs must already be validated by the
+// caller (the API boundary calls ValidateCIDRs).
 func (s *Service) MintServiceToken(ctx context.Context, by Principal, name,
-	scopeKind, scopeID, access string, ttl *time.Duration) (string, TokenMeta, error) {
+	scopeKind, scopeID, access string, ttl *time.Duration, ipAllowlist []string) (string, TokenMeta, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", TokenMeta{}, ErrValidation
 	}
+	// Defense in depth: validate CIDRs here too so a non-API caller cannot
+	// persist an unenforceable allowlist. Canonicalize to masked form.
+	normAllow, err := ValidateCIDRs(ipAllowlist)
+	if err != nil {
+		return "", TokenMeta{}, err
+	}
+	ipAllowlist = normAllow
 	// Access validation depends on scope kind: config/env use read/readwrite;
 	// transit uses use/manage.
 	validAccess := access == "read" || access == "readwrite"
@@ -110,7 +148,7 @@ func (s *Service) MintServiceToken(ctx context.Context, by Principal, name,
 		t := time.Now().Add(*ttl)
 		expiresAt = &t
 	}
-	tok, err := s.tokens.Create(ctx, name, mac(key, raw), by.ID, scopeKind, scopeID, access, expiresAt)
+	tok, err := s.tokens.Create(ctx, name, mac(key, raw), by.ID, scopeKind, scopeID, access, expiresAt, ipAllowlist)
 	if err != nil {
 		return "", TokenMeta{}, err
 	}
@@ -175,8 +213,39 @@ func (s *Service) VerifyServiceToken(ctx context.Context, raw string) (Principal
 	// authenticated request: the token is already validated. We ignore the error
 	// (mirrors the other best-effort touch paths) — it is value-free metadata.
 	_ = s.tokens.TouchLastUsed(ctx, tok.ID, lastUsedThrottle)
-	scope := &TokenScope{Kind: tok.ScopeKind, ID: tok.ScopeID, Access: tok.Access}
+	scope := &TokenScope{Kind: tok.ScopeKind, ID: tok.ScopeID, Access: tok.Access, IPAllowlist: tok.IPAllowlist}
 	return Principal{Kind: KindServiceToken, ID: tok.ID, Name: tok.Name}, scope, nil
+}
+
+// NoteTokenIP records that tokenID authenticated from ip and reports whether
+// this was the first time that (token, ip) pair was seen (a new IP). The caller
+// (API auth middleware) uses isNew to emit a value-free token.new_ip audit
+// event. Best-effort: a store error is returned but the caller treats it as
+// non-fatal and MUST NOT fail the authenticated request.
+func (s *Service) NoteTokenIP(ctx context.Context, tokenID, ip string) (bool, error) {
+	return s.tokens.RecordSeenIP(ctx, tokenID, ip)
+}
+
+// CountRecentNewIPs returns the number of (token, ip) first-sightings within the
+// window. Value-free aggregate for the Overview in-tray.
+func (s *Service) CountRecentNewIPs(ctx context.Context, within time.Duration) (int, error) {
+	return s.tokens.CountRecentNewIPs(ctx, within)
+}
+
+// SetTokenIPAllowlist replaces a token's IP allowlist. CIDRs are validated and
+// canonicalized here. Value-free. ErrNotFound if the token is absent.
+func (s *Service) SetTokenIPAllowlist(ctx context.Context, id string, ipAllowlist []string) error {
+	norm, err := ValidateCIDRs(ipAllowlist)
+	if err != nil {
+		return err
+	}
+	if err := s.tokens.SetIPAllowlist(ctx, id, norm); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 // ListTokensPage returns a raw page of token metadata plus the keyset cursor for

@@ -21,7 +21,7 @@ func TestTouchLastUsedThrottle(t *testing.T) {
 	_, _, configID := mkConfig(t, s, "prod")
 	repo := NewServiceTokenRepo(s)
 	mac := []byte("hmac-of-raw-token-0123456789abcd")
-	tok, err := repo.Create(ctx, "ci", mac, u.ID, "config", configID, "read", nil)
+	tok, err := repo.Create(ctx, "ci", mac, u.ID, "config", configID, "read", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

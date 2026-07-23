@@ -8,6 +8,9 @@
   let userEmails = $state<Map<string, string>>(new Map())
   let loading = $state(true)
   let error = $state('')
+  // Per-token new-IP note: token id → { ip, when } of the most recent
+  // token.new_ip audit event (value-free — IP + timestamp only).
+  let newIPByToken = $state<Map<string, { ip: string; when: string }>>(new Map())
 
   let minting = $state(false)
   let mintName = $state('')
@@ -15,12 +18,18 @@
   let mintScopeId = $state('')
   let mintAccess = $state<'read' | 'readwrite' | 'transit'>('read')
   let mintTtl = $state('')
+  let mintAllowlist = $state('')
   let minted = $state<MintTokenResult | null>(null)
   let mintError = $state('')
 
   $effect(() => {
     void load()
   })
+
+  // Parse a comma/newline/space-separated CIDR list into a trimmed array.
+  function parseAllowlist(raw: string): string[] {
+    return raw.split(/[\s,]+/).map(s => s.trim()).filter(Boolean)
+  }
 
   async function load() {
     loading = true
@@ -29,11 +38,30 @@
       tokens = await api.listTokens()
       const users = await api.listUsers().catch(() => [])
       userEmails = new Map(users.map(u => [u.id, u.email]))
+      await loadNewIPs()
     } catch (err) {
       error = errorMessage(err, 'Could not list tokens.')
     } finally {
       loading = false
     }
+  }
+
+  // Recent new-IP sightings, from the value-free token.new_ip audit events.
+  // Tolerant of a 403 (non-admins simply see no badges).
+  async function loadNewIPs() {
+    const m = new Map<string, { ip: string; when: string }>()
+    try {
+      const { events } = await api.listAuditEvents({ action: 'token.new_ip', limit: 100 })
+      for (const e of events) {
+        const id = e.resource.startsWith('tokens/') ? e.resource.slice('tokens/'.length) : ''
+        if (!id || m.has(id)) continue // events are newest-first; keep the first (latest)
+        const ip = e.detail?.startsWith('ip=') ? e.detail.slice(3) : (e.ip ?? '')
+        m.set(id, { ip, when: e.occurred_at })
+      }
+    } catch {
+      /* 403 or no audit access → no badges */
+    }
+    newIPByToken = m
   }
 
   const minter = (id: string) => userEmails.get(id) ?? (id.includes('-') ? `${id.slice(0, 8)}…` : id)
@@ -51,12 +79,15 @@
     mintError = ''
     try {
       const access = mintScopeKind === 'transit' ? 'transit' : mintAccess
+      const allowlist = parseAllowlist(mintAllowlist)
       minted = await api.mintToken({
         name: mintName.trim(),
         scope: { kind: mintScopeKind, id: mintScopeKind === 'transit' ? 'transit' : mintScopeId },
         access,
         ...(mintTtl ? { ttl_seconds: Number(mintTtl) * 3600 } : {}),
+        ...(allowlist.length ? { ip_allowlist: allowlist } : {}),
       })
+      mintAllowlist = ''
       await load()
     } catch (err) {
       mintError = errorMessage(err, 'Mint failed.')
@@ -76,6 +107,24 @@
       await load()
     } catch (err) {
       error = errorMessage(err, 'Revoke failed.')
+    }
+  }
+
+  async function editAllowlist(t: TokenMeta) {
+    const current = (t.ip_allowlist ?? []).join(', ')
+    const raw = await dialog.prompt({
+      title: `IP allowlist — ${t.name}`,
+      body: 'Comma- or space-separated CIDRs (IPv4 or IPv6). Empty allows any IP. Requests from outside the list are rejected.',
+      placeholder: '10.0.0.0/8, 2001:db8::/32',
+      initial: current,
+      confirmLabel: 'Save',
+    })
+    if (raw === null) return // cancelled
+    try {
+      await api.updateTokenAllowlist(t.id, parseAllowlist(raw))
+      await load()
+    } catch (err) {
+      error = errorMessage(err, 'Could not update allowlist.')
     }
   }
 
@@ -154,6 +203,10 @@
             <label class="label" for="tk-ttl">TTL (hours, blank = none)</label>
             <input id="tk-ttl" class="input" type="number" min="1" bind:value={mintTtl} placeholder="∞" />
           </div>
+          <div class="field grow">
+            <label class="label" for="tk-allow">IP allowlist (CIDRs, blank = any IP)</label>
+            <input id="tk-allow" class="input" bind:value={mintAllowlist} placeholder="10.0.0.0/8, 2001:db8::/32" />
+          </div>
           <button class="btn btn-stamp" type="submit" disabled={!mintName.trim() || (mintScopeKind !== 'transit' && !mintScopeId)}>Mint</button>
           {#if mintError}<p class="error">{mintError}</p>{/if}
         </form>
@@ -170,16 +223,23 @@
           <th>Token</th>
           <th>Scope</th>
           <th style="width: 110px">Access</th>
+          <th style="width: 180px">IP allowlist</th>
           <th style="width: 160px">Last used</th>
           <th style="width: 150px">Expiry</th>
-          <th style="width: 90px"></th>
+          <th style="width: 150px"></th>
         </tr>
       </thead>
       <tbody>
         {#each active as t (t.id)}
           <tr>
             <td>
-              <span class="t-name">{t.name}</span>
+              <span class="t-name">
+                {t.name}
+                {#if newIPByToken.get(t.id)}
+                  {@const n = newIPByToken.get(t.id)!}
+                  <span class="pill pill-newip" title={`First seen from ${n.ip} ${relTime(n.when)}`}>new IP</span>
+                {/if}
+              </span>
               <span class="folio">minted {stampDate(t.created_at)} by {minter(t.created_by)}</span>
             </td>
             <td class="mono scope">{scopeLabel(t)}</td>
@@ -187,6 +247,15 @@
               {#if t.access === 'read'}<span class="pill pill-neutral">read</span>
               {:else if t.access === 'transit'}<span class="pill pill-info">transit</span>
               {:else}<span class="pill pill-info">read / write</span>{/if}
+            </td>
+            <td>
+              {#if t.ip_allowlist && t.ip_allowlist.length}
+                <div class="allow">
+                  {#each t.ip_allowlist as c}<code class="mono cidr">{c}</code>{/each}
+                </div>
+              {:else}
+                <span class="folio">any IP</span>
+              {/if}
             </td>
             <td>
               {#if !t.last_used_at}
@@ -208,11 +277,14 @@
               {/if}
             </td>
             <td class="row-actions">
+              {#if t.scope_kind !== 'transit'}
+                <button class="btn btn-ghost btn-sm" onclick={() => editAllowlist(t)}>IPs</button>
+              {/if}
               <button class="btn btn-ghost btn-sm revoke" onclick={() => revoke(t)}>Revoke</button>
             </td>
           </tr>
         {:else}
-          <tr><td colspan="6" class="empty folio">{loading ? 'Reading…' : 'No service tokens minted yet.'}</td></tr>
+          <tr><td colspan="7" class="empty folio">{loading ? 'Reading…' : 'No service tokens minted yet.'}</td></tr>
         {/each}
       </tbody>
     </table>
@@ -252,6 +324,16 @@
   .scope { font-size: var(--text-xs); color: var(--ink-soft); }
   .expiring { color: var(--ochre); font-size: var(--text-xs); font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; }
   .pill-stale { color: var(--ochre); background: var(--ochre-wash); margin-left: var(--s2); }
+  .pill-newip { color: var(--vermilion); background: var(--vermilion-wash); margin-left: var(--s2); }
+  .allow { display: flex; flex-wrap: wrap; gap: var(--s1); }
+  .cidr {
+    font-size: var(--text-xs);
+    background: var(--paper-low);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    padding: 1px var(--s2);
+    color: var(--ink-soft);
+  }
   .row-actions { text-align: right; }
   .revoke:hover { color: var(--vermilion); }
   .empty { text-align: center; padding: var(--s6) !important; }
