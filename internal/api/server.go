@@ -2,8 +2,13 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +28,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/secretsync"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/transit"
+	"golang.org/x/crypto/acme/autocert"
 )
 
 // Config is the api server's static configuration.
@@ -49,6 +55,73 @@ type Config struct {
 	// MetricsToken, when non-empty, enables the /metrics endpoint gated by this
 	// static bearer token. Empty → /metrics returns 404.
 	MetricsToken string
+	// TLS configures the native HTTPS listener. Zero value → plain HTTP (TLS is
+	// delegated to a reverse proxy, the historical default).
+	TLS TLSConfig
+}
+
+// TLSConfig configures the optional native HTTPS listener. Two mutually
+// exclusive modes: static certs (CertFile+KeyFile) or ACME/Let's Encrypt
+// (ACMEDomains). Leaving all fields empty keeps Janus on plain HTTP so TLS can
+// be terminated by a reverse proxy (the default).
+type TLSConfig struct {
+	// CertFile and KeyFile are paths to a PEM certificate/chain and its private
+	// key. Both must be set together to serve HTTPS from static certs.
+	CertFile string
+	KeyFile  string
+	// ACMEDomains are the hostnames autocert is whitelisted to obtain
+	// certificates for. When non-empty (and static certs are unset), Janus
+	// provisions certs via Let's Encrypt.
+	ACMEDomains []string
+	// ACMEEmail is the optional ACME account contact address.
+	ACMEEmail string
+	// ACMECache is the directory autocert caches issued certificates in.
+	// Defaults to "./.janus-acme" when ACME is enabled and this is empty.
+	ACMECache string
+	// RedirectHTTP, when non-empty (e.g. ":80"), runs a redirect-only listener
+	// on that address that 301s plain HTTP requests to their https:// URL. Only
+	// consulted in the static-cert path (ACME runs its own :80 handler).
+	RedirectHTTP string
+}
+
+// Enabled reports whether any TLS mode is configured.
+func (t TLSConfig) Enabled() bool {
+	return t.CertFile != "" || t.KeyFile != "" || len(t.ACMEDomains) > 0
+}
+
+// IsStaticCerts reports whether the static-cert mode is (fully) configured.
+func (t TLSConfig) IsStaticCerts() bool {
+	return t.CertFile != "" && t.KeyFile != ""
+}
+
+// IsACME reports whether ACME mode is configured.
+func (t TLSConfig) IsACME() bool {
+	return len(t.ACMEDomains) > 0
+}
+
+// Validate checks the TLS configuration for the mutually exclusive and
+// paired-field constraints, returning a clear startup error on misconfig.
+func (t TLSConfig) Validate() error {
+	if !t.Enabled() {
+		return nil
+	}
+	// Static certs require both halves.
+	if (t.CertFile != "") != (t.KeyFile != "") {
+		return errors.New("TLS static certs require both JANUS_TLS_CERT and JANUS_TLS_KEY (only one was set)")
+	}
+	// Static certs and ACME are mutually exclusive.
+	if t.IsStaticCerts() && t.IsACME() {
+		return errors.New("TLS static certs (JANUS_TLS_CERT/JANUS_TLS_KEY) and ACME (JANUS_TLS_ACME_DOMAINS) are mutually exclusive")
+	}
+	return nil
+}
+
+// acmeCacheDir returns the effective autocert cache directory.
+func (t TLSConfig) acmeCacheDir() string {
+	if t.ACMECache != "" {
+		return t.ACMECache
+	}
+	return "./.janus-acme"
 }
 
 // Server is Janus's HTTP server. The keyring is the single source of truth
@@ -493,16 +566,106 @@ func (s *Server) buildHTTPServer() *http.Server {
 }
 
 // ListenAndServe serves until ctx is canceled, then drains for up to 10s.
+// It serves plain HTTP by default, or native HTTPS when s.cfg.TLS is configured
+// (static certs or ACME/Let's Encrypt). Any auxiliary listeners it starts (the
+// ACME HTTP-01 :80 handler, or an optional static-cert HTTP→HTTPS redirect
+// server) are shut down alongside the main server on ctx cancel.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	if err := s.cfg.TLS.Validate(); err != nil {
+		return err
+	}
+
 	srv := s.buildHTTPServer()
+
+	// aux collects secondary servers (ACME :80, redirect) so they drain on
+	// shutdown together with the main server.
+	var aux []*http.Server
+
+	serve := func() error { return srv.ListenAndServe() } // plain HTTP default
+
+	switch {
+	case s.cfg.TLS.IsACME():
+		mgr := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(s.cfg.TLS.ACMEDomains...),
+			Cache:      autocert.DirCache(s.cfg.TLS.acmeCacheDir()),
+			Email:      s.cfg.TLS.ACMEEmail,
+		}
+		tlsCfg := mgr.TLSConfig()
+		tlsCfg.MinVersion = tls.VersionTLS12
+		srv.TLSConfig = tlsCfg
+		// ACME HTTP-01 challenges + redirect run on :80.
+		challenge := &http.Server{
+			Addr:              ":80",
+			Handler:           mgr.HTTPHandler(nil),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+		aux = append(aux, challenge)
+		go func() {
+			if err := challenge.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.logger.Error("acme http-01 listener stopped", "err", err)
+			}
+		}()
+		s.logger.Info("serving https", "addr", s.cfg.ListenAddr, "mode", "acme",
+			"domains", strings.Join(s.cfg.TLS.ACMEDomains, ","))
+		serve = func() error { return srv.ListenAndServeTLS("", "") }
+
+	case s.cfg.TLS.IsStaticCerts():
+		srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		if s.cfg.TLS.RedirectHTTP != "" {
+			redirect := &http.Server{
+				Addr:              s.cfg.TLS.RedirectHTTP,
+				Handler:           http.HandlerFunc(redirectToHTTPS),
+				ReadHeaderTimeout: 10 * time.Second,
+			}
+			aux = append(aux, redirect)
+			go func() {
+				if err := redirect.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					s.logger.Error("http→https redirect listener stopped", "err", err)
+				}
+			}()
+		}
+		s.logger.Info("serving https", "addr", s.cfg.ListenAddr, "mode", "static-cert",
+			"redirect_http", s.cfg.TLS.RedirectHTTP)
+		serve = func() error { return srv.ListenAndServeTLS(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile) }
+
+	default:
+		s.logger.Info("serving http", "addr", s.cfg.ListenAddr)
+	}
+
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() { errCh <- serve() }()
 	select {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		for _, a := range aux {
+			// Best-effort drain of auxiliary listeners; errors are non-fatal.
+			_ = a.Shutdown(shutdownCtx)
+		}
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// redirectToHTTPS 301-redirects a plain HTTP request to its https:// equivalent,
+// preserving host (minus any :port), path, and query.
+func redirectToHTTPS(w http.ResponseWriter, r *http.Request) {
+	host := r.Host
+	if h, _, err := splitHostPort(host); err == nil && h != "" {
+		host = h
+	}
+	target := url.URL{Scheme: "https", Host: host, Path: r.URL.Path, RawQuery: r.URL.RawQuery}
+	http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
+}
+
+// splitHostPort strips a trailing :port from a Host header, tolerating a bare
+// host (no port). It wraps net.SplitHostPort with a fallback so IPv6 and
+// port-less hosts both work.
+func splitHostPort(hostport string) (host, port string, err error) {
+	if !strings.Contains(hostport, ":") {
+		return hostport, "", nil
+	}
+	return net.SplitHostPort(hostport)
 }
