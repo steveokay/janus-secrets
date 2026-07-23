@@ -66,6 +66,16 @@ func validateInput(provider string, addr Addr, creds Creds) error {
 			addr.Namespace == "" || addr.SecretName == "" {
 			return ErrInvalidConfig
 		}
+	case ProviderGitLab:
+		// gitlab_url is optional (defaults to gitlab.com); project + token required.
+		if creds.Token == "" || addr.Project == "" {
+			return ErrInvalidConfig
+		}
+	case ProviderAWSSSM:
+		if creds.AccessKeyID == "" || creds.SecretAccessKey == "" ||
+			addr.Region == "" || addr.PathPrefix == "" {
+			return ErrInvalidConfig
+		}
 	default:
 		return ErrInvalidType
 	}

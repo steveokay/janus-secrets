@@ -140,7 +140,7 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus rotation update <id> [--interval-seconds <n>] [--status active\|paused]` | Update a policy's interval or status. Requires `rotation:manage` |
 | `janus rotation rotate <id>` | Rotate a policy immediately; also clears a `failed` status and retries. Requires `rotation:manage` |
 | `janus rotation delete <id>` | Delete a rotation policy. Requires `rotation:manage` |
-| `janus sync create --config <id> --provider github\|k8s --interval-seconds <n> [...]` | Create a sync target on a config. `github` type: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s` type: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. Either type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
+| `janus sync create --config <id> --provider github\|k8s\|gitlab\|aws_ssm --interval-seconds <n> [...]` | Create a sync target on a config. `github`: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s`: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. `gitlab`: `--project`, `--gitlab-token`, `--gitlab-url`/`--environment-scope` (optional). `aws_ssm`: `--aws-region`, `--path-prefix`, `--aws-access-key-id`, `--aws-secret-access-key`, `--aws-session-token` (optional). Any type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
 | `janus sync list --project <id>` | List sync targets for a project. Requires `sync:manage` |
 | `janus sync get <id>` | Show one sync target (masked config). Requires `sync:manage` |
 | `janus sync update <id> [--interval-seconds <n>] [--prune] [--status active\|paused] [...]` | Update a target's interval, prune toggle, status, destination address, or credentials. Requires `sync:manage` |
@@ -394,8 +394,10 @@ and backoff/failure semantics — is in the rotation runbook
 
 Sync targets replicate one config's **resolved** secrets (references
 expanded) one-way to an external store — `github` (GitHub Actions secrets,
-repo- or environment-scoped) or `k8s` (a Kubernetes `Secret`, via
-server-side apply) — on an interval or on demand, managed via
+repo- or environment-scoped), `k8s` (a Kubernetes `Secret`, via
+server-side apply), `gitlab` (GitLab CI/CD variables), or `aws_ssm` (AWS
+SSM Parameter Store `SecureString` parameters) — on an interval or on
+demand, managed via
 `janus sync …` above (`sync:manage`, project admin/owner) or
 `/v1/sync/targets`. A per-target `prune` toggle keeps the destination a
 full mirror by deleting keys Janus previously wrote but no longer sees in

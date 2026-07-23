@@ -232,7 +232,7 @@ components:
         id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         config_id: { type: string, format: uuid }
-        provider: { type: string, enum: [github, kubernetes] }
+        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm] }
         prune: { type: boolean }
         interval_seconds: { type: integer }
         addr:
@@ -243,6 +243,11 @@ components:
             environment: { type: string }
             namespace: { type: string }
             secret_name: { type: string }
+            gitlab_url: { type: string }
+            project: { type: string }
+            environment_scope: { type: string }
+            region: { type: string }
+            path_prefix: { type: string }
         status: { type: string, enum: [active, paused, failed] }
         failure_count: { type: integer }
         last_error: { type: string, nullable: true }
@@ -2777,7 +2782,7 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [sync]
-      summary: Create a sync target (GitHub Actions secrets or Kubernetes Secrets)
+      summary: Create a sync target (GitHub Actions, Kubernetes Secrets, GitLab CI/CD variables, or AWS SSM Parameter Store)
       requestBody:
         required: true
         content:
@@ -2787,7 +2792,7 @@ paths:
               required: [config_id, provider]
               properties:
                 config_id: { type: string, format: uuid }
-                provider: { type: string, enum: [github, kubernetes] }
+                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm] }
                 prune: { type: boolean, nullable: true, description: "Defaults to true when omitted." }
                 interval_seconds: { type: integer }
                 addr:
@@ -2796,8 +2801,13 @@ paths:
                     owner: { type: string, description: GitHub owner (github provider). }
                     repo: { type: string, description: GitHub repo (github provider). }
                     environment: { type: string, description: GitHub environment name (github provider). }
-                    namespace: { type: string, description: Kubernetes namespace (kubernetes provider). }
-                    secret_name: { type: string, description: Kubernetes Secret name (kubernetes provider). }
+                    namespace: { type: string, description: Kubernetes namespace (k8s provider). }
+                    secret_name: { type: string, description: Kubernetes Secret name (k8s provider). }
+                    gitlab_url: { type: string, description: "GitLab base URL (gitlab provider; defaults to https://gitlab.com)." }
+                    project: { type: string, description: "GitLab project id or URL-encoded group/proj path (gitlab provider)." }
+                    environment_scope: { type: string, description: "GitLab CI/CD variable environment scope (gitlab provider, optional)." }
+                    region: { type: string, description: AWS region (aws_ssm provider). }
+                    path_prefix: { type: string, description: "SSM parameter path prefix, e.g. /janus/app/prod (aws_ssm provider)." }
                 creds:
                   type: object
                   description: Provider credentials; all fields write-only.
@@ -2805,7 +2815,10 @@ paths:
                     pat: { type: string, writeOnly: true, example: "<secret value>", description: GitHub PAT. }
                     api_url: { type: string, description: Kubernetes API server URL. }
                     ca_cert: { type: string, writeOnly: true, example: "<secret value>", description: Kubernetes cluster CA cert. }
-                    token: { type: string, writeOnly: true, example: "<secret value>", description: Kubernetes bearer token. }
+                    token: { type: string, writeOnly: true, example: "<secret value>", description: "Kubernetes bearer token (k8s), or GitLab access token with api scope (gitlab)." }
+                    access_key_id: { type: string, writeOnly: true, example: "<secret value>", description: AWS access key id (aws_ssm provider). }
+                    secret_access_key: { type: string, writeOnly: true, example: "<secret value>", description: AWS secret access key (aws_ssm provider). }
+                    session_token: { type: string, writeOnly: true, example: "<secret value>", description: "AWS session token (aws_ssm provider, optional)." }
       responses:
         "201":
           description: Created (masked; no creds/fingerprint in the response).

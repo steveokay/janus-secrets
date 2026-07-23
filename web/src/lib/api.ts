@@ -144,7 +144,11 @@ export interface SyncTargetApi {
   id: string; project_id: string; config_id: string; provider: string
   interval_seconds: number; status: string; failure_count: number; last_error?: string
   next_sync_at: string; last_synced_at?: string
-  addr: { owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string }
+  addr: {
+    owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string
+    gitlab_url?: string; project?: string; environment_scope?: string
+    region?: string; path_prefix?: string
+  }
 }
 export interface DynamicRole {
   id: string; project_id: string; config_id: string; name: string
@@ -165,10 +169,18 @@ export interface RotationCreateInput {
     url?: string; hmac_key?: string; notify_url?: string; notify_hmac_key?: string
   }
 }
+export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm'
 export interface SyncCreateInput {
-  config_id: string; provider: 'github' | 'k8s'; prune?: boolean; interval_seconds: number
-  addr: { owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string }
-  creds: { pat?: string; api_url?: string; ca_cert?: string; token?: string }
+  config_id: string; provider: SyncProvider; prune?: boolean; interval_seconds: number
+  addr: {
+    owner?: string; repo?: string; environment?: string; namespace?: string; secret_name?: string
+    gitlab_url?: string; project?: string; environment_scope?: string
+    region?: string; path_prefix?: string
+  }
+  creds: {
+    pat?: string; api_url?: string; ca_cert?: string; token?: string
+    access_key_id?: string; secret_access_key?: string; session_token?: string
+  }
 }
 export interface DynamicRoleCreateInput {
   config_id: string; name: string; default_ttl_seconds: number; max_ttl_seconds: number
