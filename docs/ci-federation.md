@@ -10,10 +10,14 @@ scoped `janus_svc_` service token**. That token is an ordinary service token —
 it authorizes downstream requests exactly like any other, appears in the token
 list, is revocable, and expires on its own. Nothing long-lived is stored in CI.
 
-GitHub Actions is the shipped, tested provider. The federation issuer is
-configurable, so pointing at another OIDC CI provider is a config change rather
-than new code — but only GitHub-Actions-shaped claim matching is exercised in
-this milestone.
+Four CI OIDC providers are supported out of the box: **GitHub Actions**,
+**GitLab CI/CD**, **Buildkite**, and **CircleCI**. The federation issuer is a
+config value and **one provider is active at a time** (a single
+`FederationConfig`); switching providers is a config change, not new code. The
+mandatory-claim rule is provider-aware — see [Trust bindings](#trust-bindings).
+Binding multiple providers simultaneously (each binding carrying its own issuer)
+is a possible future follow-up; today, point the single issuer at whichever CI
+provider you federate from.
 
 ## Flow
 
@@ -71,9 +75,22 @@ JWKS trust relationship, so there is nothing to wrap.
 
 | Field | Notes |
 |---|---|
-| `issuer` | OIDC issuer; discovery + JWKS resolved from it. Empty defaults to `https://token.actions.githubusercontent.com`. |
+| `issuer` | OIDC issuer; discovery + JWKS resolved from it. Must be a well-formed absolute `http(s)` URL. Empty defaults to `https://token.actions.githubusercontent.com`. |
 | `audience` | Required, non-empty. The token's `aud` must equal this exactly. |
 | `enabled` | Whether the exchange is live. |
+
+Known issuer URLs:
+
+| Provider | Issuer |
+|---|---|
+| GitHub Actions | `https://token.actions.githubusercontent.com` |
+| GitLab CI/CD (SaaS) | `https://gitlab.com` (self-hosted: your instance base URL) |
+| Buildkite | `https://agent.buildkite.com` |
+| CircleCI | `https://oidc.circleci.com/org/<ORG_ID>` (org-specific) |
+
+The web UI (Integrations → CI federation) offers these as a **provider preset**
+dropdown that fills the issuer URL and hints the claim to bind, so admins don't
+hand-type issuer URLs.
 
 ## Trust bindings
 
@@ -82,22 +99,37 @@ Each binding maps a set of claim conditions to a scope + access + TTL. Fields:
 | Field | Notes |
 |---|---|
 | `name` | Unique label. |
-| `match_claims` | JSON object `{claim: value}`; **all** entries must match the token's claims (exact string equality, AND-ed). **Must include a non-empty `repository`.** |
+| `match_claims` | JSON object `{claim: value}`; **all** entries must match the token's claims (exact string equality, AND-ed). **Must constrain at least one strong identifying claim for the configured issuer** (see below). |
 | `scope_kind` | `config` or `environment`. |
 | `scope_id` | The target config/environment id (must exist). |
 | `access` | `read` or `readwrite`. |
 | `ttl_seconds` | Minted-token lifetime; `1 ≤ ttl ≤ 3600`. Omitting it (0) defaults to 900 (15m). |
 | `enabled` | Whether the binding can mint. |
 
-GitHub Actions tokens carry claims like `repository` (`org/app`), `ref`
-(`refs/heads/main`), `environment` (`prod`), `repository_owner`,
-`job_workflow_ref`, and `sub`. Match on `repository` plus whatever narrows the
-grant (e.g. `environment`), following GitHub's own hardening guidance.
+#### Provider-aware required claim
+
+The old rule required a literal `repository` claim, which only fits GitHub. The
+requirement is now **provider-aware**: a binding must constrain at least one
+**strong identifying claim** appropriate to the configured issuer. Which claim
+counts as strong depends on the issuer:
+
+| Issuer | Required strong claim | Recommended extra narrowing |
+|---|---|---|
+| `https://token.actions.githubusercontent.com` (GitHub) | `repository` | `environment`, `ref` |
+| `https://gitlab.com` (GitLab) | `project_path` | `ref`, `ref_type`, `environment` |
+| `https://agent.buildkite.com` (Buildkite) | `organization_slug` | `pipeline_slug`, `build_branch` |
+| `https://oidc.circleci.com/org/<ORG_ID>` (CircleCI) | `oidc.circleci.com/project-id` (or `aud`) | project/context claims |
+| any other / self-hosted / custom | *any single non-empty match claim* | — |
+
+For an unknown or self-hosted issuer, the rule falls back to "at least one
+non-empty match claim is required" — a claim-less binding is always rejected.
 
 ### Safety rules (non-negotiable)
 
-- **`repository` is required** on every binding — an owner-wide or claim-less
-  binding is rejected at config time.
+- **A strong identifying claim is required** on every binding (provider-aware,
+  per the table above) — an owner-wide or claim-less binding is rejected at
+  config time. Empty match-claim *values* are also rejected (they would match
+  tokens that lack the claim entirely).
 - **Exactly one binding must match.** Zero or multiple → denied. There is no
   "most-specific wins" resolution; ambiguity is an admin error.
 - **Audience is required and exact-matched.**
@@ -162,5 +194,100 @@ The binding for this workflow would be, for example:
   "access": "read",
   "ttl_seconds": 900,
   "enabled": true
+}
+```
+
+## GitLab CI/CD example
+
+- **Issuer:** `https://gitlab.com` (or your self-hosted GitLab base URL).
+- **Audience:** whatever Janus is configured to require (e.g. `janus`).
+- **Bind:** `project_path` (GitLab's `org/group/project`), optionally narrowed by
+  `ref` / `ref_type` / `environment`.
+
+GitLab injects an ID token when you declare it in `id_tokens`:
+
+```yaml
+deploy:
+  id_tokens:
+    JANUS_JWT:
+      aud: janus            # must equal Janus's configured audience
+  script:
+    - >
+      TOKEN=$(curl -sS -X POST https://janus.internal/v1/auth/oidc/federate
+      -H 'Content-Type: application/json'
+      -d "{\"token\":\"$JANUS_JWT\"}" | jq -r '.token')
+    - JANUS_TOKEN="$TOKEN" janus run -- ./deploy.sh
+```
+
+Binding:
+
+```json
+{
+  "name": "gitlab-prod",
+  "match_claims": { "project_path": "acme/atlas-api", "ref": "main" },
+  "scope_kind": "config", "scope_id": "<prod config id>",
+  "access": "read", "ttl_seconds": 900, "enabled": true
+}
+```
+
+## Buildkite example
+
+- **Issuer:** `https://agent.buildkite.com`.
+- **Audience:** Janus's configured audience.
+- **Bind:** `organization_slug`, and recommend also binding `pipeline_slug`.
+
+Buildkite mints an OIDC token via `buildkite-agent`:
+
+```yaml
+steps:
+  - command: |
+      JWT=$(buildkite-agent oidc request-token --audience janus)
+      TOKEN=$(curl -sS -X POST https://janus.internal/v1/auth/oidc/federate \
+        -H 'Content-Type: application/json' \
+        -d "{\"token\":\"$JWT\"}" | jq -r '.token')
+      JANUS_TOKEN="$TOKEN" janus run -- ./deploy.sh
+```
+
+Binding:
+
+```json
+{
+  "name": "buildkite-deploy",
+  "match_claims": { "organization_slug": "acme", "pipeline_slug": "atlas-deploy" },
+  "scope_kind": "config", "scope_id": "<prod config id>",
+  "access": "read", "ttl_seconds": 900, "enabled": true
+}
+```
+
+## CircleCI example
+
+- **Issuer:** `https://oidc.circleci.com/org/<ORG_ID>` — org-specific; get
+  `<ORG_ID>` from Organization Settings.
+- **Audience:** by default CircleCI sets `aud` to your organization ID; configure
+  Janus's audience to match (or a custom audience if you set one).
+- **Bind:** `oidc.circleci.com/project-id` (the project's UUID), or narrow by
+  context/VCS claims.
+
+CircleCI exposes the token as `$CIRCLE_OIDC_TOKEN`:
+
+```yaml
+jobs:
+  deploy:
+    steps:
+      - run: |
+          TOKEN=$(curl -sS -X POST https://janus.internal/v1/auth/oidc/federate \
+            -H 'Content-Type: application/json' \
+            -d "{\"token\":\"$CIRCLE_OIDC_TOKEN\"}" | jq -r '.token')
+          JANUS_TOKEN="$TOKEN" janus run -- ./deploy.sh
+```
+
+Binding:
+
+```json
+{
+  "name": "circleci-deploy",
+  "match_claims": { "oidc.circleci.com/project-id": "00000000-0000-0000-0000-000000000000" },
+  "scope_kind": "config", "scope_id": "<prod config id>",
+  "access": "read", "ttl_seconds": 900, "enabled": true
 }
 ```

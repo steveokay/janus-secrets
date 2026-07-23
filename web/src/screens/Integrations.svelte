@@ -7,6 +7,7 @@
   import { listAllSyncs } from '../lib/ops'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
+  import { federationProviders, providerForIssuer, bindingClaimSummary } from '../lib/federation'
 
   let oidc = $state<OIDCProviderView | null>(null)
   let fed = $state<FederationConfigView | null>(null)
@@ -25,14 +26,25 @@
 
   /* federation form */
   let editFed = $state(false)
+  let fProvider = $state('github')
   let fIssuer = $state('https://token.actions.githubusercontent.com')
   let fAudience = $state('')
   let fError = $state('')
 
+  // The provider active for the currently-saved config (drives claim labels).
+  const activeProvider = $derived(providerForIssuer(fed?.issuer ?? ''))
+
+  function pickProvider(id: string) {
+    fProvider = id
+    const p = federationProviders.find(x => x.id === id)
+    if (p && p.issuer) fIssuer = p.issuer
+    else if (p) fIssuer = '' // custom / CircleCI: admin supplies the URL
+  }
+
   /* binding form */
   let addingBinding = $state(false)
   let bName = $state('')
-  let bRepo = $state('')
+  let bClaim = $state('')
   let bScopeKind = $state<'config' | 'environment'>('config')
   let bScopeId = $state('')
   let bAccess = $state<'read' | 'readwrite'>('read')
@@ -124,12 +136,12 @@
     try {
       await api.createFederationBinding({
         name: bName.trim(),
-        match_claims: { repository: bRepo.trim() },
+        match_claims: { [activeProvider.claimKey]: bClaim.trim() },
         scope_kind: bScopeKind, scope_id: bScopeId,
         access: bAccess, ttl_seconds: bTtl, enabled: true,
       })
       addingBinding = false
-      bName = ''; bRepo = ''; bScopeId = ''
+      bName = ''; bClaim = ''; bScopeId = ''
       flash('Trust binding created.')
       await load()
     } catch (err) {
@@ -140,7 +152,7 @@
   async function removeBinding(b: FederationBindingView) {
     const ok = await dialog.confirm({
       title: `Delete trust binding ${b.name}?`,
-      body: `Workflows from ${b.match_claims.repository} can no longer federate.`,
+      body: `Workflows matching ${bindingClaimSummary(b.match_claims)} can no longer federate.`,
       confirmLabel: 'Delete binding',
       danger: true,
     })
@@ -208,14 +220,20 @@
   <!-- CI federation -->
   <section class="op-section rise" style="animation-delay: 60ms">
     <div class="section-head">
-      <h3>CI federation — GitHub Actions</h3>
-      <span class="folio">exchange a workflow OIDC JWT for a short-lived scoped token · no long-lived secret in CI</span>
+      <h3>CI federation</h3>
+      <span class="folio">exchange a workflow OIDC JWT for a short-lived scoped token · GitHub Actions · GitLab · Buildkite · CircleCI · one provider active at a time</span>
     </div>
     <div class="sheet card">
       {#if editFed}
         <form class="grid-form" onsubmit={saveFed}>
-          <label class="field"><span class="label">Issuer</span><input class="input mono" bind:value={fIssuer} required /></label>
-          <label class="field"><span class="label">Audience</span><input class="input mono" bind:value={fAudience} placeholder="https://janus.company.dev" required /></label>
+          <label class="field"><span class="label">Provider</span>
+            <select class="select" value={fProvider} onchange={(e) => pickProvider((e.currentTarget as HTMLSelectElement).value)}>
+              {#each federationProviders as p}<option value={p.id}>{p.label}</option>{/each}
+            </select>
+          </label>
+          <label class="field"><span class="label">Issuer</span><input class="input mono" bind:value={fIssuer} placeholder="https://oidc.circleci.com/org/ORG_ID" required /></label>
+          <label class="field wide"><span class="label">Audience</span><input class="input mono" bind:value={fAudience} placeholder="https://janus.company.dev" required /></label>
+          <p class="folio wide">Bind the <span class="mono">{federationProviders.find(p => p.id === fProvider)?.claimKey}</span> claim for this provider to identify trusted pipelines.</p>
           {#if fError}<p class="error wide">{fError}</p>{/if}
           <div class="form-actions wide">
             <button class="btn btn-ghost" type="button" onclick={() => (editFed = false)}>Cancel</button>
@@ -225,42 +243,42 @@
       {:else if fed}
         <div class="row">
           <div>
-            <span class="t-name">Federation <span class="pill" class:pill-info={fed.enabled} class:pill-neutral={!fed.enabled}>{fed.enabled ? 'active' : 'off'}</span></span>
+            <span class="t-name">{activeProvider.label} <span class="pill" class:pill-info={fed.enabled} class:pill-neutral={!fed.enabled}>{fed.enabled ? 'active' : 'off'}</span></span>
             <span class="folio mono">{fed.issuer} · aud {fed.audience}</span>
           </div>
-          <button class="btn btn-sm" onclick={() => { editFed = true; fIssuer = fed!.issuer; fAudience = fed!.audience }}>Edit</button>
+          <button class="btn btn-sm" onclick={() => { editFed = true; fProvider = activeProvider.id; fIssuer = fed!.issuer; fAudience = fed!.audience }}>Edit</button>
         </div>
       {:else}
         <div class="row">
           <span class="folio">Not configured — CI must use long-lived service tokens.</span>
-          <button class="btn btn-sm" onclick={() => (editFed = true)}>Configure</button>
+          <button class="btn btn-sm" onclick={() => { editFed = true; pickProvider('github') }}>Configure</button>
         </div>
       {/if}
 
       {#if fed}
         <table class="ledger bindings">
           <thead>
-            <tr><th>Trust binding</th><th>Repository claim</th><th>Scope</th><th style="width:90px">Access</th><th style="width:80px">TTL</th><th style="width:90px"></th></tr>
+            <tr><th>Trust binding</th><th>{activeProvider.claimLabel} claim</th><th>Scope</th><th style="width:90px">Access</th><th style="width:80px">TTL</th><th style="width:90px"></th></tr>
           </thead>
           <tbody>
             {#each bindings as b (b.id)}
               <tr>
                 <td class="t-name">{b.name}</td>
-                <td class="mono small">{b.match_claims.repository}</td>
+                <td class="mono small">{bindingClaimSummary(b.match_claims)}</td>
                 <td class="mono small">{b.scope_kind === 'config' ? registry.configLabel(b.scope_id) : b.scope_id}</td>
                 <td><span class="pill pill-neutral">{b.access}</span></td>
                 <td class="folio">{Math.round(b.ttl_seconds / 60)}m</td>
                 <td class="row-actions"><button class="btn btn-ghost btn-sm del-btn" onclick={() => removeBinding(b)}>Delete</button></td>
               </tr>
             {:else}
-              <tr><td colspan="6" class="folio">No trust bindings — a workflow cannot federate until one matches its repository.</td></tr>
+              <tr><td colspan="6" class="folio">No trust bindings — a workflow cannot federate until one matches its {activeProvider.claimLabel.toLowerCase()}.</td></tr>
             {/each}
           </tbody>
         </table>
         {#if addingBinding}
           <form class="grid-form binding-form" onsubmit={addBinding}>
             <label class="field"><span class="label">Name</span><input class="input" bind:value={bName} placeholder="atlas-ci" required /></label>
-            <label class="field"><span class="label">Repository</span><input class="input mono" bind:value={bRepo} placeholder="acme/atlas-api" required /></label>
+            <label class="field"><span class="label">{activeProvider.claimLabel} <span class="folio mono">({activeProvider.claimKey})</span></span><input class="input mono" bind:value={bClaim} placeholder={activeProvider.claimExample} required /></label>
             <label class="field"><span class="label">Scope kind</span>
               <select class="select" bind:value={bScopeKind}><option value="config">config</option><option value="environment">environment</option></select>
             </label>

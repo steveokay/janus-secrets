@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -11,10 +12,91 @@ import (
 )
 
 const (
-	defaultFederationIssuer = "https://token.actions.githubusercontent.com"
+	// Well-known CI OIDC issuer URLs. GitHub Actions is the default; GitLab.com
+	// and Buildkite have fixed issuers. CircleCI's issuer is org-specific
+	// (https://oidc.circleci.com/org/<ORG_ID>) so it has no fixed constant here.
+	issuerGitHubActions = "https://token.actions.githubusercontent.com"
+	issuerGitLabCom     = "https://gitlab.com"
+	issuerBuildkite     = "https://agent.buildkite.com"
+	issuerCircleCIBase  = "https://oidc.circleci.com/org/"
+
+	defaultFederationIssuer = issuerGitHubActions
 	federationMaxTTL        = time.Hour
 	federationDefaultTTL    = 15 * time.Minute
 )
+
+// issuerRequiredClaims maps a known CI OIDC issuer to the strong identifying
+// claim key(s) a trust binding MUST constrain. A binding must set at least one
+// of the listed claims (to a non-empty value); this is the provider-aware
+// replacement for the old hardcoded "repository" rule. Issuers not listed here
+// (self-hosted GitLab, custom providers, or CircleCI's org-specific issuer)
+// fall back to requiring at least one non-empty match claim of any kind.
+var issuerRequiredClaims = map[string][]string{
+	issuerGitHubActions: {"repository"},
+	issuerGitLabCom:     {"project_path"},
+	issuerBuildkite:     {"organization_slug"},
+}
+
+// requiredClaimsForIssuer returns the acceptable strong-claim keys for the
+// configured issuer. For a self-hosted GitLab base URL we still require
+// project_path; for CircleCI's org-scoped issuer we require its org identifier;
+// otherwise (unknown/custom issuer) we return nil, signalling the caller to
+// fall back to "at least one non-empty match claim of any kind".
+func requiredClaimsForIssuer(issuer string) []string {
+	issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+	if issuer == "" {
+		issuer = strings.TrimRight(defaultFederationIssuer, "/")
+	}
+	if keys, ok := issuerRequiredClaims[issuer]; ok {
+		return keys
+	}
+	// CircleCI: issuer is https://oidc.circleci.com/org/<ORG_ID>. Bindings must
+	// constrain the org/project identity.
+	if strings.HasPrefix(issuer+"/", issuerCircleCIBase) {
+		return []string{"oidc.circleci.com/project-id", "aud"}
+	}
+	// Self-hosted GitLab: no fixed host, but GitLab always emits project_path.
+	// We can't distinguish it from an arbitrary custom issuer by URL alone, so
+	// unknown issuers fall through to the "any non-empty claim" rule below.
+	return nil
+}
+
+// bindingHasStrongClaim reports whether the binding's match_claims constrain a
+// strong identifying claim appropriate to the configured issuer. When the
+// issuer has a known required-claim set, at least one of those keys must be
+// present with a non-empty value. For unknown/custom issuers, any single
+// non-empty match claim satisfies the rule (empty-value rejection is enforced
+// separately by the caller).
+func bindingHasStrongClaim(issuer string, claims map[string]string) bool {
+	required := requiredClaimsForIssuer(issuer)
+	if len(required) == 0 {
+		// Custom issuer: any non-empty match claim is a sufficient constraint.
+		for _, v := range claims {
+			if strings.TrimSpace(v) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	for _, k := range required {
+		if strings.TrimSpace(claims[k]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// validFederationIssuer reports whether s is a well-formed absolute URL with an
+// http(s) scheme and a host (an empty string is allowed by the caller and
+// defaults to GitHub Actions). Real CI issuers are https; http is permitted so a
+// self-hosted / loopback IdP (and the test harness) is not rejected outright.
+func validFederationIssuer(s string) bool {
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil {
+		return false
+	}
+	return (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+}
 
 // FederationConfigInput is the (single) trust-provider configuration used to
 // verify federated CI identity tokens (e.g. GitHub Actions OIDC).
@@ -82,6 +164,9 @@ func (s *Service) SetFederationConfig(ctx context.Context, in FederationConfigIn
 	if issuer == "" {
 		issuer = defaultFederationIssuer
 	}
+	if !validFederationIssuer(issuer) {
+		return ErrValidation // must be an absolute https URL
+	}
 	if err := s.oidcFedConfig.Put(ctx, store.OIDCFederationConfig{
 		Issuer: issuer, Audience: in.Audience, Enabled: in.Enabled,
 	}); err != nil {
@@ -113,24 +198,35 @@ func (s *Service) DeleteFederationConfig(ctx context.Context) error {
 	return nil
 }
 
-// CreateFederationBinding validates and creates a claim-match binding. A
-// "repository" match claim is mandatory (the minimum condition for a usable
-// CI-identity binding); scope must reference an existing config or
-// environment; TTL defaults to federationDefaultTTL and is capped at
+// CreateFederationBinding validates and creates a claim-match binding. The
+// binding must constrain at least one strong identifying claim appropriate to
+// the configured issuer (provider-aware, e.g. "repository" for GitHub Actions,
+// "project_path" for GitLab, "organization_slug" for Buildkite; any non-empty
+// claim for an unknown/custom issuer). Scope must reference an existing config
+// or environment; TTL defaults to federationDefaultTTL and is capped at
 // federationMaxTTL.
 func (s *Service) CreateFederationBinding(ctx context.Context, in FederationBindingInput) (*FederationBindingView, error) {
 	if strings.TrimSpace(in.Name) == "" {
 		return nil, ErrValidation
 	}
-	if strings.TrimSpace(in.MatchClaims["repository"]) == "" {
-		return nil, ErrValidation // repository condition is mandatory
-	}
-	// Reject empty match-claim values: an empty want would match tokens that
-	// LACK that claim entirely, silently broadening the binding.
+	// Reject empty match-claim values first: an empty want would match tokens
+	// that LACK that claim entirely, silently broadening the binding.
 	for _, v := range in.MatchClaims {
 		if strings.TrimSpace(v) == "" {
 			return nil, ErrValidation
 		}
+	}
+	// The binding must constrain a strong identifying claim for the configured
+	// issuer. Resolve the currently-configured issuer (default GitHub Actions if
+	// none set) and apply the provider-aware required-claim rule.
+	issuer := defaultFederationIssuer
+	if c, err := s.oidcFedConfig.Get(ctx); err == nil {
+		issuer = c.Issuer
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	if !bindingHasStrongClaim(issuer, in.MatchClaims) {
+		return nil, ErrValidation // no strong identifying claim for this issuer
 	}
 	if in.Access != "read" && in.Access != "readwrite" {
 		return nil, ErrValidation
