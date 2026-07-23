@@ -72,6 +72,9 @@ type BootConfig struct {
 	// MetricsToken, when non-empty, enables GET /metrics gated by this static
 	// bearer token (cmd/janus reads JANUS_METRICS_TOKEN). Empty → /metrics 404s.
 	MetricsToken string
+	// BreakGlassMaxTTL clamps a break-glass grant's requested TTL (cmd/janus
+	// reads JANUS_BREAKGLASS_MAX_TTL). Zero → the api package default (1h).
+	BreakGlassMaxTTL time.Duration
 	// UnusedSecretDays is the advisory "not read in N days" threshold for
 	// unused-secret detection (cmd/janus reads JANUS_UNUSED_SECRET_DAYS). Zero or
 	// negative → the secrets service default (90 days). Purely advisory.
@@ -166,7 +169,10 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	authSvc := auth.NewService(st, kr)
 	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)
 	authSvc.SetLockoutPolicy(bc.Lockout)
-	authorizer := authz.New(store.NewRoleBindingRepo(st))
+	// The authorizer overlays active break-glass grants on the bound role, so
+	// wire the grant store from the start.
+	authorizer := authz.New(store.NewRoleBindingRepo(st)).
+		WithGrants(store.NewBreakGlassRepo(st))
 	auditRec := audit.New(store.NewAuditRepo(st))
 	rotationSvc := rotation.New(kr, st, svc, auditRec, logger)
 	syncSvc := secretsync.New(kr, st, svc, auditRec, logger)
@@ -183,6 +189,10 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if err := reconcileInstanceOwner(ctx, st, authorizer, logger); err != nil {
 		logger.Warn("instance-owner reconciliation failed", "err", err)
 	}
+	// Sweep break-glass grants that lapsed by expiry while the server was down:
+	// mark them ended (cosmetic — the authz overlay already ignores expired grants
+	// by timestamp) and emit a loud breakglass.expire audit event per grant.
+	sweepExpiredBreakGlass(ctx, st, auditRec, logger)
 	srv := New(Config{
 		ListenAddr:        bc.ListenAddr,
 		SealType:          sealType,
@@ -196,6 +206,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		SyncTick:          bc.SyncTick,
 		DynamicTick:       bc.DynamicTick,
 		MetricsToken:      bc.MetricsToken,
+		BreakGlassMaxTTL:  bc.BreakGlassMaxTTL,
 		TLS:               bc.TLS,
 	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
@@ -237,6 +248,48 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		}
 	}
 	return srv, st, nil
+}
+
+// sweepExpiredBreakGlass marks any grants that lapsed by expiry as ended and
+// emits a breakglass.expire audit event per grant. Best-effort: failures are
+// logged, never fatal (the overlay ignores expired grants regardless). The
+// expire events are value-free (role + resource path only).
+func sweepExpiredBreakGlass(ctx context.Context, st *store.Store, rec *audit.Recorder, logger *slog.Logger) {
+	swept, err := store.NewBreakGlassRepo(st).SweepExpired(ctx, time.Now())
+	if err != nil {
+		logger.Warn("break-glass expiry sweep failed", "err", err)
+		return
+	}
+	for _, g := range swept {
+		if rec == nil {
+			continue
+		}
+		if aerr := rec.Record(ctx, audit.Event{
+			Actor:    audit.Actor{Kind: "system", Name: "breakglass"},
+			Action:   "breakglass.expire",
+			Resource: breakGlassGrantAuditResource(g),
+			Detail:   "role=" + g.ElevatedRole,
+			Result:   "success",
+		}); aerr != nil {
+			logger.Warn("break-glass expire audit failed", "err", aerr, "grant", g.ID)
+		}
+	}
+}
+
+// breakGlassGrantAuditResource renders a value-free resource path from a stored
+// grant (mirrors breakGlassAuditResource, which works from the request body).
+func breakGlassGrantAuditResource(g *store.BreakGlassGrant) string {
+	switch g.ScopeLevel {
+	case "project":
+		if g.ProjectID != nil {
+			return "break-glass/project/" + *g.ProjectID
+		}
+	case "environment":
+		if g.EnvironmentID != nil {
+			return "break-glass/environment/" + *g.EnvironmentID
+		}
+	}
+	return "break-glass/instance"
 }
 
 // reconcileInstanceOwner grants the oldest user instance owner when users exist

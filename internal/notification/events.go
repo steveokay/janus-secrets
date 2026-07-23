@@ -16,15 +16,17 @@ import (
 // derived from (audit action, result); the raw audit action strings are an
 // internal detail.
 const (
-	EventRotationFailed   = "rotation.failed"
-	EventSyncFailed       = "sync.failed"
-	EventPromotionPending = "promotion.pending"
-	EventAccessDenied     = "access.denied"
+	EventRotationFailed      = "rotation.failed"
+	EventSyncFailed          = "sync.failed"
+	EventPromotionPending    = "promotion.pending"
+	EventAccessDenied        = "access.denied"
+	EventBreakGlassActivated = "breakglass.activated"
 )
 
 // KnownEventKinds is the set a channel may subscribe to (validated on write).
 var KnownEventKinds = []string{
 	EventRotationFailed, EventSyncFailed, EventPromotionPending, EventAccessDenied,
+	EventBreakGlassActivated,
 }
 
 func isKnownKind(k string) bool { return slices.Contains(KnownEventKinds, k) }
@@ -34,6 +36,12 @@ func isKnownKind(k string) bool { return slices.Contains(KnownEventKinds, k) }
 // "denied") plus the specific failure/pending signals.
 func classify(a store.AuditRow) string {
 	switch {
+	// Break-glass activation is the loudest event in the system: forward every
+	// successful elevation so humans are alerted immediately. Checked before the
+	// denied catch-all (an activation is a success, so order is moot, but keep it
+	// first for prominence).
+	case a.Action == "breakglass.activate" && a.Result == "success":
+		return EventBreakGlassActivated
 	case a.Result == "denied":
 		return EventAccessDenied
 	case a.Action == "rotation.rotate" && a.Result == "failure":

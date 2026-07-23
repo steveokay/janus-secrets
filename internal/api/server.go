@@ -59,6 +59,9 @@ type Config struct {
 	// MetricsToken, when non-empty, enables the /metrics endpoint gated by this
 	// static bearer token. Empty → /metrics returns 404.
 	MetricsToken string
+	// BreakGlassMaxTTL is the ceiling a break-glass grant's requested TTL is
+	// clamped to (JANUS_BREAKGLASS_MAX_TTL). Zero → New applies the 1h default.
+	BreakGlassMaxTTL time.Duration
 	// TLS configures the native HTTPS listener. Zero value → plain HTTP (TLS is
 	// delegated to a reverse proxy, the historical default).
 	TLS TLSConfig
@@ -160,6 +163,11 @@ type Server struct {
 	auth         *auth.Service   // nil only in unit tests that exercise no auth path
 	authz        *authz.Engine   // nil only in unit-test servers that exercise no authz path
 	st           *store.Store    // for scope-chain resolution + membership/user handlers
+	// breakGlass persists time-boxed emergency role elevations. Wired in New from
+	// the store; nil in unit-test servers built without a real store (the
+	// /break-glass routes are then not mounted).
+	breakGlass       *store.BreakGlassRepo
+	breakGlassMaxTTL time.Duration
 	audit        *audit.Recorder // nil in unit-test servers; Boot always wires a real one
 	logger       *slog.Logger
 	router       chi.Router
@@ -226,6 +234,16 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// unit-test servers built without a real store.
 	if kr != nil && st != nil {
 		s.notification = notification.New(kr, st, store.NewAuditRepo(st), logger)
+	}
+	// Break-glass grants: available whenever a real store is wired. The overlay
+	// on the authz engine is wired in Boot; these routes let operators activate,
+	// list, and revoke grants.
+	if st != nil {
+		s.breakGlass = store.NewBreakGlassRepo(st)
+	}
+	s.breakGlassMaxTTL = cfg.BreakGlassMaxTTL
+	if s.breakGlassMaxTTL <= 0 {
+		s.breakGlassMaxTTL = time.Hour
 	}
 
 	r := chi.NewRouter()
@@ -542,6 +560,18 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/metrics/reads-24h", s.handleMetricsReads)
 			r.Get("/v1/projects/{pid}/metrics/reads-24h", s.handleProjectMetricsReads)
 		})
+		// Break-glass: guarded self-service emergency role elevation. Any
+		// authenticated user may reach these; the activation guard (must already
+		// hold a role on the scope, target must be strictly higher) is enforced
+		// in-handler. Mounted when the repo is wired (real store).
+		if s.breakGlass != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAuth(s.auth))
+				r.Post("/v1/break-glass", s.handleBreakGlassActivate)
+				r.Get("/v1/break-glass", s.handleBreakGlassList)
+				r.Delete("/v1/break-glass/{id}", s.handleBreakGlassRevoke)
+			})
+		}
 		// Global key-name search. Any authenticated principal; results are
 		// authz-filtered per config (deny-by-default) inside the handler.
 		r.Route("/v1/search", func(r chi.Router) {

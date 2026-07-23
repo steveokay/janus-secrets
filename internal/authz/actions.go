@@ -95,3 +95,11 @@ func ValidRole(s string) bool { _, ok := roleRank[Role(s)]; return ok }
 
 // RoleAtLeast reports whether role a ranks >= role b.
 func RoleAtLeast(a, b Role) bool { return roleRank[a] >= roleRank[b] }
+
+// RoleRankOf returns a role's numeric privilege rank (0 for an unknown role).
+// Higher is more privileged: viewer=1 < developer=2 < admin=3 < owner=4.
+func RoleRankOf(r Role) int { return roleRank[r] }
+
+// RoleStrictlyAbove reports whether role a ranks strictly higher than role b.
+// Used by the break-glass guard: the target must exceed the currently-held role.
+func RoleStrictlyAbove(a, b Role) bool { return roleRank[a] > roleRank[b] }

@@ -22,6 +22,9 @@ func TestClassify(t *testing.T) {
 		{"promotion pending", store.AuditRow{Action: "promotion.request.create", Result: "success"}, EventPromotionPending},
 		{"login success ignored", store.AuditRow{Action: "auth.login", Result: "success"}, ""},
 		{"reveal ignored", store.AuditRow{Action: "secret.reveal", Result: "success"}, ""},
+		{"breakglass activate", store.AuditRow{Action: "breakglass.activate", Result: "success"}, EventBreakGlassActivated},
+		{"breakglass revoke ignored", store.AuditRow{Action: "breakglass.revoke", Result: "success"}, ""},
+		{"breakglass activate denied → denied", store.AuditRow{Action: "breakglass.activate", Result: "denied"}, EventAccessDenied},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
