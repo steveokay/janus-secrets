@@ -438,6 +438,13 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Delete("/v1/configs/{cid}/secrets/{key}", s.handleSecretDelete)
 		})
 		r.Group(func(r chi.Router) {
+			// Advisory secret max-age / expiry policy (value-free metadata).
+			r.Use(RequireAuth(s.auth))
+			r.Get("/v1/configs/{cid}/max-age", s.handleMaxAgeList)
+			r.Put("/v1/configs/{cid}/max-age", s.handleConfigMaxAgePut)
+			r.Put("/v1/configs/{cid}/secrets/{key}/max-age", s.handleKeyMaxAgePut)
+		})
+		r.Group(func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))
 			r.Get("/v1/configs/{cid}/versions", s.handleVersionList)
 			r.Get("/v1/configs/{cid}/versions/diff", s.handleVersionDiff)

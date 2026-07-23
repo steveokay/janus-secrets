@@ -73,12 +73,19 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 	}
 	masked := make(map[string]any, len(metas))
 	for _, m := range metas {
-		masked[m.Key] = map[string]any{
+		entry := map[string]any{
 			"value_version": m.ValueVersion,
 			"created_at":    m.CreatedAt.UTC().Format(time.RFC3339),
 			"origin":        m.Origin,
 			"type":          m.Type,
+			// Advisory max-age policy (see internal/secrets/max_age.go). Never
+			// blocks anything — the UI renders a stale chip from these fields.
+			"stale": m.Stale,
 		}
+		if m.MaxAgeSeconds != nil {
+			entry["max_age_seconds"] = *m.MaxAgeSeconds
+		}
+		masked[m.Key] = entry
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"secrets": masked})
 }

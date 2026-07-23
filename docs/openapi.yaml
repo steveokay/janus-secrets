@@ -1405,6 +1405,97 @@ paths:
                   key: { type: string }
                   locked: { type: boolean }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/max-age:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [secrets]
+      summary: List the config's advisory max-age policies (default under key "")
+      description: >
+        Advisory expiry policy. The config-level default is returned under the
+        empty-string key. Purely advisory — never blocks any operation. Requires
+        secret:read. Reads are not audited.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policies:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string, description: 'secret key, or "" for the config default' }
+                        max_age_seconds: { type: integer, format: int64 }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [secrets]
+      summary: Set or clear the config DEFAULT advisory max-age
+      description: >
+        Sets the config-level default max-age (applies to any key without a
+        per-key override). Send max_age_seconds null to clear. Requires
+        secret:write; emits a value-free audit event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                max_age_seconds:
+                  type: integer
+                  format: int64
+                  nullable: true
+                  description: positive seconds to set, or null to clear
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  max_age_seconds: { type: integer, format: int64, nullable: true }
+        "400": { description: Validation error (non-positive or malformed). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/secrets/{key}/max-age:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [secrets]
+      summary: Set or clear a PER-KEY advisory max-age override
+      description: >
+        Per-key override of the config default advisory max-age. Send
+        max_age_seconds null to clear the override (falling back to the config
+        default). Requires secret:write; emits a value-free audit event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                max_age_seconds:
+                  type: integer
+                  format: int64
+                  nullable: true
+                  description: positive seconds to set, or null to clear
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  max_age_seconds: { type: integer, format: int64, nullable: true }
+        "400": { description: Validation error (non-positive or malformed). }
+        "403": { $ref: '#/components/responses/Forbidden' }
   /v1/configs/{cid}/versions:
     parameters:
       - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }

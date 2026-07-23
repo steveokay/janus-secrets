@@ -20,6 +20,45 @@ export function relTime(isoStr: string | null | undefined): string {
   return new Date(isoStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+/* Humanize a max-age duration (whole seconds) for the advisory expiry chips.
+   Whole days render as "90d"; otherwise falls back to hours/minutes. */
+export function humanizeDuration(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`
+  if (seconds % 60 === 0) return `${seconds / 60}m`
+  return `${seconds}s`
+}
+
+/* Parse a human max-age into whole seconds, mirroring the CLI parseMaxAge:
+   Go durations (e.g. "2160h", "30m") plus day "<n>d" / week "<n>w" suffixes.
+   Returns null on an invalid or non-positive value. */
+export function parseDurationToSeconds(input: string): number | null {
+  const s = input.trim()
+  if (!s) return null
+  const suffix = s.slice(-1)
+  const numPart = s.slice(0, -1)
+  if (suffix === 'd' || suffix === 'w') {
+    const n = Number(numPart)
+    if (!Number.isFinite(n)) return null
+    const secs = Math.round(n * (suffix === 'd' ? 86_400 : 604_800))
+    return secs > 0 ? secs : null
+  }
+  // Go-style compound duration: sum of <num><unit> parts (h/m/s).
+  const re = /(\d+(?:\.\d+)?)([hms])/g
+  let total = 0
+  let matched = false
+  let m: RegExpExecArray | null
+  while ((m = re.exec(s)) !== null) {
+    matched = true
+    const n = Number(m[1])
+    total += n * (m[2] === 'h' ? 3_600 : m[2] === 'm' ? 60 : 1)
+  }
+  // Reject stray characters (anything not consumed by the unit grammar).
+  if (!matched || s.replace(/(\d+(?:\.\d+)?)([hms])/g, '').trim() !== '') return null
+  const secs = Math.round(total)
+  return secs > 0 ? secs : null
+}
+
 export function stampDate(isoStr: string | null | undefined): string {
   if (!isoStr) return '—'
   return new Date(isoStr)

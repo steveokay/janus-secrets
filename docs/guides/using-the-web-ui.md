@@ -35,8 +35,8 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 - **Day / Night** in the top bar switches Daylight ↔ Nightwatch, persisted
   per browser.
 - The **Overview** in-tray surfaces what needs a human: failing rotations,
-  sync errors, leases about to expire, denied requests. An empty tray means
-  the schedulers are healthy.
+  sync errors, leases about to expire, denied requests, and secrets past
+  their advisory max-age. An empty tray means the schedulers are healthy.
 - **Chain verified** in the top bar re-checks the audit hash chain on every
   load; if it ever reports broken, stop and investigate — that is tamper
   evidence, not a glitch.
@@ -52,6 +52,7 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 | validate / pretty-print a JSON or PEM value | editor → edit the value — a format badge + check appears under the textarea (advisory; never blocks saving) |
 | move config values between envs | drag the tile, or the editor's *Promote →* ([guide](promoting-environments.md)) |
 | paste an existing `.env` | editor → *Import…* ([guide](import-export.md)) |
+| flag stale secrets by age | editor → per-row **Max-age** / toolbar config default (advisory; never blocks — [guide](managing-secrets.md#max-age--expiry-advisory)) |
 | mint a machine token | Service tokens ([guide](service-tokens.md)) |
 | give a teammate access | Members ([guide](members-and-rbac.md)) |
 | set up SSO or keyless CI | Integrations ([guide](sso-and-federation.md)) |

@@ -265,6 +265,54 @@ janus secrets unlock DATABASE_URL   # clear the protection
 
 See [Promotion & approvals](#promotion--approvals) below.
 
+### Max-age / expiry (advisory)
+
+Rotation handles secrets that *should* rotate on a schedule; the max-age
+policy handles the softer question of "which static secrets have gone
+stale?". It is **purely advisory** — a max-age **never blocks** reads,
+writes, reveals, or anything else. It only lets Janus compute a
+"past max-age" signal from a key's **age** (`now − created_at` of its
+current value version) and surface it in the UI and the masked-secrets
+response.
+
+The **effective** max-age for a key is: its own per-key override if set,
+else the config-level default if set, else none (never stale). Set both
+with `janus secrets max-age`, which accepts Go durations (`2160h`,
+`30m`, `1h30m`) plus convenience day/week suffixes (`90d`, `2w`):
+
+```sh
+# Config default: flag any key older than 90 days as past max-age.
+janus secrets max-age set 90d
+
+# Per-key override: this key gets a tighter 30-day window.
+janus secrets max-age set 30d --key SESSION_SIGNING_KEY
+
+# Inspect the policies (the config default shows as "(config default)").
+janus secrets max-age get
+
+# Clear an override (falls back to the config default) or the default.
+janus secrets max-age clear --key SESSION_SIGNING_KEY
+janus secrets max-age clear
+```
+
+Setting or clearing a policy is a config write (requires `secret:write`,
+the same permission that guards editing secret values) and emits a
+value-free audit event (key name / config path / duration only — never a
+value). Reading the policy requires `secret:read`.
+
+The web editor renders a vermilion **"past max-age"** chip on each stale
+row and offers a per-row **Max-age** control plus a config-default
+control in the toolbar; the overview In tray surfaces an
+"N secrets past max-age" item when any config has stale keys. The masked
+list response (`GET /v1/configs/{cid}/secrets`) carries `stale` and the
+effective `max_age_seconds` per key. Policies live under:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/configs/{cid}/max-age` | list policies (default under key `""`) |
+| `PUT /v1/configs/{cid}/max-age` | set/clear the config default (`{"max_age_seconds": N\|null}`) |
+| `PUT /v1/configs/{cid}/secrets/{key}/max-age` | set/clear a per-key override |
+
 ## Versioning & rollback
 
 Janus versions every change at **two levels** so operators can answer

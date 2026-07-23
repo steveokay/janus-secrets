@@ -25,3 +25,18 @@ export async function listAllLeases(roles: DynamicRole[]): Promise<ApiLease[]> {
   const per = await Promise.all(roles.map(r => api.listLeases(r.id).catch(() => [])))
   return per.flat()
 }
+
+/* Advisory-max-age staleness across all configs. Fans out the masked-secrets
+   endpoint (which carries the per-key stale flag) once per config, tolerating
+   per-config 403s. Value-free: only counts, no secret material. */
+export async function countAllStaleKeys(projects: ViewProject[]): Promise<number> {
+  const cids = projects.flatMap(p => p.environments.flatMap(e => e.configs.map(c => c.id)))
+  const per = await Promise.all(
+    cids.map(cid =>
+      api.maskedSecrets(cid)
+        .then(secs => Object.values(secs).filter(m => m.stale).length)
+        .catch(() => 0),
+    ),
+  )
+  return per.reduce((a, n) => a + n, 0)
+}
