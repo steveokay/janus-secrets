@@ -16,6 +16,7 @@
   import Members from './screens/Members.svelte'
   import Transit from './screens/Transit.svelte'
   import Operations from './screens/Operations.svelte'
+  import Compare from './screens/Compare.svelte'
   import Settings from './screens/Settings.svelte'
   import Approvals from './screens/Approvals.svelte'
   import Trash from './screens/Trash.svelte'
@@ -74,6 +75,8 @@
       <Transit />
     {:else if router.path === '/operations'}
       <Operations />
+    {:else if router.path === '/compare'}
+      <Compare />
     {:else if router.path === '/settings'}
       <Settings />
     {:else if router.path === '/approvals'}

@@ -43,6 +43,32 @@ overwrite (`⚿` appears next to it). Locked keys show as disabled rows in
 every promotion diff. Typical use: prod-only values like `DATABASE_URL` that
 must not be clobbered by whatever dev has.
 
+## Cross-env diff (value-free compare)
+
+Promotion only diffs adjacent pipeline stages. To answer "why does staging
+differ from prod?" for **any** two configs, open **Cross-env diff** (sidebar
+under *Record*, or `Ctrl+K` → "Cross-env diff"). Pick two configs — from
+different environments, different projects, anywhere — and Compare.
+
+The result is **key-level and value-free**. For the union of keys across both
+configs, each row shows:
+
+- whether the key is present in **A**, in **B**, or both, and each side's
+  **origin** (own / inherited / overridden);
+- a status of **only A**, **only B**, **same**, or **differs** — where
+  *differs* means the key is in both configs but the resolved values are not
+  equal.
+
+**The values themselves are never shown, returned, or logged.** The server
+resolves both configs to plaintext in memory (the same reveal path the
+promotion preview uses), compares them, and returns only booleans. The screen
+has no reveal.
+
+Because comparing touches secret material on both sides, it requires **read
+access to both configs** — if you cannot read one of them you get a 403 and
+learn nothing about the other — and it records a single value-free
+`config.compare` audit event naming both config paths.
+
 ## Notes
 
 - A promotion is an ordinary immutable version on the target config —
