@@ -153,6 +153,15 @@ func runServer(ctx context.Context) error {
 		lockout.Max = lockout.Base
 	}
 
+	// Native TLS listener (optional). Static certs and ACME are mutually
+	// exclusive; validation is enforced in the api package at serve time, but we
+	// catch the both-halves-of-static-cert and both-modes cases early for a clear
+	// startup error.
+	tlsCfg, err := buildTLSConfig()
+	if err != nil {
+		return err
+	}
+
 	bc := api.BootConfig{
 		DatabaseURL:        dsn,
 		ListenAddr:         os.Getenv("JANUS_LISTEN_ADDR"), // "" → :8200 default
@@ -170,6 +179,7 @@ func runServer(ctx context.Context) error {
 		HTTPMaxBodyBytes:   httpMaxBody,
 		Lockout:            lockout,
 		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
+		TLS:                tlsCfg,
 
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {
 			arn := os.Getenv("JANUS_AWS_KMS_KEY_ARN")
@@ -195,7 +205,8 @@ func runServer(ctx context.Context) error {
 
 	logger.Info("janus server listening",
 		"addr", firstNonEmpty(os.Getenv("JANUS_LISTEN_ADDR"), ":8200"),
-		"seal_type", firstNonEmpty(os.Getenv("JANUS_SEAL_TYPE"), "(from storage)"))
+		"seal_type", firstNonEmpty(os.Getenv("JANUS_SEAL_TYPE"), "(from storage)"),
+		"serving", tlsMode(tlsCfg))
 	return srv.ListenAndServe(ctx)
 }
 
@@ -204,6 +215,51 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// buildTLSConfig reads the JANUS_TLS_* environment into an api.TLSConfig and
+// validates the static-cert / ACME constraints. All fields empty → plain HTTP
+// (TLS delegated to a reverse proxy, the historical default).
+//
+// Env vars:
+//   - JANUS_TLS_CERT / JANUS_TLS_KEY:        paths to a PEM cert/chain + key
+//     (both required together → static-cert HTTPS).
+//   - JANUS_TLS_ACME_DOMAINS:                comma-separated hostnames → ACME.
+//   - JANUS_TLS_ACME_EMAIL:                  optional ACME contact address.
+//   - JANUS_TLS_ACME_CACHE:                  cert cache dir (default ./.janus-acme).
+//   - JANUS_TLS_REDIRECT_HTTP:               addr (e.g. :80) for an HTTP→HTTPS
+//     301 redirect server (static-cert path only; off by default).
+func buildTLSConfig() (api.TLSConfig, error) {
+	cfg := api.TLSConfig{
+		CertFile:     strings.TrimSpace(os.Getenv("JANUS_TLS_CERT")),
+		KeyFile:      strings.TrimSpace(os.Getenv("JANUS_TLS_KEY")),
+		ACMEEmail:    strings.TrimSpace(os.Getenv("JANUS_TLS_ACME_EMAIL")),
+		ACMECache:    strings.TrimSpace(os.Getenv("JANUS_TLS_ACME_CACHE")),
+		RedirectHTTP: strings.TrimSpace(os.Getenv("JANUS_TLS_REDIRECT_HTTP")),
+	}
+	if v := strings.TrimSpace(os.Getenv("JANUS_TLS_ACME_DOMAINS")); v != "" {
+		for _, d := range strings.Split(v, ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				cfg.ACMEDomains = append(cfg.ACMEDomains, d)
+			}
+		}
+	}
+	if err := cfg.Validate(); err != nil {
+		return api.TLSConfig{}, fmt.Errorf("invalid JANUS_TLS_* configuration: %w", err)
+	}
+	return cfg, nil
+}
+
+// tlsMode returns a short human label for the startup log line.
+func tlsMode(cfg api.TLSConfig) string {
+	switch {
+	case cfg.IsACME():
+		return "https (acme)"
+	case cfg.IsStaticCerts():
+		return "https (static-cert)"
+	default:
+		return "http"
+	}
 }
 
 // buildLogger constructs the process slog.Logger from JANUS_LOG_LEVEL

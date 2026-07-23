@@ -12,10 +12,12 @@ HA/Raft clustering story (see the [non-goals](../../README.md#non-goals)).
 Run one `janus server` process against one Postgres instance; scale
 vertically, not horizontally.
 
-The server is **intentionally TLS-less**: it speaks plain HTTP and expects to
-sit behind a reverse proxy (Caddy, nginx, an ALB/NLB, etc.) that terminates
-TLS. Native TLS in the binary is a possible later milestone, not present
-today.
+By default the server speaks **plain HTTP** and expects to sit behind a
+reverse proxy (Caddy, nginx, an ALB/NLB, etc.) that terminates TLS — this is
+the recommended setup for most deployments. Small shops that want to run
+Janus directly on TLS can enable the **native TLS listener** (static certs or
+built-in ACME/Let's Encrypt) instead — see
+[§2.1 Native TLS](#21-native-tls-in-the-binary).
 
 The server **boots sealed**. The master key is not in memory until an
 operator (or KMS auto-unseal) unseals it; every secret-touching route
@@ -73,6 +75,44 @@ Janus doesn't use WebSockets or server push, so no `Upgrade`/`Connection`
 header handling is needed — the only streaming concern is the audit export
 endpoint, which is a plain long-lived HTTP response.
 
+### 2.1 Native TLS (in the binary)
+
+If you'd rather not run a reverse proxy, Janus can terminate TLS itself. All
+paths negotiate **TLS 1.2 or higher**. Two mutually exclusive modes; leaving
+all `JANUS_TLS_*` variables unset keeps the default plain-HTTP behaviour.
+
+**Static certificates** — point Janus at a PEM cert/chain and its key. Both
+`JANUS_TLS_CERT` and `JANUS_TLS_KEY` must be set together (setting only one is
+a fatal startup error):
+
+```bash
+JANUS_TLS_CERT=/etc/janus/tls/fullchain.pem
+JANUS_TLS_KEY=/etc/janus/tls/privkey.pem
+JANUS_LISTEN_ADDR=:8443
+# Optional: run a tiny HTTP→HTTPS 301 redirect server on :80.
+JANUS_TLS_REDIRECT_HTTP=:80
+```
+
+**ACME / Let's Encrypt** — Janus obtains and renews certificates automatically
+via `golang.org/x/crypto/acme/autocert`. Set the hostname(s) it is allowed to
+request certs for; the HTTP-01 challenge and an HTTP→HTTPS redirect are served
+on `:80`, so port 80 must be reachable from the internet:
+
+```bash
+JANUS_TLS_ACME_DOMAINS=janus.example.com          # comma-separated whitelist
+JANUS_TLS_ACME_EMAIL=ops@example.com              # optional ACME contact
+JANUS_TLS_ACME_CACHE=/var/lib/janus/acme          # cert cache dir (persist this!)
+JANUS_LISTEN_ADDR=:443
+```
+
+> Persist the ACME cache directory (`JANUS_TLS_ACME_CACHE`, default
+> `./.janus-acme`) across restarts — otherwise Janus re-requests certificates
+> on every boot and can hit Let's Encrypt rate limits.
+
+Static certs and ACME are mutually exclusive — configuring both is a fatal
+startup error. The startup log line reports which mode is active
+(`serving=http`, `serving=https (static-cert)`, or `serving=https (acme)`).
+
 ## 3. Configuration
 
 All server configuration is environment-only (no config file). These are the
@@ -85,6 +125,21 @@ All server configuration is environment-only (no config file). These are the
 | `JANUS_DATABASE_URL` | Postgres DSN. **Required** — the server refuses to start without it. | *(none — required)* |
 | `JANUS_LISTEN_ADDR` | HTTP listen address for `janus server`. | `:8200` |
 | `JANUS_ADDR` | Default server address used by the `janus` **client CLI** (`login`, `secrets`, etc.) when `--address` isn't passed. | *(none — must pass `--address` or set this)* |
+
+### Native TLS
+
+Optional. All unset → plain HTTP (TLS delegated to a reverse proxy). Static
+certs and ACME are mutually exclusive; see
+[§2.1 Native TLS](#21-native-tls-in-the-binary).
+
+| Name | Meaning | Default |
+|---|---|---|
+| `JANUS_TLS_CERT` | Path to a PEM certificate/chain. Must be set together with `JANUS_TLS_KEY` (only one → fatal error). | *(none)* |
+| `JANUS_TLS_KEY` | Path to the PEM private key for `JANUS_TLS_CERT`. | *(none)* |
+| `JANUS_TLS_ACME_DOMAINS` | Comma-separated hostname whitelist; enables ACME/Let's Encrypt cert provisioning. HTTP-01 challenge + redirect served on `:80`. | *(none)* |
+| `JANUS_TLS_ACME_EMAIL` | Optional ACME account contact address. | *(none)* |
+| `JANUS_TLS_ACME_CACHE` | Directory where issued certs are cached. **Persist this** across restarts. | `./.janus-acme` |
+| `JANUS_TLS_REDIRECT_HTTP` | Static-cert mode only: address (e.g. `:80`) for a tiny HTTP→HTTPS 301 redirect server. | *(none — off)* |
 
 ### Unseal / seal type
 

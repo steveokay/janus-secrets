@@ -70,6 +70,9 @@ type BootConfig struct {
 	// MetricsToken, when non-empty, enables GET /metrics gated by this static
 	// bearer token (cmd/janus reads JANUS_METRICS_TOKEN). Empty → /metrics 404s.
 	MetricsToken string
+	// TLS configures the optional native HTTPS listener (static certs or ACME).
+	// Zero value → plain HTTP (TLS delegated to a reverse proxy, the default).
+	TLS TLSConfig
 }
 
 // Boot opens the store, auto-migrates, resolves the seal configuration,
@@ -173,6 +176,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		SyncTick:         bc.SyncTick,
 		DynamicTick:      bc.DynamicTick,
 		MetricsToken:     bc.MetricsToken,
+		TLS:              bc.TLS,
 	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 

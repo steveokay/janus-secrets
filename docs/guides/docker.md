@@ -158,9 +158,11 @@ your infrastructure, not a drop-in production config. It differs from the
 shipped dev stack in three ways: a persistent Postgres volume with real
 credentials sourced from the host environment, `awskms` seal so the
 container auto-unseals on restart, and no hard-coded passwords in the
-file. Terminate TLS at a reverse proxy in front of this (Janus has no
-native TLS yet — see the security notes in
-[../operations.md](../operations.md#security-posture-and-current-caveats)).
+file. Terminate TLS at a reverse proxy in front of this, or enable Janus's
+native TLS listener (static certs or ACME via `JANUS_TLS_*` — see
+[production-deployment.md §2.1](production-deployment.md#21-native-tls-in-the-binary)).
+See also the security notes in
+[../operations.md](../operations.md#security-posture-and-current-caveats).
 
 ```yaml
 # ILLUSTRATIVE — adapt credentials, networking, and secrets management.
