@@ -43,7 +43,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 |---|---|---|
 | ~~**Dotenv/properties import**~~ **SHIPPED 2026-07-19** — Import… in the editor: paste or choose a `.env`/`.properties` file, preview with per-key selection (new / overwrite / invalid), stage into the dirty buffer, commit as one version | The first thing every migrating user does is re-key an existing `.env` by hand. | ~~S~~ |
 | ~~**Value generator** in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG "Gen" popover (password w/ symbols & exclude-ambiguous toggles / hex / base64 + length). | ~~S~~ |
-| **Unused-secret detection** — "not read in 90 days" chip from audit data, with a bulk-review view | Dead secrets are silent risk; all the data is already in `audit_events`. | M |
+| ~~**Unused-secret detection** — "not read in 90 days" chip from audit data~~ **SHIPPED 2026-07-23** — advisory per-key last-read from `secret.reveal` audit events; `last_read_at`+`unused` on the masked list, editor chip + Overview in-tray count, `JANUS_UNUSED_SECRET_DAYS` (default 90), migration 000029. Value-free. | ~~M~~ |
 | **Per-key read insights** — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
 | **Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked) | Promote covers adjacent stages; "why does staging behave differently from prod" needs an arbitrary diff. | M |
 | **Secret annotations** — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today; helps rotation triage. | M |
@@ -53,7 +53,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 | Feature | Why | Effort |
 |---|---|---|
-| **More sync providers**: GitLab CI variables, Cloudflare Workers secrets, Vercel/Netlify env, AWS SSM/Secrets Manager (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. Prioritize by demand. | M each |
+| **More sync providers**: ~~GitLab CI variables~~, Cloudflare Workers secrets, Vercel/Netlify env, ~~AWS SSM~~/Secrets Manager (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. **GitLab CI + AWS SSM Parameter Store SHIPPED 2026-07-23**; Cloudflare / Vercel / Netlify / AWS Secrets Manager remain. | M each |
 | **More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC | The trust-binding model generalizes; only issuer/claims mapping differs. | S each |
 | **Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost; a `janus import` command + wizard screen. | L |
 | ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
@@ -89,16 +89,18 @@ no HSM, no multi-tenancy, no FIPS claims.
 If I picked the next five, weighing leverage against effort (the earlier
 slates — dotenv import, metrics + health, notifications, session management +
 TOTP, global key search, JSON/PEM awareness, shortcuts help, first-run
-onboarding checklist — are all shipped):
+onboarding checklist, GitLab + AWS SSM sync, unused-secret detection — are all
+shipped):
 
-1. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the
-   provider-pluggable sync engine.
-2. **Unused-secret detection** (2.3) — the data is already in `audit_events`;
-   companion to the shipped max-age nags.
-3. **Cross-environment diff view** (2.5) — arbitrary key-level config drift.
-4. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — off-AWS adoption.
-5. **Token `last_used` / user `last_login` tracking** — stale-token warning +
+1. **Cross-environment diff view** (2.5) — arbitrary key-level config drift.
+2. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — off-AWS adoption.
+3. **Token `last_used` / user `last_login` tracking** — stale-token warning +
    "last login" column.
+4. **Even more sync providers** (3.1) — Cloudflare Workers / Vercel / Netlify /
+   AWS Secrets Manager on the now-4-provider engine.
+5. **Ops hardening bundle** — docker-compose limits + `JANUS_DB_*` pool tuning +
+   pg-backup guidance + `CONTRIBUTING.md`.
 
-(Native TLS listener, advisory secret max-age / expiry, and the first-run
-onboarding checklist all shipped 2026-07-23.)
+(Native TLS listener, advisory secret max-age / expiry, the first-run onboarding
+checklist, GitLab + AWS SSM sync providers, and unused-secret detection all
+shipped 2026-07-23.)
