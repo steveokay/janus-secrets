@@ -1,7 +1,7 @@
 <script lang="ts">
   import { registry } from '../lib/registry.svelte'
   import { api, errorMessage, type VersionMeta, type VersionDiff, type SecretChange, type KeyVersionMeta } from '../lib/api'
-  import { relTime, stampDate, isValidKey, isEnvVarKey, parseEnvOrProps, type ImportedEntry } from '../lib/util'
+  import { relTime, stampDate, isValidKey, isEnvVarKey, parseEnvOrProps, humanizeDuration, parseDurationToSeconds, type ImportedEntry } from '../lib/util'
   import { checkFormat, prettyJson } from '../lib/format'
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
@@ -19,6 +19,8 @@
     type?: string          // declared secret type (json/certificate/…) — a display hint
     valueVersion: number
     createdAt: string
+    maxAgeSeconds: number | null  // effective advisory max-age (null = no policy)
+    stale: boolean                // past effective max-age (advisory; never blocks)
     revealed: boolean
     value: string | null   // plaintext once revealed
     draft: string
@@ -42,6 +44,14 @@
   let importText = $state('')
   let importPicked = $state<Record<number, boolean>>({})
   let lockedKeys = $state<Set<string>>(new Set())
+  // Advisory max-age policy: keys with an explicit per-key override, and the
+  // config-level default (seconds, or null when unset). Never blocks anything.
+  let overriddenKeys = $state<Set<string>>(new Set())
+  let configDefaultMaxAge = $state<number | null>(null)
+  let maxAgeKeyFor = $state<string | null>(null)   // key whose max-age popover is open
+  let maxAgeDraft = $state('')
+  let showConfigMaxAge = $state(false)
+  let configMaxAgeDraft = $state('')
   let historyFor = $state<string | null>(null)
   let keyHistory = $state<KeyVersionMeta[]>([])
   let historicValues = $state<Record<number, string>>({})
@@ -68,13 +78,16 @@
     // absent the filter stays empty.
     filter = new URLSearchParams(window.location.search).get('key') ?? ''
     try {
-      const [masked, vers, users, locked] = await Promise.all([
+      const [masked, vers, users, locked, maxAge] = await Promise.all([
         api.maskedSecrets(cid),
         api.listVersions(cid),
         api.listUsers().catch(() => []),
         api.listLockedKeys(cid).catch(() => [] as string[]),
+        api.listMaxAge(cid).catch(() => []),
       ])
       lockedKeys = new Set(locked)
+      overriddenKeys = new Set(maxAge.filter(p => p.key !== '').map(p => p.key))
+      configDefaultMaxAge = maxAge.find(p => p.key === '')?.max_age_seconds ?? null
       userEmails = new Map(users.map(u => [u.id, u.email]))
       versions = vers.slice().sort((a, b) => b.version - a.version)
       latestVersion = versions[0]?.version ?? 0
@@ -85,6 +98,8 @@
           type: m.type,
           valueVersion: m.value_version,
           createdAt: m.created_at,
+          maxAgeSeconds: m.max_age_seconds ?? null,
+          stale: m.stale ?? false,
           revealed: false,
           value: null,
           draft: '',
@@ -172,6 +187,7 @@
   function addRow() {
     rows.push({
       key: '', origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
+      maxAgeSeconds: null, stale: false,
       revealed: true, value: null, draft: '', dirty: false, deleted: false, added: true, editing: true,
     })
   }
@@ -244,6 +260,65 @@
       flashToast(errorMessage(err, 'Lock change failed.'))
     }
   }
+
+  // ── advisory max-age policy ──────────────────────────────────────────────
+  function openKeyMaxAge(row: Row) {
+    maxAgeKeyFor = maxAgeKeyFor === row.key ? null : row.key
+    // Prefill only when this key has its OWN override (not the inherited default).
+    maxAgeDraft = overriddenKeys.has(row.key) && row.maxAgeSeconds != null
+      ? humanizeDuration(row.maxAgeSeconds) : ''
+  }
+
+  async function saveKeyMaxAge(row: Row) {
+    const secs = parseDurationToSeconds(maxAgeDraft)
+    if (secs === null) { flashToast('Enter a duration like 90d, 24h, or 2160h.'); return }
+    try {
+      await api.setKeyMaxAge(configId, row.key, secs)
+      maxAgeKeyFor = null
+      await load(configId)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Could not set max-age.'))
+    }
+  }
+
+  async function clearKeyMaxAge(row: Row) {
+    try {
+      await api.setKeyMaxAge(configId, row.key, null)
+      maxAgeKeyFor = null
+      await load(configId)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Could not clear max-age.'))
+    }
+  }
+
+  function openConfigMaxAge() {
+    showConfigMaxAge = !showConfigMaxAge
+    configMaxAgeDraft = configDefaultMaxAge != null ? humanizeDuration(configDefaultMaxAge) : ''
+  }
+
+  async function saveConfigMaxAge() {
+    const secs = parseDurationToSeconds(configMaxAgeDraft)
+    if (secs === null) { flashToast('Enter a duration like 90d, 24h, or 2160h.'); return }
+    try {
+      await api.setConfigMaxAge(configId, secs)
+      showConfigMaxAge = false
+      await load(configId)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Could not set config max-age.'))
+    }
+  }
+
+  async function clearConfigMaxAge() {
+    try {
+      await api.setConfigMaxAge(configId, null)
+      showConfigMaxAge = false
+      await load(configId)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Could not clear config max-age.'))
+    }
+  }
+
+  const staleCount = $derived(rows.filter(r => r.stale && !r.added).length)
 
   async function toggleHistory(row: Row) {
     if (historyFor === row.key) {
@@ -383,6 +458,7 @@
       } else {
         rows.push({
           key: e.key, origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
+          maxAgeSeconds: null, stale: false,
           revealed: true, value: null, draft: e.value, dirty: true, deleted: false, added: true, editing: false,
         })
         added++
@@ -487,11 +563,39 @@
     <div class="toolbar rise" style="animation-delay: 60ms">
       <input class="input search" placeholder={`Filter ${rows.length} keys…`} bind:value={filter} />
       <div class="toolbar-actions">
+        {#if staleCount > 0}
+          <span class="stamp flat maxage-chip" title="Keys past their advisory max-age (never blocks anything)">{staleCount} past max-age</span>
+        {/if}
+        <button class="btn" class:has-override={configDefaultMaxAge != null} onclick={openConfigMaxAge}>
+          {showConfigMaxAge ? 'Close max-age' : configDefaultMaxAge != null ? `Max-age · ${humanizeDuration(configDefaultMaxAge)}` : 'Max-age…'}
+        </button>
         <button class="btn" onclick={() => (showImport = !showImport)}>{showImport ? 'Close import' : 'Import…'}</button>
         <button class="btn" onclick={downloadEnv} disabled={!rows.some(r => !r.added)}>Download .env</button>
         <button class="btn" onclick={addRow}>+ Add secret</button>
       </div>
     </div>
+
+    {#if showConfigMaxAge}
+      <section class="sheet maxage-config-panel rise">
+        <div class="section-head">
+          <h3>Config default max-age</h3>
+          <span class="folio">advisory expiry — flags stale keys, never blocks any operation</span>
+        </div>
+        <p class="folio">
+          Applies to every key without its own override. A key is flagged
+          <span class="stamp flat maxage-chip">past max-age</span> once its current value is older than this.
+        </p>
+        <div class="maxage-controls">
+          <input class="input mono maxage-input" placeholder="e.g. 90d, 24h, 2160h"
+            bind:value={configMaxAgeDraft}
+            onkeydown={(e) => { if (e.key === 'Enter') saveConfigMaxAge() }} />
+          <button class="btn btn-primary btn-sm" onclick={saveConfigMaxAge}>Set default</button>
+          {#if configDefaultMaxAge != null}
+            <button class="btn btn-ghost btn-sm" onclick={clearConfigMaxAge}>Clear default</button>
+          {/if}
+        </div>
+      </section>
+    {/if}
 
     {#if showImport}
       <section class="sheet import-panel rise">
@@ -582,6 +686,9 @@
                   {#if lockedKeys.has(row.key)}
                     <span class="lock-mark" title="Locked — promotions cannot overwrite this key">⚿</span>
                   {/if}
+                  {#if row.stale && row.maxAgeSeconds != null}
+                    <span class="stamp flat maxage-chip" title={`Advisory: past its max-age of ${humanizeDuration(row.maxAgeSeconds)} (age ${relTime(row.createdAt)}). Nothing is blocked.`}>past max-age</span>
+                  {/if}
                   {#if row.key && !isEnvVarKey(row.key)}
                     <span class="file-badge" title="Not an env-var identifier — janus run skips it; janus secrets download --format files materializes it to disk">file</span>
                   {/if}
@@ -651,6 +758,11 @@
                     title={lockedKeys.has(row.key) ? 'Unlock for promotion' : 'Lock against promotion'}>
                     {lockedKeys.has(row.key) ? 'Unlock' : 'Lock'}
                   </button>
+                  <button class="btn btn-ghost btn-sm" class:has-override={overriddenKeys.has(row.key)}
+                    onclick={() => openKeyMaxAge(row)}
+                    title="Advisory max-age override for this key">
+                    Max-age{#if overriddenKeys.has(row.key)} ·&nbsp;set{/if}
+                  </button>
                 {/if}
                 {#if row.origin !== 'inherited' || row.added}
                   <button class="btn btn-ghost btn-sm del-btn" onclick={() => toggleDelete(row)}>
@@ -659,6 +771,31 @@
                 {/if}
               </td>
             </tr>
+            {#if maxAgeKeyFor === row.key}
+              <tr class="maxage-row">
+                <td colspan="6">
+                  <div class="maxage-panel">
+                    <span class="label">Advisory max-age — {row.key}</span>
+                    <p class="folio">
+                      Flags this key as past max-age once its current value is older than the duration.
+                      Advisory only — reads, writes, and reveals are never blocked.
+                      {#if configDefaultMaxAge != null && !overriddenKeys.has(row.key)}
+                        Inherits the config default of {humanizeDuration(configDefaultMaxAge)}.
+                      {/if}
+                    </p>
+                    <div class="maxage-controls">
+                      <input class="input mono maxage-input" placeholder="e.g. 90d, 24h, 2160h"
+                        bind:value={maxAgeDraft}
+                        onkeydown={(e) => { if (e.key === 'Enter') saveKeyMaxAge(row) }} />
+                      <button class="btn btn-primary btn-sm" onclick={() => saveKeyMaxAge(row)}>Set override</button>
+                      {#if overriddenKeys.has(row.key)}
+                        <button class="btn btn-ghost btn-sm" onclick={() => clearKeyMaxAge(row)}>Clear override</button>
+                      {/if}
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            {/if}
             {#if historyFor === row.key}
               <tr class="hist-row">
                 <td colspan="6">
@@ -857,6 +994,22 @@
   .empty { text-align: center; padding: var(--s6) !important; }
 
   .lock-mark { color: var(--vermilion); margin-left: 0.35rem; font-size: var(--text-sm); }
+
+  /* advisory max-age (expiry) — vermilion "past max-age" chip + config controls */
+  .maxage-chip {
+    margin-left: 0.35rem;
+    color: var(--vermilion);
+    border-color: var(--vermilion);
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+  }
+  .btn.has-override { color: var(--ochre); border-color: var(--ochre); }
+  .maxage-row td { background: var(--archivist-wash); }
+  .maxage-panel { padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
+  .maxage-panel .folio, .maxage-config-panel .folio { max-width: 60ch; }
+  .maxage-config-panel { padding: var(--s4) var(--s5); margin-top: var(--s3); border-left: 4px solid var(--vermilion); }
+  .maxage-controls { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
+  .maxage-input { width: 12rem; }
   .file-badge {
     margin-left: 0.4rem;
     font-size: 0.58rem;

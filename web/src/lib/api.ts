@@ -82,7 +82,8 @@ export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
 export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
-export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean }
+export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
 export interface VersionDiff { a: number; b: number; added: string[]; changed: string[]; removed: string[] }
@@ -459,6 +460,15 @@ export const api = {
   getPipeline: (pid: string) => get<{ environment_ids: string[] }>(`/v1/projects/${pid}/pipeline`),
   setPipeline: (pid: string, ids: string[]) =>
     put<{ environment_ids: string[] }>(`/v1/projects/${pid}/pipeline`, { environment_ids: ids }),
+  // advisory max-age policy (never blocks anything)
+  listMaxAge: (cid: string) =>
+    get<{ policies: MaxAgePolicy[] }>(`/v1/configs/${cid}/max-age`).then(r => r.policies ?? []),
+  setConfigMaxAge: (cid: string, seconds: number | null) =>
+    put<{ max_age_seconds: number | null }>(`/v1/configs/${cid}/max-age`, { max_age_seconds: seconds }),
+  setKeyMaxAge: (cid: string, key: string, seconds: number | null) =>
+    put<{ key: string; max_age_seconds: number | null }>(
+      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/max-age`, { max_age_seconds: seconds }),
+
   listLockedKeys: (cid: string) => get<{ keys: string[] }>(`/v1/configs/${cid}/locked-keys`).then(r => r.keys ?? []),
   lockKey: (cid: string, key: string) => post<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys`, { key }),
   unlockKey: (cid: string, key: string) => del<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys/${encodeURIComponent(key)}`),

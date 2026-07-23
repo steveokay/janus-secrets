@@ -20,6 +20,7 @@ type Service struct {
 	configs  *store.ConfigRepo
 	secrets  *store.SecretRepo
 	kekVers  *store.ProjectKEKVersionRepo
+	maxAge   *store.MaxAgeRepo
 	keyring  *crypto.Keyring
 }
 
@@ -33,6 +34,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		configs:  store.NewConfigRepo(st),
 		secrets:  store.NewSecretRepo(st),
 		kekVers:  store.NewProjectKEKVersionRepo(st),
+		maxAge:   store.NewMaxAgeRepo(st),
 		keyring:  kr,
 	}
 }

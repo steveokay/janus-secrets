@@ -98,6 +98,11 @@ else is explicit:
   of any historical value.
 - **Locked keys** — lock/unlock per key (`⚿`); locked keys cannot be
   overwritten by promotions.
+- **Max-age (advisory)** — a vermilion "past max-age" chip appears on any
+  key older than its effective max-age (per-key override, else the config
+  default). A per-row **Max-age** control sets/clears a key's override and
+  a toolbar control sets the config default. Purely advisory — nothing is
+  blocked; the overview In tray also surfaces "N secrets past max-age".
 - **Promote →** — key-level diff against the next pipeline stage; apply
   directly or file an approval request. See
   [Promoting between environments](guides/promoting-environments.md).

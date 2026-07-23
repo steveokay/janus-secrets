@@ -48,7 +48,7 @@ func (f *secretFlags) resolveCID() (*apiClient, string, error) {
 
 func newSecretsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "secrets", Short: "Read and write secrets"}
-	cmd.AddCommand(newSecretsListCmd(), newSecretsGetCmd(), newSecretsSetCmd(), newSecretsDeleteCmd(), newSecretsDownloadCmd(), newSecretsLockCmd(), newSecretsUnlockCmd(), newSecretsDiffCmd())
+	cmd.AddCommand(newSecretsListCmd(), newSecretsGetCmd(), newSecretsSetCmd(), newSecretsDeleteCmd(), newSecretsDownloadCmd(), newSecretsLockCmd(), newSecretsUnlockCmd(), newSecretsDiffCmd(), newSecretsMaxAgeCmd())
 	return cmd
 }
 

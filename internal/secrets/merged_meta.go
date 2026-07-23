@@ -11,12 +11,20 @@ import (
 // MergedMeta is one key in the inheritance-merged masked view. Origin is
 // "own" (defined only here), "inherited" (only from a base), or "overridden"
 // (defined here and also in a base).
+//
+// MaxAgeSeconds/Stale describe the ADVISORY max-age policy (see max_age.go):
+// MaxAgeSeconds is the effective policy for the key (per-key override on the
+// requested config, else the config default), nil when no policy applies.
+// Stale is true when the key's age (now - CreatedAt) exceeds MaxAgeSeconds.
+// Purely advisory — never blocks any operation.
 type MergedMeta struct {
-	Key          string
-	ValueVersion int
-	CreatedAt    time.Time
-	Origin       string
-	Type         string
+	Key           string
+	ValueVersion  int
+	CreatedAt     time.Time
+	Origin        string
+	Type          string
+	MaxAgeSeconds *int64
+	Stale         bool
 }
 
 type storeMetaEntry struct {
@@ -76,6 +84,26 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 			presentAtMultiple[k]++
 		}
 	}
+	// Advisory max-age policy is scoped to the requested (leaf) config only —
+	// it is NOT inherited (mirrors locked-keys semantics). Effective policy for
+	// a key = per-key override if set, else the config default (sentinel), else
+	// none. Purely advisory: staleness is a display signal, never enforced.
+	entries, err := s.maxAge.List(ctx, configID)
+	if err != nil {
+		return nil, mapStoreErr(err)
+	}
+	var defSecs *int64
+	perKey := map[string]int64{}
+	for _, e := range entries {
+		if e.Key == store.MaxAgeSentinel {
+			v := e.MaxAgeSeconds
+			defSecs = &v
+		} else {
+			perKey[e.Key] = e.MaxAgeSeconds
+		}
+	}
+	now := time.Now()
+
 	out := make([]MergedMeta, 0, len(merged))
 	for k, e := range merged {
 		origin := "inherited"
@@ -86,7 +114,17 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 				origin = "own"
 			}
 		}
-		out = append(out, MergedMeta{Key: k, ValueVersion: e.vv, CreatedAt: e.at, Origin: origin, Type: e.typ})
+		m := MergedMeta{Key: k, ValueVersion: e.vv, CreatedAt: e.at, Origin: origin, Type: e.typ}
+		if secs, ok := perKey[k]; ok {
+			v := secs
+			m.MaxAgeSeconds = &v
+		} else if defSecs != nil {
+			m.MaxAgeSeconds = defSecs
+		}
+		if m.MaxAgeSeconds != nil {
+			m.Stale = now.Sub(e.at) > time.Duration(*m.MaxAgeSeconds)*time.Second
+		}
+		out = append(out, m)
 	}
 	return out, nil
 }
