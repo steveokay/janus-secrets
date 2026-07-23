@@ -32,6 +32,7 @@
       items: [
         { code: 'AU', label: 'Audit ledger', href: '/audit' },
         { code: 'AP', label: 'Approvals', href: '/approvals' },
+        { code: 'CD', label: 'Cross-env diff', href: '/compare' },
       ],
     },
     {

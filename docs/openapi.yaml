@@ -1354,6 +1354,54 @@ paths:
                         created_at: { type: string, format: date-time }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/compare:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [secrets]
+      summary: Cross-config value-free key-level diff (no values returned)
+      description: >
+        Compares this config ({cid}, side A) with another config
+        (?against={other_cid}, side B) at the key level and returns ONLY
+        booleans — never a secret value. Both configs are resolved to plaintext
+        server-side (the same reveal path the promotion preview uses) and
+        compared in memory; only the union of key names, presence booleans, the
+        differ flag, and per-side origins escape. Requires secret:read on BOTH
+        configs (authorized independently, deny by default): a caller who cannot
+        read one side gets 403 without learning the other side's keys. Emits one
+        value-free config.compare audit event (both config paths). differs is
+        true only when a key is present in both configs and the resolved
+        plaintext values are unequal.
+      parameters:
+        - name: against
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+          description: The other config id to compare against (side B). Must differ from {cid}.
+      responses:
+        "200":
+          description: Value-free key-level comparison.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config_a: { type: string, format: uuid, description: This config (side A). }
+                  config_b: { type: string, format: uuid, description: The compared config (side B). }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        in_a: { type: boolean, description: Key present in config A. }
+                        in_b: { type: boolean, description: Key present in config B. }
+                        differs: { type: boolean, description: True only when present in both and the resolved values are unequal. Never carries the values themselves. }
+                        origin_a: { type: string, description: "Origin of the key on side A: own | inherited | overridden; empty when absent." }
+                        origin_b: { type: string, description: "Origin of the key on side B: own | inherited | overridden; empty when absent." }
+        "400": { description: "against missing, or equal to {cid} (self-compare)." }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
   /v1/configs/{cid}/locked-keys:
     parameters:
       - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }

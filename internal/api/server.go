@@ -430,6 +430,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/configs/{cid}/secrets", s.handleSecretsList)
 			r.Get("/v1/configs/{cid}/secrets/{key}", s.handleSecretGet)
 			r.Get("/v1/configs/{cid}/secrets/{key}/history", s.handleKeyHistory)
+			r.Get("/v1/configs/{cid}/compare", s.handleConfigCompare)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(RequireAuth(s.auth))

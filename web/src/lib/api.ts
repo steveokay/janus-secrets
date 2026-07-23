@@ -252,6 +252,18 @@ export interface PromoteApplyBody {
   create?: boolean; source_version: number; selections: PromoteSelection[]
 }
 export interface PromoteApplyResult { target_version: number; applied: string[]; skipped: string[] }
+
+/* cross-config compare — value-free (booleans + key names + origins only) */
+export type CompareOrigin = 'own' | 'inherited' | 'overridden' | ''
+export interface CompareEntry {
+  key: string
+  in_a: boolean
+  in_b: boolean
+  differs: boolean
+  origin_a: CompareOrigin
+  origin_b: CompareOrigin
+}
+export interface CompareResult { config_a: string; config_b: string; entries: CompareEntry[] }
 export type PromotionRequestStatus = 'pending' | 'applied' | 'rejected' | 'cancelled'
 export interface RequestDiff { source_version: number; target_exists: boolean; entries: Array<{ key: string; status: PromoteStatus; locked: boolean }> }
 export interface PromotionRequest {
@@ -491,6 +503,9 @@ export const api = {
     return get<PromoteDiff>(`/v1/promote/preview?${q}`)
   },
   promoteApply: (body: PromoteApplyBody) => post<PromoteApplyResult>('/v1/promote', body),
+  // cross-config value-free compare (secret:read on BOTH; never returns values)
+  compareConfigs: (cid: string, against: string) =>
+    get<CompareResult>(`/v1/configs/${cid}/compare?against=${against}`),
   createPromoteRequest: (body: PromoteApplyBody & { note: string }) =>
     post<{ id: string; status: 'pending' }>('/v1/promote/requests', body),
   listPromoteRequests: (project: string, status?: string) => {

@@ -23,6 +23,7 @@
     ['Go to Projects', '/projects', 'projects registry dossiers'],
     ['Go to Audit ledger', '/audit', 'audit activity log events record chain'],
     ['Go to Approvals', '/approvals', 'approvals promotion requests review'],
+    ['Go to Cross-env diff', '/compare', 'compare diff cross env config staging prod difference values masked'],
     ['Go to Transit', '/transit', 'transit encrypt sign kms keys'],
     ['Go to Operations', '/operations', 'operations rotation sync dynamic leases'],
     ['Go to Integrations', '/integrations', 'integrations oidc sso federation github kubernetes'],

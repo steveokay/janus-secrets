@@ -47,6 +47,7 @@ The app fronts the full server lifecycle:
 | `/projects/:id/configs/:cid` | **Secret editor** (below) |
 | `/audit` | Audit ledger — chain-verify stamp, hash stitch, result filter, text filter (accepts `?q=`), pagination, JSONL/CSV export |
 | `/approvals` | Promotion requests — four-eyes review, approve/reject/cancel, value-free diff |
+| `/compare` | **Cross-env diff** — pick any two configs (project → env → config) and see a key-level comparison: only-A / only-B / same / differs, per-side origin, env-accent status pills. **Values stay masked** — the screen never reveals; it only shows presence and whether the values match. Requires read on **both** configs and records one value-free `config.compare` audit event |
 | `/tokens` | Service tokens — mint (shown once), revoke |
 | `/members` | Members — scoped RBAC bindings at instance / project / environment |
 | `/transit` | Transit keys — create, rotate, version notches, encrypt/sign bench |
@@ -56,8 +57,8 @@ The app fronts the full server lifecycle:
 | `/settings` | Instance info, master-key rotate + Shamir **rekey ceremony**, encrypted backup download, passphrase change, **active sessions** (list + revoke one / sign out everywhere else) |
 | `/trash` | Soft-deleted projects/envs/configs — restore or destroy |
 
-`Ctrl+K` opens the command palette (projects, configs, pages, actions like
-theme toggle and audit export). `?` opens a **keyboard-shortcuts help modal**,
+`Ctrl+K` opens the command palette (projects, configs, pages including
+**Cross-env diff**, actions like theme toggle and audit export). `?` opens a **keyboard-shortcuts help modal**,
 and `g`-prefixed chords jump anywhere (`g p` Projects, `g a` Audit, `g s`
 Settings, … — the full table lives in the `?` modal). Chords never fire while
 typing in a field or while a dialog is open.
