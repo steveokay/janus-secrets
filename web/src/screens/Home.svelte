@@ -6,6 +6,7 @@
   import { relTime } from '../lib/util'
   import Sparkline from '../components/Sparkline.svelte'
   import Guilloche from '../components/Guilloche.svelte'
+  import OnboardingChecklist from '../components/OnboardingChecklist.svelte'
 
   interface TrayItem { kind: string; text: string; href: string; when: string }
   let tray = $state<TrayItem[]>([])
@@ -71,6 +72,8 @@
   </header>
 
   <hr class="ledger-rule" />
+
+  <OnboardingChecklist />
 
   <div class="stat-strip rise" style="animation-delay: 60ms">
     <div class="stat">

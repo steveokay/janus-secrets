@@ -177,7 +177,9 @@ project → environment → config tree, the flagship **secret editor** (masked 
 with origin badges, audited per-key/bulk reveal, a client-side dirty buffer, and
 batched "Save as vN"), config version diff, the audit viewer with chain-verify
 badge and export, token/member management, the transit key console, a usage
-dashboard ("Reads 24h"), and an **operations console** over the three Phase-3
+dashboard ("Reads 24h") with a **first-run onboarding checklist** (create project
+→ add secrets → mint token → `janus run`, self-checking and dismissible), and an
+**operations console** over the three Phase-3
 engines (rotation, sync, dynamic leases — manage and act, not create). The visual
 system is dual-theme (`daylight` default + `nightwatch` dark) via CSS-variable
 tokens. Revealed plaintext and unseal shares live only in component state, never

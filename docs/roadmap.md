@@ -69,7 +69,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | **Scheduled encrypted backups** to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy; the sealed-material export already exists. | M |
 | **Audit shipping** — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
 | ~~**Health panel in Settings** — DB latency, scheduler tick ages, failed-run counts~~ **SHIPPED 2026-07-22** — admin `GET /v1/sys/status` + Settings → Health (DB latency/pool, seal, audit head, per-engine tick staleness, failed-run counts). | ~~S~~ |
-| **First-run onboarding checklist** on the dashboard (create project → add secrets → mint token → `janus run`) (upstream gap 1.13) | The empty state after init is a dead end for newcomers. | S |
+| ~~**First-run onboarding checklist** on the dashboard (create project → add secrets → mint token → `janus run`) (upstream gap 1.13)~~ **SHIPPED 2026-07-23** — self-checking steps (project / secret / token existence) + copyable `janus run` block; hides once set up, dismissible. Frontend-only. | ~~S~~ |
 
 ### 5. UI polish
 
@@ -88,14 +88,17 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 If I picked the next five, weighing leverage against effort (the earlier
 slates — dotenv import, metrics + health, notifications, session management +
-TOTP, global key search, JSON/PEM awareness, shortcuts help — are all shipped):
+TOTP, global key search, JSON/PEM awareness, shortcuts help, first-run
+onboarding checklist — are all shipped):
 
 1. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the
    provider-pluggable sync engine.
-2. **First-run onboarding checklist** (4.5) — closes the post-init dead end.
-3. **Unused-secret detection** (2.3) — the data is already in `audit_events`;
+2. **Unused-secret detection** (2.3) — the data is already in `audit_events`;
    companion to the shipped max-age nags.
-4. **Cross-environment diff view** (2.5) — arbitrary key-level config drift.
-5. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — off-AWS adoption.
+3. **Cross-environment diff view** (2.5) — arbitrary key-level config drift.
+4. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — off-AWS adoption.
+5. **Token `last_used` / user `last_login` tracking** — stale-token warning +
+   "last login" column.
 
-(Native TLS listener + advisory secret max-age / expiry both shipped 2026-07-23.)
+(Native TLS listener, advisory secret max-age / expiry, and the first-run
+onboarding checklist all shipped 2026-07-23.)
