@@ -102,7 +102,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~TOTP second factor for password logins (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes; self-service enroll/confirm/disable/regenerate (`/v1/auth/totp/*`), login gains `totp_code` (`401 totp_required` without it), `janus login` prompts + retries, Settings enroll UI. Secret master-key-wrapped (re-wrapped by master-key rotation), recovery codes HMAC-hashed + single-use, value-free audit. Migration 000025. **Note:** OIDC login is not gated by app-level TOTP (the IdP owns MFA) — see follow-ups. Passkeys/WebAuthn + per-account lockout as follow-ups. | ~~M~~ |
 | ~~Session management — list active sessions, revoke one/all~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions` (self-service, IP/user-agent metadata, current-session marker), Settings → Active sessions UI, `janus session list/revoke`. Sessions now record client IP + user-agent (migration 000023). | An admin who suspects a stolen cookie has nothing to pull today. | ~~S~~ |
 | ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22** — see the "Open — backend / ops" entry above (migration 000026, `JANUS_LOCKOUT_*`, admin unlock). | Nothing locked an account out after repeated failed logins. | ~~S~~ |
-| Secret expiry / max-age policy per key or config, surfaced in-app | Rotation exists but nothing nags about stale static secrets — the most common real-world failure. | M |
+| ~~Secret expiry / max-age policy per key or config, surfaced in-app~~ **SHIPPED 2026-07-23** — **advisory** max-age (never blocks reads/writes): config-level default + per-key override, effective policy = per-key else config-default else none, `stale` computed from the current value version's age. `config_secret_max_age` table (migration 000028, config-default under the `''` sentinel key), `GET/PUT /v1/configs/{cid}/max-age` + `PUT .../secrets/{key}/max-age`, `secret:write` to set / `secret:read` to list, value-free audit; masked-list gains `stale`+`max_age_seconds`; editor stale chip + set/clear controls + Overview in-tray count; `janus secrets max-age` CLI. | ~~M~~ |
 | Break-glass access — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
 | Per-token IP allowlists + usage anomaly notes (new IP) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |
 | GCP KMS / Azure Key Vault auto-unseal | The `Unsealer` interface already exists; AWS-only is an adoption blocker off-AWS. | M |
@@ -156,9 +156,8 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 The previous slates (Prometheus + health panel, TOTP, global key search,
 account lockout, SMTP notifications, JSON/PEM awareness, shortcuts help +
-`g`-chords, **native TLS listener**) are **fully shipped** (2026-07-20 → 07-23);
-**secret max-age / expiry is in flight**. Next five, weighing leverage against
-effort:
+`g`-chords, **native TLS listener**, **secret max-age / expiry**) are **fully
+shipped** (2026-07-20 → 07-23). Next five, weighing leverage against effort:
 
 1. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
    provider-pluggable sync engine.
