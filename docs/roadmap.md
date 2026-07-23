@@ -35,7 +35,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Secret expiry / max-age policy** per key or config, surfaced in the in-tray ("STRIPE_KEY is 180d old")~~ **SHIPPED 2026-07-23** — advisory (blocks nothing): config default + per-key override, `stale` signal from the value's age; migration 000028, `secret:write` to set, editor chip + Overview in-tray + `janus secrets max-age` CLI. | ~~M~~ |
 | **Break-glass access** — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
 | **Per-token IP allowlists** and token usage anomaly notes (new IP → in-tray) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |
-| **GCP KMS / Azure Key Vault auto-unseal** | The `Unsealer` interface already exists; AWS-only is an adoption blocker off-AWS. | M |
+| ~~**GCP KMS / Azure Key Vault auto-unseal**~~ **SHIPPED 2026-07-23** — both on the parameterized `KMSUnsealer` (AWS unchanged); `JANUS_SEAL_TYPE=gcpkms`/`azurekv` with ambient cloud credentials, no migration, crypto at 100% coverage. | ~~M~~ |
 
 ### 2. Secret lifecycle & editor
 
@@ -45,7 +45,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Value generator** in the editor (random password / hex / base64, length picker)~~ **SHIPPED 2026-07-22** — client-side CSPRNG "Gen" popover (password w/ symbols & exclude-ambiguous toggles / hex / base64 + length). | ~~S~~ |
 | ~~**Unused-secret detection** — "not read in 90 days" chip from audit data~~ **SHIPPED 2026-07-23** — advisory per-key last-read from `secret.reveal` audit events; `last_read_at`+`unused` on the masked list, editor chip + Overview in-tray count, `JANUS_UNUSED_SECRET_DAYS` (default 90), migration 000029. Value-free. | ~~M~~ |
 | **Per-key read insights** — last-read + 30-day sparkline in the editor row | Turns "can I delete this?" from a guess into a lookup. | M |
-| **Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked) | Promote covers adjacent stages; "why does staging behave differently from prod" needs an arbitrary diff. | M |
+| ~~**Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/compare?against=` (booleans + origins only), dual `secret:read`, audited `config.compare`; new Compare screen. | ~~M~~ |
 | **Secret annotations** — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today; helps rotation triage. | M |
 | **Require-approval-for-prod-edits** toggle — direct saves to protected configs create a promotion-style request instead | The approvals machinery exists; extending four-eyes review to raw prod edits closes its biggest bypass. | M |
 
@@ -86,21 +86,19 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 ## Suggested near-term slate
 
-If I picked the next five, weighing leverage against effort (the earlier
-slates — dotenv import, metrics + health, notifications, session management +
-TOTP, global key search, JSON/PEM awareness, shortcuts help, first-run
-onboarding checklist, GitLab + AWS SSM sync, unused-secret detection — are all
-shipped):
+If I picked the next five, weighing leverage against effort (the earlier slates
+are all shipped, most recently cross-environment diff, GCP/Azure auto-unseal,
+and token/user last-used tracking):
 
-1. **Cross-environment diff view** (2.5) — arbitrary key-level config drift.
-2. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — off-AWS adoption.
-3. **Token `last_used` / user `last_login` tracking** — stale-token warning +
-   "last login" column.
-4. **Even more sync providers** (3.1) — Cloudflare Workers / Vercel / Netlify /
+1. **Even more sync providers** (3.1) — Cloudflare Workers / Vercel / Netlify /
    AWS Secrets Manager on the now-4-provider engine.
-5. **Ops hardening bundle** — docker-compose limits + `JANUS_DB_*` pool tuning +
+2. **Ops hardening bundle** — docker-compose limits + `JANUS_DB_*` pool tuning +
    pg-backup guidance + `CONTRIBUTING.md`.
+3. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory,
+   audited reason.
+4. **Per-token IP allowlists** (1.6) + new-IP anomaly note.
+5. **Secret annotations** (2.7) — owner + note metadata per key (never values).
 
-(Native TLS listener, advisory secret max-age / expiry, the first-run onboarding
-checklist, GitLab + AWS SSM sync providers, and unused-secret detection all
-shipped 2026-07-23.)
+(Native TLS, secret max-age, first-run onboarding, GitLab + AWS SSM sync,
+unused-secret detection, cross-environment diff, GCP/Azure auto-unseal, and
+token/user last-used tracking all shipped 2026-07-23.)
