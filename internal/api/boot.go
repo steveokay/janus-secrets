@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/audit"
+	"github.com/steveokay/janus-secrets/internal/auditship"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -57,6 +58,12 @@ type BootConfig struct {
 	// NotificationTick is the notification dispatcher's tick interval. Zero
 	// disables the dispatcher (tests); cmd/janus applies the production default.
 	NotificationTick time.Duration
+	// AuditShip configures the audit-log SIEM shipper (webhook/syslog). The zero
+	// value (Mode="") disables it. cmd/janus populates it from JANUS_AUDIT_SHIP_*.
+	AuditShip auditship.Config
+	// AuditShipTick is the audit-shipper's tick interval. Zero disables the
+	// shipper (tests); cmd/janus reads JANUS_AUDIT_SHIP_TICK.
+	AuditShipTick time.Duration
 	// HTTP server hardening. Zero on any field disables that timeout (Go's
 	// default). cmd/janus applies production defaults; tests building BootConfig
 	// directly get zero.
@@ -237,6 +244,17 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// disables it. Constructed inside New (needs only keyring + store).
 	if bc.NotificationTick > 0 && srv.notification != nil {
 		go srv.notification.RunScheduler(ctx, bc.NotificationTick)
+	}
+	// Audit-log SIEM shipper: tails the (value-free) audit log to a webhook or
+	// syslog collector, advancing a durable high-water mark only on a successful
+	// send. Wired only when a destination is configured; the status is surfaced by
+	// /v1/sys/status regardless of whether the scheduler is ticking.
+	if bc.AuditShip.Enabled() {
+		shipper := auditship.New(bc.AuditShip, store.NewAuditRepo(st), store.NewAuditShipRepo(st), logger)
+		srv.SetAuditShip(shipper)
+		if bc.AuditShipTick > 0 {
+			go shipper.RunScheduler(ctx, bc.AuditShipTick)
+		}
 	}
 
 	// KMS auto-unseal: best-effort at boot; failure keeps serving sealed and

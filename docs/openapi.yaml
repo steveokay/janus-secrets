@@ -3866,6 +3866,20 @@ paths:
                     type: object
                     properties:
                       active: { type: integer }
+                  audit_ship:
+                    type: object
+                    nullable: true
+                    description: >
+                      Audit-shipper snapshot, present only when a destination is
+                      configured (JANUS_AUDIT_SHIP_MODE=webhook|syslog).
+                      Value-free — no URL/host, no secret.
+                    properties:
+                      mode: { type: string, example: webhook }
+                      destination: { type: string, example: webhook }
+                      high_water_seq: { type: integer }
+                      last_ship_at: { type: string, format: date-time, nullable: true }
+                      last_ship_count: { type: integer }
+                      last_error: { type: string }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/sys/oidc:
