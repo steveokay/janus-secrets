@@ -41,7 +41,7 @@ The app fronts the full server lifecycle:
 
 | Route | Screen |
 |---|---|
-| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (failing rotations, sync errors, expiring leases, denials), project cards, live event feed |
+| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (failing rotations, sync errors, expiring leases, denials), project cards, live event feed. On a fresh instance a **first-run onboarding checklist** (create project → add secrets → mint token → `janus run`) sits at the top; each step auto-checks from existing state, it hides once set up, and it is dismissible (remembered per browser) |
 | `/projects` | Dossier list + create |
 | `/projects/:id` | Environment board — pipeline editor, env rename/clone/delete, config create, **drag a config tile onto another env column to stage a promotion** |
 | `/projects/:id/configs/:cid` | **Secret editor** (below) |

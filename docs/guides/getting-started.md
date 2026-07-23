@@ -121,6 +121,11 @@ Sessions have a 24h server-side TTL, so interactive users re-login daily.
 Machine and CI callers skip `login` and instead present a **service token** via
 `JANUS_TOKEN` — see [service-tokens.md](./service-tokens.md).
 
+If you log in through the **web UI** instead, the Overview greets a fresh
+instance with a **getting-started checklist** that mirrors steps 4–5 below
+(create a project → add secrets → mint a service token → `janus run`), ticking
+each off as you complete it and hiding once you're set up.
+
 ## 4. Create your first project, environment, config, and secret
 
 Janus organizes secrets as **project → environment → config → secret** (a

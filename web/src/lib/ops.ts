@@ -26,6 +26,24 @@ export async function listAllLeases(roles: DynamicRole[]): Promise<ApiLease[]> {
   return per.flat()
 }
 
+/* Onboarding probe: does any config hold at least one secret key? Fans out the
+   masked-secrets endpoint (metadata only — no values) across configs, tolerating
+   per-config 403s, and resolves true on the first non-empty config. Used only by
+   the first-run checklist; short-circuits so an onboarded instance costs one
+   round of small metadata reads. */
+export async function anySecretExists(projects: ViewProject[]): Promise<boolean> {
+  const cids = projects.flatMap(p => p.environments.flatMap(e => e.configs.map(c => c.id)))
+  if (!cids.length) return false
+  const results = await Promise.all(
+    cids.map(cid =>
+      api.maskedSecrets(cid)
+        .then(secs => Object.keys(secs).length > 0)
+        .catch(() => false),
+    ),
+  )
+  return results.some(Boolean)
+}
+
 /* Advisory-max-age staleness across all configs. Fans out the masked-secrets
    endpoint (which carries the per-key stale flag) once per config, tolerating
    per-config 403s. Value-free: only counts, no secret material. */

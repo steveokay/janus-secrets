@@ -20,6 +20,12 @@ Everything here happens in the browser at your server's address (dev:
 The server starts **sealed after every restart** — you'll repeat step 4 (or
 configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 
+On a fresh instance the **Overview** opens with a **getting-started checklist** —
+create a project → add secrets → mint a service token → inject with `janus run`.
+Each step ticks itself off from what already exists, the panel disappears once
+you're set up, and there's a **Dismiss** to hide it early (remembered in this
+browser).
+
 ## Daily driving
 
 - **Ctrl+K** — command palette: jump to any project, config, or page; toggle

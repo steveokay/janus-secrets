@@ -139,7 +139,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | Scheduled encrypted backups to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy. | M |
 | Audit shipping — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
 | ~~Health panel in Settings — DB latency, scheduler tick ages, failed-run counts~~ **SHIPPED 2026-07-22** (with Prometheus metrics — `GET /v1/sys/status` + Settings → Health). | ~~S~~ |
-| First-run onboarding checklist (create project → add secrets → mint token → `janus run`) | The empty state after init is a dead end for newcomers. | S |
+| ~~First-run onboarding checklist (create project → add secrets → mint token → `janus run`)~~ **SHIPPED 2026-07-23** — dashboard checklist on the Overview; steps auto-check from existing state (projects / any secret via 403-tolerant masked-list probe / `listTokens`), step 4 shows a copyable `janus login`→`setup`→`run` block; hides once set up, dismissible (localStorage). Frontend-only, no migration/endpoint. | ~~S~~ |
 
 ### UI polish
 
@@ -156,19 +156,20 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 The previous slates (Prometheus + health panel, TOTP, global key search,
 account lockout, SMTP notifications, JSON/PEM awareness, shortcuts help +
-`g`-chords, **native TLS listener**, **secret max-age / expiry**) are **fully
-shipped** (2026-07-20 → 07-23). Next five, weighing leverage against effort:
+`g`-chords, **native TLS listener**, **secret max-age / expiry**, **first-run
+onboarding checklist**) are **fully shipped** (2026-07-20 → 07-23). Next five,
+weighing leverage against effort:
 
 1. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
    provider-pluggable sync engine.
-2. **First-run onboarding checklist** (4.5) — small, closes the dead-end empty
-   state for newcomers.
-3. **Unused-secret detection** (2.2) — "not read in 90 days" chip from data
+2. **Unused-secret detection** (2.2) — "not read in 90 days" chip from data
    already in `audit_events`; natural companion to the shipped max-age nags.
-4. **Cross-environment diff view** (2.5) — arbitrary key-level config drift,
+3. **Cross-environment diff view** (2.5) — arbitrary key-level config drift,
    values masked.
-5. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — the `Unsealer` interface
+4. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — the `Unsealer` interface
    already exists; AWS-only is an off-AWS adoption blocker.
+5. **Token `last_used` / user `last_login` tracking** — unblocks a stale-token
+   warning on Tokens + a "last login" column on Members (small backend + UI).
 
 Both parked decisions are now **resolved** (see the backend/ops section). Still
 outstanding: the small backend/ops items (DB pool tuning, token/user last-used
