@@ -55,9 +55,14 @@ func leftPad(s string, n int) string {
 	return s
 }
 
-// TOTPCodeAt returns the TOTP code for a secret at time t.
+// TOTPCodeAt returns the TOTP code for a secret at time t. Pre-epoch times
+// clamp to counter 0, mirroring VerifyTOTP's negative-step guard (G115).
 func TOTPCodeAt(secret []byte, t time.Time) string {
-	return hotp(secret, uint64(t.Unix())/uint64(totpStep.Seconds()))
+	counter := t.Unix() / int64(totpStep.Seconds())
+	if counter < 0 {
+		counter = 0
+	}
+	return hotp(secret, uint64(counter))
 }
 
 // VerifyTOTP reports whether code is valid for secret at time t, allowing a

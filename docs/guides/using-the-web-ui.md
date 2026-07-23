@@ -28,6 +28,10 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
   names** (never values) across every config, and results are filtered to the
   configs you can read. Picking a hit opens that config's editor pre-filtered to
   the key.
+- **?** — keyboard-shortcuts help. **g**-chords navigate from anywhere:
+  `g p` Projects, `g a` Audit ledger, `g o` Operations, `g s` Settings, and
+  friends — press `?` for the full table. Chords stay out of the way while
+  you type or a dialog is open.
 - **Day / Night** in the top bar switches Daylight ↔ Nightwatch, persisted
   per browser.
 - The **Overview** in-tray surfaces what needs a human: failing rotations,
@@ -45,6 +49,7 @@ configure `JANUS_SEAL_TYPE=awskms` for auto-unseal).
 |---|---|
 | add/edit/reveal secrets | Projects → project → config tile |
 | generate a strong value | editor → the **Gen** button on a value being edited (random password / hex / base64, length picker; generated in your browser) |
+| validate / pretty-print a JSON or PEM value | editor → edit the value — a format badge + check appears under the textarea (advisory; never blocks saving) |
 | move config values between envs | drag the tile, or the editor's *Promote →* ([guide](promoting-environments.md)) |
 | paste an existing `.env` | editor → *Import…* ([guide](import-export.md)) |
 | mint a machine token | Service tokens ([guide](service-tokens.md)) |

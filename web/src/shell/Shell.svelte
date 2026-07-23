@@ -7,6 +7,7 @@
   import { dialog } from '../lib/dialog.svelte'
   import JanusMark from '../components/JanusMark.svelte'
   import CommandPalette from '../components/CommandPalette.svelte'
+  import ShortcutsHelp from '../components/ShortcutsHelp.svelte'
 
   let { children }: { children: Snippet } = $props()
 
@@ -76,6 +77,7 @@
 </script>
 
 <CommandPalette />
+<ShortcutsHelp />
 
 <div class="shell">
   <aside class="cover">
@@ -117,7 +119,7 @@
 
   <div class="desk">
     <header class="folio-bar">
-      <span class="folio">Janus · self-hosted · single-tenant · <kbd class="key">ctrl</kbd><kbd class="key">K</kbd> to search</span>
+      <span class="folio">Janus · self-hosted · single-tenant · <kbd class="key">ctrl</kbd><kbd class="key">K</kbd> to search · <kbd class="key">?</kbd> shortcuts</span>
       <div class="folio-right">
         {#if registry.verify?.valid}
           <span class="chain-ok" title="Audit hash chain verified">

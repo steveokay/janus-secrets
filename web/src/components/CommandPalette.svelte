@@ -3,6 +3,7 @@
   import { registry } from '../lib/registry.svelte'
   import { theme } from '../lib/theme.svelte'
   import { api, type KeySearchResult } from '../lib/api'
+  import { shortcuts } from '../lib/shortcuts.svelte'
 
   interface Item { id: string; group: string; label: string; sublabel?: string; keywords: string; hint?: boolean; run: () => void }
 
@@ -85,6 +86,10 @@
     out.push({
       id: 'a:export', group: 'Actions', label: 'Export audit ledger (CSV)',
       keywords: 'export audit csv download', run: () => { location.href = api.auditExportUrl('csv') },
+    })
+    out.push({
+      id: 'a:shortcuts', group: 'Actions', label: 'Keyboard shortcuts',
+      keywords: 'keyboard shortcuts help keys chords hotkeys', run: () => shortcuts.openHelp(),
     })
     return out
   })
@@ -184,6 +189,7 @@
         <span><kbd class="key">↑↓</kbd> navigate</span>
         <span><kbd class="key">↵</kbd> open</span>
         <span><kbd class="key">esc</kbd> close</span>
+        <span><kbd class="key">?</kbd> shortcuts</span>
       </div>
     </div>
   </div>

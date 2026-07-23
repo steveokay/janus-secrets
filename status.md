@@ -149,27 +149,28 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 |---|---|---|
 | ~~Global key search in the command palette (search masked key names across configs)~~ **SHIPPED 2026-07-22** — `GET /v1/search/keys` (names-only, deny-by-default per-config `SecretRead` filter, no audit/no value, bounded) + palette "Secret keys" group with `?key=` editor deep-link. Adversarial review SHIP. | ~~S~~ |
 | Bulk row selection in the editor — multi-select → delete / promote / export | One-at-a-time actions don't survive 40-key configs. | M |
-| JSON/PEM awareness for file-type secrets — pretty-print, validate, syntax hint | Format validation is the natural next step after multi-line editing. | S |
-| Shortcuts help modal (`?`) + `g`-prefixed nav chords | The palette exists; discoverability doesn't. | S |
+| ~~JSON/PEM awareness for file-type secrets — pretty-print, validate, syntax hint~~ **SHIPPED 2026-07-23** — client-side format sniff (content first, declared `type` as fallback) on the value being edited: JSON/PEM badge, well-formedness check (JSON parse error, PEM label/base64 faults) surfaced inline, one-click Pretty-print for valid JSON. Advisory only — never blocks a save; nothing leaves the browser. | ~~S~~ |
+| ~~Shortcuts help modal (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` opens a shortcuts modal (palette action too); `g` + letter jumps to any screen (`g p` Projects, `g a` Audit, …). Chords are suppressed while typing, with modifiers, or while a dialog is open; a pending-chord hint shows after `g`. | ~~S~~ |
 | Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit | A deliberate pass would close the remaining gaps. | M |
 | Mobile/tablet layout for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
 ### Suggested near-term slate
 
-The previous slate (Prometheus + health panel, TOTP, global key search, account
-lockout, SMTP notifications) is **fully shipped** (2026-07-20 → 07-23). Next
-five, weighing leverage against effort:
+The previous slates (Prometheus + health panel, TOTP, global key search,
+account lockout, SMTP notifications, JSON/PEM awareness, shortcuts help +
+`g`-chords) are **fully shipped** (2026-07-20 → 07-23). Next five, weighing
+leverage against effort:
 
-1. **JSON/PEM awareness** for file-type secrets (5.3) — small, natural follow-up
-   to multi-line editing.
-2. **Shortcuts help modal (`?`) + `g`-nav chords** (5.4) — cheap discoverability
-   win on top of the existing palette.
-3. **Native TLS listener** (`JANUS_TLS_CERT/KEY`, 1.1) — real hardening for shops
+1. **Native TLS listener** (`JANUS_TLS_CERT/KEY`, 1.1) — real hardening for shops
    without a reverse proxy.
-4. **Secret expiry / max-age policy** (2.3) — nags on stale static secrets, the
+2. **Secret expiry / max-age policy** (2.3) — nags on stale static secrets, the
    most common real-world failure.
-5. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
+3. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
    provider-pluggable sync engine.
+4. **First-run onboarding checklist** (4.5) — small, closes the dead-end empty
+   state for newcomers.
+5. **Unused-secret detection** (2.2) — "not read in 90 days" chip from data
+   already in `audit_events`.
 
 Also outstanding: the two parked decisions above (OIDC-vs-TOTP gating; engine
 audit fail-closed policy) and the small backend/ops items (DB pool tuning,
