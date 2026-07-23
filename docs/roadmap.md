@@ -28,7 +28,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 | Feature | Why | Effort |
 |---|---|---|
-| **Native TLS listener** (`JANUS_TLS_CERT/KEY`, optional ACME) | Today TLS is delegated to a reverse proxy; small shops run without one. Already flagged upstream as a later milestone. | M |
+| ~~**Native TLS listener** (`JANUS_TLS_CERT/KEY`, optional ACME)~~ **SHIPPED 2026-07-23** — static certs or ACME/Let's Encrypt (mutually exclusive, startup-validated), TLS 1.2 floor, optional HTTP→HTTPS redirect; `x/crypto/acme/autocert`, no migration. | ~~M~~ |
 | ~~**TOTP second factor for password logins** (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes, self-service enroll/confirm/disable, login `totp_required` gate, QR enrolment. Passkeys/WebAuthn remains a follow-up. | ~~M~~ |
 | ~~**Account lockout / progressive backoff**~~ **SHIPPED 2026-07-22** — progressive temporary per-account lockout with admin unlock; reveals only to the correct password (no enumeration); `JANUS_LOCKOUT_*`. | ~~S~~ |
 | ~~**Session management** — list active sessions, revoke one/all (upstream gap 1.12)~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions`, Settings UI, `janus session` CLI. | ~~S~~ |
@@ -90,9 +90,12 @@ If I picked the next five, weighing leverage against effort (the earlier
 slates — dotenv import, metrics + health, notifications, session management +
 TOTP, global key search, JSON/PEM awareness, shortcuts help — are all shipped):
 
-1. **Native TLS listener** (1.1) — real hardening for shops without a reverse proxy.
-2. **Secret expiry / max-age policy** (1.5) — nags on stale static secrets.
-3. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the
+1. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the
    provider-pluggable sync engine.
-4. **First-run onboarding checklist** (4.5) — closes the post-init dead end.
-5. **Unused-secret detection** (2.3) — the data is already in `audit_events`.
+2. **First-run onboarding checklist** (4.5) — closes the post-init dead end.
+3. **Unused-secret detection** (2.3) — the data is already in `audit_events`;
+   companion to the shipped max-age nags.
+4. **Cross-environment diff view** (2.5) — arbitrary key-level config drift.
+5. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — off-AWS adoption.
+
+(Native TLS listener shipped 2026-07-23; secret max-age / expiry in flight.)
