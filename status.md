@@ -98,7 +98,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 | Feature | Why | Effort |
 |---|---|---|
-| Native TLS listener (`JANUS_TLS_CERT/KEY`, optional ACME) | TLS is delegated to a reverse proxy today; small shops run without one. | M |
+| ~~Native TLS listener (`JANUS_TLS_CERT/KEY`, optional ACME)~~ **SHIPPED 2026-07-23** — native HTTPS: static certs (`JANUS_TLS_CERT`/`JANUS_TLS_KEY`) or ACME/Let's Encrypt (`JANUS_TLS_ACME_DOMAINS`/`_EMAIL`/`_CACHE`, via `x/crypto/acme/autocert`), mutually exclusive + startup-validated, TLS 1.2 floor, optional `JANUS_TLS_REDIRECT_HTTP` HTTP→HTTPS 301; aux listeners drain on shutdown. No migration. See [production-deployment guide](docs/guides/production-deployment.md). | ~~M~~ |
 | ~~TOTP second factor for password logins (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes; self-service enroll/confirm/disable/regenerate (`/v1/auth/totp/*`), login gains `totp_code` (`401 totp_required` without it), `janus login` prompts + retries, Settings enroll UI. Secret master-key-wrapped (re-wrapped by master-key rotation), recovery codes HMAC-hashed + single-use, value-free audit. Migration 000025. **Note:** OIDC login is not gated by app-level TOTP (the IdP owns MFA) — see follow-ups. Passkeys/WebAuthn + per-account lockout as follow-ups. | ~~M~~ |
 | ~~Session management — list active sessions, revoke one/all~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions` (self-service, IP/user-agent metadata, current-session marker), Settings → Active sessions UI, `janus session list/revoke`. Sessions now record client IP + user-agent (migration 000023). | An admin who suspects a stolen cookie has nothing to pull today. | ~~S~~ |
 | ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22** — see the "Open — backend / ops" entry above (migration 000026, `JANUS_LOCKOUT_*`, admin unlock). | Nothing locked an account out after repeated failed logins. | ~~S~~ |
@@ -156,20 +156,21 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 The previous slates (Prometheus + health panel, TOTP, global key search,
 account lockout, SMTP notifications, JSON/PEM awareness, shortcuts help +
-`g`-chords) are **fully shipped** (2026-07-20 → 07-23). Next five, weighing
-leverage against effort:
+`g`-chords, **native TLS listener**) are **fully shipped** (2026-07-20 → 07-23);
+**secret max-age / expiry is in flight**. Next five, weighing leverage against
+effort:
 
-1. **Native TLS listener** (`JANUS_TLS_CERT/KEY`, 1.1) — real hardening for shops
-   without a reverse proxy.
-2. **Secret expiry / max-age policy** (2.3) — nags on stale static secrets, the
-   most common real-world failure.
-3. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
+1. **More sync providers** (3.1, e.g. GitLab CI / AWS SSM) — extend the shipped
    provider-pluggable sync engine.
-4. **First-run onboarding checklist** (4.5) — small, closes the dead-end empty
+2. **First-run onboarding checklist** (4.5) — small, closes the dead-end empty
    state for newcomers.
-5. **Unused-secret detection** (2.2) — "not read in 90 days" chip from data
-   already in `audit_events`.
+3. **Unused-secret detection** (2.2) — "not read in 90 days" chip from data
+   already in `audit_events`; natural companion to the shipped max-age nags.
+4. **Cross-environment diff view** (2.5) — arbitrary key-level config drift,
+   values masked.
+5. **GCP KMS / Azure Key Vault auto-unseal** (1.7) — the `Unsealer` interface
+   already exists; AWS-only is an off-AWS adoption blocker.
 
-Also outstanding: the two parked decisions above (OIDC-vs-TOTP gating; engine
-audit fail-closed policy) and the small backend/ops items (DB pool tuning,
-token/user last-used tracking, `CONTRIBUTING.md`).
+Both parked decisions are now **resolved** (see the backend/ops section). Still
+outstanding: the small backend/ops items (DB pool tuning, token/user last-used
+tracking, `CONTRIBUTING.md`).
