@@ -27,6 +27,7 @@ type Service struct {
 	kekVers  *store.ProjectKEKVersionRepo
 	maxAge   *store.MaxAgeRepo
 	lastRead *store.LastReadRepo
+	readIns  *store.ReadInsightsRepo
 	keyring  *crypto.Keyring
 
 	// unusedDays is the advisory unused-secret threshold in days (a key with no
@@ -47,6 +48,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		kekVers:  store.NewProjectKEKVersionRepo(st),
 		maxAge:   store.NewMaxAgeRepo(st),
 		lastRead: store.NewLastReadRepo(st),
+		readIns:  store.NewReadInsightsRepo(st),
 		keyring:  kr,
 
 		unusedDays: DefaultUnusedSecretDays,

@@ -350,6 +350,44 @@ the max-age fields. The web editor renders an ochre **"not read 90d+"** /
 **"never read"** chip on each unused row, and the overview In tray
 surfaces an "N secrets not read in 90d" item.
 
+### Read insights (advisory)
+
+Where unused-secret detection gives a single last-read signal, **read
+insights** show the fuller shape of a key's read activity: its **last-read
+time** plus a **30-day daily reveal sparkline**. Like the signals above it
+is **purely advisory**, derived entirely from the `audit_events` reveal
+history, and **value-free** — counts and timestamps only, never a value.
+
+`GET /v1/configs/{cid}/read-insights` returns, per key that has been
+revealed per-key, `{ last_read_at, daily }`:
+
+- `window_days` — the fixed sparkline length (**30**).
+- `keys[<name>].last_read_at` — the most recent per-key reveal (RFC 3339,
+  or `null`; this probe spans all history, not just the window).
+- `keys[<name>].daily` — `window_days` reveal counts, **oldest bucket
+  first**; `daily[29]` (the last element) is **today** (UTC calendar day),
+  `daily[0]` is 29 days ago.
+
+Attribution follows the same rule as unused-secret detection: only per-key
+reveals count, bulk raw reads do not, and a key never revealed per-key is
+**absent** from `keys` (treated as "never read"). The endpoint rides the
+same `secret:read` gate as the masked list and, like it, is **not
+audited** (it reads only audit metadata). The web editor loads it once per
+open and surfaces a per-row **Reads…** panel with the last-read relative
+time and the sparkline.
+
+### Bulk row selection (web editor)
+
+The web editor lets you select multiple keys at once — a checkbox per
+persisted row plus a select-all header checkbox that selects only the
+currently *visible* (filtered) rows. With a selection active a bulk-action
+bar offers **Reveal selected** (audited per-key reveal), **Export selected
+.env** (confirm-gated, audited dotenv download scoped to the selection),
+and **Delete selected** (stages soft deletes into the dirty buffer,
+committed on the next Save). Every reveal and export goes through the same
+audited per-key reveal path as the single-row actions; selection clears
+after any action and on save.
+
 ## Versioning & rollback
 
 Janus versions every change at **two levels** so operators can answer

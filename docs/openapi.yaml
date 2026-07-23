@@ -1361,6 +1361,49 @@ paths:
                         created_at: { type: string, format: date-time }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/read-insights:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [secrets]
+      summary: Per-key advisory read insights (last-read + 30-day daily sparkline)
+      description: >
+        Returns, per secret key, its most recent per-key reveal timestamp and a
+        fixed-length daily reveal-count sparkline over the trailing 30-day
+        window, derived entirely from audit_events reveal metadata. Value-free:
+        counts and timestamps only, never a secret value. Rides the same
+        secret:read gate as the masked list and — like the masked list — is NOT
+        self-audited (it reads only audit metadata). Only per-key reveals
+        (resource configs/{cid}/secrets/{key}) are attributed; server-side bulk
+        raw reads (aggregate resource, no trailing key) are not. Keys never
+        revealed per-key are absent from "keys" (treat absence as "never read").
+        daily[i] is the reveal count for the UTC calendar day (today-(29-i));
+        the last element (index 29) is today.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  window_days: { type: integer, description: Fixed sparkline window length in days (30). }
+                  keys:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        last_read_at:
+                          type: string
+                          format: date-time
+                          nullable: true
+                          description: Most recent per-key reveal (null = never read per-key; spans all history, not just the window).
+                        daily:
+                          type: array
+                          items: { type: integer }
+                          description: window_days reveal counts, oldest bucket first; last element is today.
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
   /v1/configs/{cid}/compare:
     parameters:
       - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }

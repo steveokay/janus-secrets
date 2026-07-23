@@ -1,12 +1,13 @@
 <script lang="ts">
   import { registry } from '../lib/registry.svelte'
-  import { api, errorMessage, type VersionMeta, type VersionDiff, type SecretChange, type KeyVersionMeta } from '../lib/api'
+  import { api, errorMessage, type VersionMeta, type VersionDiff, type SecretChange, type KeyVersionMeta, type KeyReadInsight } from '../lib/api'
   import { relTime, stampDate, isValidKey, isEnvVarKey, parseEnvOrProps, humanizeDuration, parseDurationToSeconds, type ImportedEntry } from '../lib/util'
   import { checkFormat, prettyJson } from '../lib/format'
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
   import PromotePanel from '../components/PromotePanel.svelte'
   import GenerateMenu from '../components/GenerateMenu.svelte'
+  import Sparkline from '../components/Sparkline.svelte'
   import NotFound from './NotFound.svelte'
 
   let { projectId, configId }: { projectId: string; configId: string } = $props()
@@ -61,6 +62,16 @@
   let toast = $state('')
   let saveError = $state('')
   let saving = $state(false)
+  // Per-key advisory read insights (value-free: last-read + 30-day daily
+  // sparkline). Lazy-loaded once per editor open; keyed by secret name. Keys
+  // never revealed per-key are absent → treated as "never read".
+  let insights = $state<Record<string, KeyReadInsight>>({})
+  let insightsWindow = $state(30)
+  let insightsFor = $state<string | null>(null)   // key whose insights panel is open
+  // Bulk row selection (Part A). Tracks selected key NAMES; actions operate on
+  // the selection intersected with the current filter. Cleared after any action
+  // and on (re)load / save.
+  let selected = $state<Set<string>>(new Set())
 
   $effect(() => {
     void load(configId)
@@ -75,18 +86,26 @@
     showVersions = false
     showPromote = false
     historyFor = null
+    insightsFor = null
+    insights = {}
+    selected = new Set()
     // Deep-link: the command palette navigates here with ?key=<name> to
     // pre-filter the editor to that key. Harmless metadata (a key name); if
     // absent the filter stays empty.
     filter = new URLSearchParams(window.location.search).get('key') ?? ''
     try {
-      const [masked, vers, users, locked, maxAge] = await Promise.all([
+      const [masked, vers, users, locked, maxAge, ins] = await Promise.all([
         api.maskedSecrets(cid),
         api.listVersions(cid),
         api.listUsers().catch(() => []),
         api.listLockedKeys(cid).catch(() => [] as string[]),
         api.listMaxAge(cid).catch(() => []),
+        // Advisory read insights ride secret:read; a viewer without it, or an
+        // error, simply leaves the sparkline/last-read absent (decorative).
+        api.readInsights(cid).catch(() => ({ window_days: 30, keys: {} })),
       ])
+      insights = ins.keys
+      insightsWindow = ins.window_days || 30
       lockedKeys = new Set(locked)
       overriddenKeys = new Set(maxAge.filter(p => p.key !== '').map(p => p.key))
       configDefaultMaxAge = maxAge.find(p => p.key === '')?.max_age_seconds ?? null
@@ -124,6 +143,117 @@
   const dirtyCount = $derived(rows.filter(r => r.dirty || r.deleted || r.added).length)
   const anyHidden = $derived(rows.some(r => !r.revealed && !r.added))
   const badKeys = $derived(rows.filter(r => r.added && r.key.trim() !== '' && !isValidKey(r.key.trim())).length)
+
+  // ── bulk row selection (Part A) ───────────────────────────────────────────
+  // Only persisted rows are selectable (added-but-unsaved rows have no stable
+  // key yet). Selection is by key name; all bulk actions operate on the visible
+  // selection so a filter narrows the target set.
+  const selectableVisible = $derived(visible.filter(r => !r.added && r.key))
+  const visibleSelected = $derived(selectableVisible.filter(r => selected.has(r.key)))
+  const selCount = $derived(visibleSelected.length)
+  const allVisibleSelected = $derived(selectableVisible.length > 0 && selCount === selectableVisible.length)
+
+  function toggleRowSelect(key: string) {
+    if (selected.has(key)) selected.delete(key)
+    else selected.add(key)
+    selected = new Set(selected)
+  }
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      for (const r of selectableVisible) selected.delete(r.key)
+    } else {
+      for (const r of selectableVisible) selected.add(r.key)
+    }
+    selected = new Set(selected)
+  }
+
+  function clearSelection() {
+    selected = new Set()
+  }
+
+  async function bulkDelete() {
+    const targets = visibleSelected
+    if (!targets.length) return
+    const ok = await dialog.confirm({
+      title: `Delete ${targets.length} selected key${targets.length === 1 ? '' : 's'}?`,
+      body: 'Staged into the draft as deletions — nothing is removed until you Save. Deletes are soft and recoverable from Trash.',
+      confirmLabel: 'Stage deletions',
+      danger: true,
+    })
+    if (!ok) return
+    let staged = 0
+    for (const r of targets) {
+      if (r.added) { rows = rows.filter(x => x !== r); continue } // defensive (not selectable)
+      if (!r.deleted) { r.deleted = true; staged++ }
+    }
+    clearSelection()
+    flashToast(`${staged} deletion${staged === 1 ? '' : 's'} staged into the draft — review, then Save`)
+  }
+
+  async function bulkReveal() {
+    const targets = visibleSelected.filter(r => !r.revealed)
+    if (!targets.length) { flashToast('Selected keys are already revealed.'); clearSelection(); return }
+    await Promise.all(targets.map(async r => {
+      try {
+        const res = await api.revealKey(configId, r.key)
+        r.value = res.value
+        r.draft = res.value
+        r.revealed = true
+      } catch { /* per-key failure leaves the row masked */ }
+    }))
+    flashToast(`Reveal of ${targets.length} selected key${targets.length === 1 ? '' : 's'} recorded in the audit ledger`)
+    clearSelection()
+  }
+
+  async function bulkExportEnv() {
+    if (!ctx) return
+    const targets = visibleSelected
+    if (!targets.length) return
+    const ok = await dialog.confirm({
+      title: `Download ${targets.length} selected value${targets.length === 1 ? '' : 's'} as .env?`,
+      body: `The ${targets.length} selected value${targets.length === 1 ? ' is' : 's are'} revealed (each recorded in the audit ledger) and written to a plaintext file on this machine.`,
+      confirmLabel: 'Reveal & download',
+      danger: true,
+    })
+    if (!ok) return
+    try {
+      const revealed = await Promise.all(
+        targets.map(async r => {
+          if (r.revealed && r.value !== null) return { key: r.key, value: r.value }
+          const res = await api.revealKey(configId, r.key)
+          return { key: r.key, value: res.value }
+        }),
+      )
+      const lines: string[] = [
+        `# ${ctx.project.name} / ${ctx.env.slug} / ${ctx.config.name} — ${revealed.length} selected keys exported from Janus (v${latestVersion})`,
+      ]
+      for (const { key, value } of revealed.sort((a, b) => a.key.localeCompare(b.key))) {
+        if (isEnvVarKey(key)) lines.push(`${key}=${envQuote(value)}`)
+        else lines.push(`# skipped (not an env-var name — use janus secrets download --format files): ${key}`)
+      }
+      const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      try {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${ctx.project.name}-${ctx.env.slug}-${ctx.config.name}-selected.env`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+      flashToast(`Downloaded ${revealed.length} selected value${revealed.length === 1 ? '' : 's'} — every reveal recorded in the audit ledger`)
+      clearSelection()
+    } catch (err) {
+      flashToast(errorMessage(err, 'Export failed.'))
+    }
+  }
+
+  function toggleInsights(key: string) {
+    insightsFor = insightsFor === key ? null : key
+  }
 
   function flashToast(msg: string) {
     toast = msg
@@ -213,6 +343,7 @@
       const res = await api.saveSecrets(configId, changes, `Saved from the Atrium editor`)
       savedFlash = res.version
       setTimeout(() => (savedFlash = null), 2600)
+      clearSelection()
       await load(configId)
       await registry.hydrate(true)
     } catch (err) {
@@ -662,10 +793,29 @@
       </section>
     {/if}
 
+    {#if selCount > 0}
+      <div class="bulkbar plate rise" role="region" aria-label="Bulk actions">
+        <span class="bulk-count"><strong>{selCount}</strong> selected</span>
+        <div class="bulk-actions">
+          <button class="btn btn-sm" onclick={bulkReveal}>Reveal selected</button>
+          <button class="btn btn-sm" onclick={bulkExportEnv}>Export selected .env</button>
+          <button class="btn btn-sm btn-ghost del-btn" onclick={bulkDelete}>Delete selected</button>
+          <button class="btn btn-sm btn-ghost" onclick={clearSelection}>Clear</button>
+        </div>
+      </div>
+    {/if}
+
     <div class="sheet table-wrap rise" style="animation-delay: 100ms">
       <table class="ledger">
         <thead>
           <tr>
+            <th style="width: 30px" class="sel-cell">
+              <input type="checkbox" aria-label="Select all visible keys"
+                checked={allVisibleSelected}
+                indeterminate={selCount > 0 && !allVisibleSelected}
+                disabled={selectableVisible.length === 0}
+                onchange={toggleSelectAll} />
+            </th>
             <th style="width: 26%">Key</th>
             <th>Value</th>
             <th style="width: 100px">Origin</th>
@@ -676,7 +826,14 @@
         </thead>
         <tbody>
           {#each visible as row (row)}
-            <tr class:dirty={row.dirty || row.added} class:deleted={row.deleted}>
+            <tr class:dirty={row.dirty || row.added} class:deleted={row.deleted} class:selected={!row.added && selected.has(row.key)}>
+              <td class="sel-cell">
+                {#if !row.added && row.key}
+                  <input type="checkbox" aria-label={`Select ${row.key}`}
+                    checked={selected.has(row.key)}
+                    onchange={() => toggleRowSelect(row.key)} />
+                {/if}
+              </td>
               <td class="key-cell">
                 {#if row.added && row.editing}
                   <input class="input inline-input mono" placeholder="NEW_KEY or config.yaml" bind:value={row.key} />
@@ -762,6 +919,10 @@
                   <button class="btn btn-ghost btn-sm" onclick={() => { row.revealed = false; row.editing = false }} title="Mask">Mask</button>
                 {/if}
                 {#if !row.added}
+                  <button class="btn btn-ghost btn-sm" onclick={() => toggleInsights(row.key)}
+                    title="Read insights — last-read time and a 30-day daily reveal sparkline (audit metadata; no value)">
+                    {insightsFor === row.key ? 'Close reads' : 'Reads…'}
+                  </button>
                   <button class="btn btn-ghost btn-sm" onclick={() => toggleHistory(row)} title="Per-key value history">
                     {historyFor === row.key ? 'Close' : `v${row.valueVersion}…`}
                   </button>
@@ -782,9 +943,41 @@
                 {/if}
               </td>
             </tr>
+            {#if insightsFor === row.key}
+              {@const ins = insights[row.key]}
+              <tr class="insights-row">
+                <td colspan="7">
+                  <div class="insights">
+                    <span class="label">Read insights — {row.key}</span>
+                    <p class="folio">
+                      From the audit ledger — key names, reveal counts, and timestamps only; never a value.
+                    </p>
+                    <div class="insights-body">
+                      <div class="insight-stat">
+                        <span class="insight-label">Last read</span>
+                        {#if ins?.last_read_at}
+                          <span class="insight-val mono" title={ins.last_read_at}>{relTime(ins.last_read_at)}</span>
+                        {:else}
+                          <span class="insight-val never">never read per-key</span>
+                        {/if}
+                      </div>
+                      <div class="insight-stat">
+                        <span class="insight-label">Reveals · last {insightsWindow}d</span>
+                        {#if ins && ins.daily.some(n => n > 0)}
+                          <span class="spark"><Sparkline data={ins.daily} width={160} height={30} color="var(--archivist)" /></span>
+                          <span class="insight-val mono">{ins.daily.reduce((a, b) => a + b, 0)} total</span>
+                        {:else}
+                          <span class="insight-val never">no reveals in {insightsWindow}d</span>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            {/if}
             {#if maxAgeKeyFor === row.key}
               <tr class="maxage-row">
-                <td colspan="6">
+                <td colspan="7">
                   <div class="maxage-panel">
                     <span class="label">Advisory max-age — {row.key}</span>
                     <p class="folio">
@@ -809,7 +1002,7 @@
             {/if}
             {#if historyFor === row.key}
               <tr class="hist-row">
-                <td colspan="6">
+                <td colspan="7">
                   {#if !keyHistory.length}
                     <span class="folio">Loading value history…</span>
                   {:else}
@@ -834,7 +1027,7 @@
               </tr>
             {/if}
           {:else}
-            <tr><td colspan="6" class="empty folio">
+            <tr><td colspan="7" class="empty folio">
               {loading ? 'Unwrapping…' : rows.length ? `No keys match “${filter}”.` : 'No secrets yet — add the first key.'}
             </td></tr>
           {/each}
@@ -1053,6 +1246,40 @@
     color: var(--archivist);
     margin-top: 2px;
   }
+  /* ── bulk selection ─────────────────────────── */
+  .sel-cell { text-align: center; width: 30px; }
+  .sel-cell input { cursor: pointer; }
+  tr.selected td { background: var(--archivist-wash); }
+  tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--archivist); }
+
+  .bulkbar {
+    display: flex;
+    align-items: center;
+    gap: var(--s3);
+    padding: var(--s2) var(--s4);
+    margin-bottom: var(--s3);
+    border-left: 4px solid var(--archivist);
+  }
+  .bulk-count { font-size: var(--text-sm); }
+  .bulk-actions { margin-left: auto; display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+  /* ── read insights panel ────────────────────── */
+  .insights-row td { background: var(--paper-low); }
+  .insights { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3) var(--s4); }
+  .insights .folio { max-width: 60ch; }
+  .insights-body { display: flex; gap: var(--s6); flex-wrap: wrap; align-items: center; margin-top: var(--s1); }
+  .insight-stat { display: flex; align-items: center; gap: var(--s2); }
+  .insight-label {
+    font-size: 0.6rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--archivist);
+  }
+  .insight-val { font-size: var(--text-sm); }
+  .insight-val.never { color: var(--ink-ghost); font-style: italic; font-size: var(--text-xs); }
+  .spark { display: inline-flex; align-items: center; }
+
   .hist-row td { background: var(--archivist-wash); }
   .hist { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s3); }
   .hist-line { display: flex; align-items: center; gap: var(--s4); }
