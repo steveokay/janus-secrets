@@ -21,6 +21,8 @@ func newSyncCmd() *cobra.Command {
 	var intervalSeconds int64
 	var owner, repo, environment, pat string
 	var apiURL, caCert, k8sToken, namespace, secretName string
+	var gitlabURL, glProject, glEnvScope, glToken string
+	var awsRegion, awsPathPrefix, awsAccessKeyID, awsSecretAccessKey, awsSessionToken string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a sync target",
@@ -37,10 +39,18 @@ func newSyncCmd() *cobra.Command {
 				"addr": map[string]any{
 					"owner": owner, "repo": repo, "environment": environment,
 					"namespace": namespace, "secret_name": secretName,
+					"gitlab_url": gitlabURL, "project": glProject, "environment_scope": glEnvScope,
+					"region": awsRegion, "path_prefix": awsPathPrefix,
 				},
 				"creds": map[string]any{
 					"pat": pat, "api_url": apiURL, "ca_cert": caCert, "token": k8sToken,
+					"access_key_id": awsAccessKeyID, "secret_access_key": awsSecretAccessKey,
+					"session_token": awsSessionToken,
 				},
+			}
+			// GitLab uses the shared `token` creds field (PRIVATE-TOKEN).
+			if provider == "gitlab" && glToken != "" {
+				body["creds"].(map[string]any)["token"] = glToken
 			}
 			var out map[string]any
 			if err := c.call("POST", "/v1/sync/targets", body, &out); err != nil {
@@ -51,7 +61,7 @@ func newSyncCmd() *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&configID, "config", "", "target config id (required)")
-	create.Flags().StringVar(&provider, "provider", "", "sync provider: github|k8s (required)")
+	create.Flags().StringVar(&provider, "provider", "", "sync provider: github|k8s|gitlab|aws_ssm (required)")
 	create.Flags().BoolVar(&prune, "prune", true, "prune remote keys not present in the config")
 	create.Flags().Int64Var(&intervalSeconds, "interval-seconds", 0, "sync interval in seconds (required)")
 	create.Flags().StringVar(&owner, "owner", "", "GitHub repo owner (github type)")
@@ -63,6 +73,15 @@ func newSyncCmd() *cobra.Command {
 	create.Flags().StringVar(&k8sToken, "k8s-token", "", "Kubernetes bearer token (k8s type)")
 	create.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (k8s type)")
 	create.Flags().StringVar(&secretName, "secret-name", "", "Kubernetes Secret name (k8s type)")
+	create.Flags().StringVar(&gitlabURL, "gitlab-url", "", "GitLab base URL (gitlab type; default https://gitlab.com)")
+	create.Flags().StringVar(&glProject, "project", "", "GitLab project id or URL-encoded group/proj (gitlab type)")
+	create.Flags().StringVar(&glEnvScope, "environment-scope", "", "GitLab CI/CD variable environment scope (gitlab type, optional)")
+	create.Flags().StringVar(&glToken, "gitlab-token", "", "GitLab PAT/project access token with api scope (gitlab type)")
+	create.Flags().StringVar(&awsRegion, "aws-region", "", "AWS region (aws_ssm type)")
+	create.Flags().StringVar(&awsPathPrefix, "path-prefix", "", "SSM parameter path prefix, e.g. /janus/app/prod (aws_ssm type)")
+	create.Flags().StringVar(&awsAccessKeyID, "aws-access-key-id", "", "AWS access key id (aws_ssm type)")
+	create.Flags().StringVar(&awsSecretAccessKey, "aws-secret-access-key", "", "AWS secret access key (aws_ssm type)")
+	create.Flags().StringVar(&awsSessionToken, "aws-session-token", "", "AWS session token (aws_ssm type, optional)")
 
 	// list
 	var projectID string
@@ -117,6 +136,8 @@ func newSyncCmd() *cobra.Command {
 	var setStatus string
 	var setOwner, setRepo, setEnvironment, setPAT string
 	var setAPIURL, setCACert, setK8sToken, setNamespace, setSecretName string
+	var setGitlabURL, setGLProject, setGLEnvScope, setGLToken string
+	var setAWSRegion, setAWSPathPrefix, setAWSAccessKeyID, setAWSSecretAccessKey, setAWSSessionToken string
 	update := &cobra.Command{
 		Use: "update <id>", Short: "Update a sync target", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -134,15 +155,25 @@ func newSyncCmd() *cobra.Command {
 			if cmd.Flags().Changed("status") {
 				body["status"] = setStatus
 			}
-			if setOwner != "" || setRepo != "" || setEnvironment != "" || setNamespace != "" || setSecretName != "" {
+			if setOwner != "" || setRepo != "" || setEnvironment != "" || setNamespace != "" || setSecretName != "" ||
+				setGitlabURL != "" || setGLProject != "" || setGLEnvScope != "" || setAWSRegion != "" || setAWSPathPrefix != "" {
 				body["addr"] = map[string]any{
 					"owner": setOwner, "repo": setRepo, "environment": setEnvironment,
 					"namespace": setNamespace, "secret_name": setSecretName,
+					"gitlab_url": setGitlabURL, "project": setGLProject, "environment_scope": setGLEnvScope,
+					"region": setAWSRegion, "path_prefix": setAWSPathPrefix,
 				}
 			}
-			if setPAT != "" || setAPIURL != "" || setCACert != "" || setK8sToken != "" {
+			if setPAT != "" || setAPIURL != "" || setCACert != "" || setK8sToken != "" || setGLToken != "" ||
+				setAWSAccessKeyID != "" || setAWSSecretAccessKey != "" || setAWSSessionToken != "" {
+				token := setK8sToken
+				if setGLToken != "" {
+					token = setGLToken // gitlab reuses the shared token creds field
+				}
 				body["creds"] = map[string]any{
-					"pat": setPAT, "api_url": setAPIURL, "ca_cert": setCACert, "token": setK8sToken,
+					"pat": setPAT, "api_url": setAPIURL, "ca_cert": setCACert, "token": token,
+					"access_key_id": setAWSAccessKeyID, "secret_access_key": setAWSSecretAccessKey,
+					"session_token": setAWSSessionToken,
 				}
 			}
 			if err := c.call("PATCH", "/v1/sync/targets/"+args[0], body, nil); err != nil {
@@ -164,6 +195,15 @@ func newSyncCmd() *cobra.Command {
 	update.Flags().StringVar(&setK8sToken, "k8s-token", "", "Kubernetes bearer token (k8s type)")
 	update.Flags().StringVar(&setNamespace, "namespace", "", "Kubernetes namespace (k8s type)")
 	update.Flags().StringVar(&setSecretName, "secret-name", "", "Kubernetes Secret name (k8s type)")
+	update.Flags().StringVar(&setGitlabURL, "gitlab-url", "", "GitLab base URL (gitlab type)")
+	update.Flags().StringVar(&setGLProject, "project", "", "GitLab project id or URL-encoded group/proj (gitlab type)")
+	update.Flags().StringVar(&setGLEnvScope, "environment-scope", "", "GitLab variable environment scope (gitlab type)")
+	update.Flags().StringVar(&setGLToken, "gitlab-token", "", "GitLab PAT/project access token (gitlab type)")
+	update.Flags().StringVar(&setAWSRegion, "aws-region", "", "AWS region (aws_ssm type)")
+	update.Flags().StringVar(&setAWSPathPrefix, "path-prefix", "", "SSM parameter path prefix (aws_ssm type)")
+	update.Flags().StringVar(&setAWSAccessKeyID, "aws-access-key-id", "", "AWS access key id (aws_ssm type)")
+	update.Flags().StringVar(&setAWSSecretAccessKey, "aws-secret-access-key", "", "AWS secret access key (aws_ssm type)")
+	update.Flags().StringVar(&setAWSSessionToken, "aws-session-token", "", "AWS session token (aws_ssm type)")
 
 	// delete
 	del := &cobra.Command{

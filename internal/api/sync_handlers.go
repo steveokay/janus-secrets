@@ -16,10 +16,17 @@ type syncCredsReq struct {
 	APIURL string `json:"api_url,omitempty"`
 	CACert string `json:"ca_cert,omitempty"`
 	Token  string `json:"token,omitempty"`
+	// aws_ssm
+	AccessKeyID     string `json:"access_key_id,omitempty"`
+	SecretAccessKey string `json:"secret_access_key,omitempty"`
+	SessionToken    string `json:"session_token,omitempty"`
 }
 
 func (c syncCredsReq) toEngine() secretsync.Creds {
-	return secretsync.Creds{PAT: c.PAT, APIURL: c.APIURL, CACert: c.CACert, Token: c.Token}
+	return secretsync.Creds{
+		PAT: c.PAT, APIURL: c.APIURL, CACert: c.CACert, Token: c.Token,
+		AccessKeyID: c.AccessKeyID, SecretAccessKey: c.SecretAccessKey, SessionToken: c.SessionToken,
+	}
 }
 
 type syncAddrReq struct {
@@ -28,12 +35,21 @@ type syncAddrReq struct {
 	Environment string `json:"environment,omitempty"`
 	Namespace   string `json:"namespace,omitempty"`
 	SecretName  string `json:"secret_name,omitempty"`
+	// gitlab
+	GitLabURL        string `json:"gitlab_url,omitempty"`
+	Project          string `json:"project,omitempty"`
+	EnvironmentScope string `json:"environment_scope,omitempty"`
+	// aws_ssm
+	Region     string `json:"region,omitempty"`
+	PathPrefix string `json:"path_prefix,omitempty"`
 }
 
 func (a syncAddrReq) toEngine() secretsync.Addr {
 	return secretsync.Addr{
 		Owner: a.Owner, Repo: a.Repo, Environment: a.Environment,
 		Namespace: a.Namespace, SecretName: a.SecretName,
+		GitLabURL: a.GitLabURL, Project: a.Project, EnvironmentScope: a.EnvironmentScope,
+		Region: a.Region, PathPrefix: a.PathPrefix,
 	}
 }
 
@@ -87,6 +103,8 @@ func toSyncView(v secretsync.TargetView) syncView {
 		Addr: syncAddrReq{
 			Owner: v.Addr.Owner, Repo: v.Addr.Repo, Environment: v.Addr.Environment,
 			Namespace: v.Addr.Namespace, SecretName: v.Addr.SecretName,
+			GitLabURL: v.Addr.GitLabURL, Project: v.Addr.Project, EnvironmentScope: v.Addr.EnvironmentScope,
+			Region: v.Addr.Region, PathPrefix: v.Addr.PathPrefix,
 		},
 	}
 	if v.LastSyncedAt != nil {

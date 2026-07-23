@@ -53,6 +53,10 @@ func (s *Service) providerFor(name string) (Provider, error) {
 		return githubProvider{hc: s.hc, baseURL: s.githubBaseURL}, nil
 	case ProviderK8s:
 		return k8sProvider{}, nil
+	case ProviderGitLab:
+		return gitlabProvider{hc: s.hc}, nil
+	case ProviderAWSSSM:
+		return awsssmProvider{}, nil
 	default:
 		return nil, ErrInvalidType
 	}

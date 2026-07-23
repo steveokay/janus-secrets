@@ -2,7 +2,7 @@
 
 A sync target replicates one config's **resolved** secrets (references
 expanded, inheritance merged — the same view `?reveal=true` returns) to an
-external store on an interval, or on demand. Two providers ship today:
+external store on an interval, or on demand. Four providers ship today:
 
 - **`github`** — writes GitHub Actions secrets (repo- or
   environment-scoped) via the GitHub REST API.
@@ -10,10 +10,15 @@ external store on an interval, or on demand. Two providers ship today:
   server, using server-side apply. For an end-to-end integration guide
   (cluster RBAC, consuming the Secret, refreshing running pods), see
   [kubernetes.md](../guides/kubernetes.md).
+- **`gitlab`** — writes GitLab CI/CD variables to a project via the
+  GitLab REST API (`PRIVATE-TOKEN` auth).
+- **`aws_ssm`** — writes AWS SSM Parameter Store `SecureString`
+  parameters under a path prefix (SSM encrypts them with the account KMS
+  key).
 
 Sync is **one-way**: Janus → external store. It never reads back from the
 destination except to fetch the GitHub public key needed to encrypt a
-value for upload. Nothing you edit directly in GitHub or Kubernetes flows
+value for upload. Nothing you edit directly in the destination flows
 back into Janus, and the next reconcile can overwrite it (see prune
 semantics below).
 
@@ -90,6 +95,62 @@ retry and Kubernetes itself tracks which fields Janus owns.
   TLS is verified against `ca_cert`. For which endpoint to use (outside vs.
   inside the cluster, and the Docker Desktop container case), see
   [kubernetes.md § What goes in the `--api-url` field](../guides/kubernetes.md#what-goes-in-the---api-url-field).
+
+### GitLab CI/CD
+
+Create a **project access token** (or a personal access token scoped to
+the target project) with the **`api`** scope, and supply it as
+`--gitlab-token`. Janus sends it as the `PRIVATE-TOKEN` header on every
+call; it is never logged and never echoed back by the API.
+
+Each config key becomes a GitLab CI/CD variable. Janus upserts variables
+via the CI/CD variables API — it tries to create (`POST .../variables`)
+and, if the variable already exists, updates it (`PUT .../variables/:key`).
+Prune deletes previously-managed keys no longer present in the config
+(`DELETE .../variables/:key`); a `404` on delete is treated as
+already-gone (idempotent).
+
+TLS is verified against the system root store (default `net/http`
+transport), which is correct for `gitlab.com` and any GitLab instance
+with a publicly-trusted certificate.
+
+> **Masked/protected caveat.** Janus writes every variable with
+> `masked=false` and `protected=false`. GitLab **rejects** `masked=true`
+> for values that don't satisfy its
+> [mask regex](https://docs.gitlab.com/ee/ci/variables/#mask-a-cicd-variable)
+> (minimum length, restricted character set), which would turn ordinary
+> secrets into spurious sync failures. Configuring masking/protection is
+> a documented follow-up; for now, set those flags manually in GitLab if
+> a given value qualifies, or scope the runner appropriately.
+
+- **Addr:** `gitlab_url` (optional, defaults to `https://gitlab.com`),
+  `project` (numeric id **or** URL-encoded `group%2Fproject` path),
+  optional `environment_scope`.
+- **Creds:** `token` (the `PRIVATE-TOKEN` value).
+
+### AWS SSM Parameter Store
+
+Create an IAM principal (user or role) with permission to
+`ssm:PutParameter` and `ssm:DeleteParameters` under the target path
+prefix (and `kms:Encrypt`/`kms:GenerateDataKey` on the KMS key SSM uses
+for `SecureString`). Supply its static credentials as
+`--aws-access-key-id` / `--aws-secret-access-key` (and, for temporary
+credentials, `--aws-session-token`).
+
+Janus writes each config key as a `SecureString` parameter at
+`<path_prefix>/<KEY>` with `Overwrite=true` — SSM encrypts the value with
+the account KMS key at rest. Janus builds the SDK client from **only** the
+static credentials you supply; it never falls back to the host's ambient
+environment or instance-profile credentials, so a sync target's identity
+is always explicit. Prune deletes previously-managed parameters under the
+prefix no longer present in the config (`DeleteParameters`, batched at the
+API's 10-name limit). AWS error messages are **sanitized** to a value-free
+category before they reach `last_error` or the audit log — an ARN, account
+id, or value never leaks.
+
+- **Addr:** `region`, `path_prefix` (e.g. `/janus/app/prod`).
+- **Creds:** `access_key_id`, `secret_access_key`, optional
+  `session_token`.
 
 ## GitHub key-name constraint
 
@@ -194,6 +255,23 @@ janus sync create --config $CONFIG --provider k8s \
   --ca-cert "$(cat cluster-ca.pem)" \
   --namespace widgets-prod --secret-name app-config \
   --interval-seconds 300
+
+# GitLab: mirror a config into a project's CI/CD variables, hourly.
+janus sync create --config $CONFIG --provider gitlab \
+  --project 42 --gitlab-token $GITLAB_TOKEN \
+  --interval-seconds 3600
+#   (self-managed instance / URL-encoded path / env scope)
+janus sync create --config $CONFIG --provider gitlab \
+  --gitlab-url https://gitlab.example.com \
+  --project mygroup%2Fmyproject --environment-scope production \
+  --gitlab-token $GITLAB_TOKEN --interval-seconds 3600
+
+# AWS SSM: mirror a config into SecureString parameters under a prefix.
+janus sync create --config $CONFIG --provider aws_ssm \
+  --aws-region us-east-1 --path-prefix /janus/atlas/prod \
+  --aws-access-key-id $AWS_ACCESS_KEY_ID \
+  --aws-secret-access-key $AWS_SECRET_ACCESS_KEY \
+  --interval-seconds 900
 
 # List, inspect, update, sync now, delete.
 janus sync list --project $PROJECT

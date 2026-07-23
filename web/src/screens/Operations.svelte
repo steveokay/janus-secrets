@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     api, errorMessage,
-    type RotationPolicy, type SyncTargetApi, type DynamicRole, type ApiLease,
+    type RotationPolicy, type SyncTargetApi, type SyncCreateInput, type DynamicRole, type ApiLease,
     type RunView, type IssuedCreds,
   } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
@@ -38,7 +38,7 @@
 
   let showNewSync = $state(false)
   let sConfigId = $state('')
-  let sProvider = $state<'github' | 'k8s'>('github')
+  let sProvider = $state<'github' | 'k8s' | 'gitlab' | 'aws_ssm'>('github')
   let sIntervalMin = $state(15)
   let sOwner = $state('')
   let sRepo = $state('')
@@ -49,6 +49,17 @@
   let sSecretName = $state('')
   let sToken = $state('')
   let sCaCert = $state('')
+  // gitlab
+  let sGitlabUrl = $state('')
+  let sGlProject = $state('')
+  let sGlEnvScope = $state('')
+  let sGlToken = $state('')
+  // aws_ssm
+  let sAwsRegion = $state('')
+  let sAwsPathPrefix = $state('')
+  let sAwsAccessKeyId = $state('')
+  let sAwsSecretAccessKey = $state('')
+  let sAwsSessionToken = $state('')
   let sError = $state('')
 
   let showNewRole = $state(false)
@@ -173,19 +184,40 @@
     e.preventDefault()
     sError = ''
     try {
+      let addr: SyncCreateInput['addr']
+      let creds: SyncCreateInput['creds']
+      if (sProvider === 'github') {
+        addr = { owner: sOwner.trim(), repo: sRepo.trim(), ...(sEnvName.trim() ? { environment: sEnvName.trim() } : {}) }
+        creds = { pat: sPat }
+      } else if (sProvider === 'k8s') {
+        addr = { namespace: sNamespace.trim(), secret_name: sSecretName.trim() }
+        creds = { api_url: sApiUrl.trim(), token: sToken, ca_cert: sCaCert }
+      } else if (sProvider === 'gitlab') {
+        addr = {
+          project: sGlProject.trim(),
+          ...(sGitlabUrl.trim() ? { gitlab_url: sGitlabUrl.trim() } : {}),
+          ...(sGlEnvScope.trim() ? { environment_scope: sGlEnvScope.trim() } : {}),
+        }
+        creds = { token: sGlToken }
+      } else {
+        addr = { region: sAwsRegion.trim(), path_prefix: sAwsPathPrefix.trim() }
+        creds = {
+          access_key_id: sAwsAccessKeyId.trim(),
+          secret_access_key: sAwsSecretAccessKey,
+          ...(sAwsSessionToken.trim() ? { session_token: sAwsSessionToken.trim() } : {}),
+        }
+      }
       await api.createSyncTarget({
         config_id: sConfigId,
         provider: sProvider,
         interval_seconds: sIntervalMin * 60,
-        addr: sProvider === 'github'
-          ? { owner: sOwner.trim(), repo: sRepo.trim(), ...(sEnvName.trim() ? { environment: sEnvName.trim() } : {}) }
-          : { namespace: sNamespace.trim(), secret_name: sSecretName.trim() },
-        creds: sProvider === 'github'
-          ? { pat: sPat }
-          : { api_url: sApiUrl.trim(), token: sToken, ca_cert: sCaCert },
+        addr,
+        creds,
       })
       showNewSync = false
       sOwner = ''; sRepo = ''; sEnvName = ''; sPat = ''; sApiUrl = ''; sNamespace = ''; sSecretName = ''; sToken = ''; sCaCert = ''
+      sGitlabUrl = ''; sGlProject = ''; sGlEnvScope = ''; sGlToken = ''
+      sAwsRegion = ''; sAwsPathPrefix = ''; sAwsAccessKeyId = ''; sAwsSecretAccessKey = ''; sAwsSessionToken = ''
       flash('Sync target created.')
       await load()
     } catch (err) {
@@ -297,7 +329,16 @@
 
   function destLabel(s: SyncTargetApi): string {
     if (s.provider === 'github') return `gh:${s.addr.owner}/${s.addr.repo}${s.addr.environment ? ` · ${s.addr.environment}` : ''}`
+    if (s.provider === 'gitlab') return `gl:${s.addr.project}${s.addr.environment_scope ? ` · ${s.addr.environment_scope}` : ''}`
+    if (s.provider === 'aws_ssm') return `ssm:${s.addr.region}${s.addr.path_prefix ?? ''}`
     return `k8s:${s.addr.namespace}/${s.addr.secret_name}`
+  }
+
+  function providerLabel(p: string): string {
+    if (p === 'github') return 'GitHub'
+    if (p === 'gitlab') return 'GitLab'
+    if (p === 'aws_ssm') return 'AWS SSM'
+    return 'K8s'
   }
 
   function roleName(id: string): string {
@@ -432,7 +473,12 @@
           </select>
         </label>
         <label class="field"><span class="label">Provider</span>
-          <select class="select" bind:value={sProvider}><option value="github">GitHub Actions</option><option value="k8s">Kubernetes</option></select></label>
+          <select class="select" bind:value={sProvider}>
+            <option value="github">GitHub Actions</option>
+            <option value="k8s">Kubernetes</option>
+            <option value="gitlab">GitLab CI/CD</option>
+            <option value="aws_ssm">AWS SSM Parameter Store</option>
+          </select></label>
         <label class="field"><span class="label">Every (minutes)</span>
           <input class="input" type="number" min="1" bind:value={sIntervalMin} /></label>
         {#if sProvider === 'github'}
@@ -441,7 +487,7 @@
           <label class="field"><span class="label">Environment (optional)</span><input class="input mono" bind:value={sEnvName} placeholder="production" /></label>
           <label class="field grow"><span class="label">Personal access token (write-only)</span>
             <input class="input mono" type="password" bind:value={sPat} required /></label>
-        {:else}
+        {:else if sProvider === 'k8s'}
           <label class="field grow"><span class="label">API server URL</span>
             <input class="input mono" bind:value={sApiUrl} placeholder="https://k8s.internal:6443" required /></label>
           <label class="field"><span class="label">Namespace</span><input class="input mono" bind:value={sNamespace} placeholder="prod" required /></label>
@@ -450,6 +496,26 @@
             <input class="input mono" type="password" bind:value={sToken} required /></label>
           <label class="field wide"><span class="label">CA certificate PEM (required — the cluster's TLS is verified against it)</span>
             <textarea class="input mono" rows="3" bind:value={sCaCert} required placeholder="-----BEGIN CERTIFICATE-----"></textarea></label>
+        {:else if sProvider === 'gitlab'}
+          <label class="field grow"><span class="label">GitLab URL (optional)</span>
+            <input class="input mono" bind:value={sGitlabUrl} placeholder="https://gitlab.com" /></label>
+          <label class="field"><span class="label">Project</span>
+            <input class="input mono" bind:value={sGlProject} placeholder="42 or group%2Fproject" required /></label>
+          <label class="field"><span class="label">Environment scope (optional)</span>
+            <input class="input mono" bind:value={sGlEnvScope} placeholder="*" /></label>
+          <label class="field grow"><span class="label">Access token — api scope (write-only)</span>
+            <input class="input mono" type="password" bind:value={sGlToken} required /></label>
+        {:else}
+          <label class="field"><span class="label">AWS region</span>
+            <input class="input mono" bind:value={sAwsRegion} placeholder="us-east-1" required /></label>
+          <label class="field grow"><span class="label">Parameter path prefix</span>
+            <input class="input mono" bind:value={sAwsPathPrefix} placeholder="/janus/atlas/prod" required /></label>
+          <label class="field grow"><span class="label">Access key ID</span>
+            <input class="input mono" bind:value={sAwsAccessKeyId} required /></label>
+          <label class="field grow"><span class="label">Secret access key (write-only)</span>
+            <input class="input mono" type="password" bind:value={sAwsSecretAccessKey} required /></label>
+          <label class="field grow"><span class="label">Session token (optional, write-only)</span>
+            <input class="input mono" type="password" bind:value={sAwsSessionToken} /></label>
         {/if}
         {#if sError}<p class="error wide">{sError}</p>{/if}
         <div class="form-actions wide">
@@ -468,7 +534,7 @@
           {#each syncs as s (s.id)}
             <tr class:paused={s.status === 'paused'}>
               <td>
-                <span class="pill pill-neutral dest-pill">{s.provider === 'github' ? 'GitHub' : 'K8s'}</span>
+                <span class="pill pill-neutral dest-pill">{providerLabel(s.provider)}</span>
                 <span class="mono small">{destLabel(s)}</span>
               </td>
               <td class="mono small">{registry.configLabel(s.config_id)}</td>
