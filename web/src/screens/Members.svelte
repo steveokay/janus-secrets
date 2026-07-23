@@ -200,6 +200,7 @@
       <thead>
         <tr>
           <th>Member</th>
+          <th style="width: 150px">Last login</th>
           <th style="width: 220px">Role at {scopeKind}</th>
           <th style="width: 200px">Change</th>
           <th style="width: 110px"></th>
@@ -213,6 +214,13 @@
               <span class="m-name">{row.user.email}</span>
               {#if row.user.locked}
                 <span class="pill pill-locked" title={row.user.locked_until ? `Auto-unlocks ${relTime(row.user.locked_until)}` : 'Temporarily locked'}>Locked</span>
+              {/if}
+            </td>
+            <td>
+              {#if row.user.last_login_at}
+                <span class="folio">{relTime(row.user.last_login_at)}</span>
+              {:else}
+                <span class="folio muted">never</span>
               {/if}
             </td>
             <td>
@@ -245,6 +253,7 @@
         {#each orphanMembers as m (m.user_id)}
           <tr>
             <td class="who"><span class="avatar">?</span><span class="m-name mono">{m.user_id.slice(0, 8)}…</span></td>
+            <td><span class="folio muted">—</span></td>
             <td><span class="role role-{m.role}">{m.role}</span></td>
             <td></td>
             <td class="row-actions">
@@ -253,7 +262,7 @@
           </tr>
         {/each}
         {#if !rows.length && !orphanMembers.length}
-          <tr><td colspan="4" class="empty folio">{loading ? 'Reading…' : 'No members visible for this scope.'}</td></tr>
+          <tr><td colspan="5" class="empty folio">{loading ? 'Reading…' : 'No members visible for this scope.'}</td></tr>
         {/if}
       </tbody>
     </table>
@@ -346,6 +355,7 @@
     background: var(--vermilion-wash);
     margin-left: var(--s2);
   }
+  .muted { color: var(--ink-faint); }
   .empty { text-align: center; padding: var(--s6) !important; }
   .foot-note { margin-top: var(--s3); max-width: 72ch; }
 </style>

@@ -118,12 +118,13 @@ export interface TokenMeta {
   created_at: string
   expires_at?: string
   revoked_at?: string
+  last_used_at?: string | null
 }
 export interface MintTokenResult {
   token: string; id: string; name: string
   scope: { kind: string; id: string }; access: string; expires_at: string | null
 }
-export interface UserInfo { id: string; email: string; disabled: boolean; locked: boolean; locked_until: string | null }
+export interface UserInfo { id: string; email: string; disabled: boolean; locked: boolean; locked_until: string | null; last_login_at?: string | null }
 export type Role = 'viewer' | 'developer' | 'admin' | 'owner'
 export interface ApiMember { user_id: string; role: Role }
 export interface ApiTransitKey {

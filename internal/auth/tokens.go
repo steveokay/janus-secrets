@@ -15,6 +15,11 @@ import (
 // token, not a hardcoded credential; gosec's entropy heuristic false-positives.
 const svcTokenPrefix = "janus_svc_"
 
+// lastUsedThrottle bounds how often a token's last_used_at is rewritten: at most
+// one write per token per window. This keeps a hot token from incurring a write
+// on every request while still giving useful "last seen" granularity.
+const lastUsedThrottle = 60 * time.Second
+
 // TokenScope is a verified service token's scope, for authorization.
 type TokenScope struct {
 	Kind   string // scope_kind: "config" | "environment" | "transit"
@@ -34,13 +39,16 @@ type TokenMeta struct {
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	// LastUsedAt is the most recent successful authentication with this token
+	// (throttled), or nil if it has never authenticated a request. Value-free.
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
 
 func metaOf(t *store.ServiceToken) TokenMeta {
 	return TokenMeta{
 		ID: t.ID, Name: t.Name, ScopeKind: t.ScopeKind, ScopeID: t.ScopeID,
 		Access: t.Access, CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt,
-		ExpiresAt: t.ExpiresAt, RevokedAt: t.RevokedAt,
+		ExpiresAt: t.ExpiresAt, RevokedAt: t.RevokedAt, LastUsedAt: t.LastUsedAt,
 	}
 }
 
@@ -163,6 +171,10 @@ func (s *Service) VerifyServiceToken(ctx context.Context, raw string) (Principal
 	if tok.ExpiresAt != nil && time.Now().After(*tok.ExpiresAt) {
 		return Principal{}, nil, ErrUnauthenticated
 	}
+	// Best-effort, throttled last-used stamp. A failure here MUST NOT fail the
+	// authenticated request: the token is already validated. We ignore the error
+	// (mirrors the other best-effort touch paths) — it is value-free metadata.
+	_ = s.tokens.TouchLastUsed(ctx, tok.ID, lastUsedThrottle)
 	scope := &TokenScope{Kind: tok.ScopeKind, ID: tok.ScopeID, Access: tok.Access}
 	return Principal{Kind: KindServiceToken, ID: tok.ID, Name: tok.Name}, scope, nil
 }

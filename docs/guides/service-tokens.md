@@ -193,7 +193,8 @@ curl "$ADDR/v1/tokens" \
       "access": "read",
       "created_by": "usr_…",
       "created_at": "2026-07-16T12:00:00Z",
-      "expires_at": "2026-08-15T12:00:00Z"
+      "expires_at": "2026-08-15T12:00:00Z",
+      "last_used_at": "2026-07-22T09:14:00Z"
     }
   ],
   "next_cursor": null
@@ -203,6 +204,20 @@ curl "$ADDR/v1/tokens" \
 Follow `next_cursor` (when non-null) to page through the rest. Note the
 per-scope visibility filter means a page may contain fewer entries than the
 page limit — keep paging until `next_cursor` is `null`.
+
+### Last used & stale tokens
+
+Each token carries a `last_used_at` timestamp: the most recent successful
+authentication with that token. It is **value-free** (a timestamp only — no
+token material) and updated **best-effort and throttled**, so a token that
+authenticates thousands of times a minute is rewritten at most once per 60
+seconds, and a failure to record it never fails the authenticated request.
+`last_used_at` is `null` (or absent) until the token first authenticates.
+
+The web UI's **Service tokens** screen surfaces this as a *Last used* column
+(relative, e.g. "3h ago", or "never used") and flags any token that has never
+been used, or has not been used in **90 days or more**, with a **stale** badge —
+a prompt to review and revoke credentials no machine is exercising anymore.
 
 ## Revoking a token
 

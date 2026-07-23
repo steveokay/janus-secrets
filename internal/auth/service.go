@@ -214,6 +214,9 @@ type UserInfo struct {
 	// non-secret and let the Members UI render a badge.
 	Locked      bool       `json:"locked"`
 	LockedUntil *time.Time `json:"locked_until,omitempty"`
+	// LastLoginAt is the user's most recent successful login (password or OIDC),
+	// or nil if they have never logged in. Value-free metadata for the Members UI.
+	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
 }
 
 // ListUsersPage returns a page of user summaries plus the keyset cursor for the
@@ -227,7 +230,7 @@ func (s *Service) ListUsersPage(ctx context.Context, limit int, after *store.Cur
 	now := time.Now()
 	out := make([]UserInfo, 0, len(rows))
 	for _, u := range rows {
-		info := UserInfo{ID: u.ID, Email: u.Email, Disabled: u.DisabledAt != nil}
+		info := UserInfo{ID: u.ID, Email: u.Email, Disabled: u.DisabledAt != nil, LastLoginAt: u.LastLoginAt}
 		if u.LockedUntil != nil && u.LockedUntil.After(now) {
 			info.Locked = true
 			info.LockedUntil = u.LockedUntil

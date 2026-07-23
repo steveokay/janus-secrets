@@ -13,16 +13,16 @@ func NewServiceTokenRepo(s *Store) *ServiceTokenRepo { return &ServiceTokenRepo{
 
 // #nosec G101 -- this is a SQL column list, not a hardcoded credential.
 const svcTokenCols = `id::text, name, token_hmac, created_by::text, scope_kind,
-	scope_id::text, access, created_at, expires_at, revoked_at, federation_binding::text`
+	scope_id::text, access, created_at, expires_at, revoked_at, last_used_at, federation_binding::text`
 
 func scanServiceToken(row interface{ Scan(...any) error }) (*ServiceToken, error) {
 	var t ServiceToken
 	// scope_id is nullable (transit tokens may target all keys); created_by is
 	// nullable for federated tokens; federation_binding is nullable for
-	// human-minted tokens.
+	// human-minted tokens; last_used_at is nullable (never authenticated).
 	var scopeID, createdBy, fedBinding *string
 	if err := row.Scan(&t.ID, &t.Name, &t.TokenHMAC, &createdBy, &t.ScopeKind,
-		&scopeID, &t.Access, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt, &fedBinding); err != nil {
+		&scopeID, &t.Access, &t.CreatedAt, &t.ExpiresAt, &t.RevokedAt, &t.LastUsedAt, &fedBinding); err != nil {
 		return nil, mapError(err)
 	}
 	if scopeID != nil {
@@ -116,6 +116,22 @@ func (r *ServiceTokenRepo) ListPage(ctx context.Context, limit int, after *Curso
 // List returns all tokens, newest first (metadata; HMACs are opaque bytes).
 func (r *ServiceTokenRepo) List(ctx context.Context) ([]*ServiceToken, error) {
 	return r.ListPage(ctx, 0, nil)
+}
+
+// TouchLastUsed best-effort stamps last_used_at=now() for the token, THROTTLED:
+// the write is a no-op when last_used_at was set within the throttle window, so
+// hot tokens do not incur a write per request. The window is evaluated in SQL
+// (now() - throttle) to avoid client clock skew. A no-op (row already fresh, or
+// token gone) is NOT an error — callers treat any error as non-fatal. This never
+// touches token values or the HMAC; it is a pure value-free timestamp update.
+func (r *ServiceTokenRepo) TouchLastUsed(ctx context.Context, id string, throttle time.Duration) error {
+	_, err := r.s.pool.Exec(ctx,
+		`UPDATE service_tokens
+		   SET last_used_at = now()
+		 WHERE id = $1::uuid
+		   AND (last_used_at IS NULL OR last_used_at < now() - ($2 * interval '1 microsecond'))`,
+		id, throttle.Microseconds())
+	return mapError(err)
 }
 
 // Revoke marks a token revoked. Returns ErrNotFound if absent or already

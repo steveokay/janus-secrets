@@ -140,6 +140,10 @@ func (s *Service) createSession(ctx context.Context, userID string) (string, err
 	if _, err := s.sessions.Create(ctx, userID, mac(key, cookie), time.Now().Add(sessionTTL), meta.IP, meta.UserAgent); err != nil {
 		return "", err
 	}
+	// Best-effort last-login stamp for both password and OIDC logins (both mint
+	// their session here). A failure MUST NOT fail an otherwise-successful login;
+	// it is value-free metadata, so we ignore the error.
+	_ = s.users.TouchLastLogin(ctx, userID)
 	return cookie, nil
 }
 
