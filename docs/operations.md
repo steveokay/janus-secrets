@@ -544,6 +544,23 @@ authorization decision on these endpoints is recorded as a `denied` event.
 `/v1/audit/export` is the one audit-log read that IS self-audited, since it's a
 bulk export); `sys.init`/`sys.unseal` (pre-auth bootstrap operations).
 
+**Engine action endpoints — a deliberate exception (decided 2026-07-23).** The
+three Phase-3 engines expose action endpoints that produce an *external* side
+effect: rotation `POST /v1/rotation/{id}/rotate`, sync `POST /v1/sync/{id}/sync`,
+and dynamic `issue`/`renew`/`revoke`. For these, the **authorization/denial
+path is fail-closed** (a `403` is recorded before anything runs), but the
+**success audit event is the engine's best-effort write** — the engine rotates
+the real Postgres password (or writes GitHub/k8s secrets, or issues a DB role),
+records the run, then writes the audit event; if that final audit write fails it
+is logged as a warning and the request still reports success. This is
+intentional and applies **uniformly across all three engines**: the side effect
+has already happened in an external system and cannot be undone by a late audit
+failure, so failing the request after the fact would falsely imply a rollback
+that did not occur. The engines' own `*_runs` tables provide a second durable
+record of every attempt independent of the hash chain. Endpoints whose mutation
+is *internal* to Janus (secrets, tokens, keys, policy, members) remain strictly
+fail-closed as above — the mutation and its audit event commit together.
+
 | Route | Behavior | Requires |
 |---|---|---|
 | `GET /v1/audit/verify` | Walks the chain, recomputing every hash and checking linkage. `{"valid":true,"count":N,"head_seq":N,"head_hash":"<hex>"}` when intact; `{"valid":false,"broken_at_seq":K,"reason":"hash_mismatch"\|"chain_break"}` on the first break. Not self-audited. | `audit:read` (owner/admin) |

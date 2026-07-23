@@ -71,22 +71,20 @@ _Nothing in flight._
 - [ ] **docker-compose has no resource limits**, and no WAL-archiving/
       pg-backup guidance beyond the app-level `janus backup` logical dump.
 - [ ] **No `CONTRIBUTING.md`.**
-- [ ] **Decision — OIDC login is not gated by app-level TOTP.** OIDC calls
-      `createSession` directly (the IdP is expected to own MFA). If a user
-      enables TOTP for password login but the same account is also reachable
-      via OIDC, the second factor can be sidestepped through the OIDC path.
-      This is likely intended; confirm and either document it or gate OIDC
-      too. (Surfaced by the TOTP security review, 2026-07-21.)
-- [ ] **Decision needed — audit fail-closed policy for engine-authored action
-      endpoints** (rotation `.../rotate`, sync `.../sync`, dynamic
-      issue/renew/revoke). Today the *denial* path is fail-closed but the
-      *success* audit event is the engine's best-effort write (a failure logs
-      a warn; the mutation — already applied externally — still stands).
-      Either (a) accept this as the documented trade-off for external side
-      effects that can't be undone by a late audit failure, or (b) add a
-      second fail-closed `s.record(...)` at the API layer after each such
-      endpoint. Whichever is chosen must apply uniformly across all three
-      engines, not piecemeal.
+- [x] ~~**Decision — OIDC login is not gated by app-level TOTP.**~~ **RESOLVED
+      2026-07-23 — intended; documented.** OIDC delegates MFA to the IdP (the
+      standard relying-party posture); Janus TOTP gates only the password path.
+      Documented in [two-factor-auth guide](docs/guides/two-factor-auth.md#scope-password-logins-only-not-oidc)
+      with the both-paths caveat and mitigations. An opt-in "require app 2FA even
+      for OIDC" switch is a possible future add, not enforced today.
+- [x] ~~**Decision needed — audit fail-closed policy for engine-authored action
+      endpoints**~~ **RESOLVED 2026-07-23 — option (a): accept + document.** The
+      engines' action endpoints (rotation/sync/dynamic) keep the fail-closed
+      *denial* path; the *success* audit is the engine's best-effort write,
+      because the external side effect can't be undone by a late audit failure
+      and the `*_runs` tables are a second durable record. Applies uniformly
+      across all three engines. Documented in the [operations audit-log
+      section](docs/operations.md#audit-log) and `docs/architecture.md`.
 
 ## Open — product roadmap
 
