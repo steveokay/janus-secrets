@@ -131,11 +131,16 @@ export interface TokenMeta {
   expires_at?: string
   revoked_at?: string
   last_used_at?: string | null
+  /** Optional CIDR allowlist (IPv4/IPv6). Empty/absent = any IP. Value-free. */
+  ip_allowlist?: string[]
 }
 export interface MintTokenResult {
   token: string; id: string; name: string
   scope: { kind: string; id: string }; access: string; expires_at: string | null
+  ip_allowlist?: string[]
 }
+/** Value-free aggregate: tokens seen from a new IP within the window. */
+export interface TokenNewIPs { count: number; window_hours: number }
 export interface UserInfo { id: string; email: string; disabled: boolean; locked: boolean; locked_until: string | null; last_login_at?: string | null }
 export type Role = 'viewer' | 'developer' | 'admin' | 'owner'
 export interface ApiMember { user_id: string; role: Role }
@@ -487,8 +492,10 @@ export const api = {
 
   // tokens / users / members
   listTokens: () => get<{ tokens: TokenMeta[] }>('/v1/tokens').then(r => r.tokens),
-  mintToken: (req: { name: string; scope: { kind: string; id: string }; access: string; ttl_seconds?: number }) =>
+  mintToken: (req: { name: string; scope: { kind: string; id: string }; access: string; ttl_seconds?: number; ip_allowlist?: string[] }) =>
     post<MintTokenResult>('/v1/tokens', req),
+  updateTokenAllowlist: (id: string, ip_allowlist: string[]) => patch<void>(`/v1/tokens/${id}`, { ip_allowlist }),
+  tokenNewIPs: () => get<TokenNewIPs>('/v1/tokens/new-ips'),
   revokeToken: (id: string) => del<void>(`/v1/tokens/${id}`),
   listUsers: () => get<{ users: UserInfo[] }>('/v1/users').then(r => r.users),
   createUser: (email: string) => post<{ id: string; email: string; password: string }>('/v1/users', { email }),

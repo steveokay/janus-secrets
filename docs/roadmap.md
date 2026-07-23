@@ -33,8 +33,8 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Account lockout / progressive backoff**~~ **SHIPPED 2026-07-22** — progressive temporary per-account lockout with admin unlock; reveals only to the correct password (no enumeration); `JANUS_LOCKOUT_*`. | ~~S~~ |
 | ~~**Session management** — list active sessions, revoke one/all (upstream gap 1.12)~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions`, Settings UI, `janus session` CLI. | ~~S~~ |
 | ~~**Secret expiry / max-age policy** per key or config, surfaced in the in-tray ("STRIPE_KEY is 180d old")~~ **SHIPPED 2026-07-23** — advisory (blocks nothing): config default + per-key override, `stale` signal from the value's age; migration 000028, `secret:write` to set, editor chip + Overview in-tray + `janus secrets max-age` CLI. | ~~M~~ |
-| **Break-glass access** — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
-| **Per-token IP allowlists** and token usage anomaly notes (new IP → in-tray) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |
+| ~~**Break-glass access** — time-boxed role elevation with a mandatory reason, stamped into the audit chain~~ **SHIPPED 2026-07-23** — guarded self-service (elevate only on scopes you already hold, ≤ owner, mandatory reason, TTL-clamped), authz max(bound, active grant) overlay, loud fail-closed audit + notification, migration 000031. | ~~M~~ |
+| ~~**Per-token IP allowlists** and token usage anomaly notes (new IP → in-tray)~~ **SHIPPED 2026-07-23** — CIDR allowlist enforced in the auth middleware (tokens only, fail-closed), value-free new-IP note via `token_seen_ips` + in-tray, migration 000032. | ~~M~~ |
 | ~~**GCP KMS / Azure Key Vault auto-unseal**~~ **SHIPPED 2026-07-23** — both on the parameterized `KMSUnsealer` (AWS unchanged); `JANUS_SEAL_TYPE=gcpkms`/`azurekv` with ambient cloud credentials, no migration, crypto at 100% coverage. | ~~M~~ |
 
 ### 2. Secret lifecycle & editor
@@ -86,19 +86,14 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 ## Suggested near-term slate
 
-If I picked the next five, weighing leverage against effort (the earlier slates
-are all shipped, most recently the ops-hardening bundle, Cloudflare + AWS
-Secrets Manager sync, GitLab/Buildkite/CircleCI CI federation, and editor
-bulk-select + read insights):
+The security-hardening column is nearly exhausted (break-glass + per-token IP
+allowlists shipped 2026-07-23). **In flight** (parallel agents): secret
+annotations, audit shipping (webhook/syslog), Vercel + Netlify sync, and
+scheduled encrypted S3 backups. Next after those:
 
-1. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory,
-   audited reason.
-2. **Per-token IP allowlists** (1.6) + new-IP anomaly note.
-3. **Secret annotations** (2.7) — owner + note metadata per key (never values).
-4. **Require-approval-for-prod-edits** (2.8) — extend four-eyes to raw prod saves.
-5. **Accessibility pass** (5.5) — modal focus traps, ARIA, reduced-motion.
-
-(Everything through the four 2026-07-23 batches — up to Cloudflare/AWS-SM sync,
-GitLab/Buildkite/CircleCI federation, ops-hardening, and editor bulk-select +
-read insights — is shipped. Vercel/Netlify sync, scheduled S3 backups, and audit
-shipping remain among the larger items.)
+1. **Require-approval-for-prod-edits** (2.8) — extend four-eyes to raw prod saves.
+2. **More rotators** (3.x) — MySQL / Redis ACL / AWS IAM keys / OAuth refresh.
+3. **Accessibility pass** (5.5) — modal focus traps, ARIA, reduced-motion.
+4. **Mobile/tablet layout** (5.6) — read-mostly screens for on-the-go review.
+5. **The adoption bets (L)** — inbound importers (Doppler / Vault / AWS SM),
+   Terraform provider, client SDKs (Go / TS / Python).

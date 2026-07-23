@@ -16,7 +16,7 @@ func TestVerifyServiceTokenStampsLastUsed(t *testing.T) {
 	admin, _ := svc.VerifySession(ctx, cookie)
 	_, configID := mkScope(t)
 
-	raw, meta, err := svc.MintServiceToken(ctx, admin, "ci", "config", configID, "read", nil)
+	raw, meta, err := svc.MintServiceToken(ctx, admin, "ci", "config", configID, "read", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestVerifyServiceTokenLastUsedUpdateNonFatal(t *testing.T) {
 	admin, _ := svc.VerifySession(ctx, cookie)
 	_, configID := mkScope(t)
 
-	raw, meta, err := svc.MintServiceToken(ctx, admin, "ci", "config", configID, "read", nil)
+	raw, meta, err := svc.MintServiceToken(ctx, admin, "ci", "config", configID, "read", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
