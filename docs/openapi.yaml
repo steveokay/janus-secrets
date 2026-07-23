@@ -1254,6 +1254,8 @@ paths:
                             stale: { type: boolean, description: Advisory. True when the key's age (now - created_at) exceeds its effective max_age_seconds. Never blocks. }
                             last_read_at: { type: string, format: date-time, nullable: true, description: Advisory. Timestamp of the most recent per-key reveal (secret.reveal audit event); null when never read per-key. Bulk raw reads record an aggregate resource and are not per-key attributable. }
                             unused: { type: boolean, description: Advisory. True when the key has had no per-key reveal within the unused-secret threshold window (JANUS_UNUSED_SECRET_DAYS, default 90 days) — never read, or last read older than the window. Never blocks. }
+                            owner: { type: string, description: Advisory per-key annotation — a human-facing owner label. Value-free metadata; omitted when unset. }
+                            note: { type: string, description: Advisory per-key annotation — a free-text note ("what is this / who do I ask"). Value-free metadata; omitted when unset. }
                   - type: object
                     description: Revealed (reveal=true).
                     properties:
@@ -1629,6 +1631,43 @@ paths:
                   key: { type: string }
                   max_age_seconds: { type: integer, format: int64, nullable: true }
         "400": { description: Validation error (non-positive or malformed). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/secrets/{key}/annotation:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [secrets]
+      summary: Set or clear a key's owner + note annotation
+      description: >
+        Sets a human-facing owner label and free-text note on a key so "what is
+        this and who do I ask" is answerable. Value-free — no secret VALUES are
+        read or written. Send an empty/null owner and note to clear the whole
+        annotation. Owner and note are trimmed; an empty field is treated as
+        unset. Requires secret:write; emits a value-free audit event. The stored
+        annotation is surfaced per key in the masked GET
+        /v1/configs/{cid}/secrets response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner: { type: string, nullable: true, description: owner label (<=256 chars), or null/empty to unset }
+                note: { type: string, nullable: true, description: free-text note (<=2048 chars), or null/empty to unset }
+      responses:
+        "200":
+          description: OK. Echoes the normalized stored annotation (both null when cleared).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  owner: { type: string, nullable: true }
+                  note: { type: string, nullable: true }
+        "400": { description: Validation error (bad key or over-length field). }
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/configs/{cid}/versions:
     parameters:

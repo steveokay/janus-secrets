@@ -94,7 +94,7 @@ export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
 export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
-export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean; owner?: string; note?: string }
 export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
@@ -550,6 +550,11 @@ export const api = {
   setKeyMaxAge: (cid: string, key: string, seconds: number | null) =>
     put<{ key: string; max_age_seconds: number | null }>(
       `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/max-age`, { max_age_seconds: seconds }),
+  // per-key annotation (owner + note; value-free metadata, never blocks anything).
+  // Send empty owner + note to clear the whole annotation.
+  setKeyAnnotation: (cid: string, key: string, owner: string | null, note: string | null) =>
+    put<{ key: string; owner: string | null; note: string | null }>(
+      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/annotation`, { owner, note }),
 
   listLockedKeys: (cid: string) => get<{ keys: string[] }>(`/v1/configs/${cid}/locked-keys`).then(r => r.keys ?? []),
   lockKey: (cid: string, key: string) => post<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys`, { key }),

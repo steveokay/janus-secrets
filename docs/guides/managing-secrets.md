@@ -313,6 +313,36 @@ effective `max_age_seconds` per key. Policies live under:
 | `PUT /v1/configs/{cid}/max-age` | set/clear the config default (`{"max_age_seconds": N\|null}`) |
 | `PUT /v1/configs/{cid}/secrets/{key}/max-age` | set/clear a per-key override |
 
+### Annotations — owner + note (advisory)
+
+An **annotation** attaches human-facing metadata to a key so
+"what is this and who do I ask about it?" is answerable from the masked
+view. Each key may carry an **owner** label (e.g. `team-data`,
+`alice@corp.io`) and a free-text **note** (what the secret is for, when to
+rotate it, who to page). Annotations are **value-free** — no secret value
+is ever stored or returned — and, like max-age, they are **purely
+informational**: nothing about an annotation blocks a read, write, or
+reveal.
+
+Owner and note are trimmed; an empty field is treated as unset, and
+setting both to empty **clears** the whole annotation. Annotations are
+scoped to the config where they are set (they are *not* inherited by
+branch configs, mirroring locked-keys / max-age semantics).
+
+Setting or clearing an annotation is a config write (`secret:write`) and
+emits a value-free audit event (`secret.annotation.set` /
+`secret.annotation.clear` — key name / config path only, never the owner
+or note text). Reading rides the masked list (`secret:read`).
+
+The masked list response (`GET /v1/configs/{cid}/secrets`) carries `owner`
+and `note` per key (omitted when unset). The web editor renders an
+**owner · note** line under each annotated key and offers a per-row
+**Owner…** popover to edit or clear them.
+
+| Endpoint | Purpose |
+|---|---|
+| `PUT /v1/configs/{cid}/secrets/{key}/annotation` | set/clear a key's owner + note (`{"owner": "…"\|null, "note": "…"\|null}`; empty both clears) |
+
 ### Unused-secret detection (advisory)
 
 Where max-age asks "how *old* is this value?", unused-secret detection
