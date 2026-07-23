@@ -38,7 +38,7 @@
 
   let showNewSync = $state(false)
   let sConfigId = $state('')
-  let sProvider = $state<'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets'>('github')
+  let sProvider = $state<'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets' | 'vercel' | 'netlify'>('github')
   let sIntervalMin = $state(15)
   let sOwner = $state('')
   let sRepo = $state('')
@@ -70,6 +70,15 @@
   let sSmAccessKeyId = $state('')
   let sSmSecretAccessKey = $state('')
   let sSmSessionToken = $state('')
+  // vercel
+  let sVcProject = $state('')
+  let sVcTeamId = $state('')
+  let sVcTarget = $state<'production' | 'preview' | 'development'>('production')
+  let sVcApiToken = $state('')
+  // netlify
+  let sNfAccountId = $state('')
+  let sNfSiteId = $state('')
+  let sNfApiToken = $state('')
   let sError = $state('')
 
   let showNewRole = $state(false)
@@ -219,6 +228,19 @@
       } else if (sProvider === 'cloudflare') {
         addr = { account_id: sCfAccountId.trim(), script_name: sCfScriptName.trim() }
         creds = { api_token: sCfApiToken }
+      } else if (sProvider === 'vercel') {
+        addr = {
+          vercel_project: sVcProject.trim(),
+          ...(sVcTeamId.trim() ? { vercel_team_id: sVcTeamId.trim() } : {}),
+          vercel_targets: [sVcTarget],
+        }
+        creds = { api_token: sVcApiToken }
+      } else if (sProvider === 'netlify') {
+        addr = {
+          netlify_account_id: sNfAccountId.trim(),
+          ...(sNfSiteId.trim() ? { netlify_site_id: sNfSiteId.trim() } : {}),
+        }
+        creds = { api_token: sNfApiToken }
       } else {
         addr = { region: sSmRegion.trim(), path_prefix: sSmPathPrefix.trim() }
         creds = {
@@ -240,6 +262,8 @@
       sAwsRegion = ''; sAwsPathPrefix = ''; sAwsAccessKeyId = ''; sAwsSecretAccessKey = ''; sAwsSessionToken = ''
       sCfAccountId = ''; sCfScriptName = ''; sCfApiToken = ''
       sSmRegion = ''; sSmPathPrefix = ''; sSmAccessKeyId = ''; sSmSecretAccessKey = ''; sSmSessionToken = ''
+      sVcProject = ''; sVcTeamId = ''; sVcTarget = 'production'; sVcApiToken = ''
+      sNfAccountId = ''; sNfSiteId = ''; sNfApiToken = ''
       flash('Sync target created.')
       await load()
     } catch (err) {
@@ -355,6 +379,8 @@
     if (s.provider === 'aws_ssm') return `ssm:${s.addr.region}${s.addr.path_prefix ?? ''}`
     if (s.provider === 'cloudflare') return `cf:${s.addr.account_id}/${s.addr.script_name}`
     if (s.provider === 'aws_secrets') return `sm:${s.addr.region}/${s.addr.path_prefix ?? ''}`
+    if (s.provider === 'vercel') return `vc:${s.addr.vercel_project}${s.addr.vercel_team_id ? ` · ${s.addr.vercel_team_id}` : ''}`
+    if (s.provider === 'netlify') return `nf:${s.addr.netlify_account_id}${s.addr.netlify_site_id ? `/${s.addr.netlify_site_id}` : ''}`
     return `k8s:${s.addr.namespace}/${s.addr.secret_name}`
   }
 
@@ -364,6 +390,8 @@
     if (p === 'aws_ssm') return 'AWS SSM'
     if (p === 'cloudflare') return 'Cloudflare'
     if (p === 'aws_secrets') return 'AWS Secrets'
+    if (p === 'vercel') return 'Vercel'
+    if (p === 'netlify') return 'Netlify'
     return 'K8s'
   }
 
@@ -506,6 +534,8 @@
             <option value="aws_ssm">AWS SSM Parameter Store</option>
             <option value="cloudflare">Cloudflare Workers</option>
             <option value="aws_secrets">AWS Secrets Manager</option>
+            <option value="vercel">Vercel</option>
+            <option value="netlify">Netlify</option>
           </select></label>
         <label class="field"><span class="label">Every (minutes)</span>
           <input class="input" type="number" min="1" bind:value={sIntervalMin} /></label>
@@ -551,6 +581,26 @@
             <input class="input mono" bind:value={sCfScriptName} placeholder="atlas-api" required /></label>
           <label class="field grow"><span class="label">API token — Workers Scripts Edit (write-only)</span>
             <input class="input mono" type="password" bind:value={sCfApiToken} required /></label>
+        {:else if sProvider === 'vercel'}
+          <label class="field"><span class="label">Project (id or name)</span>
+            <input class="input mono" bind:value={sVcProject} placeholder="prj_… or atlas-api" required /></label>
+          <label class="field"><span class="label">Team ID (optional)</span>
+            <input class="input mono" bind:value={sVcTeamId} placeholder="team_…" /></label>
+          <label class="field"><span class="label">Target environment</span>
+            <select class="select" bind:value={sVcTarget}>
+              <option value="production">production</option>
+              <option value="preview">preview</option>
+              <option value="development">development</option>
+            </select></label>
+          <label class="field grow"><span class="label">API token (write-only)</span>
+            <input class="input mono" type="password" bind:value={sVcApiToken} required /></label>
+        {:else if sProvider === 'netlify'}
+          <label class="field"><span class="label">Account ID (or slug)</span>
+            <input class="input mono" bind:value={sNfAccountId} placeholder="acct_… or my-team" required /></label>
+          <label class="field"><span class="label">Site ID (optional)</span>
+            <input class="input mono" bind:value={sNfSiteId} placeholder="site_… (omit for account-level)" /></label>
+          <label class="field grow"><span class="label">Personal access token (write-only)</span>
+            <input class="input mono" type="password" bind:value={sNfApiToken} required /></label>
         {:else}
           <label class="field"><span class="label">AWS region</span>
             <input class="input mono" bind:value={sSmRegion} placeholder="us-east-1" required /></label>

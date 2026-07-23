@@ -167,6 +167,8 @@ export interface SyncTargetApi {
     gitlab_url?: string; project?: string; environment_scope?: string
     region?: string; path_prefix?: string
     account_id?: string; script_name?: string
+    vercel_project?: string; vercel_team_id?: string; vercel_targets?: string[]
+    netlify_account_id?: string; netlify_site_id?: string
   }
 }
 export interface DynamicRole {
@@ -188,7 +190,7 @@ export interface RotationCreateInput {
     url?: string; hmac_key?: string; notify_url?: string; notify_hmac_key?: string
   }
 }
-export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets'
+export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets' | 'vercel' | 'netlify'
 export interface SyncCreateInput {
   config_id: string; provider: SyncProvider; prune?: boolean; interval_seconds: number
   addr: {
@@ -196,6 +198,8 @@ export interface SyncCreateInput {
     gitlab_url?: string; project?: string; environment_scope?: string
     region?: string; path_prefix?: string
     account_id?: string; script_name?: string
+    vercel_project?: string; vercel_team_id?: string; vercel_targets?: string[]
+    netlify_account_id?: string; netlify_site_id?: string
   }
   creds: {
     pat?: string; api_url?: string; ca_cert?: string; token?: string

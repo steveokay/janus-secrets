@@ -2,7 +2,7 @@
 
 A sync target replicates one config's **resolved** secrets (references
 expanded, inheritance merged — the same view `?reveal=true` returns) to an
-external store on an interval, or on demand. Six providers ship today:
+external store on an interval, or on demand. Eight providers ship today:
 
 - **`github`** — writes GitHub Actions secrets (repo- or
   environment-scoped) via the GitHub REST API.
@@ -20,6 +20,11 @@ external store on an interval, or on demand. Six providers ship today:
 - **`aws_secrets`** — writes individually-named secrets in AWS Secrets
   Manager under a name prefix. Note Secrets Manager **bills per secret**
   (unlike SSM standard parameters) — choose it deliberately.
+- **`vercel`** — writes a Vercel project's Environment Variables via the
+  Vercel REST API (`Bearer` API-token auth). Values are stored `type:
+  encrypted`.
+- **`netlify`** — writes a Netlify site's environment variables via the
+  Netlify REST API (`Bearer` personal-access-token auth).
 
 Sync is **one-way**: Janus → external store. It never reads back from the
 destination except to fetch the GitHub public key needed to encrypt a
@@ -224,6 +229,73 @@ value never leaks.
 - **Creds:** `access_key_id`, `secret_access_key`, optional
   `session_token`.
 
+### Vercel
+
+Create a Vercel API token (Account Settings → Tokens; scope it to the
+team that owns the project). Supply it as `--vercel-api-token`; Janus
+sends it as `Authorization: Bearer <token>`.
+
+Each config key is upserted with a single call:
+`POST /v10/projects/{idOrName}/env?upsert=true` — the `upsert` query
+param creates the variable if absent or replaces its value if present, so
+no separate list/create step is needed on the write path. Values are
+written with `type: encrypted` so Vercel stores them encrypted at rest.
+The chosen deployment target(s) (`production`, `preview`, and/or
+`development`) are set on each variable; when none are configured Janus
+defaults to `["production"]`. When a team scope is configured, `teamId`
+is appended as a query parameter.
+
+Prune first lists the project's env vars
+(`GET /v10/projects/{idOrName}/env`) to map a managed key name back to its
+Vercel env-var id, then deletes the ones no longer desired
+(`DELETE /v10/projects/{idOrName}/env/{envId}`); a `404` on delete is
+treated as already-gone (idempotent). The `vercel_project` and
+`vercel_team_id` are validated against a strict path/query-segment charset
+(`[A-Za-z0-9._-]`) before URL interpolation, so a malformed value is
+rejected rather than smuggled into the request target.
+
+A create response can report per-key failures in a `failed[]` array even
+on a 2xx; any non-empty `failed[]` (or non-2xx status) fails the reconcile
+with a **value-free** category — the response body is never echoed into
+`last_error` or the audit log. TLS is verified against the system root
+store (default `net/http` transport), correct for `api.vercel.com`. The
+Vercel project must already exist; this provider sets its env vars, it
+does not create the project.
+
+- **Addr:** `vercel_project` (id or name), optional `vercel_team_id`,
+  optional `vercel_targets` (`production`/`preview`/`development`;
+  defaults to `production`).
+- **Creds:** `api_token`.
+
+### Netlify
+
+Create a Netlify personal access token (User settings → Applications →
+Personal access tokens). Supply it as `--netlify-api-token`; Janus sends
+it as `Authorization: Bearer <token>`.
+
+Janus uses the account-scoped environment-variables API. Each config key
+is upserted by first attempting a create
+(`POST /api/v1/accounts/{account_id}/env`, array body) and, when the key
+already exists (a `409`/`400` conflict), falling back to a replace
+(`PUT /api/v1/accounts/{account_id}/env/{key}`). Values are written with
+context `all` so they apply across every deploy context. When a
+`netlify_site_id` is configured it is passed as the `site_id` query
+parameter, scoping the variable to that single site rather than the whole
+team; omit it for an account-level (shared) variable.
+
+Prune deletes previously-managed keys no longer present in the config
+(`DELETE /api/v1/accounts/{account_id}/env/{key}`); a `404` on delete is
+idempotent. The `netlify_account_id`/`netlify_site_id` are validated
+against a strict path/query-segment charset (`[A-Za-z0-9._-]`) before URL
+interpolation, and a key name that isn't a safe path segment is skipped
+rather than smuggled into the PUT/DELETE path. Non-2xx statuses fail the
+reconcile with a **value-free** category — the token, request body, and
+value never reach `last_error` or the audit log. TLS is verified against
+the system root store, correct for `api.netlify.com`.
+
+- **Addr:** `netlify_account_id` (id or slug), optional `netlify_site_id`.
+- **Creds:** `api_token`.
+
 ## GitHub key-name constraint
 
 GitHub Actions secret names must match `^[A-Za-z_][A-Za-z0-9_]*$`, be
@@ -357,6 +429,23 @@ janus sync create --config $CONFIG --provider aws_secrets \
   --sm-region us-east-1 --sm-path-prefix janus/atlas/prod \
   --sm-access-key-id $AWS_ACCESS_KEY_ID \
   --sm-secret-access-key $AWS_SECRET_ACCESS_KEY \
+  --interval-seconds 900
+
+# Vercel: mirror a config into a project's env vars, every 15 min.
+janus sync create --config $CONFIG --provider vercel \
+  --vercel-project prj_atlas --vercel-target production \
+  --vercel-api-token $VERCEL_API_TOKEN \
+  --interval-seconds 900
+#   (team-scoped project, multiple targets)
+janus sync create --config $CONFIG --provider vercel \
+  --vercel-project atlas-api --vercel-team-id team_abc \
+  --vercel-target production --vercel-target preview \
+  --vercel-api-token $VERCEL_API_TOKEN --interval-seconds 900
+
+# Netlify: mirror a config into a site's environment variables, every 15 min.
+janus sync create --config $CONFIG --provider netlify \
+  --netlify-account-id my-team --netlify-site-id $NETLIFY_SITE_ID \
+  --netlify-api-token $NETLIFY_TOKEN \
   --interval-seconds 900
 
 # List, inspect, update, sync now, delete.
