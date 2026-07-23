@@ -1211,6 +1211,10 @@ paths:
                             created_at: { type: string, format: date-time }
                             origin: { type: string, description: Config id the value is inherited from, or own. }
                             type: { type: string, enum: [string, password, json, ssh_key, certificate, note], description: Display/handling hint; never a storage or crypto concern. }
+                            max_age_seconds: { type: integer, format: int64, description: Effective advisory max-age policy for the key (per-key override, else config default). Omitted when no policy applies. Advisory only — never blocks. }
+                            stale: { type: boolean, description: Advisory. True when the key's age (now - created_at) exceeds its effective max_age_seconds. Never blocks. }
+                            last_read_at: { type: string, format: date-time, nullable: true, description: Advisory. Timestamp of the most recent per-key reveal (secret.reveal audit event); null when never read per-key. Bulk raw reads record an aggregate resource and are not per-key attributable. }
+                            unused: { type: boolean, description: Advisory. True when the key has had no per-key reveal within the unused-secret threshold window (JANUS_UNUSED_SECRET_DAYS, default 90 days) — never read, or last read older than the window. Never blocks. }
                   - type: object
                     description: Revealed (reveal=true).
                     properties:

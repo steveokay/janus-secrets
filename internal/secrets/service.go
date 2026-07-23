@@ -6,10 +6,15 @@ package secrets
 
 import (
 	"runtime"
+	"time"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
+
+// DefaultUnusedSecretDays is the advisory "not read in N days" threshold used
+// when JANUS_UNUSED_SECRET_DAYS is unset or non-positive.
+const DefaultUnusedSecretDays = 90
 
 // Service is the secrets façade over the store repositories and an injected,
 // already-unsealed keyring.
@@ -21,7 +26,13 @@ type Service struct {
 	secrets  *store.SecretRepo
 	kekVers  *store.ProjectKEKVersionRepo
 	maxAge   *store.MaxAgeRepo
+	lastRead *store.LastReadRepo
 	keyring  *crypto.Keyring
+
+	// unusedDays is the advisory unused-secret threshold in days (a key with no
+	// per-key reveal within this window is flagged "unused"). Server config, not
+	// per-config state; defaults to DefaultUnusedSecretDays.
+	unusedDays int
 }
 
 // NewService retains st and builds the repositories from it. kr must be an
@@ -35,8 +46,29 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		secrets:  store.NewSecretRepo(st),
 		kekVers:  store.NewProjectKEKVersionRepo(st),
 		maxAge:   store.NewMaxAgeRepo(st),
+		lastRead: store.NewLastReadRepo(st),
 		keyring:  kr,
+
+		unusedDays: DefaultUnusedSecretDays,
 	}
+}
+
+// SetUnusedSecretDays overrides the advisory unused-secret threshold (days). A
+// non-positive value resets to DefaultUnusedSecretDays. Server config, applied
+// at boot from JANUS_UNUSED_SECRET_DAYS.
+func (s *Service) SetUnusedSecretDays(days int) {
+	if days <= 0 {
+		days = DefaultUnusedSecretDays
+	}
+	s.unusedDays = days
+}
+
+// UnusedSecretDays returns the effective advisory unused-secret threshold (days).
+func (s *Service) UnusedSecretDays() int { return s.unusedDays }
+
+// unusedWindow is the threshold as a duration.
+func (s *Service) unusedWindow() time.Duration {
+	return time.Duration(s.unusedDays) * 24 * time.Hour
 }
 
 // zeroize overwrites b with zeros. Best-effort defense-in-depth: Go's GC may

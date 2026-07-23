@@ -153,6 +153,17 @@ func runServer(ctx context.Context) error {
 		lockout.Max = lockout.Base
 	}
 
+	// Advisory unused-secret threshold (days). Non-positive/invalid → default 90
+	// (applied in the secrets service). Never fail boot on this advisory knob.
+	unusedSecretDays := 0 // 0 → service default (DefaultUnusedSecretDays = 90)
+	if v := os.Getenv("JANUS_UNUSED_SECRET_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			unusedSecretDays = n
+		} else {
+			logger.Warn("invalid JANUS_UNUSED_SECRET_DAYS; using default (90)", "value", v)
+		}
+	}
+
 	// Native TLS listener (optional). Static certs and ACME are mutually
 	// exclusive; validation is enforced in the api package at serve time, but we
 	// catch the both-halves-of-static-cert and both-modes cases early for a clear
@@ -179,6 +190,7 @@ func runServer(ctx context.Context) error {
 		HTTPMaxBodyBytes:   httpMaxBody,
 		Lockout:            lockout,
 		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
+		UnusedSecretDays:   unusedSecretDays,                // 0 → default 90 days
 		TLS:                tlsCfg,
 
 		NewKMSClient: func(ctx context.Context) (crypto.KMSClient, error) {

@@ -58,3 +58,19 @@ export async function countAllStaleKeys(projects: ViewProject[]): Promise<number
   )
   return per.reduce((a, n) => a + n, 0)
 }
+
+/* Advisory unused-secret count across all configs. Fans out the masked-secrets
+   endpoint (which carries the per-key `unused` flag — not read within the
+   threshold window, default 90d) once per config, tolerating per-config 403s.
+   Value-free: only counts, no secret material. */
+export async function countAllUnusedKeys(projects: ViewProject[]): Promise<number> {
+  const cids = projects.flatMap(p => p.environments.flatMap(e => e.configs.map(c => c.id)))
+  const per = await Promise.all(
+    cids.map(cid =>
+      api.maskedSecrets(cid)
+        .then(secs => Object.values(secs).filter(m => m.unused).length)
+        .catch(() => 0),
+    ),
+  )
+  return per.reduce((a, n) => a + n, 0)
+}

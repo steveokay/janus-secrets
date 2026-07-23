@@ -82,7 +82,7 @@ export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
 export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
-export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean }
 export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }

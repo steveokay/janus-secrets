@@ -172,6 +172,7 @@ certs and ACME are mutually exclusive; see
 | `JANUS_ROTATION_TICK` | In-process static-rotation scheduler interval; `0` disables the ticker. | `60s` |
 | `JANUS_SYNC_TICK` | In-process sync-integrations scheduler interval; `0` disables. | `60s` |
 | `JANUS_DYNAMIC_TICK` | In-process dynamic-lease manager tick (renew/expire sweep); `0` disables. | `60s` |
+| `JANUS_UNUSED_SECRET_DAYS` | Advisory unused-secret threshold in days: a key with no per-key reveal within this window is flagged "unused" in the masked list, editor, and overview In tray. Positive integer; `0`/unset/invalid ⇒ 90. Advisory only — never blocks. | `90` |
 
 ### CLI / client-only
 

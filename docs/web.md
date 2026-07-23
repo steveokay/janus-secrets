@@ -41,7 +41,7 @@ The app fronts the full server lifecycle:
 
 | Route | Screen |
 |---|---|
-| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (failing rotations, sync errors, expiring leases, denials), project cards, live event feed. On a fresh instance a **first-run onboarding checklist** (create project → add secrets → mint token → `janus run`) sits at the top; each step auto-checks from existing state, it hides once set up, and it is dismissible (remembered per browser) |
+| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (failing rotations, sync errors, expiring leases, denials, secrets past max-age, secrets not read in 90d), project cards, live event feed. On a fresh instance a **first-run onboarding checklist** (create project → add secrets → mint token → `janus run`) sits at the top; each step auto-checks from existing state, it hides once set up, and it is dismissible (remembered per browser) |
 | `/projects` | Dossier list + create |
 | `/projects/:id` | Environment board — pipeline editor, env rename/clone/delete, config create, **drag a config tile onto another env column to stage a promotion** |
 | `/projects/:id/configs/:cid` | **Secret editor** (below) |
@@ -103,6 +103,12 @@ else is explicit:
   default). A per-row **Max-age** control sets/clears a key's override and
   a toolbar control sets the config default. Purely advisory — nothing is
   blocked; the overview In tray also surfaces "N secrets past max-age".
+- **Unused (advisory)** — an ochre "not read 90d+" / "never read" chip
+  appears on any key with no per-key reveal within the unused window
+  (default 90 days, `JANUS_UNUSED_SECRET_DAYS`), computed from audit
+  reveals. Purely advisory — nothing is blocked; the overview In tray also
+  surfaces "N secrets not read in 90d". Bulk raw reads are not per-key
+  attributable, so a bulk-only key still reads as "never read".
 - **Promote →** — key-level diff against the next pipeline stage; apply
   directly or file an approval request. See
   [Promoting between environments](guides/promoting-environments.md).

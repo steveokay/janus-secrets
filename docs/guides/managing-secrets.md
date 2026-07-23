@@ -313,6 +313,43 @@ effective `max_age_seconds` per key. Policies live under:
 | `PUT /v1/configs/{cid}/max-age` | set/clear the config default (`{"max_age_seconds": N\|null}`) |
 | `PUT /v1/configs/{cid}/secrets/{key}/max-age` | set/clear a per-key override |
 
+### Unused-secret detection (advisory)
+
+Where max-age asks "how *old* is this value?", unused-secret detection
+asks "when was this key last **read**?" — a signal for secrets that may be
+dead weight. Like max-age it is **purely advisory** and **never blocks**
+anything; it is derived entirely from the existing `audit_events` hash
+chain, so it collects no new data and stores no secret values (key names
+and timestamps only).
+
+A key's **last read** is the most recent successful *per-key* reveal
+(`secret.reveal` on `configs/{cid}/secrets/{key}`). Both the web editor's
+per-key reveal and its "Reveal all" call this per-key endpoint, so they
+count. A key is flagged **unused** when it has had **no per-key reveal
+within the threshold window** — either never read, or last read older than
+the window. The masked list distinguishes the two: `last_read_at` is
+`null` for a never-read key, or the timestamp of the last read (which may
+still be `unused` if it is outside the window).
+
+The threshold defaults to **90 days** and is configured server-wide via
+the `JANUS_UNUSED_SECRET_DAYS` environment variable (a positive integer
+number of days; `0`, unset, or invalid → 90). It is *not* per-config
+state — there is no endpoint to set it.
+
+**Limitation — bulk raw reads are not attributable.** Server-side *bulk*
+raw reads (revealing an entire config at once) record the **aggregate**
+resource `configs/{cid}/secrets` with no trailing key. Those reveals are
+therefore not attributable to any individual key and do **not** update a
+key's last-read timestamp. A key read only ever via bulk reads will still
+show as "never read". This is a deliberate consequence of value-free,
+per-key audit attribution.
+
+The masked list response (`GET /v1/configs/{cid}/secrets`) carries
+`last_read_at` (RFC 3339 or `null`) and `unused` (bool) per key alongside
+the max-age fields. The web editor renders an ochre **"not read 90d+"** /
+**"never read"** chip on each unused row, and the overview In tray
+surfaces an "N secrets not read in 90d" item.
+
 ## Versioning & rollback
 
 Janus versions every change at **two levels** so operators can answer
