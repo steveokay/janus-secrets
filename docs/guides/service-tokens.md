@@ -76,6 +76,7 @@ optional TTL:
 | `scope.id` | string | The id of the config or environment the token is scoped to. |
 | `access` | string | `read` or `readwrite` for config/environment scopes. |
 | `ttl_seconds` | number | Optional. Positive number of seconds until expiry; omit for a long-lived token. |
+| `ip_allowlist` | string[] | Optional list of CIDRs (IPv4 or IPv6). When non-empty, requests from a client IP outside every listed CIDR are rejected (`403`). Omit or pass `[]` for "any IP". See [IP allowlists](#ip-allowlists). |
 
 #### Example
 
@@ -89,7 +90,8 @@ curl -XPOST "$ADDR/v1/tokens" \
         "name": "web-app prod reader",
         "scope": {"kind": "config", "id": "cfg_abc123"},
         "access": "read",
-        "ttl_seconds": 2592000
+        "ttl_seconds": 2592000,
+        "ip_allowlist": ["203.0.113.0/24", "2001:db8::/32"]
       }'
 ```
 
@@ -104,7 +106,8 @@ The response returns the raw token **once**, alongside its metadata:
   "name": "web-app prod reader",
   "scope": {"kind": "config", "id": "cfg_abc123"},
   "access": "read",
-  "expires_at": "2026-08-15T12:00:00Z"
+  "expires_at": "2026-08-15T12:00:00Z",
+  "ip_allowlist": ["203.0.113.0/24", "2001:db8::/32"]
 }
 ```
 
@@ -139,6 +142,69 @@ the whole environment.
 For how these permissions sit inside the broader role model (viewer /
 developer / admin / owner, scoped to project or environment), see the identity &
 access section of [../operations.md](../operations.md).
+
+## IP allowlists
+
+A service token can carry an optional **IP allowlist**: a list of CIDRs (IPv4
+and/or IPv6). When the allowlist is **non-empty**, any request authenticated
+with that token whose client IP is **not** inside one of the listed CIDRs is
+rejected with `403` — even if the token itself is valid and unexpired. An
+**empty / unset** allowlist means "any IP" (the default, unchanged behaviour).
+
+This is cheap, high-signal containment for a leaked token: pin a CI token to your
+runners' egress range, or a runtime token to your cluster's NAT CIDR, and an
+exfiltrated copy is useless from anywhere else.
+
+### Setting CIDRs
+
+- **At mint** — pass `ip_allowlist` in the create request (REST) or the
+  **IP allowlist** field in the web UI's *Mint token* form (comma- or
+  space-separated CIDRs).
+- **Later** — `PATCH /v1/tokens/{id}` with `{"ip_allowlist": ["…"]}` replaces the
+  list; an empty array (`[]`) clears it (back to any-IP). In the web UI, use the
+  **IPs** action on the token's row. Updating the allowlist never touches the
+  token value or its HMAC.
+
+```sh
+# Restrict an existing token to two ranges.
+curl -XPATCH "$ADDR/v1/tokens/tok_abc123" \
+  -H "Authorization: Bearer $ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{"ip_allowlist": ["203.0.113.0/24", "2001:db8::/32"]}'
+
+# Clear it (allow any IP again).
+curl -XPATCH "$ADDR/v1/tokens/tok_abc123" \
+  -H "Authorization: Bearer $ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{"ip_allowlist": []}'
+```
+
+CIDRs are validated at the API boundary with Go's `net.ParseCIDR`; an
+unparseable entry returns `400`. Stored CIDRs are canonicalized to their
+network form (e.g. `192.0.2.7/24` becomes `192.0.2.0/24`).
+
+### How the client IP is determined
+
+The client IP is the host portion of the request's connection address — the same
+source the audit log records. **`X-Forwarded-For` is not trusted.** If Janus runs
+behind a reverse proxy or load balancer, the connection IP is the proxy's; set
+your allowlist accordingly (or terminate the allowlist at the proxy). The check
+applies only to **service-token** authentication — it never affects browser
+session (cookie) logins.
+
+### New-IP anomaly note
+
+Independently of the allowlist, Janus tracks the distinct IPs each token has been
+seen from. The **first** time a token authenticates from a given IP, Janus records
+a value-free `token.new_ip` audit event (the token id and the IP — never the token
+value). Subsequent requests from the same IP do not re-fire the event, so it is
+naturally throttled to genuinely new (token, IP) pairs.
+
+The web UI surfaces this two ways: a **new IP** badge on the token's row in the
+**Service tokens** screen, and a "*N tokens used from a new IP (24h)*" item in the
+Overview **in-tray** (backed by the value-free aggregate `GET /v1/tokens/new-ips`,
+which returns a count only). A token appearing from an unexpected IP is a strong
+signal it has leaked — rotate it and, if appropriate, add an allowlist.
 
 ## Using a token
 

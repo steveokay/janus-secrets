@@ -42,7 +42,7 @@ func TestServiceTokenLifecycle(t *testing.T) {
 	admin, _ := svc.VerifySession(ctx, cookie)
 	_, configID := mkScope(t)
 
-	raw, meta, err := svc.MintServiceToken(ctx, admin, "ci", "config", configID, "read", nil)
+	raw, meta, err := svc.MintServiceToken(ctx, admin, "ci", "config", configID, "read", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,13 +94,13 @@ func TestMintValidation(t *testing.T) {
 		{"x", "environment", "00000000-0000-0000-0000-000000000000", "read"}, // missing env
 	}
 	for _, c := range cases {
-		if _, _, err := svc.MintServiceToken(ctx, admin, c.name, c.kind, c.id, c.access, nil); err == nil {
+		if _, _, err := svc.MintServiceToken(ctx, admin, c.name, c.kind, c.id, c.access, nil, nil); err == nil {
 			t.Fatalf("mint %+v should fail", c)
 		}
 	}
 
 	// Environment scope works.
-	if _, _, err := svc.MintServiceToken(ctx, admin, "env-tok", "environment", envID, "readwrite", nil); err != nil {
+	if _, _, err := svc.MintServiceToken(ctx, admin, "env-tok", "environment", envID, "readwrite", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -113,7 +113,7 @@ func TestTokenExpiry(t *testing.T) {
 	_, configID := mkScope(t)
 
 	ttl := 1 * time.Millisecond
-	raw, _, err := svc.MintServiceToken(ctx, admin, "flash", "config", configID, "read", &ttl)
+	raw, _, err := svc.MintServiceToken(ctx, admin, "flash", "config", configID, "read", &ttl, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
