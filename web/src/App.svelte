@@ -22,6 +22,7 @@
   import Trash from './screens/Trash.svelte'
   import Integrations from './screens/Integrations.svelte'
   import Notifications from './screens/Notifications.svelte'
+  import BreakGlass from './screens/BreakGlass.svelte'
   import NotFound from './screens/NotFound.svelte'
 
   const configMatch = $derived(match('/projects/:pid/configs/:cid', router.path))
@@ -87,6 +88,8 @@
       <Integrations />
     {:else if router.path === '/notifications'}
       <Notifications />
+    {:else if router.path === '/break-glass'}
+      <BreakGlass />
     {:else}
       <NotFound />
     {/if}

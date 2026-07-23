@@ -30,6 +30,8 @@ Task-oriented walkthroughs for the common workflows:
   Postgres roles with shown-once credential issuance, all from the UI.
 - [Members & RBAC](guides/members-and-rbac.md) — inviting users and binding
   roles at instance / project / environment scope, with the guardrails.
+- [Break-glass access](guides/break-glass.md) — guarded, time-boxed emergency
+  role elevation: the guard rules, TTL, and the loud audit + notification trail.
 - [SSO & CI federation](guides/sso-and-federation.md) — configuring OIDC
   login and GitHub Actions trust bindings from the Integrations page.
 - [Two-factor authentication](guides/two-factor-auth.md) — enabling TOTP for

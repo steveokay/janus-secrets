@@ -41,7 +41,7 @@ The app fronts the full server lifecycle:
 
 | Route | Screen |
 |---|---|
-| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (failing rotations, sync errors, expiring leases, denials, secrets past max-age, secrets not read in 90d), project cards, live event feed. On a fresh instance a **first-run onboarding checklist** (create project → add secrets → mint token → `janus run`) sits at the top; each step auto-checks from existing state, it hides once set up, and it is dismissible (remembered per browser) |
+| `/` | Overview — greeting masthead, reads-24h stat strip with audit-histogram sparkline, chain-verified stamp, in-tray (**active break-glass grants**, failing rotations, sync errors, expiring leases, denials, secrets past max-age, secrets not read in 90d), project cards, live event feed. On a fresh instance a **first-run onboarding checklist** (create project → add secrets → mint token → `janus run`) sits at the top; each step auto-checks from existing state, it hides once set up, and it is dismissible (remembered per browser) |
 | `/projects` | Dossier list + create |
 | `/projects/:id` | Environment board — pipeline editor, env rename/clone/delete, config create, **drag a config tile onto another env column to stage a promotion** |
 | `/projects/:id/configs/:cid` | **Secret editor** (below) |
@@ -50,6 +50,7 @@ The app fronts the full server lifecycle:
 | `/compare` | **Cross-env diff** — pick any two configs (project → env → config) and see a key-level comparison: only-A / only-B / same / differs, per-side origin, env-accent status pills. **Values stay masked** — the screen never reveals; it only shows presence and whether the values match. Requires read on **both** configs and records one value-free `config.compare` audit event |
 | `/tokens` | Service tokens — mint (shown once), revoke |
 | `/members` | Members — scoped RBAC bindings at instance / project / environment |
+| `/break-glass` | **Break-glass** — guarded, time-boxed emergency role elevation. Loud vermilion treatment: activation form (scope + role + mandatory reason + TTL) and a live list of active grants with a countdown to expiry and an End (revoke) control. Activation is audited and forwarded to notification channels |
 | `/transit` | Transit keys — create, rotate, version notches, encrypt/sign bench |
 | `/operations` | Rotation / sync / dynamic consoles with **create** flows, pause/resume, run history, credential issuance |
 | `/integrations` | OIDC SSO provider, CI federation trust bindings, sync summary |

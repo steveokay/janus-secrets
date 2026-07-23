@@ -47,6 +47,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_NOTIFY_TICK` | no | notification dispatcher tick interval; 0 disables (Go duration, default `30s`) |
+| `JANUS_BREAKGLASS_MAX_TTL` | no | Ceiling a break-glass grant's requested TTL is clamped to (Go duration, positive, default `1h`) |
 | `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
 | `JANUS_HTTP_WRITE_TIMEOUT` | no | HTTP server write timeout (Go duration, default `0` = disabled — deliberate, so `/v1/audit/export` can stream long-running responses) |
@@ -183,12 +184,15 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus dynamic renew <lease-id>` | Extend a lease by the role's default TTL, capped at its max. Requires `dynamic:issue` |
 | `janus dynamic revoke <lease-id>` | Revoke a lease now (drops the DB role). Idempotent. Requires `dynamic:issue` |
 | `janus dynamic leases --role <id>` | List a role's leases (status, username, expiry). Requires `dynamic:issue` |
-| `janus notifications create --name <n> --type webhook\|slack --url <url> --events <csv> [--hmac-key <k>]` | Create an alerting channel. `--events` is a comma-separated subset of `rotation.failed,sync.failed,promotion.pending,access.denied`. `--hmac-key` (webhook only) signs deliveries. Requires `notification:manage` |
+| `janus notifications create --name <n> --type webhook\|slack --url <url> --events <csv> [--hmac-key <k>]` | Create an alerting channel. `--events` is a comma-separated subset of `rotation.failed,sync.failed,promotion.pending,access.denied,breakglass.activated`. `--hmac-key` (webhook only) signs deliveries. Requires `notification:manage` |
 | `janus notifications list [--json]` | List channels (masked — no URL/HMAC). Requires `notification:manage` |
 | `janus notifications update <id> [--enable\|--disable] [--events <csv>] [--url <url> [--hmac-key <k>]]` | Update a channel. Requires `notification:manage` |
 | `janus notifications delete <id>` | Delete a channel and its queued deliveries. Requires `notification:manage` |
 | `janus notifications test <id>` | Send a synchronous test notification. Requires `notification:manage` |
 | `janus notifications deliveries <id>` | Show recent delivery history (value-free). Requires `notification:manage` |
+| `janus break-glass activate --scope instance\|project\|environment [--project <id>] [--environment <id>] --role <r> --reason <text> [--ttl 30m]` | Activate emergency elevation on a scope you already hold a role on; `--role` must exceed your held role. `--ttl` is clamped to `JANUS_BREAKGLASS_MAX_TTL`. Loud + audited |
+| `janus break-glass list [--json]` | List active grants (your own, or all if you are an instance admin) |
+| `janus break-glass revoke <id>` | End a grant early (self or instance admin) |
 
 Errors render as `message (code, HTTP status)`, e.g.
 `seal is already initialized (already_initialized, HTTP 409)`.
@@ -254,6 +258,29 @@ demoted, or disabled** (`409`) — so you can never lock yourself out. If every
 owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
+
+**Break-glass (emergency elevation).** For incidents, a user can self-service
+*raise* their own role on a scope for a bounded time instead of holding standing
+admin. It is **guarded**, not approval-gated: you may activate break-glass only
+on a scope where you **already hold a role** (no existing binding ⇒ `403`), and
+only to a **strictly higher** role (up to `owner`). The requested `ttl` is
+clamped to `JANUS_BREAKGLASS_MAX_TTL` (default `1h`) and the grant auto-expires.
+A non-empty `reason` is **mandatory**. Every activation is the **loudest** event
+in the system — stamped into the audit chain (`breakglass.activate`, with the
+scope, elevated role, `expires_at`, and reason) and forwarded to notification
+channels (`breakglass.activated`); the activate audit is fail-closed (no
+unaudited elevation). See the [break-glass how-to](guides/break-glass.md).
+
+| Endpoint | Purpose | Requires |
+|---|---|---|
+| `POST /v1/break-glass` | Activate break-glass (scope + role + reason + ttl) | already hold a role on the scope; user account |
+| `GET /v1/break-glass` | List active grants (admins see all; users see their own) | authenticated |
+| `DELETE /v1/break-glass/{id}` | End a grant early | the grant's owner, or instance `member:manage` |
+
+The audit trail uses three actions: `breakglass.activate` (on activation),
+`breakglass.revoke` (early end), and `breakglass.expire` (emitted by a boot-time
+sweep for grants that lapsed while the server was down). None carry secret
+material — the reason is operator-entered text.
 
 ## Secrets API
 

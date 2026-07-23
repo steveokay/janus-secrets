@@ -50,6 +50,22 @@ components:
         smtp_username: { type: string, description: "SMTP auth username (type=smtp)." }
         smtp_tls_mode: { type: string, enum: [starttls, implicit, none], description: "TLS mode (type=smtp)." }
         smtp_insecure_skip_verify: { type: boolean, description: "Skip TLS cert verification (type=smtp)." }
+    BreakGlassGrant:
+      type: object
+      description: >-
+        A time-boxed emergency role elevation. Value-safe — carries no secret
+        material. `reason` is operator-entered justification text.
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        scope_level: { type: string, enum: [instance, project, environment] }
+        project_id: { type: string, format: uuid, nullable: true }
+        environment_id: { type: string, format: uuid, nullable: true }
+        elevated_role: { type: string, enum: [viewer, developer, admin, owner] }
+        reason: { type: string }
+        activated_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time, nullable: true }
     Error:
       type: object
       required: [error]
@@ -3074,7 +3090,7 @@ paths:
                 hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
                 events:
                   type: array
-                  items: { type: string, enum: [rotation.failed, sync.failed, promotion.pending, access.denied] }
+                  items: { type: string, enum: [rotation.failed, sync.failed, promotion.pending, access.denied, breakglass.activated] }
                 smtp_host: { type: string, description: "SMTP server host (type=smtp)." }
                 smtp_port: { type: integer, minimum: 1, maximum: 65535, description: "SMTP server port (type=smtp)." }
                 smtp_from: { type: string, description: "Envelope/From address (type=smtp)." }
@@ -3213,6 +3229,73 @@ paths:
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------------
+  # break-glass (guarded, time-boxed emergency role elevation)
+  # ---------------------------------------------------------------------
+  /v1/break-glass:
+    post:
+      tags: [break-glass]
+      summary: Activate break-glass (guarded self-service emergency elevation)
+      description: >-
+        Time-boxed role elevation on a scope you ALREADY hold a role on
+        (deny-by-default: no existing binding on that scope ⇒ 403). Raises you to
+        a strictly-higher role (up to `owner`) on that scope for a bounded time.
+        A non-empty `reason` is mandatory and is stamped into the audit chain and
+        forwarded to notification channels (`breakglass.activated`). The reason is
+        operator-entered text, never a secret. `ttl` is clamped to the server max
+        (`JANUS_BREAKGLASS_MAX_TTL`, default 1h). Available to user accounts only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scope_level, role, reason]
+              properties:
+                scope_level: { type: string, enum: [instance, project, environment] }
+                project_id: { type: string, format: uuid, description: "Required when scope_level=project." }
+                environment_id: { type: string, format: uuid, description: "Required when scope_level=environment." }
+                role: { type: string, enum: [viewer, developer, admin, owner], description: "Target role; must exceed your held role and not exceed owner." }
+                reason: { type: string, maxLength: 1000, description: "Mandatory justification (non-secret; audited)." }
+                ttl: { type: string, example: "30m", description: "Requested duration (Go duration); clamped to the server max." }
+      responses:
+        "201": { description: Grant created (value-safe grant view). }
+        "400": { description: Validation error (empty reason, invalid role, no-op elevation, bad TTL). }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [break-glass]
+      summary: List active break-glass grants
+      description: >-
+        Admins (instance `member:manage`) see every active grant; other users see
+        only their own. Value-safe: grants carry no secret material.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  grants:
+                    type: array
+                    items: { $ref: '#/components/schemas/BreakGlassGrant' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/break-glass/{id}:
+    delete:
+      tags: [break-glass]
+      summary: End a break-glass grant early
+      description: The grant's owner or an instance admin may end it before expiry.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204": { description: Grant ended. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: The grant is not active (already revoked/expired). }
 
   # ---------------------------------------------------------------------
   # dynamic
