@@ -26,6 +26,7 @@ type Service struct {
 	secrets  *store.SecretRepo
 	kekVers  *store.ProjectKEKVersionRepo
 	maxAge   *store.MaxAgeRepo
+	annots   *store.AnnotationRepo
 	lastRead *store.LastReadRepo
 	readIns  *store.ReadInsightsRepo
 	keyring  *crypto.Keyring
@@ -47,6 +48,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		secrets:  store.NewSecretRepo(st),
 		kekVers:  store.NewProjectKEKVersionRepo(st),
 		maxAge:   store.NewMaxAgeRepo(st),
+		annots:   store.NewAnnotationRepo(st),
 		lastRead: store.NewLastReadRepo(st),
 		readIns:  store.NewReadInsightsRepo(st),
 		keyring:  kr,

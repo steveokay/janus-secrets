@@ -174,6 +174,15 @@ components:
             Most recent successful authentication with this token, updated
             best-effort and throttled (never rewritten within 60s). Null/absent
             when the token has never authenticated a request. Value-free.
+        ip_allowlist:
+          type: array
+          items: { type: string }
+          description: >-
+            Optional list of CIDRs (IPv4 or IPv6). When non-empty, a request
+            authenticated with this token whose client IP is outside every
+            listed CIDR is rejected (403). Empty/absent means any IP.
+            Value-free.
+          example: ["10.0.0.0/8", "2001:db8::/32"]
     VersionResponse:
       type: object
       description: Reference to a newly created config version (value-free).
@@ -255,7 +264,7 @@ components:
         id: { type: string, format: uuid }
         project_id: { type: string, format: uuid }
         config_id: { type: string, format: uuid }
-        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets] }
+        provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets, vercel, netlify] }
         prune: { type: boolean }
         interval_seconds: { type: integer }
         addr:
@@ -273,6 +282,11 @@ components:
             path_prefix: { type: string }
             account_id: { type: string }
             script_name: { type: string }
+            vercel_project: { type: string }
+            vercel_team_id: { type: string }
+            vercel_targets: { type: array, items: { type: string } }
+            netlify_account_id: { type: string }
+            netlify_site_id: { type: string }
         status: { type: string, enum: [active, paused, failed] }
         failure_count: { type: integer }
         last_error: { type: string, nullable: true }
@@ -1245,6 +1259,8 @@ paths:
                             stale: { type: boolean, description: Advisory. True when the key's age (now - created_at) exceeds its effective max_age_seconds. Never blocks. }
                             last_read_at: { type: string, format: date-time, nullable: true, description: Advisory. Timestamp of the most recent per-key reveal (secret.reveal audit event); null when never read per-key. Bulk raw reads record an aggregate resource and are not per-key attributable. }
                             unused: { type: boolean, description: Advisory. True when the key has had no per-key reveal within the unused-secret threshold window (JANUS_UNUSED_SECRET_DAYS, default 90 days) — never read, or last read older than the window. Never blocks. }
+                            owner: { type: string, description: Advisory per-key annotation — a human-facing owner label. Value-free metadata; omitted when unset. }
+                            note: { type: string, description: Advisory per-key annotation — a free-text note ("what is this / who do I ask"). Value-free metadata; omitted when unset. }
                   - type: object
                     description: Revealed (reveal=true).
                     properties:
@@ -1621,6 +1637,43 @@ paths:
                   max_age_seconds: { type: integer, format: int64, nullable: true }
         "400": { description: Validation error (non-positive or malformed). }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/secrets/{key}/annotation:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: key, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [secrets]
+      summary: Set or clear a key's owner + note annotation
+      description: >
+        Sets a human-facing owner label and free-text note on a key so "what is
+        this and who do I ask" is answerable. Value-free — no secret VALUES are
+        read or written. Send an empty/null owner and note to clear the whole
+        annotation. Owner and note are trimmed; an empty field is treated as
+        unset. Requires secret:write; emits a value-free audit event. The stored
+        annotation is surfaced per key in the masked GET
+        /v1/configs/{cid}/secrets response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner: { type: string, nullable: true, description: owner label (<=256 chars), or null/empty to unset }
+                note: { type: string, nullable: true, description: free-text note (<=2048 chars), or null/empty to unset }
+      responses:
+        "200":
+          description: OK. Echoes the normalized stored annotation (both null when cleared).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { type: string }
+                  owner: { type: string, nullable: true }
+                  note: { type: string, nullable: true }
+        "400": { description: Validation error (bad key or over-length field). }
+        "403": { $ref: '#/components/responses/Forbidden' }
   /v1/configs/{cid}/versions:
     parameters:
       - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1797,6 +1850,14 @@ paths:
                     id: { type: string, format: uuid }
                 access: { type: string, enum: [read, readwrite] }
                 ttl_seconds: { type: integer, nullable: true, minimum: 1 }
+                ip_allowlist:
+                  type: array
+                  items: { type: string }
+                  description: >-
+                    Optional list of CIDRs (IPv4 or IPv6) validated at the API
+                    boundary. When non-empty, requests from a client IP outside
+                    every listed CIDR are rejected (403). Value-free.
+                  example: ["10.0.0.0/8"]
       responses:
         "200":
           description: Minted. `token` is the raw secret, shown once.
@@ -1815,12 +1876,59 @@ paths:
                       id: { type: string }
                   access: { type: string }
                   expires_at: { type: [string, "null"], format: date-time }
-        "400": { description: Validation error. }
+                  ip_allowlist:
+                    type: array
+                    items: { type: string }
+                    description: Effective (canonicalized) CIDR allowlist, empty = any IP.
+        "400": { description: Validation error (includes an invalid CIDR in ip_allowlist). }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
+  /v1/tokens/new-ips:
+    get:
+      tags: [tokens]
+      summary: Count service tokens seen from a new IP recently (value-free aggregate)
+      description: >-
+        Number of distinct (token, IP) first-sightings within the last 24h.
+        Backs the Overview in-tray "token used from a new IP" item. Instance
+        token:read. Names/counts only — never a secret or token value.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  window_hours: { type: integer, example: 24 }
+        "403": { $ref: '#/components/responses/Forbidden' }
   /v1/tokens/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [tokens]
+      summary: Update a service token's IP allowlist (value-free)
+      description: >-
+        Replaces the token's CIDR allowlist. An empty array clears it (any IP).
+        Omitting ip_allowlist leaves it unchanged. Never touches the token
+        value/HMAC.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ip_allowlist:
+                  type: array
+                  items: { type: string }
+                  description: New CIDR allowlist (empty = clear). Validated with net.ParseCIDR.
+                  example: ["10.0.0.0/8"]
+      responses:
+        "204": { description: Updated. }
+        "400": { description: Validation error (invalid CIDR in ip_allowlist). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [tokens]
       summary: Revoke a service token
@@ -2913,7 +3021,7 @@ paths:
               required: [config_id, provider]
               properties:
                 config_id: { type: string, format: uuid }
-                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets] }
+                provider: { type: string, enum: [github, k8s, gitlab, aws_ssm, cloudflare, aws_secrets, vercel, netlify] }
                 prune: { type: boolean, nullable: true, description: "Defaults to true when omitted." }
                 interval_seconds: { type: integer }
                 addr:
@@ -2931,6 +3039,11 @@ paths:
                     path_prefix: { type: string, description: "SSM parameter path prefix (aws_ssm) or Secrets Manager name prefix (aws_secrets), e.g. /janus/app/prod." }
                     account_id: { type: string, description: Cloudflare account id (cloudflare provider). }
                     script_name: { type: string, description: Cloudflare Worker script name (cloudflare provider). }
+                    vercel_project: { type: string, description: "Vercel project id or name (vercel provider)." }
+                    vercel_team_id: { type: string, description: "Vercel team id (vercel provider, optional)." }
+                    vercel_targets: { type: array, items: { type: string, enum: [production, preview, development] }, description: "Vercel target env(s) (vercel provider, optional; defaults to [production])." }
+                    netlify_account_id: { type: string, description: "Netlify account id or slug (netlify provider)." }
+                    netlify_site_id: { type: string, description: "Netlify site id (netlify provider, optional; account-level variable when omitted)." }
                 creds:
                   type: object
                   description: Provider credentials; all fields write-only.
@@ -2942,7 +3055,7 @@ paths:
                     access_key_id: { type: string, writeOnly: true, example: "<secret value>", description: "AWS access key id (aws_ssm and aws_secrets providers)." }
                     secret_access_key: { type: string, writeOnly: true, example: "<secret value>", description: "AWS secret access key (aws_ssm and aws_secrets providers)." }
                     session_token: { type: string, writeOnly: true, example: "<secret value>", description: "AWS session token (aws_ssm and aws_secrets providers, optional)." }
-                    api_token: { type: string, writeOnly: true, example: "<secret value>", description: "Cloudflare API token with Workers Scripts Edit (cloudflare provider)." }
+                    api_token: { type: string, writeOnly: true, example: "<secret value>", description: "Bearer API token: Cloudflare (Workers Scripts Edit), Vercel API token, or Netlify personal access token." }
       responses:
         "201":
           description: Created (masked; no creds/fingerprint in the response).
@@ -3797,6 +3910,20 @@ paths:
                     type: object
                     properties:
                       active: { type: integer }
+                  audit_ship:
+                    type: object
+                    nullable: true
+                    description: >
+                      Audit-shipper snapshot, present only when a destination is
+                      configured (JANUS_AUDIT_SHIP_MODE=webhook|syslog).
+                      Value-free — no URL/host, no secret.
+                    properties:
+                      mode: { type: string, example: webhook }
+                      destination: { type: string, example: webhook }
+                      high_water_seq: { type: integer }
+                      last_ship_at: { type: string, format: date-time, nullable: true }
+                      last_ship_count: { type: integer }
+                      last_error: { type: string }
         "401": { $ref: '#/components/responses/Unauthorized' }
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/sys/oidc:

@@ -18,8 +18,9 @@ type mintTokenRequest struct {
 		Kind string `json:"kind"`
 		ID   string `json:"id"`
 	} `json:"scope"`
-	Access     string `json:"access"`
-	TTLSeconds *int64 `json:"ttl_seconds"`
+	Access      string   `json:"access"`
+	TTLSeconds  *int64   `json:"ttl_seconds"`
+	IPAllowlist []string `json:"ip_allowlist"`
 }
 
 func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +54,13 @@ func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
 		d := time.Duration(*req.TTLSeconds) * time.Second
 		ttl = &d
 	}
-	raw, meta, err := s.auth.MintServiceToken(r.Context(), p, req.Name, req.Scope.Kind, req.Scope.ID, req.Access, ttl)
+	// Validate the IP allowlist at the API boundary (net.ParseCIDR) before minting.
+	allow, err := auth.ValidateCIDRs(req.IPAllowlist)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid CIDR in ip_allowlist")
+		return
+	}
+	raw, meta, err := s.auth.MintServiceToken(r.Context(), p, req.Name, req.Scope.Kind, req.Scope.ID, req.Access, ttl, allow)
 	if err != nil {
 		s.writeAuthError(w, err)
 		return
@@ -64,8 +71,9 @@ func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token": raw, "id": meta.ID, "name": meta.Name,
-		"scope":  map[string]string{"kind": meta.ScopeKind, "id": meta.ScopeID},
-		"access": meta.Access, "expires_at": meta.ExpiresAt,
+		"scope":        map[string]string{"kind": meta.ScopeKind, "id": meta.ScopeID},
+		"access":       meta.Access, "expires_at": meta.ExpiresAt,
+		"ip_allowlist": meta.IPAllowlist,
 	})
 }
 
@@ -100,6 +108,86 @@ func (s *Server) handleTokenList(w http.ResponseWriter, r *http.Request) {
 		nextTok = &t
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tokens": out, "next_cursor": nextTok})
+}
+
+type updateTokenRequest struct {
+	// IPAllowlist replaces the token's CIDR allowlist. An empty list clears it
+	// (any IP). Absent field is treated as "no change" only if the caller omits
+	// the key; JSON decoding of a missing key yields nil, which we distinguish
+	// via a pointer so an explicit [] can clear while omission is a no-op.
+	IPAllowlist *[]string `json:"ip_allowlist"`
+}
+
+// handleTokenUpdate updates mutable token metadata (currently only the IP
+// allowlist). Value-free: the token value/HMAC are never touched. Requires the
+// same authorization as revoke (TokenRevoke on the token's scope) — both are
+// token-management operations on the scope.
+func (s *Server) handleTokenUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req updateTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid JSON body")
+		return
+	}
+	list, err := s.auth.ListTokens(r.Context())
+	if err != nil {
+		s.writeAuthError(w, err)
+		return
+	}
+	var meta *auth.TokenMeta
+	for i := range list {
+		if list[i].ID == id {
+			meta = &list[i]
+			break
+		}
+	}
+	if meta == nil {
+		writeError(w, http.StatusNotFound, "not_found", "token not found")
+		return
+	}
+	res, err := s.resolveScopeResource(r.Context(), meta.ScopeKind, meta.ScopeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	if !s.authorize(w, r, authz.TokenRevoke, res, "token.update", "tokens/"+id) {
+		return
+	}
+	if req.IPAllowlist != nil {
+		if _, verr := auth.ValidateCIDRs(*req.IPAllowlist); verr != nil {
+			writeError(w, http.StatusBadRequest, CodeValidation, "invalid CIDR in ip_allowlist")
+			return
+		}
+		if err := s.auth.SetTokenIPAllowlist(r.Context(), id, *req.IPAllowlist); err != nil {
+			s.writeAuthError(w, err)
+			return
+		}
+	}
+	if err := s.record(r, "token.update", "tokens/"+id, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// newIPWindow is the look-back for the "token used from a new IP recently"
+// in-tray aggregate.
+const newIPWindow = 24 * time.Hour
+
+// handleTokenNewIPs serves the cheap value-free aggregate behind the Overview
+// in-tray "token used from a new IP" item: the number of (token, ip)
+// first-sightings within the last 24h. Instance TokenRead (admin view of token
+// metadata). Not self-audited (a metadata read, like the token list).
+func (s *Server) handleTokenNewIPs(w http.ResponseWriter, r *http.Request) {
+	if !s.authorize(w, r, authz.TokenRead, authz.Instance(), "token.new_ips", "tokens") {
+		return
+	}
+	n, err := s.auth.CountRecentNewIPs(r.Context(), newIPWindow)
+	if err != nil {
+		s.writeAuthError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": n, "window_hours": 24})
 }
 
 func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/spf13/cobra"
 	"github.com/steveokay/janus-secrets/internal/api"
+	"github.com/steveokay/janus-secrets/internal/auditship"
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/backupsched"
 	"github.com/steveokay/janus-secrets/internal/crypto"
@@ -93,6 +94,21 @@ func runServer(ctx context.Context) error {
 	backupSchedule, err := parseBackupSchedule(version.Version)
 	if err != nil {
 		return err
+	}
+	// Audit-log SIEM shipper. Destination comes from JANUS_AUDIT_SHIP_* (parsed +
+	// validated here so a typo is a fatal startup error, not a silent drop). The
+	// tick defaults on (production) but a zero tick or mode=off disables it.
+	auditShipCfg, err := auditship.ConfigFromEnv()
+	if err != nil {
+		return err
+	}
+	auditShipTick := 30 * time.Second // production default; 0 disables
+	if v := os.Getenv("JANUS_AUDIT_SHIP_TICK"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_AUDIT_SHIP_TICK %q: use a Go duration like 30s, or 0 to disable", v)
+		}
+		auditShipTick = d
 	}
 
 	httpRead := 30 * time.Second
@@ -223,6 +239,8 @@ func runServer(ctx context.Context) error {
 		DynamicTick:        dynamicTick,
 		NotificationTick:   notifyTick,
 		BackupSchedule:     backupSchedule,
+		AuditShip:          auditShipCfg,
+		AuditShipTick:      auditShipTick,
 		Version:            version.Version,
 		HTTPReadTimeout:    httpRead,
 		HTTPWriteTimeout:   httpWrite,

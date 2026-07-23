@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,7 +49,7 @@ func TestCreateGitHubTarget(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if reloaded.ID != view.ID || reloaded.Provider != view.Provider || reloaded.Status != view.Status ||
-		reloaded.Addr != view.Addr {
+		!reflect.DeepEqual(reloaded.Addr, view.Addr) {
 		t.Fatalf("reloaded view = %+v, want %+v", reloaded, view)
 	}
 }

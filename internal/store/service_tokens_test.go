@@ -22,7 +22,7 @@ func TestServiceTokenRepo(t *testing.T) {
 
 	mac := []byte("hmac-of-raw-token-0123456789abcd")
 	exp := time.Now().Add(24 * time.Hour)
-	tok, err := repo.Create(ctx, "ci-token", mac, u.ID, "config", configID, "read", &exp)
+	tok, err := repo.Create(ctx, "ci-token", mac, u.ID, "config", configID, "read", &exp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestServiceTokenRepo(t *testing.T) {
 	}
 
 	// Invalid enum rejected by the DB CHECK.
-	if _, err := repo.Create(ctx, "bad", []byte("other-mac-9999999999999999999999"), u.ID, "project", configID, "read", nil); err == nil {
+	if _, err := repo.Create(ctx, "bad", []byte("other-mac-9999999999999999999999"), u.ID, "project", configID, "read", nil, nil); err == nil {
 		t.Fatal("scope_kind CHECK should reject 'project'")
 	}
 }
@@ -72,7 +72,7 @@ func TestServiceTokenRepo_ListPage(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		mac := []byte(fmt.Sprintf("hmac-of-raw-token-%013d", i))
-		if _, err := repo.Create(ctx, fmt.Sprintf("tok-%d", i), mac, u.ID, "config", configID, "read", nil); err != nil {
+		if _, err := repo.Create(ctx, fmt.Sprintf("tok-%d", i), mac, u.ID, "config", configID, "read", nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

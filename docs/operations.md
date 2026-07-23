@@ -55,6 +55,12 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_BACKUP_S3_ENDPOINT` | no | custom endpoint for **S3-compatible** stores (MinIO, Cloudflare R2, Backblaze B2, …); empty = real AWS S3. Uses path-style addressing |
 | `JANUS_BACKUP_S3_ACCESS_KEY_ID` | when `JANUS_BACKUP_TICK` set | **static** S3 access key id (never the host's ambient AWS identity) |
 | `JANUS_BACKUP_S3_SECRET_ACCESS_KEY` | when `JANUS_BACKUP_TICK` set | static S3 secret access key (write-only; never logged) |
+| `JANUS_AUDIT_SHIP_MODE` | no | Audit-log SIEM shipper destination: `off` (default), `webhook`, or `syslog`. A configured mode with a missing/invalid destination is a **fatal boot error** |
+| `JANUS_AUDIT_SHIP_TICK` | no | Audit-shipper tick interval; 0 disables (Go duration, default `30s`) |
+| `JANUS_AUDIT_SHIP_WEBHOOK_URL` | for `webhook` | Absolute `http(s)` URL the JSONL batch is POSTed to (`application/x-ndjson`) |
+| `JANUS_AUDIT_SHIP_WEBHOOK_HMAC_KEY` | no | Optional HMAC-SHA256 signing key; when set the shipper adds `X-Janus-Signature: sha256=<hex>` over the body. Env-only, never logged or persisted |
+| `JANUS_AUDIT_SHIP_SYSLOG_ADDR` | for `syslog` | `host:port` of the syslog collector |
+| `JANUS_AUDIT_SHIP_SYSLOG_NETWORK` | no | `udp` (default) or `tcp` (RFC 6587 octet-framed) for syslog |
 | `JANUS_BREAKGLASS_MAX_TTL` | no | Ceiling a break-glass grant's requested TTL is clamped to (Go duration, positive, default `1h`) |
 | `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
@@ -178,7 +184,7 @@ All sys commands take `--address` (default `JANUS_ADDR`, then
 | `janus rotation update <id> [--interval-seconds <n>] [--status active\|paused]` | Update a policy's interval or status. Requires `rotation:manage` |
 | `janus rotation rotate <id>` | Rotate a policy immediately; also clears a `failed` status and retries. Requires `rotation:manage` |
 | `janus rotation delete <id>` | Delete a rotation policy. Requires `rotation:manage` |
-| `janus sync create --config <id> --provider github\|k8s\|gitlab\|aws_ssm --interval-seconds <n> [...]` | Create a sync target on a config. `github`: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s`: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. `gitlab`: `--project`, `--gitlab-token`, `--gitlab-url`/`--environment-scope` (optional). `aws_ssm`: `--aws-region`, `--path-prefix`, `--aws-access-key-id`, `--aws-secret-access-key`, `--aws-session-token` (optional). Any type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
+| `janus sync create --config <id> --provider github\|k8s\|gitlab\|aws_ssm\|cloudflare\|aws_secrets\|vercel\|netlify --interval-seconds <n> [...]` | Create a sync target on a config. `github`: `--owner`, `--repo`, `--environment` (optional), `--pat`. `k8s`: `--api-url`, `--k8s-token`, `--ca-cert`, `--namespace`, `--secret-name`. `gitlab`: `--project`, `--gitlab-token`, `--gitlab-url`/`--environment-scope` (optional). `aws_ssm`: `--aws-region`, `--path-prefix`, `--aws-access-key-id`, `--aws-secret-access-key`, `--aws-session-token` (optional). `cloudflare`: `--cf-account-id`, `--cf-script-name`, `--cf-api-token`. `aws_secrets`: `--sm-region`, `--sm-path-prefix`, `--sm-access-key-id`, `--sm-secret-access-key`, `--sm-session-token` (optional). `vercel`: `--vercel-project`, `--vercel-target` (optional, repeatable), `--vercel-team-id` (optional), `--vercel-api-token`. `netlify`: `--netlify-account-id`, `--netlify-site-id` (optional), `--netlify-api-token`. Any type: `--prune` (default `true`). Requires `sync:manage`. See the sync runbook (`docs/ops/sync.md`) |
 | `janus sync list --project <id>` | List sync targets for a project. Requires `sync:manage` |
 | `janus sync get <id>` | Show one sync target (masked config). Requires `sync:manage` |
 | `janus sync update <id> [--interval-seconds <n>] [--prune] [--status active\|paused] [...]` | Update a target's interval, prune toggle, status, destination address, or credentials. Requires `sync:manage` |
@@ -461,8 +467,10 @@ expanded) one-way to an external store — `github` (GitHub Actions secrets,
 repo- or environment-scoped), `k8s` (a Kubernetes `Secret`, via
 server-side apply), `gitlab` (GitLab CI/CD variables), `aws_ssm` (AWS
 SSM Parameter Store `SecureString` parameters), `cloudflare` (secret
-bindings on a deployed Cloudflare Worker script), or `aws_secrets` (AWS
-Secrets Manager named secrets — **billed per secret**) — on an interval
+bindings on a deployed Cloudflare Worker script), `aws_secrets` (AWS
+Secrets Manager named secrets — **billed per secret**), `vercel` (a Vercel
+project's `encrypted` Environment Variables), or `netlify` (a Netlify
+site's environment variables) — on an interval
 or on demand, managed via
 `janus sync …` above (`sync:manage`, project admin/owner) or
 `/v1/sync/targets`. A per-target `prune` toggle keeps the destination a
@@ -524,6 +532,37 @@ Slack channels receive a compact `{"text": …}` message. `POST
 shows recent (value-free) delivery history. The dispatcher is a clean no-op
 while the server is sealed. Notification channels are **not** included in a
 backup — reconfigure them after a restore.
+
+## Audit shipping (SIEM)
+
+The **audit shipper** streams the append-only audit log to an external SIEM as
+newline-delimited JSON (JSONL / NDJSON) — one JSON object per event with the
+canonical fields (`seq`, `occurred_at`, `actor_*`, `action`, `resource`,
+`result`, `ip`, hex-encoded `prev_hash`/`hash`). Like notifications it **tails
+the audit log**, but with its **own durable high-water mark** (Postgres table
+`audit_ship_state`, seeded at migration time to the current audit head so
+enabling it never replays history). Each tick (interval `JANUS_AUDIT_SHIP_TICK`,
+default `30s`) it reads events past the mark, sends the batch, and **advances the
+mark only on a successful send** — a failed send leaves the mark so the next tick
+retries the same events: **at-least-once** delivery with **no gaps** (a SIEM
+dedupes on `seq`). The shipper is a clean no-op until a destination is
+configured, and its status (mode, destination label, high-water seq, last ship
+time/count, and a sanitized last error — never a URL or secret) is surfaced under
+`audit_ship` in `GET /v1/sys/status`.
+
+Two destinations (env-configured, so no destination secret is ever persisted):
+
+- **webhook** (`JANUS_AUDIT_SHIP_MODE=webhook`): POSTs the batch as
+  `application/x-ndjson` to `JANUS_AUDIT_SHIP_WEBHOOK_URL`; when
+  `JANUS_AUDIT_SHIP_WEBHOOK_HMAC_KEY` is set the body is signed
+  `X-Janus-Signature: sha256=<hex>` (HMAC-SHA256) so the receiver can verify
+  origin. TLS is verified.
+- **syslog** (`JANUS_AUDIT_SHIP_MODE=syslog`): sends one RFC 5424 message per
+  event to `JANUS_AUDIT_SHIP_SYSLOG_ADDR` over UDP (default) or TCP
+  (`JANUS_AUDIT_SHIP_SYSLOG_NETWORK`), the JSON event as the `MSG` field.
+
+Audit events have **no value field by construction**, so the stream carries no
+secret values. See the [audit-shipping how-to](guides/audit-shipping.md).
 
 ## Secrets CLI (developer & CI flows)
 

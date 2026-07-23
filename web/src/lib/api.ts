@@ -94,7 +94,7 @@ export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
 export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
-export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean; owner?: string; note?: string }
 export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
@@ -131,11 +131,16 @@ export interface TokenMeta {
   expires_at?: string
   revoked_at?: string
   last_used_at?: string | null
+  /** Optional CIDR allowlist (IPv4/IPv6). Empty/absent = any IP. Value-free. */
+  ip_allowlist?: string[]
 }
 export interface MintTokenResult {
   token: string; id: string; name: string
   scope: { kind: string; id: string }; access: string; expires_at: string | null
+  ip_allowlist?: string[]
 }
+/** Value-free aggregate: tokens seen from a new IP within the window. */
+export interface TokenNewIPs { count: number; window_hours: number }
 export interface UserInfo { id: string; email: string; disabled: boolean; locked: boolean; locked_until: string | null; last_login_at?: string | null }
 export type Role = 'viewer' | 'developer' | 'admin' | 'owner'
 export interface ApiMember { user_id: string; role: Role }
@@ -162,6 +167,8 @@ export interface SyncTargetApi {
     gitlab_url?: string; project?: string; environment_scope?: string
     region?: string; path_prefix?: string
     account_id?: string; script_name?: string
+    vercel_project?: string; vercel_team_id?: string; vercel_targets?: string[]
+    netlify_account_id?: string; netlify_site_id?: string
   }
 }
 export interface DynamicRole {
@@ -183,7 +190,7 @@ export interface RotationCreateInput {
     url?: string; hmac_key?: string; notify_url?: string; notify_hmac_key?: string
   }
 }
-export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets'
+export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets' | 'vercel' | 'netlify'
 export interface SyncCreateInput {
   config_id: string; provider: SyncProvider; prune?: boolean; interval_seconds: number
   addr: {
@@ -191,6 +198,8 @@ export interface SyncCreateInput {
     gitlab_url?: string; project?: string; environment_scope?: string
     region?: string; path_prefix?: string
     account_id?: string; script_name?: string
+    vercel_project?: string; vercel_team_id?: string; vercel_targets?: string[]
+    netlify_account_id?: string; netlify_site_id?: string
   }
   creds: {
     pat?: string; api_url?: string; ca_cert?: string; token?: string
@@ -487,8 +496,10 @@ export const api = {
 
   // tokens / users / members
   listTokens: () => get<{ tokens: TokenMeta[] }>('/v1/tokens').then(r => r.tokens),
-  mintToken: (req: { name: string; scope: { kind: string; id: string }; access: string; ttl_seconds?: number }) =>
+  mintToken: (req: { name: string; scope: { kind: string; id: string }; access: string; ttl_seconds?: number; ip_allowlist?: string[] }) =>
     post<MintTokenResult>('/v1/tokens', req),
+  updateTokenAllowlist: (id: string, ip_allowlist: string[]) => patch<void>(`/v1/tokens/${id}`, { ip_allowlist }),
+  tokenNewIPs: () => get<TokenNewIPs>('/v1/tokens/new-ips'),
   revokeToken: (id: string) => del<void>(`/v1/tokens/${id}`),
   listUsers: () => get<{ users: UserInfo[] }>('/v1/users').then(r => r.users),
   createUser: (email: string) => post<{ id: string; email: string; password: string }>('/v1/users', { email }),
@@ -543,6 +554,11 @@ export const api = {
   setKeyMaxAge: (cid: string, key: string, seconds: number | null) =>
     put<{ key: string; max_age_seconds: number | null }>(
       `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/max-age`, { max_age_seconds: seconds }),
+  // per-key annotation (owner + note; value-free metadata, never blocks anything).
+  // Send empty owner + note to clear the whole annotation.
+  setKeyAnnotation: (cid: string, key: string, owner: string | null, note: string | null) =>
+    put<{ key: string; owner: string | null; note: string | null }>(
+      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/annotation`, { owner, note }),
 
   listLockedKeys: (cid: string) => get<{ keys: string[] }>(`/v1/configs/${cid}/locked-keys`).then(r => r.keys ?? []),
   lockKey: (cid: string, key: string) => post<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys`, { key }),

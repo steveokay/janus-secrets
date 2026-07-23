@@ -25,6 +25,9 @@ func newSyncCmd() *cobra.Command {
 	var awsRegion, awsPathPrefix, awsAccessKeyID, awsSecretAccessKey, awsSessionToken string
 	var cfAccountID, cfScriptName, cfAPIToken string
 	var smRegion, smPathPrefix, smAccessKeyID, smSecretAccessKey, smSessionToken string
+	var vcProject, vcTeamID, vcAPIToken string
+	var vcTargets []string
+	var nfAccountID, nfSiteID, nfAPIToken string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a sync target",
@@ -41,6 +44,14 @@ func newSyncCmd() *cobra.Command {
 				region, pathPrefix = smRegion, smPathPrefix
 				accessKeyID, secretAccessKey, sessionToken = smAccessKeyID, smSecretAccessKey, smSessionToken
 			}
+			// cloudflare, vercel, and netlify all authenticate with a Bearer
+			// api_token; select the flag for the chosen provider.
+			apiToken := cfAPIToken
+			if provider == "vercel" {
+				apiToken = vcAPIToken
+			} else if provider == "netlify" {
+				apiToken = nfAPIToken
+			}
 			body := map[string]any{
 				"config_id":        configID,
 				"provider":         provider,
@@ -52,12 +63,14 @@ func newSyncCmd() *cobra.Command {
 					"gitlab_url": gitlabURL, "project": glProject, "environment_scope": glEnvScope,
 					"region": region, "path_prefix": pathPrefix,
 					"account_id": cfAccountID, "script_name": cfScriptName,
+					"vercel_project": vcProject, "vercel_team_id": vcTeamID, "vercel_targets": vcTargets,
+					"netlify_account_id": nfAccountID, "netlify_site_id": nfSiteID,
 				},
 				"creds": map[string]any{
 					"pat": pat, "api_url": apiURL, "ca_cert": caCert, "token": k8sToken,
 					"access_key_id": accessKeyID, "secret_access_key": secretAccessKey,
 					"session_token": sessionToken,
-					"api_token":     cfAPIToken,
+					"api_token":     apiToken,
 				},
 			}
 			// GitLab uses the shared `token` creds field (PRIVATE-TOKEN).
@@ -73,7 +86,7 @@ func newSyncCmd() *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&configID, "config", "", "target config id (required)")
-	create.Flags().StringVar(&provider, "provider", "", "sync provider: github|k8s|gitlab|aws_ssm|cloudflare|aws_secrets (required)")
+	create.Flags().StringVar(&provider, "provider", "", "sync provider: github|k8s|gitlab|aws_ssm|cloudflare|aws_secrets|vercel|netlify (required)")
 	create.Flags().BoolVar(&prune, "prune", true, "prune remote keys not present in the config")
 	create.Flags().Int64Var(&intervalSeconds, "interval-seconds", 0, "sync interval in seconds (required)")
 	create.Flags().StringVar(&owner, "owner", "", "GitHub repo owner (github type)")
@@ -102,6 +115,13 @@ func newSyncCmd() *cobra.Command {
 	create.Flags().StringVar(&smAccessKeyID, "sm-access-key-id", "", "AWS access key id (aws_secrets type)")
 	create.Flags().StringVar(&smSecretAccessKey, "sm-secret-access-key", "", "AWS secret access key (aws_secrets type)")
 	create.Flags().StringVar(&smSessionToken, "sm-session-token", "", "AWS session token (aws_secrets type, optional)")
+	create.Flags().StringVar(&vcProject, "vercel-project", "", "Vercel project id or name (vercel type)")
+	create.Flags().StringVar(&vcTeamID, "vercel-team-id", "", "Vercel team id (vercel type, optional)")
+	create.Flags().StringSliceVar(&vcTargets, "vercel-target", nil, "Vercel target env(s): production|preview|development (vercel type, repeatable; default production)")
+	create.Flags().StringVar(&vcAPIToken, "vercel-api-token", "", "Vercel API token (vercel type)")
+	create.Flags().StringVar(&nfAccountID, "netlify-account-id", "", "Netlify account id or slug (netlify type)")
+	create.Flags().StringVar(&nfSiteID, "netlify-site-id", "", "Netlify site id (netlify type, optional; account-level var when omitted)")
+	create.Flags().StringVar(&nfAPIToken, "netlify-api-token", "", "Netlify personal access token (netlify type)")
 
 	// list
 	var projectID string
@@ -160,6 +180,9 @@ func newSyncCmd() *cobra.Command {
 	var setAWSRegion, setAWSPathPrefix, setAWSAccessKeyID, setAWSSecretAccessKey, setAWSSessionToken string
 	var setCFAccountID, setCFScriptName, setCFAPIToken string
 	var setSMRegion, setSMPathPrefix, setSMAccessKeyID, setSMSecretAccessKey, setSMSessionToken string
+	var setVCProject, setVCTeamID, setVCAPIToken string
+	var setVCTargets []string
+	var setNFAccountID, setNFSiteID, setNFAPIToken string
 	update := &cobra.Command{
 		Use: "update <id>", Short: "Update a sync target", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -197,17 +220,28 @@ func newSyncCmd() *cobra.Command {
 			}
 			if setOwner != "" || setRepo != "" || setEnvironment != "" || setNamespace != "" || setSecretName != "" ||
 				setGitlabURL != "" || setGLProject != "" || setGLEnvScope != "" || setRegion != "" || setPathPrefix != "" ||
-				setCFAccountID != "" || setCFScriptName != "" {
+				setCFAccountID != "" || setCFScriptName != "" || setVCProject != "" || setVCTeamID != "" || len(setVCTargets) > 0 ||
+				setNFAccountID != "" || setNFSiteID != "" {
 				body["addr"] = map[string]any{
 					"owner": setOwner, "repo": setRepo, "environment": setEnvironment,
 					"namespace": setNamespace, "secret_name": setSecretName,
 					"gitlab_url": setGitlabURL, "project": setGLProject, "environment_scope": setGLEnvScope,
 					"region": setRegion, "path_prefix": setPathPrefix,
 					"account_id": setCFAccountID, "script_name": setCFScriptName,
+					"vercel_project": setVCProject, "vercel_team_id": setVCTeamID, "vercel_targets": setVCTargets,
+					"netlify_account_id": setNFAccountID, "netlify_site_id": setNFSiteID,
 				}
 			}
+			// cloudflare/vercel/netlify share the api_token creds field.
+			setAPIToken := setCFAPIToken
+			if setVCAPIToken != "" {
+				setAPIToken = setVCAPIToken
+			}
+			if setNFAPIToken != "" {
+				setAPIToken = setNFAPIToken
+			}
 			if setPAT != "" || setAPIURL != "" || setCACert != "" || setK8sToken != "" || setGLToken != "" ||
-				setAKID != "" || setSAK != "" || setST != "" || setCFAPIToken != "" {
+				setAKID != "" || setSAK != "" || setST != "" || setAPIToken != "" {
 				token := setK8sToken
 				if setGLToken != "" {
 					token = setGLToken // gitlab reuses the shared token creds field
@@ -215,7 +249,7 @@ func newSyncCmd() *cobra.Command {
 				body["creds"] = map[string]any{
 					"pat": setPAT, "api_url": setAPIURL, "ca_cert": setCACert, "token": token,
 					"access_key_id": setAKID, "secret_access_key": setSAK,
-					"session_token": setST, "api_token": setCFAPIToken,
+					"session_token": setST, "api_token": setAPIToken,
 				}
 			}
 			if err := c.call("PATCH", "/v1/sync/targets/"+args[0], body, nil); err != nil {
@@ -254,6 +288,13 @@ func newSyncCmd() *cobra.Command {
 	update.Flags().StringVar(&setSMAccessKeyID, "sm-access-key-id", "", "AWS access key id (aws_secrets type)")
 	update.Flags().StringVar(&setSMSecretAccessKey, "sm-secret-access-key", "", "AWS secret access key (aws_secrets type)")
 	update.Flags().StringVar(&setSMSessionToken, "sm-session-token", "", "AWS session token (aws_secrets type)")
+	update.Flags().StringVar(&setVCProject, "vercel-project", "", "Vercel project id or name (vercel type)")
+	update.Flags().StringVar(&setVCTeamID, "vercel-team-id", "", "Vercel team id (vercel type)")
+	update.Flags().StringSliceVar(&setVCTargets, "vercel-target", nil, "Vercel target env(s): production|preview|development (vercel type)")
+	update.Flags().StringVar(&setVCAPIToken, "vercel-api-token", "", "Vercel API token (vercel type)")
+	update.Flags().StringVar(&setNFAccountID, "netlify-account-id", "", "Netlify account id or slug (netlify type)")
+	update.Flags().StringVar(&setNFSiteID, "netlify-site-id", "", "Netlify site id (netlify type)")
+	update.Flags().StringVar(&setNFAPIToken, "netlify-api-token", "", "Netlify personal access token (netlify type)")
 
 	// delete
 	del := &cobra.Command{

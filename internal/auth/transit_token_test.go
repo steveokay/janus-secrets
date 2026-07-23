@@ -12,7 +12,7 @@ func TestMintTransitToken(t *testing.T) {
 	by, _ := svc.VerifySession(ctx, cookie)
 
 	// All-keys transit token (empty scopeID = all transit keys).
-	raw, meta, err := svc.MintServiceToken(ctx, by, "ci", "transit", "", "use", nil)
+	raw, meta, err := svc.MintServiceToken(ctx, by, "ci", "transit", "", "use", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestMintTransitToken(t *testing.T) {
 	}
 
 	// Bad access for transit: read/readwrite are config/env accesses.
-	if _, _, err := svc.MintServiceToken(ctx, by, "x", "transit", "", "readwrite", nil); err == nil {
+	if _, _, err := svc.MintServiceToken(ctx, by, "x", "transit", "", "readwrite", nil, nil); err == nil {
 		t.Fatal("transit scope must reject access=readwrite")
 	}
 }

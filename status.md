@@ -117,8 +117,8 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Session management — list active sessions, revoke one/all~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions` (self-service, IP/user-agent metadata, current-session marker), Settings → Active sessions UI, `janus session list/revoke`. Sessions now record client IP + user-agent (migration 000023). | An admin who suspects a stolen cookie has nothing to pull today. | ~~S~~ |
 | ~~Account lockout / progressive backoff~~ **SHIPPED 2026-07-22** — see the "Open — backend / ops" entry above (migration 000026, `JANUS_LOCKOUT_*`, admin unlock). | Nothing locked an account out after repeated failed logins. | ~~S~~ |
 | ~~Secret expiry / max-age policy per key or config, surfaced in-app~~ **SHIPPED 2026-07-23** — **advisory** max-age (never blocks reads/writes): config-level default + per-key override, effective policy = per-key else config-default else none, `stale` computed from the current value version's age. `config_secret_max_age` table (migration 000028, config-default under the `''` sentinel key), `GET/PUT /v1/configs/{cid}/max-age` + `PUT .../secrets/{key}/max-age`, `secret:write` to set / `secret:read` to list, value-free audit; masked-list gains `stale`+`max_age_seconds`; editor stale chip + set/clear controls + Overview in-tray count; `janus secrets max-age` CLI. | ~~M~~ |
-| Break-glass access — time-boxed role elevation with a mandatory reason, stamped into the audit chain | Incidents need a paved road that is loud, not shared root credentials. | M |
-| Per-token IP allowlists + usage anomaly notes (new IP) | Cheap, high-signal containment for exfiltrated tokens; IPs are already in every audit event. | M |
+| ~~Break-glass access — time-boxed role elevation with a mandatory reason, stamped into the audit chain~~ **SHIPPED 2026-07-23** — guarded self-service emergency elevation: activate only on a scope where you already hold a role, to a strictly-higher role (≤ owner), mandatory reason, TTL clamped to `JANUS_BREAKGLASS_MAX_TTL` (default 1h). Authz effective role = max(bound, active non-expired grant on the exact scope, re-checked against the engine clock). Loud `breakglass.activate/revoke/expire` audit (fail-closed) wired into notifications (`breakglass.activated`); self-revoke + boot-time expiry sweep; activate UI + active-grants list + Overview banner. Migration 000031. | ~~M~~ |
+| ~~Per-token IP allowlists + usage anomaly notes (new IP)~~ **SHIPPED 2026-07-23** — optional per-token CIDR allowlist enforced in the API auth middleware (service-token auth only; out-of-list → 403; IPv4+IPv6; fails closed on an unparseable IP; client IP from `r.RemoteAddr` like the audit log, XFF untrusted). Value-free new-IP detection via `token_seen_ips` (best-effort `INSERT ON CONFLICT`, `token.new_ip` audit + Overview in-tray). Migration 000032. | ~~M~~ |
 | ~~GCP KMS / Azure Key Vault auto-unseal~~ **SHIPPED 2026-07-23** — both providers on the provider-agnostic `KMSUnsealer` (parameterized with its seal type; AWS unchanged). `JANUS_SEAL_TYPE=gcpkms` (`JANUS_GCP_KMS_KEY`, ambient ADC) / `azurekv` (`JANUS_AZURE_KEYVAULT_URL`+`_KEY_NAME`[+`_KEY_VERSION`], ambient `DefaultAzureCredential`). New seal-type constants, no migration; `internal/crypto` held at 100% coverage with faked KMS APIs. | ~~M~~ |
 
 ### Secret lifecycle & editor
@@ -168,22 +168,22 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Suggested near-term slate
 
-The previous slates (through 2026-07-23) are **fully shipped** — most recently
-cross-environment diff, GCP/Azure auto-unseal, token/user last-used, and now the
-**ops-hardening bundle**, **Cloudflare + AWS Secrets Manager sync**, **GitLab /
-Buildkite / CircleCI CI federation**, and **editor bulk-select + read insights**.
-Next five, weighing leverage against effort:
+Nearly the entire security-hardening column is now shipped (break-glass +
+per-token IP allowlists landed 2026-07-23). **In flight** (parallel agents):
+secret annotations, audit shipping (webhook/syslog), Vercel + Netlify sync, and
+scheduled encrypted S3 backups. Next five after those, weighing leverage against
+effort:
 
-1. **Break-glass access** (1.4) — time-boxed role elevation with a mandatory
-   reason, stamped into the audit chain.
-2. **Per-token IP allowlists** (1.6) + new-IP anomaly note — cheap containment
-   for exfiltrated tokens; IPs are already in every audit event.
-3. **Secret annotations** (2.7) — owner + note metadata per key (never values).
-4. **Require-approval-for-prod-edits** (2.8) — extend the four-eyes machinery to
-   raw prod saves.
-5. **Accessibility pass** (5.5) — modal focus traps, ARIA on tables, reduced-
-   motion audit. (Vercel/Netlify sync + scheduled S3 backups + audit shipping
-   also remain.)
+1. **Require-approval-for-prod-edits** (2.8) — extend the four-eyes machinery to
+   raw prod saves; closes the approval system's biggest bypass.
+2. **More rotators** (3.x) — MySQL / Redis ACL / AWS IAM keys / OAuth refresh on
+   the crash-safe rotation framework.
+3. **Accessibility pass** (5.5) — modal focus traps, ARIA on tables, reduced-
+   motion audit.
+4. **Mobile/tablet layout** (5.6) — read-mostly screens (dashboard, audit,
+   approvals) for on-the-go review.
+5. **The adoption bets (L)** — inbound importers (Doppler / Vault / AWS SM),
+   Terraform provider, client SDKs (Go / TS / Python).
 
 Both parked decisions are **resolved**. Still outstanding among the small
 backend/ops items: DB pool tuning, docker-compose resource limits, and

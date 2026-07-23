@@ -95,6 +95,14 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 		} else {
 			entry["last_read_at"] = nil
 		}
+		// Advisory per-key annotation (see internal/secrets/annotations.go):
+		// owner label + free-text note. Value-free metadata; omitted when unset.
+		if m.Owner != nil {
+			entry["owner"] = *m.Owner
+		}
+		if m.Note != nil {
+			entry["note"] = *m.Note
+		}
 		masked[m.Key] = entry
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"secrets": masked})
