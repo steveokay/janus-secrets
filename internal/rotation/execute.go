@@ -42,6 +42,10 @@ func (s *Service) rotatorFor(typ string) (rotatorApplier, error) {
 		return postgresRotator{}, nil
 	case TypeWebhook:
 		return webhookRotator{hc: s.hc}, nil
+	case TypeMySQL:
+		return mysqlRotator{}, nil
+	case TypeRedis:
+		return redisRotator{}, nil
 	default:
 		return nil, ErrInvalidType
 	}
