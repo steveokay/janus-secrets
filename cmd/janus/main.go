@@ -45,6 +45,7 @@ func newRootCmd() *cobra.Command {
 		newRotationCmd(),
 		newSyncCmd(),
 		newDynamicCmd(),
+		newImportCmd(),
 		newNotificationsCmd(),
 		newBreakGlassCmd(),
 		newVersionCmd(),
