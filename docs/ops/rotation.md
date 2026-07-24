@@ -1,7 +1,11 @@
 # Secret rotation
 
 A rotation policy rotates one secret key's value on a fixed interval, without
-an operator manually running `janus secrets set`. Four rotator types:
+an operator manually running `janus secrets set`. Rotator types fall into two
+families.
+
+**Apply-a-value rotators** — Janus generates a fresh random value locally and
+pushes it to the target system:
 
 - **`postgres`** — single-role reset. Janus connects with an operator-supplied
   admin DSN and runs `ALTER ROLE <role> WITH PASSWORD <new-random>`, then
@@ -20,6 +24,23 @@ an operator manually running `janus secrets set`. Four rotator types:
   with the admin credentials, and runs `ACL SETUSER <user> reset on
   >`<new-random>` [rules…]`, then stores the new password as the new config
   version.
+
+**Generating rotators** — the **external system** mints the new credential and
+Janus stores what it returns. There is no locally-generated value to apply; the
+external call *is* the value source:
+
+- **`oauth`** — OAuth 2.0 client-credentials refresh. Janus POSTs a
+  `grant_type=client_credentials` form (over verified TLS) to the provider's
+  `oauth_token_url`, parses the JSON response, and stores the returned
+  `access_token` as the secret's new config version. **The previous token may
+  remain valid at the provider until it expires** — this is a refresh, not a
+  revocation; Janus does not (and cannot generically) revoke the old token.
+- **`aws_iam`** — AWS IAM access-key rotation. Janus calls `CreateAccessKey`
+  for the target IAM user, stores the new key pair as a JSON secret value
+  `{"access_key_id":"…","secret_access_key":"…"}` (an application parses it),
+  then **deletes the user's other access key(s)** so the just-created key is the
+  only live credential. **AWS caps an IAM user at 2 access keys**, so a robust
+  rotation lists existing keys, creates the new one, then prunes the rest.
 
 ### MySQL config fields
 
@@ -66,13 +87,51 @@ deterministic result, `on` enables the account, `>` adds the new password
 key/command/channel permissions. With no `redis_rules`, the user is left
 enabled with the new password but no grants; supply rules to preserve access.
 
-Either policy type may also carry an optional **notify webhook**, which fires
+### OAuth config fields (`oauth`)
+
+| Field | Meaning |
+|---|---|
+| `oauth_token_url` | Token endpoint (absolute `http`/`https`, required). |
+| `oauth_client_id` | Client id for the client-credentials grant (required). |
+| `oauth_client_secret` | Client secret (required, **write-only**). |
+| `oauth_scope` | Optional space-separated scopes. |
+| `oauth_audience` | Optional `audience` parameter (some providers, e.g. Auth0). |
+
+Janus POSTs `grant_type=client_credentials&client_id=…&client_secret=…[&scope=…][&audience=…]`
+form-encoded over verified TLS and expects a JSON body containing at least
+`access_token`. The `access_token` becomes the new secret value; `expires_in`
+is advisory only. The `client_secret` and the returned token are **never** put
+in a log or error string — failures carry only a fixed category and (for a
+non-2xx response) the status code.
+
+### AWS IAM config fields (`aws_iam`)
+
+| Field | Meaning |
+|---|---|
+| `iam_user` | **Target** IAM user whose access key is rotated (required). |
+| `iam_region` | AWS region (required). |
+| `iam_access_key_id` | Admin access key id used to call IAM (required, **write-only**). |
+| `iam_secret_access_key` | Admin secret access key (required, **write-only**). |
+| `iam_session_token` | Optional admin session token for temporary credentials (**write-only**). |
+
+Admin credentials are **static and explicit** — the rotator never falls back to
+ambient env/instance-profile credentials (same policy as the `aws_ssm` /
+`aws_secrets` sync providers), so it can't silently borrow the host's AWS
+identity. The stored secret value is JSON
+(`{"access_key_id":"…","secret_access_key":"…"}`); an application parses it to
+obtain the new key pair. The admin identity needs `iam:ListAccessKeys`,
+`iam:CreateAccessKey`, and `iam:DeleteAccessKey` on the target user. AWS error
+strings (which can carry the ARN, account id, or key id) are never surfaced.
+
+Any policy type may also carry an optional **notify webhook**, which fires
 a separate, value-free event after a rotation succeeds — useful for alerting
 or triggering a downstream redeploy without handling the secret itself.
 
 ## Crash-safe design
 
-Rotation is built to survive a crash at any point mid-rotation:
+### Apply-a-value rotators (`postgres`/`mysql`/`redis`/`webhook`)
+
+These are built to survive a crash at any point mid-rotation:
 
 1. The new value is generated and its ciphertext is **persisted (encrypted)
    as a pending value BEFORE it is applied anywhere**.
@@ -86,6 +145,22 @@ new one. This is why rotation is idempotent by design, and why **webhook
 receivers must also be idempotent**: a retried rotation (after a crash, or a
 timeout that Janus treats as a failure) sends the identical `new_value` it
 sent before.
+
+### Generating rotators (`oauth`/`aws_iam`)
+
+For generating rotators the value does not exist until the external call
+returns, so there is **no pre-persist-pending step**. The trade-off: a crash
+**between the external mint and the persist** can orphan a credential that Janus
+never recorded — an OAuth token that simply goes unused until it expires, or an
+IAM access key the *next* rotation prunes. This mirrors how Janus's dynamic
+secrets reason about "the external system minted a credential we must not lose."
+A retry is safe:
+
+- **`oauth`** — a retry requests a *fresh* token; the orphaned one expires on
+  its own (it was never a live secret in Janus).
+- **`aws_iam`** — because AWS caps a user at 2 keys, the next rotation lists the
+  (at most two) keys, creates a new one, and deletes the others, converging the
+  user back to a single Janus-recorded key. Old-key deletion is idempotent.
 
 ## Webhook receiver contract
 

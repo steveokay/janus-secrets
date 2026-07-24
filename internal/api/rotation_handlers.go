@@ -34,6 +34,18 @@ type rotationConfigReq struct {
 	RedisSkipVerify    bool   `json:"redis_skip_verify,omitempty"`
 	RedisUser          string `json:"redis_user,omitempty"`
 	RedisRules         string `json:"redis_rules,omitempty"`
+	// oauth
+	OAuthTokenURL     string `json:"oauth_token_url,omitempty"`
+	OAuthClientID     string `json:"oauth_client_id,omitempty"`
+	OAuthClientSecret string `json:"oauth_client_secret,omitempty"`
+	OAuthScope        string `json:"oauth_scope,omitempty"`
+	OAuthAudience     string `json:"oauth_audience,omitempty"`
+	// aws_iam
+	IAMUser            string `json:"iam_user,omitempty"`
+	IAMRegion          string `json:"iam_region,omitempty"`
+	IAMAccessKeyID     string `json:"iam_access_key_id,omitempty"`
+	IAMSecretAccessKey string `json:"iam_secret_access_key,omitempty"`
+	IAMSessionToken    string `json:"iam_session_token,omitempty"`
 	// notify
 	NotifyURL     string `json:"notify_url,omitempty"`
 	NotifyHMACKey string `json:"notify_hmac_key,omitempty"`
@@ -47,6 +59,10 @@ func (rc rotationConfigReq) toEngine() rotation.PolicyConfig {
 		MySQLDBName: rc.MySQLDBName, MySQLTLS: rc.MySQLTLS, MySQLUser: rc.MySQLUser, MySQLHost: rc.MySQLHost,
 		RedisAddr: rc.RedisAddr, RedisAdminUser: rc.RedisAdminUser, RedisAdminPassword: rc.RedisAdminPassword,
 		RedisTLS: rc.RedisTLS, RedisSkipVerify: rc.RedisSkipVerify, RedisUser: rc.RedisUser, RedisRules: rc.RedisRules,
+		OAuthTokenURL: rc.OAuthTokenURL, OAuthClientID: rc.OAuthClientID, OAuthClientSecret: rc.OAuthClientSecret,
+		OAuthScope: rc.OAuthScope, OAuthAudience: rc.OAuthAudience,
+		IAMUser: rc.IAMUser, IAMRegion: rc.IAMRegion, IAMAccessKeyID: rc.IAMAccessKeyID,
+		IAMSecretAccessKey: rc.IAMSecretAccessKey, IAMSessionToken: rc.IAMSessionToken,
 		NotifyURL: rc.NotifyURL, NotifyHMACKey: rc.NotifyHMACKey,
 	}
 }

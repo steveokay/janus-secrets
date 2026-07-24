@@ -26,6 +26,10 @@ func newRotationCmd() *cobra.Command {
 	// redis
 	var rdAddr, rdAdminUser, rdAdminPassword, rdUser, rdRules string
 	var rdTLS, rdSkipVerify bool
+	// oauth
+	var oaTokenURL, oaClientID, oaClientSecret, oaScope, oaAudience string
+	// aws_iam
+	var iamUser, iamRegion, iamAccessKeyID, iamSecretAccessKey, iamSessionToken string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a rotation policy",
@@ -46,6 +50,10 @@ func newRotationCmd() *cobra.Command {
 					"redis_addr": rdAddr, "redis_admin_user": rdAdminUser,
 					"redis_admin_password": rdAdminPassword, "redis_tls": rdTLS,
 					"redis_skip_verify": rdSkipVerify, "redis_user": rdUser, "redis_rules": rdRules,
+					"oauth_token_url": oaTokenURL, "oauth_client_id": oaClientID,
+					"oauth_client_secret": oaClientSecret, "oauth_scope": oaScope, "oauth_audience": oaAudience,
+					"iam_user": iamUser, "iam_region": iamRegion, "iam_access_key_id": iamAccessKeyID,
+					"iam_secret_access_key": iamSecretAccessKey, "iam_session_token": iamSessionToken,
 					"notify_url": notifyURL, "notify_hmac_key": notifyHMACKey,
 				},
 			}
@@ -59,7 +67,7 @@ func newRotationCmd() *cobra.Command {
 	}
 	create.Flags().StringVar(&configID, "config", "", "target config id (required)")
 	create.Flags().StringVar(&secretKey, "key", "", "secret key to rotate (required)")
-	create.Flags().StringVar(&typ, "type", "", "rotator type: postgres|webhook|mysql|redis (required)")
+	create.Flags().StringVar(&typ, "type", "", "rotator type: postgres|webhook|mysql|redis|oauth|aws_iam (required)")
 	create.Flags().Int64Var(&intervalSeconds, "interval-seconds", 0, "rotation interval in seconds (required)")
 	create.Flags().StringVar(&adminDSN, "admin-dsn", "", "postgres admin DSN (postgres type)")
 	create.Flags().StringVar(&role, "role", "", "postgres role to rotate (postgres type)")
@@ -82,6 +90,18 @@ func newRotationCmd() *cobra.Command {
 	create.Flags().BoolVar(&rdSkipVerify, "redis-skip-verify", false, "skip redis TLS verification (redis type)")
 	create.Flags().StringVar(&rdUser, "redis-user", "", "redis target ACL username to rotate (redis type)")
 	create.Flags().StringVar(&rdRules, "redis-rules", "", "space-separated ACL rules to preserve (redis type, e.g. \"~app:* +@read\")")
+	// oauth (GENERATING rotator: the provider mints the token)
+	create.Flags().StringVar(&oaTokenURL, "oauth-token-url", "", "OAuth token endpoint (oauth type)")
+	create.Flags().StringVar(&oaClientID, "oauth-client-id", "", "OAuth client id (oauth type)")
+	create.Flags().StringVar(&oaClientSecret, "oauth-client-secret", "", "OAuth client secret (oauth type, write-only)")
+	create.Flags().StringVar(&oaScope, "oauth-scope", "", "OAuth scope (oauth type, optional)")
+	create.Flags().StringVar(&oaAudience, "oauth-audience", "", "OAuth audience (oauth type, optional)")
+	// aws_iam (GENERATING rotator: AWS mints a new access key)
+	create.Flags().StringVar(&iamUser, "iam-user", "", "target IAM user to rotate (aws_iam type)")
+	create.Flags().StringVar(&iamRegion, "iam-region", "", "AWS region (aws_iam type)")
+	create.Flags().StringVar(&iamAccessKeyID, "iam-access-key-id", "", "admin access key id (aws_iam type, write-only)")
+	create.Flags().StringVar(&iamSecretAccessKey, "iam-secret-access-key", "", "admin secret access key (aws_iam type, write-only)")
+	create.Flags().StringVar(&iamSessionToken, "iam-session-token", "", "admin session token (aws_iam type, optional, write-only)")
 	create.Flags().StringVar(&notifyURL, "notify-url", "", "optional post-rotation notify URL")
 	create.Flags().StringVar(&notifyHMACKey, "notify-hmac-key", "", "optional notify HMAC key")
 

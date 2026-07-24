@@ -154,6 +154,36 @@ func TestCreateValidationErrors(t *testing.T) {
 	}
 }
 
+// TestValidateConfigGeneratingTypes exercises the config validation for the
+// generating rotators (oauth/aws_iam) as a PURE unit test — it never inserts a
+// policy, so it runs regardless of the rotation_policies.type CHECK constraint
+// (which migration 000010 still limits to postgres/webhook) and without Docker.
+func TestValidateConfigGeneratingTypes(t *testing.T) {
+	cases := []struct {
+		name    string
+		typ     string
+		cfg     PolicyConfig
+		wantErr error
+	}{
+		{"oauth ok", TypeOAuth, PolicyConfig{OAuthTokenURL: "https://auth.example/t", OAuthClientID: "cid", OAuthClientSecret: "csec"}, nil},
+		{"oauth bad url", TypeOAuth, PolicyConfig{OAuthTokenURL: "notaurl", OAuthClientID: "cid", OAuthClientSecret: "csec"}, ErrInvalidConfig},
+		{"oauth no client id", TypeOAuth, PolicyConfig{OAuthTokenURL: "https://auth.example/t", OAuthClientSecret: "csec"}, ErrInvalidConfig},
+		{"oauth no secret", TypeOAuth, PolicyConfig{OAuthTokenURL: "https://auth.example/t", OAuthClientID: "cid"}, ErrInvalidConfig},
+		{"iam ok", TypeAWSIAM, PolicyConfig{IAMUser: "app-user", IAMRegion: "us-east-1", IAMAccessKeyID: "AKIA", IAMSecretAccessKey: "sk"}, nil},
+		{"iam bad user", TypeAWSIAM, PolicyConfig{IAMUser: "bad user", IAMRegion: "us-east-1", IAMAccessKeyID: "AKIA", IAMSecretAccessKey: "sk"}, ErrInvalidConfig},
+		{"iam no region", TypeAWSIAM, PolicyConfig{IAMUser: "app-user", IAMAccessKeyID: "AKIA", IAMSecretAccessKey: "sk"}, ErrInvalidConfig},
+		{"iam no access key", TypeAWSIAM, PolicyConfig{IAMUser: "app-user", IAMRegion: "us-east-1", IAMSecretAccessKey: "sk"}, ErrInvalidConfig},
+		{"iam no secret key", TypeAWSIAM, PolicyConfig{IAMUser: "app-user", IAMRegion: "us-east-1", IAMAccessKeyID: "AKIA"}, ErrInvalidConfig},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateConfig(tc.typ, tc.cfg); err != tc.wantErr {
+				t.Fatalf("validateConfig(%q) = %v, want %v", tc.typ, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestCreateDuplicateRejected(t *testing.T) {
 	svc, _, sec := newTestService(t)
 	_, storeCfg := mkChain(t, sec, "crud-create-dup")

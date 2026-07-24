@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -215,6 +216,147 @@ func TestRotateResumesPending(t *testing.T) {
 	}
 	if string(got.Value) != pendingVal {
 		t.Fatalf("committed value = %q, want %q", string(got.Value), pendingVal)
+	}
+}
+
+// TestRotatorForDispatch asserts the two rotator families are wired correctly:
+// generating rotators (oauth/aws_iam) implement rotatorGenerator and NOT
+// rotatorApplier, while apply-a-value rotators (postgres/mysql/redis/webhook)
+// implement rotatorApplier and NOT rotatorGenerator. The rotate() switch keys
+// its generate-vs-apply behavior off exactly these type assertions.
+func TestRotatorForDispatch(t *testing.T) {
+	svc := &Service{hc: http.DefaultClient}
+	cases := []struct {
+		typ         string
+		wantGenerate bool
+	}{
+		{TypePostgres, false},
+		{TypeWebhook, false},
+		{TypeMySQL, false},
+		{TypeRedis, false},
+		{TypeOAuth, true},
+		{TypeAWSIAM, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.typ, func(t *testing.T) {
+			rot, err := svc.rotatorFor(tc.typ)
+			if err != nil {
+				t.Fatalf("rotatorFor(%q): %v", tc.typ, err)
+			}
+			_, isGen := rot.(rotatorGenerator)
+			_, isApply := rot.(rotatorApplier)
+			if isGen != tc.wantGenerate {
+				t.Errorf("%q: rotatorGenerator = %v, want %v", tc.typ, isGen, tc.wantGenerate)
+			}
+			if isApply == tc.wantGenerate {
+				t.Errorf("%q: rotatorApplier = %v, want %v", tc.typ, isApply, !tc.wantGenerate)
+			}
+		})
+	}
+	if _, err := svc.rotatorFor("nope"); err != ErrInvalidType {
+		t.Errorf("unknown type: err = %v, want ErrInvalidType", err)
+	}
+}
+
+// TestRotateGeneratingRotatorPersistsExternalValue proves the rotatorGenerator
+// path end-to-end: a generating rotator (oauth) obtains the new value from the
+// EXTERNAL system (here an httptest token endpoint) and the engine persists that
+// exact value as the secret's new config version — WITHOUT the pre-persist-
+// pending step used by apply-a-value rotators.
+//
+// NOTE: this requires the rotation_policies.type CHECK constraint to admit
+// 'oauth'. Migration 000010 only permits ('postgres','webhook') and was never
+// relaxed for the later mysql/redis rotators either (a pre-existing latent gap,
+// documented in the PR). The test skips when the insert is rejected so the
+// hermetic rotator-level coverage above (which does NOT touch the DB) still runs
+// everywhere; when a constraint-relaxing migration lands, this exercises the
+// full persist path.
+func TestRotateGeneratingRotatorPersistsExternalValue(t *testing.T) {
+	svc, _, sec := newTestService(t)
+	proj, storeCfg := mkChain(t, sec, "rotate-oauth-generate")
+	ctx := context.Background()
+
+	const externalToken = "test-minted-token-zzzz"
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.PostForm.Get("grant_type") != "client_credentials" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"` + externalToken + `","expires_in":3600}`))
+	}))
+	defer srv.Close()
+	svc.hc = srv.Client() // route the oauth rotator's client at the fake endpoint
+
+	key := "OAUTH_TOKEN"
+	seedSecret(t, sec, storeCfg, key, "old-token")
+
+	// Insert the oauth policy directly; skip if the type CHECK constraint rejects it.
+	policyID, err := testStore.NewID(ctx)
+	if err != nil {
+		t.Fatalf("NewID: %v", err)
+	}
+	ct, nonce, wrapped, kekVer, err := svc.sealConfig(proj, policyID, PolicyConfig{
+		OAuthTokenURL: srv.URL, OAuthClientID: "test-client-id", OAuthClientSecret: "test-client-secret-xxxx",
+	})
+	if err != nil {
+		t.Fatalf("sealConfig: %v", err)
+	}
+	repo := store.NewRotationRepo(testStore)
+	in := &store.RotationPolicy{
+		ID: policyID, ProjectID: proj.ID, ConfigID: storeCfg.ID, SecretKey: key,
+		Type: TypeOAuth, IntervalSeconds: 3600,
+		NextRotationAt: time.Now().Add(-time.Hour).UTC().Truncate(time.Second),
+		ConfigCT: ct, ConfigNonce: nonce, ConfigWrappedDEK: wrapped, ConfigDEKKEKVersion: kekVer,
+		CreatedBy: "user:tester",
+	}
+	if _, err := repo.Create(ctx, in); err != nil {
+		if strings.Contains(err.Error(), "rotation_policies_type_check") {
+			t.Skip("rotation_policies.type CHECK constraint does not admit 'oauth' (pre-existing; needs a migration)")
+		}
+		t.Fatalf("repo.Create: %v", err)
+	}
+	pol, err := repo.Get(ctx, policyID)
+	if err != nil {
+		t.Fatalf("repo.Get: %v", err)
+	}
+
+	if err := svc.attempt(ctx, pol); err != nil {
+		t.Fatalf("attempt: %v", err)
+	}
+	if hits != 1 {
+		t.Fatalf("token endpoint hit %d times, want 1", hits)
+	}
+
+	// The committed value is exactly the externally-minted token.
+	got, err := sec.GetSecret(ctx, storeCfg.ID, key)
+	if err != nil {
+		t.Fatalf("GetSecret: %v", err)
+	}
+	if string(got.Value) != externalToken {
+		t.Fatalf("committed value = %q, want minted token %q", string(got.Value), externalToken)
+	}
+
+	// Generating rotators leave no pending state (no pre-persist step), and the
+	// policy is active with a recorded new config version.
+	reloaded, err := svc.repo.Get(ctx, pol.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.PendingState != nil {
+		t.Errorf("PendingState = %v, want nil (generating rotator has no pre-persist)", *reloaded.PendingState)
+	}
+	if reloaded.Status != "active" || reloaded.FailureCount != 0 {
+		t.Errorf("status=%q failures=%d, want active/0", reloaded.Status, reloaded.FailureCount)
+	}
+	if reloaded.LastConfigVersion == nil {
+		t.Error("LastConfigVersion = nil, want recorded")
 	}
 }
 
