@@ -7,11 +7,22 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
 // defaultGitLabURL is used when Addr.GitLabURL is empty (SaaS gitlab.com).
 const defaultGitLabURL = "https://gitlab.com"
+
+// gitlabProjectRe constrains Addr.Project — which is interpolated verbatim into
+// the ".../projects/:id/variables" request URL — to a safe path-segment value.
+// Accepts EITHER a numeric project id (42) OR an already-URL-encoded
+// namespace/project path (group%2Fproj). The encoded-path charset deliberately
+// excludes raw '/', '?', '#', '&', whitespace, and control chars so a crafted
+// value cannot smuggle extra path segments, query params, or a fragment into the
+// authenticated request target (gosec G107). Matches the sibling providers'
+// cfIDRe / vcIDRe / nfIDRe style.
+var gitlabProjectRe = regexp.MustCompile(`^([0-9]+|[A-Za-z0-9._~%-]+)$`)
 
 // gitlabProvider mirrors a config's resolved secrets to a GitLab project's
 // CI/CD variables via the GitLab REST API. Credentials are sent as a
@@ -25,8 +36,10 @@ func (gitlabProvider) Name() string { return ProviderGitLab }
 // variablesBase returns the validated ".../api/v4/projects/:id/variables" URL.
 // The base host is parsed (never string-concatenated blindly) so a malformed
 // gitlab_url is rejected rather than smuggled into a request target (gosec
-// G107). :id is taken verbatim from Addr.Project — callers pass either a
-// numeric id or an already-URL-encoded group/proj path (e.g. "g%2Fp").
+// G107). :id is validated against gitlabProjectRe — either a numeric id or an
+// already-URL-encoded group/proj path (e.g. "g%2Fp") — so a crafted Project
+// cannot inject extra path/query/fragment into the request target. Enforced
+// here defensively even though validateInput also rejects a bad Project.
 func (g gitlabProvider) variablesBase(a Addr) (string, error) {
 	raw := a.GitLabURL
 	if raw == "" {
@@ -34,6 +47,9 @@ func (g gitlabProvider) variablesBase(a Addr) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", ErrInvalidConfig
+	}
+	if !gitlabProjectRe.MatchString(a.Project) {
 		return "", ErrInvalidConfig
 	}
 	base := strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")

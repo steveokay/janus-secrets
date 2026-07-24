@@ -286,6 +286,62 @@ func TestGitLabNon2xxIsError(t *testing.T) {
 	}
 }
 
+// TestGitLabProjectValidation asserts the project-id charset guard accepts a
+// numeric id and a URL-encoded namespace/project path, and rejects any value
+// that could inject path/query/fragment into the request URL. It checks both
+// enforcement points: validateInput (config create/update time) and the
+// URL-building variablesBase (defensive). No HTTP call is made for a bad id.
+func TestGitLabProjectValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		project string
+		wantOK  bool
+	}{
+		{"numeric id", "42", true},
+		{"encoded namespace path", "group%2Fproj", true},
+		{"dotted encoded path", "acme.co%2Fweb-app_v2", true},
+		{"query injection", "42/variables?x=y", false},
+		{"path traversal", "42/../admin", false},
+		{"whitespace", "42 foo", false},
+		{"raw slash", "group/proj", false},
+		{"fragment", "42#frag", false},
+		{"ampersand", "42&private_token=x", false},
+		{"empty", "", false},
+	}
+
+	guard := gitlabProvider{hc: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("no HTTP call should be made for an invalid project id")
+		return nil, nil
+	})}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// validateInput enforcement (creds present, only project varies).
+			err := validateInput(ProviderGitLab, Addr{Project: tc.project}, Creds{Token: "t"})
+			if tc.wantOK && err != nil {
+				t.Errorf("validateInput(%q) = %v, want nil", tc.project, err)
+			}
+			if !tc.wantOK && err != ErrInvalidConfig {
+				t.Errorf("validateInput(%q) = %v, want ErrInvalidConfig", tc.project, err)
+			}
+
+			// variablesBase defensive enforcement.
+			url, uerr := guard.variablesBase(Addr{Project: tc.project})
+			if tc.wantOK {
+				if uerr != nil {
+					t.Errorf("variablesBase(%q) = %v, want nil", tc.project, uerr)
+				}
+				want := "/api/v4/projects/" + tc.project + "/variables"
+				if !strings.HasSuffix(url, want) {
+					t.Errorf("variablesBase(%q) url = %q, want suffix %q", tc.project, url, want)
+				}
+			} else if uerr != ErrInvalidConfig {
+				t.Errorf("variablesBase(%q) = %v, want ErrInvalidConfig", tc.project, uerr)
+			}
+		})
+	}
+}
+
 // roundTripFunc adapts a func to http.RoundTripper.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
