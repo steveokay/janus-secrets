@@ -1,3 +1,17 @@
+# ============================================================================
+# DEV-ONLY STACK. This compose file is a local development convenience, not a
+# production template. It hardcodes a well-known Postgres password
+# (POSTGRES_PASSWORD: janus-dev) and connects with sslmode=disable, and both
+# services bind only to 127.0.0.1 (loopback) so nothing is exposed off-host.
+#
+# For any shared or production deployment:
+#   - Do NOT hardcode the DB password here. Source it from a secret / env-file
+#     (e.g. an unversioned .env, Docker/compose secrets, or your orchestrator's
+#     secret store) and inject it into both the DB and JANUS_DATABASE_URL.
+#   - Use TLS to Postgres: sslmode=require (or stronger, verify-full).
+#   - See docs/guides/production-deployment.md for the production-shaped stack.
+# ============================================================================
+#
 # Resource limits below are conservative *starting points* for a small
 # single-node deployment. Tune them to your host and workload — measure real
 # memory/CPU use under load and adjust. `deploy.resources` is honored by
@@ -7,6 +21,8 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: janus
+      # DEV-ONLY hardcoded password. In production, source this from a secret /
+      # env-file — never commit a real DB password. See the header comment.
       POSTGRES_PASSWORD: janus-dev
       POSTGRES_DB: janus
     ports:
@@ -31,6 +47,8 @@ services:
     build: .
     command: server
     environment:
+      # DEV-ONLY: hardcoded password + sslmode=disable. Production must source
+      # the password from a secret and use sslmode=require. See header comment.
       JANUS_DATABASE_URL: postgres://janus:janus-dev@postgres:5432/janus?sslmode=disable
       JANUS_SEAL_TYPE: shamir
     ports:

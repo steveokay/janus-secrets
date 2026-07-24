@@ -1,0 +1,33 @@
+# Keep the Docker build context lean and free of local dev state / secrets.
+# The multi-stage build compiles the Go server (and builds web/ in its own
+# stage), so VCS metadata, local unseal shares, .env files, node_modules, and
+# prior build outputs have no business entering the build context.
+#
+# Conservative by design: this excludes VCS, local dev/agent state, dependency
+# and build-output dirs only — NOT Go source (some build steps vet/compile
+# tests). Do not add `**/*_test.go` or other Go sources here.
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Local dev state (unseal shares, cached dev share, etc.) and env files
+.dev
+.env
+*.env
+
+# Node / web build artifacts (web/ is rebuilt in its own stage)
+node_modules
+web/node_modules
+web/dist
+
+# Go / build outputs
+bin
+dist
+*.test
+
+# Editor / agent / tooling dirs
+.claude
+.idea
+.vscode
