@@ -304,6 +304,41 @@ func (s *Server) handlePromoteApply(w http.ResponseWriter, r *http.Request) {
 	for _, sel := range body.Selections {
 		sels = append(sels, promote.Selection{Key: sel.Key, Action: promote.Action(sel.Action)})
 	}
+
+	// A promotion into an EXISTING PROTECTED target (require_approval) is still a
+	// direct write to that config's secrets, so it must go through the four-eyes
+	// edit-request flow rather than committing unilaterally. Compute the promotion
+	// changeset (same pipeline/locked/drift rules as Apply) and file it as a
+	// pending edit request instead of applying. (A create-target promotion cannot
+	// be protected — the target does not exist yet — so this only applies when
+	// body.To is set.)
+	if body.To != "" {
+		protected, handled := s.requireApproval(w, r, body.To)
+		if handled {
+			return
+		}
+		if protected {
+			plan, err := s.promote.Plan(r.Context(), promote.ApplyRequest{
+				SourceConfigID: body.From, TargetConfigID: body.To,
+				SourceVersion: body.SourceVersion, Selections: sels, Actor: promoteActorUser(r),
+			})
+			if err != nil {
+				s.writePromoteError(w, err)
+				return
+			}
+			if len(plan.Changes) == 0 {
+				// Nothing to propose (every selected key drifted away). Mirror
+				// Apply's value-free empty result rather than filing an empty request.
+				writeJSON(w, http.StatusOK, map[string]any{
+					"target_version": 0, "applied": []string{}, "skipped": plan.Skipped,
+				})
+				return
+			}
+			s.submitEditRequest(w, r, body.To, plan.Changes, plan.Message)
+			return
+		}
+	}
+
 	res, err := s.promote.Apply(r.Context(), promote.ApplyRequest{
 		SourceConfigID: body.From, TargetConfigID: body.To, TargetEnvID: body.ToEnv, TargetName: body.ToName,
 		CreateTarget: body.Create, SourceVersion: body.SourceVersion, Selections: sels, Actor: promoteActorUser(r),
