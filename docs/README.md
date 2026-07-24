@@ -75,6 +75,9 @@ Task-oriented walkthroughs for the common workflows:
   npm package (`janus-client`): a typed, zero-dependency client mirroring the
   Go SDK (in-memory TTL cache, typed errors, dynamic-lease renewal) for Node
   18+ and modern runtimes.
+- [Python client SDK](guides/python-sdk.md) — the standalone `sdk/python/`
+  package (`janus_client`), stdlib-only, mirroring the Go SDK: typed reads, an
+  in-memory TTL cache, typed exceptions, and dynamic-credential leases.
 - [Terraform provider](guides/terraform.md) — manage Janus projects,
   environments, configs, secrets, and service tokens declaratively with
   `terraform-provider-janus`, including the secrets-in-state caveat.
