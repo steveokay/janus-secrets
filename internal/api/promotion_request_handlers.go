@@ -253,6 +253,18 @@ func (s *Server) handlePromoteRequestApprove(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Four-eyes note (protected targets): applying a promotion into a config
+	// marked require_approval commits directly here rather than filing an
+	// edit request — but this is NOT a bypass of the four-eyes control. The
+	// request flow is already two-party (requester != approver, enforced above),
+	// and the approver holds secret:promote on the target env, which is granted
+	// ONLY by the developer role (authz.developerActions), which also grants
+	// secret:write. So the approver is always a write-capable second party — the
+	// exact guarantee require_approval provides. If the role model is ever changed
+	// to grant secret:promote WITHOUT secret:write (e.g. a promote-only custom
+	// role or token scope), add an explicit secret:write check on the target
+	// config here, mirroring the edit-request approver requirement.
+
 	res, err := s.promote.ApproveRequest(r.Context(), id, actor)
 	if err != nil {
 		if errors.Is(err, promote.ErrRequestConflict) {
