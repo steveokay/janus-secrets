@@ -22,9 +22,15 @@ Task-oriented walkthroughs for the common workflows:
 - [Importing & exporting](guides/import-export.md) — bulk import from `.env`
   / Java `.properties` with preview and per-key selection; the audited
   **Download .env** export; filename-style "file" keys.
+- [Inbound importers](guides/importing.md) — one-shot `janus import
+  doppler|vault|aws-sm`: pull secrets from Doppler, Vault KV, or AWS Secrets
+  Manager into a Janus project/config, with a value-free `--dry-run`.
 - [Promoting between environments](guides/promoting-environments.md) — the
   per-project pipeline, drag-and-drop promotion, the key-level review panel,
   approval requests (four-eyes), and locked keys.
+- [Protected configs (require-approval)](guides/protected-configs.md) — mark a
+  config so direct saves become an envelope-encrypted pending edit request a
+  different person approves (four-eyes) — the edit-approval flow.
 - [Operations console](guides/operations-console.md) — creating and running
   rotation policies, sync targets (GitHub / Kubernetes), and dynamic
   Postgres roles with shown-once credential issuance, all from the UI.
@@ -38,9 +44,16 @@ Task-oriented walkthroughs for the common workflows:
   password logins, signing in with a code, recovery codes, and disabling.
 - [Observability](guides/observability.md) — the Prometheus `/metrics`
   endpoint, the Settings health panel, and log level/format env vars.
+- [Audit shipping](guides/audit-shipping.md) — stream the audit log as JSONL
+  to a webhook or syslog for SIEM ingestion, with a durable high-water mark
+  (at-least-once, no gaps).
 - [Master key & backups](guides/master-key-and-backup.md) — master-key
   rotation, the Shamir rekey ceremony, encrypted backup download, passphrase
   change.
+- [Backup & restore (data + scheduled S3)](guides/backup-and-restore.md) —
+  `pg_dump`/`pg_restore` + WAL/PITR for the Postgres data, plus scheduled
+  encrypted backups to S3-compatible storage with retention and a
+  restore-rehearsal command.
 - [Trash & recovery](guides/trash-and-recovery.md) — soft delete, restore,
   and permanent destroy.
 - [Notifications](guides/notifications.md) — webhook / Slack alerting on
@@ -53,8 +66,15 @@ Task-oriented walkthroughs for the common workflows:
   two-level versioning/rollback, soft-delete vs. destroy, and references/
   inheritance.
 - [Service tokens](guides/service-tokens.md) — minting scoped `janus_svc_…`
-  tokens via `POST /v1/tokens` or the web UI, the scoping model, and using
-  them from apps/CI.
+  tokens via `POST /v1/tokens` or the web UI, the scoping model, per-token IP
+  allowlists + new-IP notes, last-used tracking, and using them from apps/CI.
+- [Go client SDK](guides/go-sdk.md) — the standalone `sdk/go/` module: a typed
+  client with an in-process TTL cache and dynamic-lease renewal, for apps that
+  read secrets natively instead of hand-rolling HTTP.
+- [TypeScript client SDK](guides/typescript-sdk.md) — the standalone `sdk/ts/`
+  npm package (`janus-client`): a typed, zero-dependency client mirroring the
+  Go SDK (in-memory TTL cache, typed errors, dynamic-lease renewal) for Node
+  18+ and modern runtimes.
 - [Terraform provider](guides/terraform.md) — manage Janus projects,
   environments, configs, secrets, and service tokens declaratively with
   `terraform-provider-janus`, including the secrets-in-state caveat.
@@ -66,18 +86,19 @@ Task-oriented walkthroughs for the common workflows:
 - [Kubernetes integration](guides/kubernetes.md) — syncing a config to a
   namespaced `Secret`, refreshing running pods, and whether you need a
   controller (you don't, for the sync itself).
-- [Production deployment](guides/production-deployment.md) — TLS termination
-  (Caddy/nginx), the full `JANUS_*` configuration reference, unseal in
-  production (Shamir vs. KMS auto-unseal), running the released image,
-  sizing, backups, upgrades, and monitoring.
+- [Production deployment](guides/production-deployment.md) — TLS (native
+  `JANUS_TLS_*` static-cert/ACME listener **or** a reverse proxy), the full
+  `JANUS_*` configuration reference (DB pool, shutdown grace, all engine
+  ticks), unseal in production (Shamir vs. AWS/GCP/Azure KMS auto-unseal),
+  running the released image, sizing, backups, upgrades, and monitoring.
 
 ## System functionality
 
 - [Architecture overview](architecture.md) — layering, packages, build phases,
   and how a secret flows through the system.
 - [Cryptography](crypto.md) — envelope encryption, the key hierarchy, AAD
-  binding, the in-memory keyring, and the two unseal mechanisms (Shamir + AWS
-  KMS). **Implemented.**
+  binding, the in-memory keyring, and the unseal mechanisms (Shamir + cloud-KMS
+  auto-unseal for **AWS KMS, GCP KMS, and Azure Key Vault**). **Implemented.**
 - [Data model & versioning](data-model.md) — the project → environment → config
   → secret hierarchy and the two-level (config-version + per-key) versioning
   scheme. **Implemented.**
@@ -91,13 +112,17 @@ Task-oriented walkthroughs for the common workflows:
   (Authorization Code + PKCE + state + nonce), master-key-wrapped client secret,
   and admin config under `/v1/sys/oidc`. **Implemented.**
 - [CI federation](ci-federation.md) — OIDC-federated machine identity: exchanging
-  a GitHub Actions OIDC JWT for a short-lived scoped service token via
-  structured-claim trust bindings. **Implemented.**
+  a CI OIDC JWT (**GitHub Actions, GitLab, Buildkite, CircleCI**) for a
+  short-lived scoped service token via provider-aware structured-claim trust
+  bindings. **Implemented.**
 - [Web UI](web.md) — the embedded **Atrium** SPA (Svelte, dual-theme
   "Security Printing" design): init/unseal/login ceremony, the secret editor
-  (import/export, multi-line values, per-key history, locked keys),
-  promotion + approvals, audit ledger, tokens, scoped members, transit,
-  operations, integrations, trash, and settings. **Implemented.**
+  (import/export, multi-line + JSON/PEM-aware values, bulk select, per-key
+  history + read insights, max-age/unused/annotation chips, value generator,
+  locked keys), promotion + approvals, cross-env diff, audit ledger, tokens,
+  scoped members, transit, operations, integrations, break-glass, trash, and
+  settings — with a keyboard-shortcut palette, `?`/`g`-nav, and an
+  accessibility pass (focus traps, table ARIA, reduced-motion). **Implemented.**
 - [Operations: server & `janus` CLI](operations.md) — running the server, the
   seal lifecycle (init/unseal/seal), the sys HTTP API, configuration, the dev
   workflow, and the KMS auto-unseal setup. **Implemented.**
@@ -113,13 +138,14 @@ Running Janus and connecting it to the outside world:
   page: running the server, the seal lifecycle, sys HTTP API, and config.
 - [Backup & restore](ops/backup-restore.md) — the key-preserving instance
   dump and restore procedure.
-- [Static rotation](ops/rotation.md) — scheduled secret rotation (Postgres
-  password + generic webhook rotators), the in-process scheduler, and
-  failure/backoff. **Implemented.**
-- [Sync integrations](ops/sync.md) — one-way replication of a config's
-  resolved secrets to GitHub Actions secrets and Kubernetes `Secret`s:
-  providers, prune/full-mirror, change detection, and credential masking.
-  **Implemented.**
+- [Static rotation](ops/rotation.md) — scheduled secret rotation with **six
+  rotators** (`postgres`, `webhook`, `mysql`, `redis`, plus the
+  external-credential-generating `oauth` and `aws_iam`), the in-process
+  scheduler, and failure/backoff. **Implemented.**
+- [Sync integrations](ops/sync.md) — one-way replication of a config's resolved
+  secrets to **eight providers** (GitHub Actions, Kubernetes `Secret`s, GitLab
+  CI, Cloudflare Workers, Vercel, Netlify, AWS SSM, AWS Secrets Manager):
+  prune/full-mirror, change detection, and credential masking. **Implemented.**
 - [Kubernetes integration](guides/kubernetes.md) — the end-to-end k8s how-to
   (cluster RBAC, consuming the Secret, refreshing pods) built on the sync
   reference.
