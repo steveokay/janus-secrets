@@ -281,6 +281,57 @@ func TestLoginWithoutTOTPIgnoresCode(t *testing.T) {
 	}
 }
 
+// TestTOTPCodeReplayRejected proves M-2: a live TOTP code that validates once is
+// rejected on immediate re-use (same time-step), while a code from a later step
+// is accepted. Recovery codes are unaffected.
+func TestTOTPCodeReplayRejected(t *testing.T) {
+	svc, email, password := newTestService(t)
+	ctx := context.Background()
+	uid, _ := svc.userByEmailForTest(ctx, email)
+	secret, codes := enrollConfirm(t, svc, ctx, uid)
+
+	code := codeFor(t, secret)
+	// First use of the current-step code succeeds.
+	if ok, err := svc.verifySecondFactor(ctx, uid, code); err != nil || !ok {
+		t.Fatalf("first use of code: ok=%v err=%v", ok, err)
+	}
+	// Immediate re-use of the SAME code (same step) is rejected as a replay,
+	// even though the digits are still cryptographically valid.
+	if ok, err := svc.verifySecondFactor(ctx, uid, code); err != nil || ok {
+		t.Fatalf("replay of same-step code accepted: ok=%v err=%v (want false,nil)", ok, err)
+	}
+	// The same replay must also block a real login (correct password + replayed
+	// code → invalid credentials).
+	if _, err := svc.Login(ctx, email, []byte(password), code); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("login with replayed code: want ErrInvalidCredentials, got %v", err)
+	}
+
+	// A code from a LATER step is accepted: forcibly rewind the stored last_step
+	// to below the current step, then the current-step code verifies again. This
+	// models "the window advanced" without waiting 30s of wall-clock.
+	raw, err := b32.DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nowStep, ok := crypto.VerifyTOTPStep(raw, code, time.Now(), totpVerifySkew)
+	if !ok {
+		t.Fatal("current code no longer maps to a step")
+	}
+	rewound := nowStep - 5
+	if _, err := resetPool.Exec(ctx,
+		`UPDATE user_totp SET last_step = $2 WHERE user_id = $1::uuid`, uid, rewound); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := svc.verifySecondFactor(ctx, uid, code); err != nil || !ok {
+		t.Fatalf("later-step code rejected: ok=%v err=%v", ok, err)
+	}
+
+	// Recovery codes are independent of step tracking and still work.
+	if ok, err := svc.verifySecondFactor(ctx, uid, codes[0]); err != nil || !ok {
+		t.Fatalf("recovery code unaffected: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestVerifySecondFactorNoFactor(t *testing.T) {
 	svc, email, _ := newTestService(t)
 	ctx := context.Background()

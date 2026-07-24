@@ -102,6 +102,10 @@ func (s *Service) ConfirmTOTP(ctx context.Context, userID, code string) ([]strin
 	if err := s.totp.Activate(ctx, userID); err != nil {
 		return nil, err
 	}
+	// Confirmation does NOT burn the time-step: an authenticator shows the same
+	// code for up to 30s, and a user who confirms enrollment then immediately
+	// logs in must be able to use it. Replay protection applies to the login
+	// path (verifySecondFactor), where a code is a repeatable credential.
 	return s.regenerateRecoveryCodes(ctx, userID)
 }
 
@@ -150,8 +154,18 @@ func (s *Service) verifySecondFactor(ctx context.Context, userID, code string) (
 		return false, err
 	}
 	defer zeroize(secret)
-	if crypto.VerifyTOTP(secret, code, time.Now(), totpVerifySkew) {
-		return true, nil
+	if step, ok := crypto.VerifyTOTPStep(secret, code, time.Now(), totpVerifySkew); ok {
+		// The code is cryptographically valid, but a code is only good for a
+		// single login within its ±skew window. Atomically claim the matched
+		// time-step: if it (or a later one) was already consumed, this is a
+		// replay and must be rejected even though the digits are correct
+		// (RFC 6238 §5.2). The CAS also closes the concurrent-login race — two
+		// requests with the same code compute the same step and only one wins.
+		consumed, err := s.totp.ConsumeTOTPStep(ctx, userID, step)
+		if err != nil {
+			return false, err
+		}
+		return consumed, nil
 	}
 	// Fall back to a recovery code (normalized: strip spaces/dashes, upper).
 	return s.consumeRecovery(ctx, userID, code)

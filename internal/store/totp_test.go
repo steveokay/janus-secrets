@@ -209,6 +209,105 @@ func TestTOTPRepo_ConsumeRecoveryCodeSingleUse(t *testing.T) {
 	}
 }
 
+// TestTOTPRepo_ConsumeTOTPStep proves the CAS semantics behind TOTP replay
+// rejection: a step advances only strictly upward, and only on an activated row.
+func TestTOTPRepo_ConsumeTOTPStep(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewTOTPRepo(s)
+	uid := mkTOTPUser(t, s, "step@example.com")
+	if err := repo.Upsert(ctx, uid, []byte("wrapped-secret-step-0000000000000")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pending (not activated): consuming a step affects zero rows → false.
+	if ok, err := repo.ConsumeTOTPStep(ctx, uid, 100); err != nil || ok {
+		t.Fatalf("consume on pending row: ok=%v err=%v (want false,nil)", ok, err)
+	}
+	if err := repo.Activate(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	// First consume from NULL succeeds and records the step.
+	if ok, err := repo.ConsumeTOTPStep(ctx, uid, 100); err != nil || !ok {
+		t.Fatalf("first consume: ok=%v err=%v", ok, err)
+	}
+	got, _ := repo.GetTOTP(ctx, uid)
+	if got.LastStep == nil || *got.LastStep != 100 {
+		t.Fatalf("last_step = %v, want 100", got.LastStep)
+	}
+	// Re-consuming the same step (replay) is rejected.
+	if ok, err := repo.ConsumeTOTPStep(ctx, uid, 100); err != nil || ok {
+		t.Fatalf("same-step replay: ok=%v err=%v (want false,nil)", ok, err)
+	}
+	// An earlier step is rejected.
+	if ok, err := repo.ConsumeTOTPStep(ctx, uid, 99); err != nil || ok {
+		t.Fatalf("earlier step: ok=%v err=%v (want false,nil)", ok, err)
+	}
+	// A strictly-later step advances.
+	if ok, err := repo.ConsumeTOTPStep(ctx, uid, 101); err != nil || !ok {
+		t.Fatalf("later step: ok=%v err=%v", ok, err)
+	}
+
+	// Missing user affects zero rows → false.
+	if ok, err := repo.ConsumeTOTPStep(ctx, "00000000-0000-0000-0000-000000000000", 5); err != nil || ok {
+		t.Fatalf("missing user: ok=%v err=%v (want false,nil)", ok, err)
+	}
+}
+
+// TestTOTPRepo_ConsumeTOTPStepConcurrent fires many parallel consumes of the SAME
+// step and asserts exactly one wins — closing the concurrent-login replay race.
+func TestTOTPRepo_ConsumeTOTPStepConcurrent(t *testing.T) {
+	s := requireStore(t)
+	resetDB(t)
+	ctx := context.Background()
+	repo := NewTOTPRepo(s)
+	uid := mkTOTPUser(t, s, "steprace@example.com")
+	if err := repo.Upsert(ctx, uid, []byte("wrapped-secret-steprace-000000000")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Activate(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+
+	const goroutines = 16
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make(chan bool, goroutines)
+	errs := make(chan error, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ok, err := repo.ConsumeTOTPStep(ctx, uid, 42)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- ok
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("concurrent consume error: %v", err)
+	}
+	wins := 0
+	for ok := range results {
+		if ok {
+			wins++
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent same-step: %d succeeded, want exactly 1", wins)
+	}
+}
+
 // TestTOTPRepo_ConsumeRecoveryCodeConcurrent fires many parallel consumes of the
 // same code and asserts exactly one wins — no double-spend under READ COMMITTED.
 func TestTOTPRepo_ConsumeRecoveryCodeConcurrent(t *testing.T) {
