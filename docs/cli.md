@@ -69,7 +69,19 @@ janus rotation create/list/get/update/delete/rotate     # scheduled secret rotat
 janus sync create/list/get/update/delete/sync           # sync targets: GitHub Actions / Kubernetes (see operations.md)
 janus dynamic roles …/creds/renew/revoke/leases         # dynamic Postgres credentials + leases (see operations.md)
 janus notifications create/list/update/delete/test/deliveries  # outbound alerting channels (see operations.md)
+
+janus import doppler/vault/aws-sm                       # one-shot inbound import → one config version (see guides/importing.md)
 ```
+
+**Inbound import (`janus import`).** Read secrets from an external system —
+Doppler (`doppler`), Vault KV v2 (`vault`), or AWS Secrets Manager (`aws-sm`) —
+and write them into a target `--project/--env/--config` as **one config
+version**. It is client-side over the existing API: Janus never stores the
+source credentials (supplied via flags/env, never logged) and gains no new
+endpoints. Runs as a **dry-run by default** — prints the key *names* + count
+that would be imported (never a value) — until you pass `--confirm`; `--create`
+provisions a missing target tree. Full per-source detail (credentials, mapping,
+examples) is in [guides/importing.md](guides/importing.md).
 
 **Resolution (`--raw`).** `get`, `download`, and `run` **resolve** config
 inheritance and secret references by default (they consume values). Pass `--raw`
