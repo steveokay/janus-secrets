@@ -19,6 +19,28 @@ type secretChange struct {
 	Type   string `json:"type,omitempty"`
 }
 
+// secretWriteResponse covers both outcomes of a batch write: a committed
+// version (Version set) or, for a PROTECTED config (require_approval), a pending
+// edit request (EditRequestID set, 202 Accepted) awaiting four-eyes approval.
+type secretWriteResponse struct {
+	Version       int    `json:"version"`
+	EditRequestID string `json:"edit_request_id"`
+	Status        string `json:"status"`
+}
+
+// printSecretWriteResult reports the outcome. On a protected config the changes
+// are NOT committed — they became a pending edit request that a different
+// reviewer must approve.
+func printSecretWriteResult(cmd *cobra.Command, n int, verb string, resp secretWriteResponse) {
+	if resp.EditRequestID != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"Config is protected — %d change(s) submitted for approval (request %s). A different reviewer must approve before they apply.\n",
+			n, resp.EditRequestID)
+		return
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s %d secret(s) as v%d\n", verb, n, resp.Version)
+}
+
 // parseSetArgs turns `set` args into changes. Forms:
 //
 //	KEY=VALUE [KEY2=VALUE2 ...]   inline pairs (argv-visible)
@@ -97,13 +119,11 @@ func newSecretsSetCmd() *cobra.Command {
 				return err
 			}
 			req := map[string]any{"message": message, "changes": changes}
-			var resp struct {
-				Version int `json:"version"`
-			}
+			var resp secretWriteResponse
 			if err := c.call("PUT", "/v1/configs/"+cid+"/secrets", req, &resp); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Saved %d secret(s) as v%d\n", len(changes), resp.Version)
+			printSecretWriteResult(cmd, len(changes), "Saved", resp)
 			return nil
 		},
 	}
@@ -140,13 +160,11 @@ func newSecretsDeleteCmd() *cobra.Command {
 				return err
 			}
 			req := map[string]any{"message": message, "changes": changes}
-			var resp struct {
-				Version int `json:"version"`
-			}
+			var resp secretWriteResponse
 			if err := c.call("PUT", "/v1/configs/"+cid+"/secrets", req, &resp); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "Deleted %d secret(s) as v%d\n", len(changes), resp.Version)
+			printSecretWriteResult(cmd, len(changes), "Deleted", resp)
 			return nil
 		},
 	}

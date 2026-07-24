@@ -22,6 +22,10 @@ type configResponse struct {
 	Name          string  `json:"name"`
 	InheritsFrom  *string `json:"inherits_from"`
 	CreatedAt     string  `json:"created_at"`
+	// RequireApproval reflects the config's protected (four-eyes) flag: when
+	// true, direct secret saves become pending edit requests instead of
+	// committing.
+	RequireApproval bool `json:"require_approval"`
 	// Promotion provenance, present only when the config's latest version was
 	// created by a promote. Value-free (source env NAME + version).
 	PromotedFromEnv     *string `json:"promoted_from_env,omitempty"`
@@ -30,7 +34,8 @@ type configResponse struct {
 
 func configView(c *store.Config) configResponse {
 	return configResponse{ID: c.ID, EnvironmentID: c.EnvironmentID, Name: c.Name,
-		InheritsFrom: c.InheritsFrom, CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339)}
+		InheritsFrom: c.InheritsFrom, RequireApproval: c.RequireApproval,
+		CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339)}
 }
 
 // applyPromotionProvenance populates promoted_from_env/promoted_from_version on

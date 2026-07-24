@@ -11,6 +11,7 @@ export interface ViewConfig {
   inheritsFrom: string | null
   createdAt: string
   reads24h: number
+  requireApproval: boolean
 }
 export interface ViewEnv {
   id: string
@@ -65,6 +66,7 @@ async function loadTree(): Promise<ViewProject[]> {
               inheritsFrom: c.inherits_from,
               createdAt: c.created_at,
               reads24h: readsByConfig.get(c.id) ?? 0,
+              requireApproval: c.require_approval ?? false,
             })),
           }
         }),

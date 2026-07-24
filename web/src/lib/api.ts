@@ -93,7 +93,7 @@ export interface SealStatus {
 export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
 export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
-export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; created_at: string }
+export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; require_approval?: boolean; created_at: string }
 export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean; owner?: string; note?: string }
 export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
@@ -307,6 +307,27 @@ export interface PromotionRequest {
 }
 export interface PromotionRequestDetail extends PromotionRequest { diff?: RequestDiff }
 
+/* Protected-config (four-eyes) edit requests. Value-free: key NAMES only. */
+export type EditRequestStatus = 'pending' | 'applied' | 'rejected' | 'cancelled'
+export interface ConfigEditRequest {
+  id: string
+  config_id: string
+  requested_by: string
+  reason: string
+  status: EditRequestStatus
+  keys: string[]
+  message: string
+  created_at: string
+  resolved_by?: string
+  resolved_at?: string
+  applied_version?: number
+}
+/** Result of a save to a config: a committed version, or (for a PROTECTED
+    config) a pending edit request awaiting four-eyes approval. */
+export type SaveResult =
+  | { kind: 'committed'; version: number }
+  | { kind: 'pending'; edit_request_id: string; keys: string[] }
+
 /* OIDC provider + CI federation (admin) */
 export interface OIDCProviderView { name: string; issuer: string; client_id: string; scopes: string[]; redirect_url: string; enabled: boolean; secret_set: boolean }
 export interface OIDCConfigInput { name: string; issuer: string; client_id: string; client_secret: string; scopes: string[]; redirect_url: string; enabled: boolean }
@@ -464,8 +485,31 @@ export const api = {
     get<{ secrets: Record<string, MaskedSecret> }>(`/v1/configs/${cid}/secrets`).then(r => r.secrets),
   revealKey: (cid: string, key: string) =>
     get<{ key: string; value: string }>(`/v1/configs/${cid}/secrets/${encodeURIComponent(key)}?raw=true`),
-  saveSecrets: (cid: string, changes: SecretChange[], message: string) =>
-    put<{ version: number }>(`/v1/configs/${cid}/secrets`, { message, changes }),
+  /** Save a batch of edits. For a normal config this commits a new version
+      (kind:'committed'). For a PROTECTED config (require_approval) the server
+      returns 202 with a pending edit request (kind:'pending') instead — the
+      changes await four-eyes approval and are NOT committed. */
+  saveSecrets: (cid: string, changes: SecretChange[], message: string): Promise<SaveResult> =>
+    put<{ version?: number; edit_request_id?: string; keys?: string[] }>(
+      `/v1/configs/${cid}/secrets`, { message, changes },
+    ).then(r =>
+      r.edit_request_id
+        ? { kind: 'pending' as const, edit_request_id: r.edit_request_id, keys: r.keys ?? [] }
+        : { kind: 'committed' as const, version: r.version ?? 0 },
+    ),
+  // protected-config (four-eyes) controls
+  setRequireApproval: (cid: string, enabled: boolean) =>
+    put<{ require_approval: boolean }>(`/v1/configs/${cid}/require-approval`, { enabled }),
+  listEditRequests: (cid: string, status?: string) => {
+    const q = status ? `?status=${encodeURIComponent(status)}` : ''
+    return get<{ requests: ConfigEditRequest[] }>(`/v1/configs/${cid}/edit-requests${q}`).then(r => r.requests ?? [])
+  },
+  approveEditRequest: (cid: string, id: string) =>
+    post<{ version: number; keys: string[]; status: string }>(`/v1/configs/${cid}/edit-requests/${id}/approve`),
+  rejectEditRequest: (cid: string, id: string) =>
+    post<{ status: string }>(`/v1/configs/${cid}/edit-requests/${id}/reject`, {}),
+  cancelEditRequest: (cid: string, id: string) =>
+    del<{ status: string }>(`/v1/configs/${cid}/edit-requests/${id}`),
   listVersions: (cid: string) =>
     get<{ versions: VersionMeta[] }>(`/v1/configs/${cid}/versions`).then(r => r.versions),
   diffVersions: (cid: string, a: number, b: number) =>

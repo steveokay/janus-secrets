@@ -66,9 +66,18 @@
   let keyHistory = $state<KeyVersionMeta[]>([])
   let historicValues = $state<Record<number, string>>({})
   let savedFlash = $state<number | null>(null)
+  // When a save to a PROTECTED config is submitted for approval instead of
+  // committing, this holds the flash message (request id) shown to the author.
+  let submittedFlash = $state('')
   let toast = $state('')
   let saveError = $state('')
   let saving = $state(false)
+  // Protected-config (four-eyes) state. `protected_` mirrors the config's
+  // require_approval flag; pending edit requests are listed for reviewers.
+  let protected_ = $state(false)
+  let togglingProtected = $state(false)
+  let editRequests = $state<import('../lib/api').ConfigEditRequest[]>([])
+  let showEditRequests = $state(false)
   // Per-key advisory read insights (value-free: last-read + 30-day daily
   // sparkline). Lazy-loaded once per editor open; keyed by secret name. Keys
   // never revealed per-key are absent → treated as "never read".
@@ -100,8 +109,9 @@
     // pre-filter the editor to that key. Harmless metadata (a key name); if
     // absent the filter stays empty.
     filter = new URLSearchParams(window.location.search).get('key') ?? ''
+    showEditRequests = false
     try {
-      const [masked, vers, users, locked, maxAge, ins] = await Promise.all([
+      const [masked, vers, users, locked, maxAge, ins, reqs] = await Promise.all([
         api.maskedSecrets(cid),
         api.listVersions(cid),
         api.listUsers().catch(() => []),
@@ -110,7 +120,11 @@
         // Advisory read insights ride secret:read; a viewer without it, or an
         // error, simply leaves the sparkline/last-read absent (decorative).
         api.readInsights(cid).catch(() => ({ window_days: 30, keys: {} })),
+        // Pending edit requests (value-free: key names only). 403-tolerant.
+        api.listEditRequests(cid).catch(() => [] as import('../lib/api').ConfigEditRequest[]),
       ])
+      editRequests = reqs
+      protected_ = registry.findConfig(cid)?.config.requireApproval ?? false
       insights = ins.keys
       insightsWindow = ins.window_days || 30
       lockedKeys = new Set(locked)
@@ -350,8 +364,15 @@
     saving = true
     try {
       const res = await api.saveSecrets(configId, changes, `Saved from the Atrium editor`)
-      savedFlash = res.version
-      setTimeout(() => (savedFlash = null), 2600)
+      if (res.kind === 'pending') {
+        // Protected config: changes were submitted for four-eyes approval, NOT
+        // committed. Show a distinct message and refresh the pending list.
+        submittedFlash = `Changes submitted for approval — request ${res.edit_request_id.slice(0, 8)} awaits a different reviewer.`
+        setTimeout(() => (submittedFlash = ''), 5200)
+      } else {
+        savedFlash = res.version
+        setTimeout(() => (savedFlash = null), 2600)
+      }
       clearSelection()
       await load(configId)
       await registry.hydrate(true)
@@ -361,6 +382,58 @@
       saving = false
     }
   }
+
+  async function toggleProtected() {
+    togglingProtected = true
+    saveError = ''
+    try {
+      const next = !protected_
+      await api.setRequireApproval(configId, next)
+      protected_ = next
+      const c = registry.findConfig(configId)?.config
+      if (c) c.requireApproval = next
+      flashToast(next
+        ? 'This config is now protected — direct saves become approval requests (four-eyes).'
+        : 'Protection removed — saves commit directly again.')
+    } catch (err) {
+      flashToast(errorMessage(err, 'Could not change protection.'))
+    } finally {
+      togglingProtected = false
+    }
+  }
+
+  async function approveEdit(id: string) {
+    try {
+      const res = await api.approveEditRequest(configId, id)
+      flashToast(`Approved — committed as v${res.version}.`)
+      await load(configId)
+      await registry.hydrate(true)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Approve failed.'))
+    }
+  }
+
+  async function rejectEdit(id: string) {
+    try {
+      await api.rejectEditRequest(configId, id)
+      flashToast('Request rejected.')
+      await load(configId)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Reject failed.'))
+    }
+  }
+
+  async function cancelEdit(id: string) {
+    try {
+      await api.cancelEditRequest(configId, id)
+      flashToast('Request cancelled.')
+      await load(configId)
+    } catch (err) {
+      flashToast(errorMessage(err, 'Cancel failed.'))
+    }
+  }
+
+  const pendingEdits = $derived(editRequests.filter(r => r.status === 'pending'))
 
   async function toggleVersions() {
     showVersions = !showVersions
@@ -677,6 +750,14 @@
         <button class="btn btn-sm" onclick={() => (showPromote = !showPromote)}>
           {showPromote ? 'Close promote' : 'Promote →'}
         </button>
+        <button
+          class="btn btn-sm {protected_ ? 'btn-primary' : ''}"
+          onclick={toggleProtected}
+          disabled={togglingProtected}
+          title="Require a different reviewer to approve secret saves (four-eyes)"
+        >
+          {protected_ ? '🛡 Protected' : 'Protect…'}
+        </button>
         <button class="btn btn-sm" onclick={revealAll} disabled={!anyHidden}>Reveal all</button>
         <button class="btn btn-sm btn-ghost del-btn" onclick={deleteConfig}>Delete</button>
       </div>
@@ -696,6 +777,50 @@
 
     {#if showPromote}
       <PromotePanel {project} {env} {config} onDone={(msg) => { flashToast(msg); showPromote = false }} />
+    {/if}
+
+    {#if protected_}
+      <div class="protected-banner sheet rise" role="note">
+        <span class="shield" aria-hidden="true">🛡</span>
+        <div>
+          <strong>Protected config</strong> — direct saves don’t commit. Each save becomes an
+          <em>edit request</em> that a <strong>different</strong> reviewer must approve (four-eyes).
+        </div>
+        {#if pendingEdits.length > 0}
+          <button class="btn btn-sm" onclick={() => (showEditRequests = !showEditRequests)}>
+            {showEditRequests ? 'Hide' : `Review pending (${pendingEdits.length})`}
+          </button>
+        {/if}
+      </div>
+    {/if}
+
+    {#if protected_ && showEditRequests && pendingEdits.length > 0}
+      <div class="plate rise editreq-panel" role="region" aria-label="Pending edit requests">
+        <table class="ledger">
+          <thead>
+            <tr><th>Requested by</th><th>Keys</th><th>Reason</th><th class="ra">Actions</th></tr>
+          </thead>
+          <tbody>
+            {#each pendingEdits as req (req.id)}
+              <tr>
+                <td class="mono">{userEmails.get(req.requested_by) ?? req.requested_by.slice(0, 8)}</td>
+                <td class="mono">{req.keys.join(', ')}</td>
+                <td class="folio">{req.reason || '—'}</td>
+                <td class="ra">
+                  <button class="btn btn-sm btn-stamp" onclick={() => approveEdit(req.id)}>Approve</button>
+                  <button class="btn btn-sm btn-ghost" onclick={() => rejectEdit(req.id)}>Reject</button>
+                  <button class="btn btn-sm btn-ghost" onclick={() => cancelEdit(req.id)}>Cancel</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        <p class="folio editreq-note">Only a reviewer other than the requester may approve or reject. Values are never shown here — key names only.</p>
+      </div>
+    {/if}
+
+    {#if submittedFlash}
+      <p class="reveal-note sheet" role="status">{submittedFlash}</p>
     {/if}
 
     {#if showVersions}
@@ -1124,13 +1249,19 @@
         <span class="save-count">
           <strong>{dirtyCount}</strong> uncommitted amendment{dirtyCount === 1 ? '' : 's'}
         </span>
-        <span class="folio">will be committed together as one immutable version</span>
+        <span class="folio">
+          {protected_
+            ? 'this config is protected — Save submits the changes for four-eyes approval'
+            : 'will be committed together as one immutable version'}
+        </span>
         {#if badKeys > 0}<span class="error">{badKeys} key{badKeys === 1 ? ' is' : 's are'} not filename-safe</span>{/if}
         {#if saveError}<span class="error">{saveError}</span>{/if}
         <div class="save-actions">
           <button class="btn" onclick={discard} disabled={saving}>Discard</button>
           <button class="btn btn-stamp" onclick={saveAll} disabled={saving || badKeys > 0}>
-            {saving ? 'Committing…' : `Save as v${latestVersion + 1}`}
+            {saving
+              ? (protected_ ? 'Submitting…' : 'Committing…')
+              : (protected_ ? 'Submit for approval' : `Save as v${latestVersion + 1}`)}
           </button>
         </div>
       </div>
@@ -1161,6 +1292,18 @@
   }
   .inherit-note { margin-top: var(--s2); color: var(--archivist); }
   .head-actions { display: flex; gap: var(--s2); }
+
+  .protected-banner {
+    display: flex; align-items: center; gap: var(--s3);
+    margin-top: var(--s4); padding: var(--s3) var(--s4);
+    border-left: 3px solid var(--vermilion);
+    font-size: var(--text-sm);
+  }
+  .protected-banner .shield { font-size: var(--text-lg); }
+  .protected-banner > div { flex: 1; }
+  .editreq-panel { margin-top: var(--s3); padding: var(--s4) var(--s5); }
+  .editreq-panel .ra { text-align: right; white-space: nowrap; }
+  .editreq-note { margin-top: var(--s3); color: var(--archivist); }
 
   .error { color: var(--vermilion); font-size: var(--text-sm); }
 

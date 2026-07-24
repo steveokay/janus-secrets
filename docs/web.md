@@ -46,7 +46,7 @@ The app fronts the full server lifecycle:
 | `/projects/:id` | Environment board — pipeline editor, env rename/clone/delete, config create, **drag a config tile onto another env column to stage a promotion** |
 | `/projects/:id/configs/:cid` | **Secret editor** (below) |
 | `/audit` | Audit ledger — chain-verify stamp, hash stitch, result filter, text filter (accepts `?q=`), pagination, JSONL/CSV export |
-| `/approvals` | Promotion requests — four-eyes review, approve/reject/cancel, value-free diff |
+| `/approvals` | Promotion requests — four-eyes review, approve/reject/cancel, value-free diff. Also a **Protected-config edits** section: pending edit requests for configs marked protected (`require_approval`), approve/reject/cancel, **key names only** |
 | `/compare` | **Cross-env diff** — pick any two configs (project → env → config) and see a key-level comparison: only-A / only-B / same / differs, per-side origin, env-accent status pills. **Values stay masked** — the screen never reveals; it only shows presence and whether the values match. Requires read on **both** configs and records one value-free `config.compare` audit event |
 | `/tokens` | Service tokens — mint (shown once), revoke, per-token **IP allowlist** (CIDR list set at mint or edited via the row's **IPs** action; empty = any IP, requests from outside are `403`), and a **new IP** badge when a token has authenticated from an unseen IP (value-free) |
 | `/members` | Members — scoped RBAC bindings at instance / project / environment |
@@ -135,6 +135,12 @@ else is explicit:
 - **Promote →** — key-level diff against the next pipeline stage; apply
   directly or file an approval request. See
   [Promoting between environments](guides/promoting-environments.md).
+- **Protect… / 🛡 Protected** — mark the config as requiring four-eyes approval
+  (`require_approval`). On a protected config the Save button reads **Submit for
+  approval**: each save becomes a pending, envelope-encrypted **edit request**
+  that a *different* reviewer approves (or rejects), never committing directly.
+  A banner surfaces pending requests inline (key names only). See
+  [Protected configs](guides/protected-configs.md).
 - **Config versions** — history panel with real diffs (added/changed/removed
   chips) and rollback (a new version identical to the target — nothing is
   rewritten).
