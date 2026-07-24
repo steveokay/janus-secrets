@@ -9,33 +9,47 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
+
+	"github.com/steveokay/janus-secrets/internal/nethard"
 )
 
+// k8sTimeout bounds a k8s API request end-to-end. The provider previously had
+// NO timeout and NO redirect control; both are added here.
+const k8sTimeout = 20 * time.Second
+
 type k8sProvider struct {
+	policy nethard.Policy
 	// newClient builds an HTTP client that trusts caPEM (overridable in tests).
 	newClient func(caPEM string) (*http.Client, error)
 }
 
 func (k8sProvider) Name() string { return ProviderK8s }
 
-// defaultK8sClient returns a client that verifies the API server against caPEM.
-func defaultK8sClient(caPEM string) (*http.Client, error) {
+// defaultK8sClient returns a client that verifies the API server against caPEM,
+// dials through the SSRF guard (blocks link-local/IMDS; loopback + RFC1918
+// allowed for in-cluster/self-hosted API servers), bounds redirects, and has a
+// request timeout.
+func defaultK8sClient(policy nethard.Policy, caPEM string) (*http.Client, error) {
 	pool := x509.NewCertPool()
 	if caPEM != "" {
 		if !pool.AppendCertsFromPEM([]byte(caPEM)) {
 			return nil, ErrInvalidConfig
 		}
 	}
-	return &http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12},
-	}}, nil
+	hc := nethard.SafeHTTPClient(k8sTimeout, policy)
+	// Preserve the custom CA verification on the guarded transport.
+	if tr, ok := hc.Transport.(*http.Transport); ok {
+		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
+	return hc, nil
 }
 
 func (p k8sProvider) client(caPEM string) (*http.Client, error) {
 	if p.newClient != nil {
 		return p.newClient(caPEM)
 	}
-	return defaultK8sClient(caPEM)
+	return defaultK8sClient(p.policy, caPEM)
 }
 
 func (p k8sProvider) Apply(ctx context.Context, creds Creds, addr Addr, desired map[string]string,

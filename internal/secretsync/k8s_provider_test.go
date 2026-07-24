@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/steveokay/janus-secrets/internal/nethard"
 )
 
 func TestK8sApplyServerSideApply(t *testing.T) {
@@ -100,7 +102,7 @@ func TestK8sPruneFalseMergePatch(t *testing.T) {
 }
 
 func TestK8sBadCACertRejected(t *testing.T) {
-	_, err := defaultK8sClient("not a pem")
+	_, err := defaultK8sClient(nethard.Policy{}, "not a pem")
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Errorf("err = %v, want ErrInvalidConfig", err)
 	}

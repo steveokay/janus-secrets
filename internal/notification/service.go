@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/nethard"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
 
@@ -31,6 +32,7 @@ type Service struct {
 	st     *store.Store
 	logger *slog.Logger
 	hc     *http.Client
+	policy nethard.Policy // SSRF policy applied to webhook/Slack and SMTP dials
 	now    func() time.Time
 }
 
@@ -39,13 +41,15 @@ func New(kr *crypto.Keyring, st *store.Store, aud *store.AuditRepo, logger *slog
 	if logger == nil {
 		logger = slog.Default()
 	}
+	policy := nethard.PolicyFromEnv()
 	return &Service{
 		kr:     kr,
 		repo:   store.NewNotificationRepo(st),
 		audit:  aud,
 		st:     st,
 		logger: logger,
-		hc:     &http.Client{Timeout: 15 * time.Second},
+		hc:     nethard.SafeHTTPClient(15*time.Second, policy),
+		policy: policy,
 		now:    time.Now,
 	}
 }

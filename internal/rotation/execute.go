@@ -53,13 +53,13 @@ type rotatorGenerator interface {
 func (s *Service) rotatorFor(typ string) (any, error) {
 	switch typ {
 	case TypePostgres:
-		return postgresRotator{}, nil
+		return postgresRotator{policy: s.policy}, nil
 	case TypeWebhook:
 		return webhookRotator{hc: s.hc}, nil
 	case TypeMySQL:
 		return mysqlRotator{}, nil
 	case TypeRedis:
-		return redisRotator{}, nil
+		return redisRotator{policy: s.policy}, nil
 	case TypeOAuth:
 		return oauthRotator{hc: s.hc}, nil
 	case TypeAWSIAM:
