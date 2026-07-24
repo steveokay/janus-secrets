@@ -20,6 +20,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/backupsched"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/dynamic"
+	"github.com/steveokay/janus-secrets/internal/editreq"
 	"github.com/steveokay/janus-secrets/internal/masterkeys"
 	"github.com/steveokay/janus-secrets/internal/metrics"
 	"github.com/steveokay/janus-secrets/internal/notification"
@@ -161,6 +162,10 @@ type Server struct {
 	// names). Value-free. nil in unit-test servers built without a real store /
 	// secrets service.
 	promote *promote.Service
+	// editreq drives the four-eyes approval flow for edits to protected configs
+	// (configs.require_approval). Available whenever a real keyring, store, and
+	// secrets service are wired; nil otherwise.
+	editreq *editreq.Service
 	// notification manages alerting channels + the delivery dispatcher.
 	// Constructed in New from the keyring + store; nil in unit-test servers built
 	// without a real store.
@@ -247,6 +252,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// locked-keys routes (and the next task's preview/apply routes).
 	if kr != nil && st != nil && svc != nil {
 		s.promote = promote.New(svc, st)
+		s.editreq = editreq.New(svc, st)
 	}
 	// Notification service: alerting channels + the audit-tailing delivery
 	// dispatcher. Available whenever a real keyring and store are wired; nil in
@@ -456,6 +462,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/v1/promote/requests/{id}/approve", s.handlePromoteRequestApprove)
 				r.Post("/v1/promote/requests/{id}/reject", s.handlePromoteRequestReject)
 				r.Post("/v1/promote/requests/{id}/cancel", s.handlePromoteRequestCancel)
+				// Protected-config (four-eyes) edit requests.
+				r.Put("/v1/configs/{cid}/require-approval", s.handleRequireApprovalSet)
+				r.Get("/v1/configs/{cid}/edit-requests", s.handleEditRequestList)
+				r.Post("/v1/configs/{cid}/edit-requests/{id}/approve", s.handleEditRequestApprove)
+				r.Post("/v1/configs/{cid}/edit-requests/{id}/reject", s.handleEditRequestReject)
+				r.Delete("/v1/configs/{cid}/edit-requests/{id}", s.handleEditRequestCancel)
 			})
 		}
 		r.Group(func(r chi.Router) {

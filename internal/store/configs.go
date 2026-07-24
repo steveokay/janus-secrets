@@ -8,15 +8,22 @@ type ConfigRepo struct{ s *Store }
 // NewConfigRepo returns a config repository.
 func NewConfigRepo(s *Store) *ConfigRepo { return &ConfigRepo{s: s} }
 
-const configCols = `id::text, environment_id::text, name, inherits_from::text, created_at, updated_at, deleted_at`
+const configCols = `id::text, environment_id::text, name, inherits_from::text, require_approval, created_at, updated_at, deleted_at`
 
 func scanConfig(row interface{ Scan(...any) error }) (*Config, error) {
 	var c Config
 	if err := row.Scan(&c.ID, &c.EnvironmentID, &c.Name, &c.InheritsFrom,
-		&c.CreatedAt, &c.UpdatedAt, &c.DeletedAt); err != nil {
+		&c.RequireApproval, &c.CreatedAt, &c.UpdatedAt, &c.DeletedAt); err != nil {
 		return nil, mapError(err)
 	}
 	return &c, nil
+}
+
+// SetRequireApproval toggles a config's protected (four-eyes) flag. Value-free.
+func (r *ConfigRepo) SetRequireApproval(ctx context.Context, id string, enabled bool) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE configs SET require_approval = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, enabled)
 }
 
 // Create inserts a config under an environment. inheritsFrom may be nil.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorMessage, type PromotionRequest, type PromotionRequestDetail } from '../lib/api'
+  import { api, errorMessage, type PromotionRequest, type PromotionRequestDetail, type ConfigEditRequest } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
   import { relTime } from '../lib/util'
 
@@ -12,6 +12,9 @@
   let error = $state('')
   let note = $state('')
   let userEmails = $state<Map<string, string>>(new Map())
+  // Config-edit (four-eyes protected-config) requests, aggregated across every
+  // config in the selected project. Value-free: key NAMES only.
+  let editRequests = $state<ConfigEditRequest[]>([])
 
   $effect(() => {
     api.listUsers().then(us => (userEmails = new Map(us.map(u => [u.id, u.email])))).catch(() => {})
@@ -38,6 +41,55 @@
       requests = []
     } finally {
       loading = false
+    }
+    void loadEditRequests(pid, status)
+  }
+
+  // Aggregate config-edit requests across every config in the project. Each
+  // per-config list ride config:read; a 403 or error on any config is tolerated
+  // (that config simply contributes nothing), mirroring the ops-console fan-out.
+  async function loadEditRequests(pid: string, status: string) {
+    const proj = registry.projects.find(p => p.id === pid)
+    if (!proj) { editRequests = []; return }
+    const cfgIds = proj.environments.flatMap(e => e.configs.map(c => c.id))
+    const lists = await Promise.all(
+      cfgIds.map(cid => api.listEditRequests(cid, status || undefined).catch(() => [] as ConfigEditRequest[])),
+    )
+    editRequests = lists.flat().sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+  }
+
+  function configLabel(cid: string): string {
+    return registry.configLabel(cid)
+  }
+
+  async function approveEdit(r: ConfigEditRequest) {
+    try {
+      const res = await api.approveEditRequest(r.config_id, r.id)
+      flash(`Approved — committed as v${res.version}.`)
+      await load(projectId, statusFilter)
+      await registry.hydrate(true)
+    } catch (err) {
+      flash(errorMessage(err, 'Approve failed.'))
+    }
+  }
+
+  async function rejectEdit(r: ConfigEditRequest) {
+    try {
+      await api.rejectEditRequest(r.config_id, r.id)
+      flash('Edit request rejected.')
+      await load(projectId, statusFilter)
+    } catch (err) {
+      flash(errorMessage(err, 'Reject failed.'))
+    }
+  }
+
+  async function cancelEdit(r: ConfigEditRequest) {
+    try {
+      await api.cancelEditRequest(r.config_id, r.id)
+      flash('Edit request cancelled.')
+      await load(projectId, statusFilter)
+    } catch (err) {
+      flash(errorMessage(err, 'Cancel failed.'))
     }
   }
 
@@ -191,6 +243,54 @@
       {/if}
     </section>
   {/if}
+
+  <section class="edit-section rise" style="animation-delay: 90ms">
+    <div class="section-head">
+      <h2>Protected-config edits</h2>
+      <span class="folio">four-eyes edits to configs marked protected · values are never shown — key names only</span>
+    </div>
+    <div class="sheet table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Config</th>
+            <th>Keys</th>
+            <th style="width: 90px">Keys #</th>
+            <th style="width: 110px">Status</th>
+            <th style="width: 130px">Filed</th>
+            <th style="width: 260px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each editRequests as r (r.id)}
+            <tr>
+              <td class="mono small">{configLabel(r.config_id)}</td>
+              <td class="mono small">{r.keys.join(', ')}<span class="folio">by {who(r.requested_by)}</span></td>
+              <td class="num">{r.keys.length}</td>
+              <td>
+                {#if r.status === 'pending'}<span class="state warn">pending</span>
+                {:else if r.status === 'applied'}<span class="state ok">applied{r.applied_version ? ` · v${r.applied_version}` : ''}</span>
+                {:else if r.status === 'rejected'}<span class="state bad">rejected</span>
+                {:else}<span class="folio">cancelled</span>{/if}
+              </td>
+              <td class="folio">{relTime(r.created_at)}</td>
+              <td class="row-actions">
+                {#if r.status === 'pending'}
+                  <button class="btn btn-ghost btn-sm ok-btn" onclick={() => approveEdit(r)}>Approve</button>
+                  <button class="btn btn-ghost btn-sm del-btn" onclick={() => rejectEdit(r)}>Reject</button>
+                  <button class="btn btn-ghost btn-sm" onclick={() => cancelEdit(r)}>Cancel</button>
+                {/if}
+              </td>
+            </tr>
+          {:else}
+            <tr><td colspan="6" class="empty folio">
+              {loading ? 'Reading…' : 'No protected-config edit requests. Protect a config in its editor to require four-eyes approval on saves.'}
+            </td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
 <style>
@@ -239,4 +339,8 @@
   .chg.del { color: var(--vermilion); background: var(--vermilion-wash); }
   .decide { display: flex; gap: var(--s3); margin-top: var(--s4); }
   .decide .input { max-width: 320px; }
+
+  .edit-section { margin-top: var(--s6); }
+  .edit-section h2 { font-size: var(--text-lg); }
+  .edit-section .table-wrap { margin-top: var(--s3); }
 </style>

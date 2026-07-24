@@ -112,6 +112,16 @@ func TOTPSecretAAD(userID string) []byte {
 	return appendField([]byte("janus:auth:totp-secret"), userID)
 }
 
+// ConfigEditRequestAAD binds a config-edit-request's envelope-encrypted proposed
+// changes blob to its project and config, in a domain distinct from every other
+// AAD, so a proposed-changes ciphertext copied onto another config or project
+// fails to decrypt.
+func ConfigEditRequestAAD(projectID, configID string) []byte {
+	b := []byte("janus:config-edit-request")
+	b = appendField(b, projectID)
+	return appendField(b, configID)
+}
+
 // DEKAAD binds a wrapped DEK to a project, secret path, and value version.
 func DEKAAD(projectID, secretPath string, version uint64) []byte {
 	b := []byte("janus:dek")

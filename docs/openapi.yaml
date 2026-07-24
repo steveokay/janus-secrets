@@ -1546,6 +1546,141 @@ paths:
                   key: { type: string }
                   locked: { type: boolean }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/require-approval:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [promote]
+      summary: Toggle the config's protected (four-eyes) flag
+      description: >
+        When require_approval is true, direct secret saves to this config do not
+        commit immediately; they become a pending, envelope-encrypted config edit
+        request that a DIFFERENT user must approve. Requires promotion:manage
+        (admin+). Value-free.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  require_approval: { type: boolean }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/edit-requests:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [promote]
+      summary: List pending/decided edit requests for a protected config
+      description: >
+        Value-free metadata only — requester, reason, status, and changed key
+        NAMES (never proposed secret values). Requires config:read.
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [pending, applied, rejected, cancelled] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requests:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        config_id: { type: string, format: uuid }
+                        requested_by: { type: string, format: uuid }
+                        reason: { type: string }
+                        status: { type: string }
+                        keys: { type: array, items: { type: string } }
+                        message: { type: string }
+                        created_at: { type: string, format: date-time }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/edit-requests/{id}:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [promote]
+      summary: Cancel a pending edit request (requester only)
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Request not pending. }
+  /v1/configs/{cid}/edit-requests/{id}/approve:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [promote]
+      summary: Approve and apply a pending edit request (four-eyes)
+      description: >
+        The approver must be a DIFFERENT user than the requester and hold
+        secret:write on the config. Decrypts the proposed changes and commits
+        them as one config version. Value-free response (changed key names only).
+      responses:
+        "200":
+          description: Applied.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: integer }
+                  keys: { type: array, items: { type: string } }
+                  status: { type: string }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Request not pending. }
+  /v1/configs/{cid}/edit-requests/{id}/reject:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [promote]
+      summary: Reject a pending edit request (four-eyes)
+      description: >
+        The rejecter must be a DIFFERENT user than the requester and hold
+        secret:write on the config.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string }
+      responses:
+        "200":
+          description: Rejected.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Request not pending. }
   /v1/configs/{cid}/max-age:
     parameters:
       - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }

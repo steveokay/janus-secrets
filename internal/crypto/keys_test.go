@@ -171,3 +171,21 @@ func TestDynamicConfigAADDomainSeparation(t *testing.T) {
 		t.Fatal("length-prefixed encoding must resist boundary collisions")
 	}
 }
+
+func TestConfigEditRequestAADDomainSeparation(t *testing.T) {
+	// Distinct domain from every other AAD.
+	if bytes.Equal(ConfigEditRequestAAD("p", "c"), DynamicConfigAAD("p")) {
+		t.Fatal("config-edit-request and dynamic AADs must differ")
+	}
+	// Binds to BOTH project and config: changing either changes the AAD.
+	if bytes.Equal(ConfigEditRequestAAD("p1", "c"), ConfigEditRequestAAD("p2", "c")) {
+		t.Fatal("different projects must yield different AADs")
+	}
+	if bytes.Equal(ConfigEditRequestAAD("p", "c1"), ConfigEditRequestAAD("p", "c2")) {
+		t.Fatal("different configs must yield different AADs")
+	}
+	// Length-prefixed encoding resists boundary collisions across the two fields.
+	if bytes.Equal(ConfigEditRequestAAD("ab", "c"), ConfigEditRequestAAD("a", "bc")) {
+		t.Fatal("length-prefixed encoding must resist boundary collisions")
+	}
+}

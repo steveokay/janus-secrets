@@ -48,9 +48,12 @@ type Config struct {
 	EnvironmentID string
 	Name          string
 	InheritsFrom  *string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	DeletedAt     *time.Time
+	// RequireApproval, when true, makes direct secret saves to this config go
+	// through a four-eyes edit-request/approval flow instead of committing.
+	RequireApproval bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
 }
 
 // ConfigVersion is one immutable save — the unit of diff and rollback.
