@@ -196,14 +196,14 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 80ms">
-    <table class="ledger">
+    <table class="ledger" aria-label="Members and their roles">
       <thead>
         <tr>
-          <th>Member</th>
-          <th style="width: 150px">Last login</th>
-          <th style="width: 220px">Role at {scopeKind}</th>
-          <th style="width: 200px">Change</th>
-          <th style="width: 110px"></th>
+          <th scope="col">Member</th>
+          <th scope="col" style="width: 150px">Last login</th>
+          <th scope="col" style="width: 220px">Role at {scopeKind}</th>
+          <th scope="col" style="width: 200px">Change</th>
+          <th scope="col" style="width: 110px"></th>
         </tr>
       </thead>
       <tbody>

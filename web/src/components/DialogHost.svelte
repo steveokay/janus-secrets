@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dialog } from '../lib/dialog.svelte'
+  import { trapFocus } from '../lib/a11y'
 
   let inputValue = $state('')
   let inputEl = $state<HTMLInputElement | null>(null)
@@ -35,9 +36,9 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if d}
-  <div class="veil" role="presentation" onclick={cancel}>
+  <div class="veil" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) cancel() }}>
     <div class="modal plate" class:danger={d.danger} role="dialog" aria-modal="true" aria-label={d.title}
-      onclick={(e) => e.stopPropagation()}>
+      tabindex="-1" use:trapFocus>
       <h3>{d.title}</h3>
       {#if d.body}<p class="body">{d.body}</p>{/if}
 

@@ -90,16 +90,16 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 90ms">
-    <table class="ledger">
+    <table class="ledger" aria-label="Audit ledger events">
       <thead>
         <tr>
-          <th style="width: 80px">Entry</th>
-          <th style="width: 110px">When</th>
-          <th style="width: 150px">Actor</th>
-          <th style="width: 170px">Action</th>
-          <th>Resource</th>
-          <th style="width: 110px">Origin IP</th>
-          <th style="width: 170px">Chain</th>
+          <th scope="col" style="width: 80px">Entry</th>
+          <th scope="col" style="width: 110px">When</th>
+          <th scope="col" style="width: 150px">Actor</th>
+          <th scope="col" style="width: 170px">Action</th>
+          <th scope="col">Resource</th>
+          <th scope="col" style="width: 110px">Origin IP</th>
+          <th scope="col" style="width: 170px">Chain</th>
         </tr>
       </thead>
       <tbody>

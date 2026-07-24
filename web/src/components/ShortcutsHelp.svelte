@@ -2,6 +2,7 @@
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
   import { shortcuts, CHORDS } from '../lib/shortcuts.svelte'
+  import { trapFocus } from '../lib/a11y'
 
   // `g` pressed, waiting for the second key of the chord
   let pending = $state(false)
@@ -66,8 +67,8 @@
 {/if}
 
 {#if shortcuts.helpOpen}
-  <div class="veil" role="presentation" onclick={() => shortcuts.closeHelp()}>
-    <div class="help plate" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onclick={(e) => e.stopPropagation()}>
+  <div class="veil" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) shortcuts.closeHelp() }}>
+    <div class="help plate" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" tabindex="-1" use:trapFocus>
       <header class="help-head">
         <h3>Keyboard shortcuts</h3>
         <button class="btn btn-ghost btn-sm" onclick={() => shortcuts.closeHelp()}>Close</button>

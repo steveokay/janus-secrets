@@ -256,9 +256,9 @@
       {/if}
 
       {#if fed}
-        <table class="ledger bindings">
+        <table class="ledger bindings" aria-label="CI federation trust bindings">
           <thead>
-            <tr><th>Trust binding</th><th>{activeProvider.claimLabel} claim</th><th>Scope</th><th style="width:90px">Access</th><th style="width:80px">TTL</th><th style="width:90px"></th></tr>
+            <tr><th scope="col">Trust binding</th><th scope="col">{activeProvider.claimLabel} claim</th><th scope="col">Scope</th><th scope="col" style="width:90px">Access</th><th scope="col" style="width:80px">TTL</th><th scope="col" style="width:90px"></th></tr>
           </thead>
           <tbody>
             {#each bindings as b (b.id)}

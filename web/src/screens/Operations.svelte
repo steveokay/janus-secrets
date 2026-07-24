@@ -575,9 +575,9 @@
     {/if}
 
     <div class="sheet table-wrap">
-      <table class="ledger">
+      <table class="ledger" aria-label="Scheduled rotations">
         <thead>
-          <tr><th>Secret</th><th style="width:100px">Rotator</th><th>Config</th><th style="width:100px">Cadence</th><th style="width:130px">Last run</th><th style="width:110px">Next</th><th style="width:230px"></th></tr>
+          <tr><th scope="col">Secret</th><th scope="col" style="width:100px">Rotator</th><th scope="col">Config</th><th scope="col" style="width:100px">Cadence</th><th scope="col" style="width:130px">Last run</th><th scope="col" style="width:110px">Next</th><th scope="col" style="width:230px"></th></tr>
         </thead>
         <tbody>
           {#each rotations as r (r.id)}
@@ -735,9 +735,9 @@
     {/if}
 
     <div class="sheet table-wrap">
-      <table class="ledger">
+      <table class="ledger" aria-label="Sync integrations">
         <thead>
-          <tr><th>Destination</th><th>Source config</th><th style="width:110px">State</th><th style="width:130px">Last sync</th><th style="width:230px"></th></tr>
+          <tr><th scope="col">Destination</th><th scope="col">Source config</th><th scope="col" style="width:110px">State</th><th scope="col" style="width:130px">Last sync</th><th scope="col" style="width:230px"></th></tr>
         </thead>
         <tbody>
           {#each syncs as s (s.id)}
@@ -832,9 +832,9 @@
     {/if}
 
     <div class="sheet table-wrap">
-      <table class="ledger">
+      <table class="ledger" aria-label="Dynamic secret roles">
         <thead>
-          <tr><th>Role</th><th>Config</th><th style="width:150px">TTL / max</th><th style="width:200px"></th></tr>
+          <tr><th scope="col">Role</th><th scope="col">Config</th><th scope="col" style="width:150px">TTL / max</th><th scope="col" style="width:200px"></th></tr>
         </thead>
         <tbody>
           {#each roles as role (role.id)}
@@ -855,9 +855,9 @@
     </div>
 
     <div class="sheet table-wrap" style="margin-top: var(--s3)">
-      <table class="ledger">
+      <table class="ledger" aria-label="Active dynamic leases">
         <thead>
-          <tr><th style="width:140px">Lease</th><th>Role</th><th style="width:170px">DB user</th><th style="width:220px">Time to live</th><th style="width:130px"></th></tr>
+          <tr><th scope="col" style="width:140px">Lease</th><th scope="col">Role</th><th scope="col" style="width:170px">DB user</th><th scope="col" style="width:220px">Time to live</th><th scope="col" style="width:130px"></th></tr>
         </thead>
         <tbody>
           {#each leases as l (l.id)}

@@ -283,6 +283,21 @@ kbd.key {
 
 .rise { animation: rise-in var(--t-slow) var(--ease-out) both; }
 
+/*
+ * Reduced-motion: neutralise all non-essential animation + transition. Entrance
+ * animations use `both` fill so collapsing the duration still leaves the element
+ * in its final (visible) state — nothing depends on motion to become usable.
+ * We also zero delays (so staggered `.rise` lists appear at once, not after a
+ * wait) and cap looping animations (e.g. the audit "verifying" caret) to a
+ * single iteration, and disable smooth scrolling.
+ */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }

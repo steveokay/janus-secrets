@@ -4,6 +4,7 @@
   import { theme } from '../lib/theme.svelte'
   import { api, type KeySearchResult } from '../lib/api'
   import { shortcuts } from '../lib/shortcuts.svelte'
+  import { trapFocus } from '../lib/a11y'
 
   interface Item { id: string; group: string; label: string; sublabel?: string; keywords: string; hint?: boolean; run: () => void }
 
@@ -159,8 +160,8 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
-  <div class="veil" role="presentation" onclick={() => (open = false)}>
-    <div class="palette plate" role="dialog" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
+  <div class="veil" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) open = false }}>
+    <div class="palette plate" role="dialog" aria-modal="true" aria-label="Command palette" tabindex="-1" use:trapFocus>
       <input
         bind:this={inputEl}
         class="pal-input mono"
