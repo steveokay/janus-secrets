@@ -23,6 +23,8 @@ const (
 	TypeWebhook  = "webhook"
 	TypeMySQL    = "mysql"
 	TypeRedis    = "redis"
+	TypeOAuth    = "oauth"
+	TypeAWSIAM   = "aws_iam"
 
 	failureThreshold = 5  // consecutive failures → status='failed'
 	defaultBatch     = 50 // policies claimed per tick
@@ -55,6 +57,21 @@ type PolicyConfig struct {
 	RedisSkipVerify    bool   `json:"redis_skip_verify,omitempty"`    // per-policy TLS verify opt-out
 	RedisUser          string `json:"redis_user,omitempty"`           // target ACL username (required)
 	RedisRules         string `json:"redis_rules,omitempty"`          // optional space-separated ACL rules to preserve
+	// oauth — GENERATING rotator: the provider mints the new access_token via a
+	// client-credentials grant and Janus stores it as the secret value.
+	OAuthTokenURL     string `json:"oauth_token_url,omitempty"`     // token endpoint (http/https, required)
+	OAuthClientID     string `json:"oauth_client_id,omitempty"`     // client id (required)
+	OAuthClientSecret string `json:"oauth_client_secret,omitempty"` // client secret (required, write-only)
+	OAuthScope        string `json:"oauth_scope,omitempty"`         // optional space-separated scopes
+	OAuthAudience     string `json:"oauth_audience,omitempty"`      // optional audience param
+	// aws_iam — GENERATING rotator: AWS mints a NEW access key for an IAM user
+	// and Janus stores {access_key_id,secret_access_key} JSON as the secret value;
+	// the old key(s) are then deleted. STATIC admin creds only.
+	IAMUser            string `json:"iam_user,omitempty"`             // target IAM user (required)
+	IAMRegion          string `json:"iam_region,omitempty"`           // AWS region (required)
+	IAMAccessKeyID     string `json:"iam_access_key_id,omitempty"`     // admin access key id (required, write-only)
+	IAMSecretAccessKey string `json:"iam_secret_access_key,omitempty"` // admin secret access key (required, write-only)
+	IAMSessionToken    string `json:"iam_session_token,omitempty"`     // optional admin session token (write-only)
 	// optional notify (either type)
 	NotifyURL     string `json:"notify_url,omitempty"`
 	NotifyHMACKey string `json:"notify_hmac_key,omitempty"`
@@ -288,6 +305,18 @@ func validateConfig(typ string, c PolicyConfig) error {
 		if _, err := redisRules(c.RedisRules); err != nil {
 			return err
 		}
+	case TypeOAuth:
+		if err := validateTokenURL(c.OAuthTokenURL); err != nil {
+			return err
+		}
+		if c.OAuthClientID == "" || c.OAuthClientSecret == "" {
+			return ErrInvalidConfig
+		}
+	case TypeAWSIAM:
+		if !iamUserRe.MatchString(c.IAMUser) || c.IAMRegion == "" ||
+			c.IAMAccessKeyID == "" || c.IAMSecretAccessKey == "" {
+			return ErrInvalidConfig
+		}
 	default:
 		return ErrInvalidType
 	}
@@ -297,7 +326,7 @@ func validateConfig(typ string, c PolicyConfig) error {
 // Create validates, encrypts the config blob, and inserts a policy.
 func (s *Service) Create(ctx context.Context, in PolicyInput, createdBy string) (PolicyView, error) {
 	switch in.Type {
-	case TypePostgres, TypeWebhook, TypeMySQL, TypeRedis:
+	case TypePostgres, TypeWebhook, TypeMySQL, TypeRedis, TypeOAuth, TypeAWSIAM:
 	default:
 		return PolicyView{}, ErrInvalidType
 	}

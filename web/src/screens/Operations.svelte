@@ -28,7 +28,7 @@
   let showNewRotation = $state(false)
   let rKey = $state('')
   let rConfigId = $state('')
-  let rType = $state<'postgres' | 'webhook' | 'mysql' | 'redis'>('postgres')
+  let rType = $state<'postgres' | 'webhook' | 'mysql' | 'redis' | 'oauth' | 'aws_iam'>('postgres')
   let rIntervalDays = $state(30)
   let rAdminDsn = $state('')
   let rRole = $state('')
@@ -49,6 +49,18 @@
   let rRdSkipVerify = $state(false)
   let rRdUser = $state('')
   let rRdRules = $state('')
+  // oauth
+  let rOaTokenUrl = $state('')
+  let rOaClientId = $state('')
+  let rOaClientSecret = $state('')
+  let rOaScope = $state('')
+  let rOaAudience = $state('')
+  // aws_iam
+  let rIamUser = $state('')
+  let rIamRegion = $state('')
+  let rIamAccessKeyId = $state('')
+  let rIamSecretAccessKey = $state('')
+  let rIamSessionToken = $state('')
   let rError = $state('')
 
   let showNewSync = $state(false)
@@ -157,6 +169,19 @@
           redis_admin_password: rRdAdminPassword || undefined, redis_tls: rRdTls,
           redis_skip_verify: rRdSkipVerify, redis_user: rRdUser.trim(), redis_rules: rRdRules.trim() || undefined,
         }
+      case 'oauth':
+        return {
+          oauth_token_url: rOaTokenUrl.trim(), oauth_client_id: rOaClientId.trim(),
+          oauth_client_secret: rOaClientSecret || undefined,
+          oauth_scope: rOaScope.trim() || undefined, oauth_audience: rOaAudience.trim() || undefined,
+        }
+      case 'aws_iam':
+        return {
+          iam_user: rIamUser.trim(), iam_region: rIamRegion.trim(),
+          iam_access_key_id: rIamAccessKeyId.trim() || undefined,
+          iam_secret_access_key: rIamSecretAccessKey || undefined,
+          iam_session_token: rIamSessionToken || undefined,
+        }
     }
   }
 
@@ -175,6 +200,8 @@
       rKey = ''; rAdminDsn = ''; rRole = ''; rUrl = ''; rHmac = ''
       rMyAddr = ''; rMyAdminUser = ''; rMyAdminPassword = ''; rMyTls = ''; rMyUser = ''; rMyHost = ''
       rRdAddr = ''; rRdAdminUser = ''; rRdAdminPassword = ''; rRdTls = false; rRdSkipVerify = false; rRdUser = ''; rRdRules = ''
+      rOaTokenUrl = ''; rOaClientId = ''; rOaClientSecret = ''; rOaScope = ''; rOaAudience = ''
+      rIamUser = ''; rIamRegion = ''; rIamAccessKeyId = ''; rIamSecretAccessKey = ''; rIamSessionToken = ''
       flash('Rotation policy created.')
       await load()
     } catch (err) {
@@ -475,7 +502,7 @@
         <label class="field"><span class="label">Secret key</span>
           <input class="input mono" bind:value={rKey} placeholder="DATABASE_URL" required style="text-transform: uppercase" /></label>
         <label class="field"><span class="label">Rotator</span>
-          <select class="select" bind:value={rType}><option value="postgres">postgres</option><option value="webhook">webhook</option><option value="mysql">mysql</option><option value="redis">redis</option></select></label>
+          <select class="select" bind:value={rType}><option value="postgres">postgres</option><option value="webhook">webhook</option><option value="mysql">mysql</option><option value="redis">redis</option><option value="oauth">oauth</option><option value="aws_iam">aws_iam</option></select></label>
         <label class="field"><span class="label">Every (days)</span>
           <input class="input" type="number" min="1" bind:value={rIntervalDays} /></label>
         {#if rType === 'postgres'}
@@ -514,6 +541,30 @@
             <input class="input mono" bind:value={rRdRules} placeholder="~app:* +@read" /></label>
           <label class="field check"><input type="checkbox" bind:checked={rRdTls} /> <span class="label">TLS</span></label>
           <label class="field check"><input type="checkbox" bind:checked={rRdSkipVerify} /> <span class="label">Skip TLS verify</span></label>
+        {:else if rType === 'oauth'}
+          <p class="hint wide">The OAuth provider mints the new access token (client-credentials grant); Janus stores it as the secret value. The previous token may stay valid at the provider until it expires.</p>
+          <label class="field grow"><span class="label">Token URL</span>
+            <input class="input mono" bind:value={rOaTokenUrl} placeholder="https://auth.example.com/oauth/token" required /></label>
+          <label class="field"><span class="label">Client ID</span>
+            <input class="input mono" bind:value={rOaClientId} required /></label>
+          <label class="field"><span class="label">Client secret (write-only)</span>
+            <input class="input mono" type="password" bind:value={rOaClientSecret} required /></label>
+          <label class="field"><span class="label">Scope (optional)</span>
+            <input class="input mono" bind:value={rOaScope} placeholder="read write" /></label>
+          <label class="field"><span class="label">Audience (optional)</span>
+            <input class="input mono" bind:value={rOaAudience} /></label>
+        {:else if rType === 'aws_iam'}
+          <p class="hint wide">AWS mints a new access key for the IAM user; Janus stores {'{access_key_id, secret_access_key}'} as JSON and deletes the old key(s). AWS caps a user at 2 keys.</p>
+          <label class="field"><span class="label">IAM user</span>
+            <input class="input mono" bind:value={rIamUser} placeholder="app-service" required /></label>
+          <label class="field"><span class="label">Region</span>
+            <input class="input mono" bind:value={rIamRegion} placeholder="us-east-1" required /></label>
+          <label class="field"><span class="label">Admin access key ID (write-only)</span>
+            <input class="input mono" type="password" bind:value={rIamAccessKeyId} required /></label>
+          <label class="field"><span class="label">Admin secret access key (write-only)</span>
+            <input class="input mono" type="password" bind:value={rIamSecretAccessKey} required /></label>
+          <label class="field grow"><span class="label">Admin session token (optional, write-only)</span>
+            <input class="input mono" type="password" bind:value={rIamSessionToken} /></label>
         {/if}
         {#if rError}<p class="error wide">{rError}</p>{/if}
         <div class="form-actions wide">
@@ -865,6 +916,7 @@
   .field { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
   .field.grow { grid-column: span 2; }
   .wide { grid-column: 1 / -1; }
+  .hint { font-size: var(--text-xs); color: var(--ink-soft); margin: 0; }
   .form-actions { display: flex; justify-content: flex-end; gap: var(--s3); }
   .create-form textarea { resize: vertical; }
 
