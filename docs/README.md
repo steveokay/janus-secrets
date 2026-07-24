@@ -55,6 +55,9 @@ Task-oriented walkthroughs for the common workflows:
 - [Service tokens](guides/service-tokens.md) — minting scoped `janus_svc_…`
   tokens via `POST /v1/tokens` or the web UI, the scoping model, and using
   them from apps/CI.
+- [Terraform provider](guides/terraform.md) — manage Janus projects,
+  environments, configs, secrets, and service tokens declaratively with
+  `terraform-provider-janus`, including the secrets-in-state caveat.
 - [GitHub Actions integration](guides/github-actions.md) — pushing secrets
   into Actions (sync) vs. pulling them keyless via OIDC federation, and when
   to use which.
