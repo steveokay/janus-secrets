@@ -149,13 +149,13 @@
       </div>
     {:else}
       <div class="sheet table-wrap rise" style="animation-delay: 80ms">
-        <table class="ledger">
+        <table class="ledger" aria-label="Cross-environment secret comparison">
           <thead>
             <tr>
-              <th>Key</th>
-              <th style="width: 160px">A · {aOpt?.envSlug ?? 'A'}</th>
-              <th style="width: 160px">B · {bOpt?.envSlug ?? 'B'}</th>
-              <th style="width: 120px">Status</th>
+              <th scope="col">Key</th>
+              <th scope="col" style="width: 160px">A · {aOpt?.envSlug ?? 'A'}</th>
+              <th scope="col" style="width: 160px">B · {bOpt?.envSlug ?? 'B'}</th>
+              <th scope="col" style="width: 120px">Status</th>
             </tr>
           </thead>
           <tbody>

@@ -243,14 +243,14 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 60ms">
-    <table class="ledger">
+    <table class="ledger" aria-label="Notification channels">
       <thead>
         <tr>
-          <th>Channel</th>
-          <th style="width: 90px">Type</th>
-          <th>Events</th>
-          <th style="width: 90px">Status</th>
-          <th style="width: 220px"></th>
+          <th scope="col">Channel</th>
+          <th scope="col" style="width: 90px">Type</th>
+          <th scope="col">Events</th>
+          <th scope="col" style="width: 90px">Status</th>
+          <th scope="col" style="width: 220px"></th>
         </tr>
       </thead>
       <tbody>
@@ -390,8 +390,8 @@
     {:else if deliveries.length === 0}
       <p class="folio">No deliveries yet.</p>
     {:else}
-      <table class="ledger">
-        <thead><tr><th>Event</th><th>Status</th><th>When</th></tr></thead>
+      <table class="ledger" aria-label="Recent notification deliveries">
+        <thead><tr><th scope="col">Event</th><th scope="col">Status</th><th scope="col">When</th></tr></thead>
         <tbody>
           {#each deliveries as d (d.id)}
             <tr>

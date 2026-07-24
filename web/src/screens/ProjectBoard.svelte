@@ -306,6 +306,8 @@
           class:drop-ok={dragging !== null && dragging.envId !== env.id}
           class:drop-hover={dropEnvId === env.id}
           style={`animation-delay: ${i * 70}ms`}
+          role="group"
+          aria-label={`${env.slug} environment — drop target for config promotion`}
           ondragover={(e) => dragOver(e, env)}
           ondragleave={() => { if (dropEnvId === env.id) dropEnvId = null }}
           ondrop={(e) => drop(e, env)}

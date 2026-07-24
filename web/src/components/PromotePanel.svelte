@@ -135,9 +135,9 @@
   {:else if !diff}
     <p class="folio">Computing diff…</p>
   {:else}
-    <table class="ledger">
+    <table class="ledger" aria-label="Keys to promote">
       <thead>
-        <tr><th style="width: 36px"></th><th>Key</th><th style="width: 90px">Change</th><th>Source</th><th>Target</th></tr>
+        <tr><th scope="col" style="width: 36px"></th><th scope="col">Key</th><th scope="col" style="width: 90px">Change</th><th scope="col">Source</th><th scope="col">Target</th></tr>
       </thead>
       <tbody>
         {#each diff.entries as e (e.key)}

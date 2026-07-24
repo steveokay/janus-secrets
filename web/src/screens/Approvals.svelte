@@ -173,15 +173,15 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 60ms">
-    <table class="ledger">
+    <table class="ledger" aria-label="Pending promotion approvals">
       <thead>
         <tr>
-          <th>Request</th>
-          <th style="width: 200px">Route</th>
-          <th style="width: 90px">Keys</th>
-          <th style="width: 110px">Status</th>
-          <th style="width: 130px">Filed</th>
-          <th style="width: 220px"></th>
+          <th scope="col">Request</th>
+          <th scope="col" style="width: 200px">Route</th>
+          <th scope="col" style="width: 90px">Keys</th>
+          <th scope="col" style="width: 110px">Status</th>
+          <th scope="col" style="width: 130px">Filed</th>
+          <th scope="col" style="width: 220px"></th>
         </tr>
       </thead>
       <tbody>
@@ -250,15 +250,15 @@
       <span class="folio">four-eyes edits to configs marked protected · values are never shown — key names only</span>
     </div>
     <div class="sheet table-wrap">
-      <table class="ledger">
+      <table class="ledger" aria-label="Promotion request history">
         <thead>
           <tr>
-            <th>Config</th>
-            <th>Keys</th>
-            <th style="width: 90px">Keys #</th>
-            <th style="width: 110px">Status</th>
-            <th style="width: 130px">Filed</th>
-            <th style="width: 260px"></th>
+            <th scope="col">Config</th>
+            <th scope="col">Keys</th>
+            <th scope="col" style="width: 90px">Keys #</th>
+            <th scope="col" style="width: 110px">Status</th>
+            <th scope="col" style="width: 130px">Filed</th>
+            <th scope="col" style="width: 260px"></th>
           </tr>
         </thead>
         <tbody>

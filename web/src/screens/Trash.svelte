@@ -78,7 +78,7 @@
       <section class="op-section rise">
         <div class="section-head"><h3>Projects</h3></div>
         <div class="sheet table-wrap">
-          <table class="ledger">
+          <table class="ledger" aria-label="Deleted projects">
             <tbody>
               {#each trash.projects as p (p.id)}
                 <tr>
@@ -101,7 +101,7 @@
       <section class="op-section rise" style="animation-delay: 60ms">
         <div class="section-head"><h3>Environments</h3></div>
         <div class="sheet table-wrap">
-          <table class="ledger">
+          <table class="ledger" aria-label="Deleted environments">
             <tbody>
               {#each trash.environments as e (e.id)}
                 <tr>
@@ -124,7 +124,7 @@
       <section class="op-section rise" style="animation-delay: 120ms">
         <div class="section-head"><h3>Configs</h3></div>
         <div class="sheet table-wrap">
-          <table class="ledger">
+          <table class="ledger" aria-label="Deleted configs">
             <tbody>
               {#each trash.configs as c (c.id)}
                 <tr>
