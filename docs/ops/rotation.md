@@ -1,7 +1,7 @@
 # Secret rotation
 
 A rotation policy rotates one secret key's value on a fixed interval, without
-an operator manually running `janus secrets set`. Two rotator types:
+an operator manually running `janus secrets set`. Four rotator types:
 
 - **`postgres`** — single-role reset. Janus connects with an operator-supplied
   admin DSN and runs `ALTER ROLE <role> WITH PASSWORD <new-random>`, then
@@ -12,6 +12,59 @@ an operator manually running `janus secrets set`. Two rotator types:
   responsible for applying the new value (rotating a third-party API key,
   updating an external system, etc.); Janus commits the new value as a config
   version only after the endpoint answers with a 2xx.
+- **`mysql`** — single-account reset. Janus connects with an operator-supplied
+  admin DSN (or discrete host/admin-user/admin-password fields) and runs
+  `ALTER USER '<user>'@'<host>' IDENTIFIED BY <new-random>`, then stores the
+  new password as the secret's new config version.
+- **`redis`** — Redis ACL user reset. Janus opens a RESP connection, `AUTH`s
+  with the admin credentials, and runs `ACL SETUSER <user> reset on
+  >`<new-random>` [rules…]`, then stores the new password as the new config
+  version.
+
+### MySQL config fields
+
+| Field | Meaning |
+|---|---|
+| `admin_dsn` | Full go-sql-driver DSN (`user:pass@tcp(host:port)/db?tls=…`). Use this **or** the discrete fields below. Write-only. |
+| `mysql_addr` | `host:port` (discrete form). |
+| `mysql_admin_user` / `mysql_admin_password` | Connecting admin account (discrete form). Password is write-only. |
+| `mysql_db_name` | Optional default database. |
+| `mysql_tls` | `""` (none), `true`, `skip-verify`, or `preferred`. Honoured on the connection. |
+| `mysql_user` | **Target** account username to rotate (required). |
+| `mysql_host` | Target account host part of `'user'@'host'`; defaults to `%`. |
+
+The target `mysql_user`/`mysql_host` are validated against a strict charset
+(`[A-Za-z0-9_.-]` for the user, a hostname/wildcard charset for the host — no
+quotes, backslashes, backticks, or whitespace) and then single-quoted, because
+MySQL account identifiers cannot be bound as query parameters. The **new
+password is always a bound `?` parameter** in `ALTER USER … IDENTIFIED BY ?`
+(supported by MySQL 5.7.6+/8.0), never string-interpolated. The admin needs
+only enough privilege to run `ALTER USER` on the target (e.g. the `CREATE USER`
+privilege or `UPDATE` on `mysql.*`), not full `SUPER`/root.
+
+### Redis config fields
+
+| Field | Meaning |
+|---|---|
+| `redis_addr` | `host:port` (required). |
+| `redis_admin_user` | `AUTH` username (Redis 6+ ACL). Leave blank to use classic `requirepass` (single-arg `AUTH`). |
+| `redis_admin_password` | `AUTH` password. Write-only. |
+| `redis_tls` | Dial over TLS. |
+| `redis_skip_verify` | Skip TLS certificate verification (explicit per-policy opt-out). |
+| `redis_user` | **Target** ACL username to rotate (required). |
+| `redis_rules` | Optional space-separated ACL rules to re-apply (e.g. `~app:* +@read`). |
+
+The RESP protocol is hand-rolled over `net`/`crypto/tls` (no Redis client
+dependency). The target `redis_user` is validated against a strict charset
+(`[A-Za-z0-9_.:-]`), and each optional `redis_rules` token is validated against
+a conservative ACL-rule charset — tokens that would (re)set a password or clear
+auth (`>…`, `<…`, `#…`, `nopass`, `resetpass`) are rejected — so a rule can
+never smuggle credentials. The executed command is `ACL SETUSER <user> reset on
+>`<new-random>` <rules…>`: `reset` clears any prior passwords/rules for a
+deterministic result, `on` enables the account, `>` adds the new password
+(Redis stores only its hash), and the preserved rules re-grant the user's
+key/command/channel permissions. With no `redis_rules`, the user is left
+enabled with the new password but no grants; supply rules to preserve access.
 
 Either policy type may also carry an optional **notify webhook**, which fires
 a separate, value-free event after a rotation succeeds — useful for alerting
@@ -118,6 +171,18 @@ janus rotation create --config $CONFIG --key API_KEY \
   --type webhook --interval-seconds 604800 \
   --url https://internal.example.com/rotate-hook --hmac-key $HMAC_KEY
 
+# MySQL rotator: reset a MySQL account password every 30 days (discrete form).
+janus rotation create --config $CONFIG --key DB_PASSWORD \
+  --type mysql --interval-seconds 2592000 \
+  --mysql-addr db:3306 --mysql-admin-user rotator --mysql-admin-password "$MYSQL_ADMIN_PW" \
+  --mysql-user app_user --mysql-host '%' --mysql-tls preferred
+
+# Redis rotator: reset a Redis ACL user's password weekly, preserving its rules.
+janus rotation create --config $CONFIG --key REDIS_PASSWORD \
+  --type redis --interval-seconds 604800 \
+  --redis-addr cache:6379 --redis-admin-user default --redis-admin-password "$REDIS_ADMIN_PW" \
+  --redis-user app_reader --redis-rules '~app:* +@read' --redis-tls
+
 # List, inspect, update, rotate, delete.
 janus rotation list --project $PROJECT
 janus rotation get <id>
@@ -149,9 +214,12 @@ the `rotation:manage` permission, granted to the project **admin** and
 rotation attempt — scheduled or manual, success or failure — emits a
 `rotation.rotate` audit event.
 
-Secret values, admin DSNs, and HMAC keys never appear in logs, audit entries,
-`last_error`, or API responses — `GET`/`list` responses mask this
-configuration the same way secret values are masked elsewhere in the API.
+Secret values, admin DSNs, admin passwords, and HMAC keys never appear in logs,
+audit entries, `last_error`, or API responses — `GET`/`list` responses mask
+this configuration the same way secret values are masked elsewhere in the API.
+Rotator apply errors are reduced to a fixed, value-free category before being
+stored or returned, so a MySQL "access denied" string or a Redis `-ERR` reply
+never leaks the account, host, or password.
 
 ## Backup & restore
 

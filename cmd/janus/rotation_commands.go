@@ -21,6 +21,11 @@ func newRotationCmd() *cobra.Command {
 	var adminDSN, role string
 	var passwordLen int
 	var url, hmacKey, notifyURL, notifyHMACKey string
+	// mysql
+	var myAddr, myAdminUser, myAdminPassword, myDBName, myTLS, myUser, myHost string
+	// redis
+	var rdAddr, rdAdminUser, rdAdminPassword, rdUser, rdRules string
+	var rdTLS, rdSkipVerify bool
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a rotation policy",
@@ -35,6 +40,12 @@ func newRotationCmd() *cobra.Command {
 				"config": map[string]any{
 					"admin_dsn": adminDSN, "role": role, "password_len": passwordLen,
 					"url": url, "hmac_key": hmacKey,
+					"mysql_addr": myAddr, "mysql_admin_user": myAdminUser,
+					"mysql_admin_password": myAdminPassword, "mysql_db_name": myDBName,
+					"mysql_tls": myTLS, "mysql_user": myUser, "mysql_host": myHost,
+					"redis_addr": rdAddr, "redis_admin_user": rdAdminUser,
+					"redis_admin_password": rdAdminPassword, "redis_tls": rdTLS,
+					"redis_skip_verify": rdSkipVerify, "redis_user": rdUser, "redis_rules": rdRules,
 					"notify_url": notifyURL, "notify_hmac_key": notifyHMACKey,
 				},
 			}
@@ -48,13 +59,29 @@ func newRotationCmd() *cobra.Command {
 	}
 	create.Flags().StringVar(&configID, "config", "", "target config id (required)")
 	create.Flags().StringVar(&secretKey, "key", "", "secret key to rotate (required)")
-	create.Flags().StringVar(&typ, "type", "", "rotator type: postgres|webhook (required)")
+	create.Flags().StringVar(&typ, "type", "", "rotator type: postgres|webhook|mysql|redis (required)")
 	create.Flags().Int64Var(&intervalSeconds, "interval-seconds", 0, "rotation interval in seconds (required)")
 	create.Flags().StringVar(&adminDSN, "admin-dsn", "", "postgres admin DSN (postgres type)")
 	create.Flags().StringVar(&role, "role", "", "postgres role to rotate (postgres type)")
 	create.Flags().IntVar(&passwordLen, "password-len", 32, "generated password length")
 	create.Flags().StringVar(&url, "url", "", "webhook URL (webhook type)")
 	create.Flags().StringVar(&hmacKey, "hmac-key", "", "webhook HMAC signing key (webhook type)")
+	// mysql
+	create.Flags().StringVar(&myAddr, "mysql-addr", "", "mysql host:port (mysql type, discrete form)")
+	create.Flags().StringVar(&myAdminUser, "mysql-admin-user", "", "mysql admin user (mysql type, discrete form)")
+	create.Flags().StringVar(&myAdminPassword, "mysql-admin-password", "", "mysql admin password (mysql type, discrete form)")
+	create.Flags().StringVar(&myDBName, "mysql-db", "", "mysql default database (mysql type, optional)")
+	create.Flags().StringVar(&myTLS, "mysql-tls", "", "mysql TLS mode: true|skip-verify|preferred|false (mysql type)")
+	create.Flags().StringVar(&myUser, "mysql-user", "", "mysql target account user to rotate (mysql type)")
+	create.Flags().StringVar(&myHost, "mysql-host", "", "mysql target account host, default '%' (mysql type)")
+	// redis
+	create.Flags().StringVar(&rdAddr, "redis-addr", "", "redis host:port (redis type)")
+	create.Flags().StringVar(&rdAdminUser, "redis-admin-user", "", "redis AUTH user (redis type, Redis 6+ ACL)")
+	create.Flags().StringVar(&rdAdminPassword, "redis-admin-password", "", "redis AUTH password (redis type)")
+	create.Flags().BoolVar(&rdTLS, "redis-tls", false, "dial redis over TLS (redis type)")
+	create.Flags().BoolVar(&rdSkipVerify, "redis-skip-verify", false, "skip redis TLS verification (redis type)")
+	create.Flags().StringVar(&rdUser, "redis-user", "", "redis target ACL username to rotate (redis type)")
+	create.Flags().StringVar(&rdRules, "redis-rules", "", "space-separated ACL rules to preserve (redis type, e.g. \"~app:* +@read\")")
 	create.Flags().StringVar(&notifyURL, "notify-url", "", "optional post-rotation notify URL")
 	create.Flags().StringVar(&notifyHMACKey, "notify-hmac-key", "", "optional notify HMAC key")
 

@@ -21,6 +21,8 @@ import (
 const (
 	TypePostgres = "postgres"
 	TypeWebhook  = "webhook"
+	TypeMySQL    = "mysql"
+	TypeRedis    = "redis"
 
 	failureThreshold = 5  // consecutive failures → status='failed'
 	defaultBatch     = 50 // policies claimed per tick
@@ -36,6 +38,23 @@ type PolicyConfig struct {
 	// webhook
 	URL     string `json:"url,omitempty"`
 	HMACKey string `json:"hmac_key,omitempty"`
+	// mysql — either MySQLDSN (AdminDSN, reused) OR the discrete fields below.
+	// MySQLUser/MySQLHost identify the target account whose password is rotated.
+	MySQLAddr          string `json:"mysql_addr,omitempty"`           // host:port (discrete form)
+	MySQLAdminUser     string `json:"mysql_admin_user,omitempty"`     // connecting admin (discrete form)
+	MySQLAdminPassword string `json:"mysql_admin_password,omitempty"` // connecting admin pw (discrete form)
+	MySQLDBName        string `json:"mysql_db_name,omitempty"`        // optional default db
+	MySQLTLS           string `json:"mysql_tls,omitempty"`            // "", true, skip-verify, preferred, false
+	MySQLUser          string `json:"mysql_user,omitempty"`           // target account user (required)
+	MySQLHost          string `json:"mysql_host,omitempty"`           // target account host (default '%')
+	// redis — target ACL user's password is rotated over RESP.
+	RedisAddr          string `json:"redis_addr,omitempty"`           // host:port (required)
+	RedisAdminUser     string `json:"redis_admin_user,omitempty"`     // AUTH user (Redis 6+ ACL); empty = requirepass
+	RedisAdminPassword string `json:"redis_admin_password,omitempty"` // AUTH password
+	RedisTLS           bool   `json:"redis_tls,omitempty"`            // dial over TLS
+	RedisSkipVerify    bool   `json:"redis_skip_verify,omitempty"`    // per-policy TLS verify opt-out
+	RedisUser          string `json:"redis_user,omitempty"`           // target ACL username (required)
+	RedisRules         string `json:"redis_rules,omitempty"`          // optional space-separated ACL rules to preserve
 	// optional notify (either type)
 	NotifyURL     string `json:"notify_url,omitempty"`
 	NotifyHMACKey string `json:"notify_hmac_key,omitempty"`
@@ -239,19 +258,54 @@ func (s *Service) projectForConfig(ctx context.Context, configID string) (*store
 	return proj, nil
 }
 
+// validateConfig checks the minimum required, non-secret config shape for a
+// rotator type before the blob is encrypted. It never inspects secret values
+// beyond presence, and mirrors the per-type guards each apply() re-enforces.
+func validateConfig(typ string, c PolicyConfig) error {
+	switch typ {
+	case TypePostgres:
+		if c.AdminDSN == "" || !roleRe.MatchString(c.Role) {
+			return ErrInvalidConfig
+		}
+	case TypeWebhook:
+		if c.URL == "" {
+			return ErrInvalidConfig
+		}
+	case TypeMySQL:
+		if !mysqlUserRe.MatchString(c.MySQLUser) {
+			return ErrInvalidConfig
+		}
+		if c.MySQLHost != "" && !mysqlHostRe.MatchString(c.MySQLHost) {
+			return ErrInvalidConfig
+		}
+		if c.AdminDSN == "" && (c.MySQLAddr == "" || c.MySQLAdminUser == "") {
+			return ErrInvalidConfig
+		}
+	case TypeRedis:
+		if c.RedisAddr == "" || !redisUserRe.MatchString(c.RedisUser) {
+			return ErrInvalidConfig
+		}
+		if _, err := redisRules(c.RedisRules); err != nil {
+			return err
+		}
+	default:
+		return ErrInvalidType
+	}
+	return nil
+}
+
 // Create validates, encrypts the config blob, and inserts a policy.
 func (s *Service) Create(ctx context.Context, in PolicyInput, createdBy string) (PolicyView, error) {
-	if in.Type != TypePostgres && in.Type != TypeWebhook {
+	switch in.Type {
+	case TypePostgres, TypeWebhook, TypeMySQL, TypeRedis:
+	default:
 		return PolicyView{}, ErrInvalidType
 	}
 	if in.SecretKey == "" || in.IntervalSeconds <= 0 {
 		return PolicyView{}, ErrInvalidConfig
 	}
-	if in.Type == TypePostgres && (in.Config.AdminDSN == "" || !roleRe.MatchString(in.Config.Role)) {
-		return PolicyView{}, ErrInvalidConfig
-	}
-	if in.Type == TypeWebhook && in.Config.URL == "" {
-		return PolicyView{}, ErrInvalidConfig
+	if err := validateConfig(in.Type, in.Config); err != nil {
+		return PolicyView{}, err
 	}
 	proj, err := s.projectForConfig(ctx, in.ConfigID)
 	if err != nil {

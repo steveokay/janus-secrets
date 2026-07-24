@@ -183,11 +183,17 @@ export interface RunView {
 }
 /* the ONLY dynamic response carrying plaintext — shown once, never cached */
 export interface IssuedCreds { lease_id: string; username: string; password: string; expires_at: string }
+export type RotatorType = 'postgres' | 'webhook' | 'mysql' | 'redis'
 export interface RotationCreateInput {
-  config_id: string; secret_key: string; type: 'postgres' | 'webhook'; interval_seconds: number
+  config_id: string; secret_key: string; type: RotatorType; interval_seconds: number
   config: {
     admin_dsn?: string; role?: string; password_len?: number
-    url?: string; hmac_key?: string; notify_url?: string; notify_hmac_key?: string
+    url?: string; hmac_key?: string
+    mysql_addr?: string; mysql_admin_user?: string; mysql_admin_password?: string
+    mysql_db_name?: string; mysql_tls?: string; mysql_user?: string; mysql_host?: string
+    redis_addr?: string; redis_admin_user?: string; redis_admin_password?: string
+    redis_tls?: boolean; redis_skip_verify?: boolean; redis_user?: string; redis_rules?: string
+    notify_url?: string; notify_hmac_key?: string
   }
 }
 export type SyncProvider = 'github' | 'k8s' | 'gitlab' | 'aws_ssm' | 'cloudflare' | 'aws_secrets' | 'vercel' | 'netlify'

@@ -236,7 +236,7 @@ components:
         project_id: { type: string, format: uuid }
         config_id: { type: string, format: uuid }
         secret_key: { type: string }
-        type: { type: string, enum: [postgres, webhook] }
+        type: { type: string, enum: [postgres, webhook, mysql, redis] }
         interval_seconds: { type: integer }
         status: { type: string, enum: [active, paused, failed] }
         failure_count: { type: integer }
@@ -2996,7 +2996,7 @@ paths:
               properties:
                 config_id: { type: string, format: uuid }
                 secret_key: { type: string, example: DATABASE_PASSWORD }
-                type: { type: string, enum: [postgres, webhook] }
+                type: { type: string, enum: [postgres, webhook, mysql, redis] }
                 interval_seconds: { type: integer }
                 config:
                   type: object
@@ -3007,6 +3007,20 @@ paths:
                     password_len: { type: integer }
                     url: { type: string }
                     hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+                    mysql_addr: { type: string, description: "host:port (mysql, discrete form)" }
+                    mysql_admin_user: { type: string, description: "connecting admin (mysql, discrete form)" }
+                    mysql_admin_password: { type: string, writeOnly: true, example: "<secret value>" }
+                    mysql_db_name: { type: string }
+                    mysql_tls: { type: string, enum: ["", "true", "skip-verify", "preferred", "false"], description: "TLS mode (mysql)" }
+                    mysql_user: { type: string, description: "target account user to rotate (mysql)" }
+                    mysql_host: { type: string, description: "target account host, default % (mysql)" }
+                    redis_addr: { type: string, description: "host:port (redis)" }
+                    redis_admin_user: { type: string, description: "AUTH user; blank = requirepass (redis)" }
+                    redis_admin_password: { type: string, writeOnly: true, example: "<secret value>" }
+                    redis_tls: { type: boolean }
+                    redis_skip_verify: { type: boolean }
+                    redis_user: { type: string, description: "target ACL user to rotate (redis)" }
+                    redis_rules: { type: string, description: "space-separated ACL rules to preserve (redis)" }
                     notify_url: { type: string }
                     notify_hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
       responses:
@@ -3053,6 +3067,20 @@ paths:
                     password_len: { type: integer }
                     url: { type: string }
                     hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
+                    mysql_addr: { type: string }
+                    mysql_admin_user: { type: string }
+                    mysql_admin_password: { type: string, writeOnly: true, example: "<secret value>" }
+                    mysql_db_name: { type: string }
+                    mysql_tls: { type: string, enum: ["", "true", "skip-verify", "preferred", "false"] }
+                    mysql_user: { type: string }
+                    mysql_host: { type: string }
+                    redis_addr: { type: string }
+                    redis_admin_user: { type: string }
+                    redis_admin_password: { type: string, writeOnly: true, example: "<secret value>" }
+                    redis_tls: { type: boolean }
+                    redis_skip_verify: { type: boolean }
+                    redis_user: { type: string }
+                    redis_rules: { type: string }
                     notify_url: { type: string }
                     notify_hmac_key: { type: string, writeOnly: true, example: "<secret value>" }
       responses:

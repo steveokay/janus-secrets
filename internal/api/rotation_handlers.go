@@ -13,11 +13,28 @@ import (
 )
 
 type rotationConfigReq struct {
-	AdminDSN      string `json:"admin_dsn,omitempty"`
-	Role          string `json:"role,omitempty"`
-	PasswordLen   int    `json:"password_len,omitempty"`
-	URL           string `json:"url,omitempty"`
-	HMACKey       string `json:"hmac_key,omitempty"`
+	AdminDSN    string `json:"admin_dsn,omitempty"`
+	Role        string `json:"role,omitempty"`
+	PasswordLen int    `json:"password_len,omitempty"`
+	URL         string `json:"url,omitempty"`
+	HMACKey     string `json:"hmac_key,omitempty"`
+	// mysql
+	MySQLAddr          string `json:"mysql_addr,omitempty"`
+	MySQLAdminUser     string `json:"mysql_admin_user,omitempty"`
+	MySQLAdminPassword string `json:"mysql_admin_password,omitempty"`
+	MySQLDBName        string `json:"mysql_db_name,omitempty"`
+	MySQLTLS           string `json:"mysql_tls,omitempty"`
+	MySQLUser          string `json:"mysql_user,omitempty"`
+	MySQLHost          string `json:"mysql_host,omitempty"`
+	// redis
+	RedisAddr          string `json:"redis_addr,omitempty"`
+	RedisAdminUser     string `json:"redis_admin_user,omitempty"`
+	RedisAdminPassword string `json:"redis_admin_password,omitempty"`
+	RedisTLS           bool   `json:"redis_tls,omitempty"`
+	RedisSkipVerify    bool   `json:"redis_skip_verify,omitempty"`
+	RedisUser          string `json:"redis_user,omitempty"`
+	RedisRules         string `json:"redis_rules,omitempty"`
+	// notify
 	NotifyURL     string `json:"notify_url,omitempty"`
 	NotifyHMACKey string `json:"notify_hmac_key,omitempty"`
 }
@@ -25,7 +42,12 @@ type rotationConfigReq struct {
 func (rc rotationConfigReq) toEngine() rotation.PolicyConfig {
 	return rotation.PolicyConfig{
 		AdminDSN: rc.AdminDSN, Role: rc.Role, PasswordLen: rc.PasswordLen,
-		URL: rc.URL, HMACKey: rc.HMACKey, NotifyURL: rc.NotifyURL, NotifyHMACKey: rc.NotifyHMACKey,
+		URL: rc.URL, HMACKey: rc.HMACKey,
+		MySQLAddr: rc.MySQLAddr, MySQLAdminUser: rc.MySQLAdminUser, MySQLAdminPassword: rc.MySQLAdminPassword,
+		MySQLDBName: rc.MySQLDBName, MySQLTLS: rc.MySQLTLS, MySQLUser: rc.MySQLUser, MySQLHost: rc.MySQLHost,
+		RedisAddr: rc.RedisAddr, RedisAdminUser: rc.RedisAdminUser, RedisAdminPassword: rc.RedisAdminPassword,
+		RedisTLS: rc.RedisTLS, RedisSkipVerify: rc.RedisSkipVerify, RedisUser: rc.RedisUser, RedisRules: rc.RedisRules,
+		NotifyURL: rc.NotifyURL, NotifyHMACKey: rc.NotifyHMACKey,
 	}
 }
 

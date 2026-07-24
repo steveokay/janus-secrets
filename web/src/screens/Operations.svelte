@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
     api, errorMessage,
-    type RotationPolicy, type SyncTargetApi, type SyncCreateInput, type DynamicRole, type ApiLease,
+    type RotationPolicy, type RotationCreateInput, type SyncTargetApi, type SyncCreateInput, type DynamicRole, type ApiLease,
     type RunView, type IssuedCreds,
   } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
@@ -28,12 +28,27 @@
   let showNewRotation = $state(false)
   let rKey = $state('')
   let rConfigId = $state('')
-  let rType = $state<'postgres' | 'webhook'>('postgres')
+  let rType = $state<'postgres' | 'webhook' | 'mysql' | 'redis'>('postgres')
   let rIntervalDays = $state(30)
   let rAdminDsn = $state('')
   let rRole = $state('')
   let rUrl = $state('')
   let rHmac = $state('')
+  // mysql
+  let rMyAddr = $state('')
+  let rMyAdminUser = $state('')
+  let rMyAdminPassword = $state('')
+  let rMyTls = $state('')
+  let rMyUser = $state('')
+  let rMyHost = $state('')
+  // redis
+  let rRdAddr = $state('')
+  let rRdAdminUser = $state('')
+  let rRdAdminPassword = $state('')
+  let rRdTls = $state(false)
+  let rRdSkipVerify = $state(false)
+  let rRdUser = $state('')
+  let rRdRules = $state('')
   let rError = $state('')
 
   let showNewSync = $state(false)
@@ -124,6 +139,27 @@
 
   /* ── rotation ─────────────────────────────── */
 
+  function rotationConfig(): RotationCreateInput['config'] {
+    switch (rType) {
+      case 'postgres':
+        return { admin_dsn: rAdminDsn, role: rRole.trim() }
+      case 'webhook':
+        return { url: rUrl.trim(), hmac_key: rHmac }
+      case 'mysql':
+        return {
+          admin_dsn: rAdminDsn || undefined, mysql_addr: rMyAddr.trim() || undefined,
+          mysql_admin_user: rMyAdminUser.trim() || undefined, mysql_admin_password: rMyAdminPassword || undefined,
+          mysql_tls: rMyTls || undefined, mysql_user: rMyUser.trim(), mysql_host: rMyHost.trim() || undefined,
+        }
+      case 'redis':
+        return {
+          redis_addr: rRdAddr.trim(), redis_admin_user: rRdAdminUser.trim() || undefined,
+          redis_admin_password: rRdAdminPassword || undefined, redis_tls: rRdTls,
+          redis_skip_verify: rRdSkipVerify, redis_user: rRdUser.trim(), redis_rules: rRdRules.trim() || undefined,
+        }
+    }
+  }
+
   async function createRotation(e: SubmitEvent) {
     e.preventDefault()
     rError = ''
@@ -133,12 +169,12 @@
         secret_key: rKey.trim().toUpperCase(),
         type: rType,
         interval_seconds: rIntervalDays * 86400,
-        config: rType === 'postgres'
-          ? { admin_dsn: rAdminDsn, role: rRole.trim() }
-          : { url: rUrl.trim(), hmac_key: rHmac },
+        config: rotationConfig(),
       })
       showNewRotation = false
       rKey = ''; rAdminDsn = ''; rRole = ''; rUrl = ''; rHmac = ''
+      rMyAddr = ''; rMyAdminUser = ''; rMyAdminPassword = ''; rMyTls = ''; rMyUser = ''; rMyHost = ''
+      rRdAddr = ''; rRdAdminUser = ''; rRdAdminPassword = ''; rRdTls = false; rRdSkipVerify = false; rRdUser = ''; rRdRules = ''
       flash('Rotation policy created.')
       await load()
     } catch (err) {
@@ -439,7 +475,7 @@
         <label class="field"><span class="label">Secret key</span>
           <input class="input mono" bind:value={rKey} placeholder="DATABASE_URL" required style="text-transform: uppercase" /></label>
         <label class="field"><span class="label">Rotator</span>
-          <select class="select" bind:value={rType}><option value="postgres">postgres</option><option value="webhook">webhook</option></select></label>
+          <select class="select" bind:value={rType}><option value="postgres">postgres</option><option value="webhook">webhook</option><option value="mysql">mysql</option><option value="redis">redis</option></select></label>
         <label class="field"><span class="label">Every (days)</span>
           <input class="input" type="number" min="1" bind:value={rIntervalDays} /></label>
         {#if rType === 'postgres'}
@@ -447,11 +483,37 @@
             <input class="input mono" type="password" bind:value={rAdminDsn} placeholder="postgres://admin:…@db:5432/app" required /></label>
           <label class="field"><span class="label">DB role to rotate</span>
             <input class="input mono" bind:value={rRole} placeholder="app_user" required /></label>
-        {:else}
+        {:else if rType === 'webhook'}
           <label class="field grow"><span class="label">Webhook URL</span>
             <input class="input mono" bind:value={rUrl} placeholder="https://…/rotate" required /></label>
           <label class="field"><span class="label">HMAC key (write-only)</span>
             <input class="input mono" type="password" bind:value={rHmac} required /></label>
+        {:else if rType === 'mysql'}
+          <label class="field"><span class="label">Host:port</span>
+            <input class="input mono" bind:value={rMyAddr} placeholder="db:3306" required /></label>
+          <label class="field"><span class="label">Admin user</span>
+            <input class="input mono" bind:value={rMyAdminUser} placeholder="rotator" required /></label>
+          <label class="field"><span class="label">Admin password (write-only)</span>
+            <input class="input mono" type="password" bind:value={rMyAdminPassword} /></label>
+          <label class="field"><span class="label">Target user to rotate</span>
+            <input class="input mono" bind:value={rMyUser} placeholder="app_user" required /></label>
+          <label class="field"><span class="label">Target host</span>
+            <input class="input mono" bind:value={rMyHost} placeholder="%" /></label>
+          <label class="field"><span class="label">TLS mode</span>
+            <select class="select" bind:value={rMyTls}><option value="">none</option><option value="true">true</option><option value="skip-verify">skip-verify</option><option value="preferred">preferred</option></select></label>
+        {:else if rType === 'redis'}
+          <label class="field"><span class="label">Host:port</span>
+            <input class="input mono" bind:value={rRdAddr} placeholder="cache:6379" required /></label>
+          <label class="field"><span class="label">Admin user</span>
+            <input class="input mono" bind:value={rRdAdminUser} placeholder="default (leave blank for requirepass)" /></label>
+          <label class="field"><span class="label">Admin password (write-only)</span>
+            <input class="input mono" type="password" bind:value={rRdAdminPassword} /></label>
+          <label class="field"><span class="label">Target ACL user</span>
+            <input class="input mono" bind:value={rRdUser} placeholder="app_reader" required /></label>
+          <label class="field grow"><span class="label">Preserve ACL rules (optional)</span>
+            <input class="input mono" bind:value={rRdRules} placeholder="~app:* +@read" /></label>
+          <label class="field check"><input type="checkbox" bind:checked={rRdTls} /> <span class="label">TLS</span></label>
+          <label class="field check"><input type="checkbox" bind:checked={rRdSkipVerify} /> <span class="label">Skip TLS verify</span></label>
         {/if}
         {#if rError}<p class="error wide">{rError}</p>{/if}
         <div class="form-actions wide">
