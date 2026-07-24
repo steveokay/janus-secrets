@@ -57,8 +57,8 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule + issuer presets, single-active-issuer model. No migration. | ~~S each~~ |
 | ~~**Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** (CLI-first) — `janus import doppler|vault|aws-sm`: fetch → map to a Janus project/config → one batched write via the existing client; default value-free `--dry-run`, `--confirm` to write. No new endpoint/migration/dep. Web wizard = possible follow-up. | ~~L~~ |
 | ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
-| **Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
-| **Client SDKs** (~~Go~~, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. **Go SDK SHIPPED 2026-07-24** — standalone `sdk/go/` (zero deps): typed reads + memory-only TTL cache + dynamic-lease renewal. TS + Python remain. | L |
+| ~~**Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings)~~ **SHIPPED 2026-07-24** — `terraform-provider-janus/` (own module): project/env/config/secret/service-token resources (sensitive value + token-in-state caveat) + secret/config data sources, CRUD + import; hermetic unit tests. | ~~L~~ |
+| ~~**Client SDKs** (Go, TypeScript, Python) with in-process caching + lease renewal~~ **ALL SHIPPED 2026-07-24** — standalone `sdk/go/` (zero deps), `sdk/ts/` (`janus-client`), `sdk/python/` (`janus_client`), each: typed reads + memory-only TTL cache + dynamic-lease renewal + typed errors. | ~~L~~ |
 | ~~**More rotators**: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh~~ **ALL SHIPPED 2026-07-24** — 6 rotators (postgres, webhook, mysql, redis, + generating-rotator `oauth` & `aws_iam`); migration 000037 relaxes the type CHECK (fixed a latent gap that had also blocked mysql/redis). | ~~M each~~ |
 
 ### 4. Operations & observability
@@ -86,12 +86,14 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 ## Suggested near-term slate
 
-The roadmap is essentially exhausted (require-approval, all six rotators, inbound
-importers, the Go SDK, and the accessibility pass all shipped 2026-07-24). What's
-left:
+**The roadmap is exhausted** — every table item above is struck through, through
+the Terraform provider and the TypeScript + Python SDKs (2026-07-24). What's
+left is small/optional:
 
-1. **Terraform provider** (L) — the last big adoption lever.
-2. **Client SDKs — TypeScript + Python** (L) — mirror the shipped Go SDK.
-3. **Mobile/tablet layout** (5.6) — responsive read-mostly screens.
-4. **Import web wizard** (S) on top of the shipped `janus import` CLI.
-5. **Odds & ends** — more sync/CI targets on demand; Go SDK auto-renew helper.
+1. **Mobile/tablet layout** (5.6) — responsive read-mostly screens.
+2. **Import web wizard** (S) on top of the shipped `janus import` CLI.
+3. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
+   dictates (the engines are proven-pluggable).
+4. **SDK depth** — background auto-renew + `Run`-style helpers; publish to
+   npm / PyPI / the Terraform Registry.
+5. **Net-new** product direction beyond the original roadmap.

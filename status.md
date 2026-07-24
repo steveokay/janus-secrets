@@ -141,8 +141,8 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~More CI federation issuers: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule (replaces the hardcoded GitHub `repository` requirement: GitHub→`repository`, GitLab→`project_path`, Buildkite→`organization_slug`, CircleCI→org/project claim; unknown issuer → any non-empty claim), issuer presets + URL validation, single-active-issuer model, `web/src/lib/federation.ts` preset dropdown. No migration. | ~~S each~~ |
 | ~~Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** — CLI-first `janus import doppler|vault|aws-sm`: fetches from the source (creds from flags/env, never stored), maps → a Janus project/env/config (create-if-missing), writes as one batched config version via the existing authed client. **Default `--dry-run`** prints key names + counts only (never values); `--confirm` writes. Doppler/Vault via net/http, AWS-SM via the existing aws-sdk. No new server endpoint/migration/dep. Web wizard remains a possible follow-up. | ~~L~~ |
 | ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. **SMTP email channel added 2026-07-23** (`type=smtp`, `net/smtp` STARTTLS/implicit/none, verify-by-default + per-channel `insecure_skip_verify`, write-only password, value-free body; migration 000027). | Failures must find humans, not just an in-app tray. | ~~M~~ |
-| Terraform provider (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
-| Client SDKs (~~Go~~, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. **Go SDK SHIPPED 2026-07-24** — standalone `sdk/go/` module (zero deps): `NewClient`+`WithToken`/`WithCacheTTL`, `GetSecret(s)` through a memory-only TTL cache, dynamic-lease `Issue`/`Renew`/`Revoke`, typed errors. **TS + Python remain.** | L |
+| ~~Terraform provider (projects, configs, secrets-as-writes, tokens, bindings)~~ **SHIPPED 2026-07-24** — `terraform-provider-janus/` (own Go module, terraform-plugin-framework): resources `janus_project`/`environment`/`config`/`secret` (value `Sensitive`)/`service_token` (minted token = sensitive computed, secrets-in-state caveat documented) + `janus_secret`/`janus_config` data sources; full CRUD + import, 404→drift, `JANUS_ADDR`/`JANUS_TOKEN`. Hermetic httptest unit tests. Deferred: env-scoped tokens, batch-secret resource, Registry publish. | ~~L~~ |
+| ~~Client SDKs (Go, TypeScript, Python) with in-process caching + lease renewal~~ **ALL SHIPPED 2026-07-24** — three standalone SDKs mirroring one API/cache model: **Go** (`sdk/go/`, zero deps), **TypeScript** (`sdk/ts/`, `janus-client`, fetch-based zero-dep, Node 18+), **Python** (`sdk/python/`, `janus_client`, stdlib-only, 3.9+). Each: `getSecret(s)` through a memory-only TTL cache, dynamic-lease issue/renew/revoke, typed errors/exceptions (401/403/404/503). Follow-ups: background auto-renew + `Run`-style helpers. | ~~L~~ |
 | ~~More rotators: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh~~ **ALL SHIPPED 2026-07-24** — the rotation engine now has **6 rotators**: `postgres`, `webhook`, `mysql` (bound-param password), `redis` (hand-rolled RESP `ACL SETUSER`, no dep), plus a new **generating-rotator** category (external system mints the credential): `oauth` (RFC 6749 client-credentials → stores the access token) + `aws_iam` (`CreateAccessKey` → stores `{access_key_id,secret_access_key}` JSON, prunes old keys, aws-sdk iam). **Migration 000037** relaxes the `rotation_policies.type` CHECK to admit all six (000010 only allowed postgres/webhook — a latent gap that had blocked mysql/redis too). Injection-safe, sanitized errors, value-free. | ~~M each~~ |
 
 ### Operations & observability
@@ -168,19 +168,22 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Suggested near-term slate
 
-The roadmap is essentially exhausted. The 2026-07-24 run shipped, among much
-else, **require-approval, all six rotators (through AWS IAM + OAuth), inbound
-importers, the Go client SDK, and the accessibility pass**. The few remaining
-items, mostly larger or optional:
+**The roadmap is exhausted** — every table item in `docs/roadmap.md` is now
+struck through. The 2026-07-24 run finished it off with the **Terraform
+provider** and the **TypeScript + Python SDKs** (alongside require-approval, all
+six rotators, inbound importers, the Go SDK, and the accessibility pass). All
+that remains is small/optional polish:
 
-1. **Terraform provider** (L) — projects/configs/secrets-as-writes/tokens/bindings;
-   the last big adoption lever for infra teams.
-2. **Client SDKs — TypeScript + Python** (L) — mirror the shipped Go SDK.
-3. **Mobile/tablet layout** (5.6) — responsive read-mostly screens (dashboard,
+1. **Mobile/tablet layout** (5.6) — responsive read-mostly screens (dashboard,
    audit, approvals).
-4. **Import web wizard** (S) — a UI on top of the shipped `janus import` CLI.
-5. **Odds & ends** — more sync targets / CI issuers on demand; a `Run`-style
-   helper + background auto-renew in the Go SDK.
+2. **Import web wizard** (S) — a UI on top of the shipped `janus import` CLI.
+3. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
+   dictates (all three engines are proven-pluggable).
+4. **SDK depth** — background auto-renew + `Run`-style env-injection helpers in
+   the Go / TS / Python SDKs; publish TS to npm + Python to PyPI + the Terraform
+   provider to the Registry.
+5. **Anything net-new** the product direction calls for (the original roadmap is
+   done).
 
 Both parked decisions are **resolved**. Still outstanding among the small
 backend/ops items: DB pool tuning, docker-compose resource limits, and
