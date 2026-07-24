@@ -134,17 +134,44 @@ func (r *ConfigEditRequestRepo) listBy(ctx context.Context, column, value, statu
 	return out, nil
 }
 
-// MarkApplied atomically transitions a pending request to applied, recording
+// ClaimForApply atomically transitions a request from 'pending' to 'applying',
+// so exactly one approver may proceed to decrypt + commit. This is the CLAIM in
+// a claim-before-commit approval: the state transition happens BEFORE the commit
+// (unlike MarkApplied, which lands after), closing the TOCTOU window where two
+// concurrent approvers could both pass a pending check and both commit. Returns
+// ErrNotFound if the request is missing or no longer pending (another approver
+// won the claim, or it was already resolved).
+func (r *ConfigEditRequestRepo) ClaimForApply(ctx context.Context, id string) error {
+	return r.s.execAffectingOne(ctx, `
+		UPDATE config_edit_requests
+		SET status = 'applying'
+		WHERE id = $1::uuid AND status = 'pending'`,
+		id)
+}
+
+// RevertApplying transitions a claimed request from 'applying' back to
+// 'pending' so it stays retriable when the commit fails after a successful
+// claim. Best-effort: returns ErrNotFound if the row is no longer in 'applying'
+// (e.g. it was already marked applied), which callers may ignore.
+func (r *ConfigEditRequestRepo) RevertApplying(ctx context.Context, id string) error {
+	return r.s.execAffectingOne(ctx, `
+		UPDATE config_edit_requests
+		SET status = 'pending'
+		WHERE id = $1::uuid AND status = 'applying'`,
+		id)
+}
+
+// MarkApplied atomically transitions a claimed request to applied, recording
 // the approver and the resulting config version in one statement. Called ONLY
 // after the edits have actually been committed, so an applied row always
-// corresponds to a real save (no stranded state on a commit failure). Returns
-// ErrNotFound if the request is missing or no longer pending (a concurrent
-// approver won the race).
+// corresponds to a real save (no stranded state on a commit failure). The row
+// must have been claimed first (status = 'applying'); returns ErrNotFound
+// otherwise.
 func (r *ConfigEditRequestRepo) MarkApplied(ctx context.Context, id, approver string, version int) error {
 	return r.s.execAffectingOne(ctx, `
 		UPDATE config_edit_requests
 		SET status = 'applied', resolved_by = $2::uuid, resolved_at = now(), applied_version = $3
-		WHERE id = $1::uuid AND status = 'pending'`,
+		WHERE id = $1::uuid AND status = 'applying'`,
 		id, approver, version)
 }
 
