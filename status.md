@@ -130,14 +130,14 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Unused-secret detection — "not read in 90 days" chip from audit data~~ **SHIPPED 2026-07-23** — **advisory** (blocks nothing): per-key last-read = `MAX(occurred_at)` over `secret.reveal` audit events; masked list gains `last_read_at`+`unused`; editor "not read 90d+ / never read" chip + Overview in-tray count; threshold `JANUS_UNUSED_SECRET_DAYS` (default 90); migration 000029 (partial index on reveal events). Value-free. Bulk raw reads aren't per-key attributable (documented); inherited keys read as never-read on the leaf. | ~~M~~ |
 | ~~Per-key read insights — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/read-insights` (per key: `last_read_at` + 30-int `daily` reveal counts) from `secret.reveal` audit events, reusing the 000029 partial index (no migration); editor row Reads panel with the `Sparkline` component. Rides `secret:read`, unaudited like the masked list. | ~~M~~ |
 | ~~Cross-environment diff view — pick any two configs, key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — `GET /v1/configs/{cid}/compare?against={cid}` returns **booleans only** (in_a/in_b/differs + per-side origin), never a value; requires `secret:read` on BOTH configs (each authorized independently, denial audited) + one value-free `config.compare` audit event; generalizes the promotion preview. New Compare screen + nav + palette entry. No migration. | ~~M~~ |
-| Secret annotations — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today. | M |
+| ~~Secret annotations — owner + note metadata per key (never values)~~ **SHIPPED 2026-07-23** — `config_secret_annotations` (migration 000033, value-free); `PUT /v1/configs/{cid}/secrets/{key}/annotation`, `owner`/`note` on the masked list, editor affordance; `secret:write` to set / `secret:read` to view; value-free audit. Mirrors the max-age pattern. | ~~M~~ |
 | Require-approval-for-prod-edits toggle — direct saves to protected configs become a promotion-style request | Extends the existing four-eyes approval machinery to close its biggest bypass (raw prod edits). | M |
 
 ### Integrations & delivery
 
 | Feature | Why | Effort |
 |---|---|---|
-| More sync providers: ~~GitLab CI variables~~, ~~Cloudflare Workers secrets~~, Vercel/Netlify env, ~~AWS SSM~~/~~Secrets Manager~~ | The sync engine is provider-pluggable; each target is mostly an adapter + creds form. Now **6 providers**: `github`, `k8s`, + **`gitlab`, `aws_ssm` (07-23)**, + **`cloudflare` (Workers secrets, net/http, charset-validated URLs) + `aws_secrets` (AWS Secrets Manager, put-or-create, force-delete prune, per-secret billing note) — SHIPPED 2026-07-23**. No migration. **Vercel / Netlify env remain.** | M each |
+| ~~More sync providers: GitLab CI, Cloudflare Workers, Vercel/Netlify env, AWS SSM/Secrets Manager~~ **ALL SHIPPED 2026-07-23** — the sync engine now has **8 providers**: `github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, and **`vercel` + `netlify`** (both net/http, upsert+prune, `api_token` cred; #130 also restored Cloudflare's REST decode fields). No migration. (GitLab CI/CD variables, GitHub Actions, K8s Secrets, Cloudflare Workers secrets, Vercel/Netlify env vars, AWS SSM Parameter Store + Secrets Manager.) | ~~M each~~ |
 | ~~More CI federation issuers: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule (replaces the hardcoded GitHub `repository` requirement: GitHub→`repository`, GitLab→`project_path`, Buildkite→`organization_slug`, CircleCI→org/project claim; unknown issuer → any non-empty claim), issuer presets + URL validation, single-active-issuer model, `web/src/lib/federation.ts` preset dropdown. No migration. | ~~S each~~ |
 | Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost. | L |
 | ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. **SMTP email channel added 2026-07-23** (`type=smtp`, `net/smtp` STARTTLS/implicit/none, verify-by-default + per-channel `insecure_skip_verify`, write-only password, value-free body; migration 000027). | Failures must find humans, not just an in-app tray. | ~~M~~ |
@@ -150,8 +150,8 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | Feature | Why | Effort |
 |---|---|---|
 | ~~Prometheus `/metrics` + health panel~~ **SHIPPED 2026-07-22** — see the "Open — backend / ops" entry above (`JANUS_METRICS_TOKEN`, `GET /v1/sys/status`, Settings → Health). | Self-hosting is a black box until it breaks. | ~~S~~ |
-| Scheduled encrypted backups to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy. | M |
-| Audit shipping — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
+| ~~Scheduled encrypted backups to S3-compatible storage with retention + a restore-rehearsal command~~ **SHIPPED 2026-07-23** — `internal/backupsched` on `JANUS_BACKUP_TICK`: produces the sealed backup artifact, `PutObject`s to S3-compatible storage (custom endpoint for MinIO/R2/B2, static creds only), retention prune (keep N), `backup_runs` history (migration 000035). `janus backup rehearse` / `POST /v1/sys/backup/rehearse` verifies a backup restores WITHOUT clobbering live data. Sealed-artifact property preserved; value-free. `GET /v1/sys/status` gains a `backup` block. | ~~M~~ |
+| ~~Audit shipping — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark~~ **SHIPPED 2026-07-23** (webhook + syslog; S3 covered by scheduled backups) — `internal/auditship` tails the audit log past a durable high-water mark (migration 000034), ships JSONL to a webhook (optional HMAC-SHA256 sig) or RFC 5424 syslog (UDP/TCP), advances the mark only on success (at-least-once, no gaps). `JANUS_AUDIT_SHIP_*` env; `GET /v1/sys/status` gains an `audit_ship` block. Value-free. | ~~M~~ |
 | ~~Health panel in Settings — DB latency, scheduler tick ages, failed-run counts~~ **SHIPPED 2026-07-22** (with Prometheus metrics — `GET /v1/sys/status` + Settings → Health). | ~~S~~ |
 | ~~First-run onboarding checklist (create project → add secrets → mint token → `janus run`)~~ **SHIPPED 2026-07-23** — dashboard checklist on the Overview; steps auto-check from existing state (projects / any secret via 403-tolerant masked-list probe / `listTokens`), step 4 shows a copyable `janus login`→`setup`→`run` block; hides once set up, dismissible (localStorage). Frontend-only, no migration/endpoint. | ~~S~~ |
 
@@ -168,11 +168,10 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Suggested near-term slate
 
-Nearly the entire security-hardening column is now shipped (break-glass +
-per-token IP allowlists landed 2026-07-23). **In flight** (parallel agents):
-secret annotations, audit shipping (webhook/syslog), Vercel + Netlify sync, and
-scheduled encrypted S3 backups. Next five after those, weighing leverage against
-effort:
+The security-hardening column and most of lifecycle/integrations/ops are now
+shipped. The latest batch landed 2026-07-23: **secret annotations, audit
+shipping (webhook/syslog), Vercel + Netlify sync (→ 8 providers), and scheduled
+encrypted S3 backups**. Next five, weighing leverage against effort:
 
 1. **Require-approval-for-prod-edits** (2.8) — extend the four-eyes machinery to
    raw prod saves; closes the approval system's biggest bypass.
