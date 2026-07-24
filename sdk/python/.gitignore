@@ -1,0 +1,9 @@
+# Python build & tooling artifacts (SDK-local)
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.pytest_cache/
+.venv/
