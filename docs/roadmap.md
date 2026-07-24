@@ -47,7 +47,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Per-key read insights** — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET .../read-insights` (last-read + 30-day daily reveal counts) from audit events, reusing the 000029 index; editor Sparkline panel. | ~~M~~ |
 | ~~**Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/compare?against=` (booleans + origins only), dual `secret:read`, audited `config.compare`; new Compare screen. | ~~M~~ |
 | ~~**Secret annotations** — owner + note metadata per key (never values)~~ **SHIPPED 2026-07-23** — value-free per-key owner/note (migration 000033), `secret:write` to set, editor affordance; mirrors max-age. | ~~M~~ |
-| ~~**Require-approval-for-prod-edits** toggle~~ **SHIPPED 2026-07-24** — per-config `require_approval`; protected saves file an envelope-encrypted pending edit request that a different user approves (four-eyes, self-approval blocked, mark-on-success CAS) or rejects. Migration 000036, value-free, crypto 100%. | ~~M~~ |
+| ~~**Require-approval-for-prod-edits** toggle~~ **SHIPPED 2026-07-24** — per-config `require_approval`; protected saves file an envelope-encrypted pending edit request that a different user approves (four-eyes, self-approval blocked, mark-on-success CAS) or rejects. Migration 000036, value-free, crypto 100%. **Hardened 2026-07-24 (PR #148):** rollback + promote-apply now honor it too, and approval is claim-before-commit — see Release & distribution. | ~~M~~ |
 
 ### 3. Integrations & delivery
 
@@ -84,16 +84,51 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 ---
 
+## Release & distribution
+
+_The binary + container ship automatically on a `v*` tag (goreleaser → GitHub
+Release + GHCR). The language-package registries do **not** — each needs an
+account/credential the maintainer must supply, so they are tracked separately._
+
+- [x] ~~**v0.1.0 — first tagged release**~~ **SHIPPED 2026-07-24** — tag `v0.1.0`
+      (`main 9490a7d`); GitHub Release (6 multi-arch binaries + `checksums.txt`) +
+      multi-arch GHCR image `ghcr.io/steveokay/janus:0.1.0`. CHANGELOG
+      consolidated (nothing was tagged before → all of `main` ships as 0.1.0).
+- [x] ~~**Pre-release security hardening (PR #148)**~~ **SHIPPED 2026-07-24** —
+      the consolidation security review's findings: closed two require-approval
+      (four-eyes) bypasses (**rollback** + **promote-apply** committed directly
+      to protected configs; both now route through the edit-request flow via
+      `promote.Plan` / `secrets.RollbackChanges`), made edit-request approval
+      **claim-before-commit** (no double-commit), added **GitLab sync
+      project-id validation** (URL-injection guard), and protected pending edit
+      requests from **KEK-version retirement**. gosec 0, full suite green.
+- [ ] **Publish the TypeScript SDK to npm** (`janus-client`, `sdk/ts/`) — needs
+      an npm account + automation token; add an npm-publish CI job (on an
+      `sdk-ts-v*` tag or manual dispatch) running `npm publish` with `NPM_TOKEN`.
+- [ ] **Publish the Python SDK to PyPI** (`janus_client`, `sdk/python/`) — needs
+      a PyPI project + token (OIDC Trusted Publishing preferred); a `python -m
+      build` → `pypa/gh-action-pypi-publish` job.
+- [ ] **Publish the Terraform provider to the Terraform Registry**
+      (`terraform-provider-janus/`) — needs a **GPG signing key** + a Registry
+      account linked to the repo, and the provider's **own** goreleaser release
+      workflow (the Registry ingests GPG-signed release archives from a `v*` tag
+      in the provider module). Deferred provider work rides along: env-scoped
+      tokens + a batch-secret resource.
+
+---
+
 ## Suggested near-term slate
 
 **The roadmap is exhausted** — every table item above is struck through, through
-the Terraform provider and the TypeScript + Python SDKs (2026-07-24). What's
-left is small/optional:
+the Terraform provider and the TypeScript + Python SDKs (2026-07-24), and
+**v0.1.0 is released** (see Release & distribution). What's left is
+small/optional:
 
-1. **Mobile/tablet layout** (5.6) — responsive read-mostly screens.
-2. **Import web wizard** (S) on top of the shipped `janus import` CLI.
-3. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
+1. **Registry publishes** — TS→npm, Python→PyPI, provider→Terraform Registry
+   (the three open boxes above; each gated on a maintainer credential).
+2. **Mobile/tablet layout** (5.6) — responsive read-mostly screens.
+3. **Import web wizard** (S) on top of the shipped `janus import` CLI.
+4. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
    dictates (the engines are proven-pluggable).
-4. **SDK depth** — background auto-renew + `Run`-style helpers; publish to
-   npm / PyPI / the Terraform Registry.
-5. **Net-new** product direction beyond the original roadmap.
+5. **SDK depth** — background auto-renew + `Run`-style helpers.
+6. **Net-new** product direction beyond the original roadmap.

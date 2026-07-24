@@ -131,7 +131,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Per-key read insights — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/read-insights` (per key: `last_read_at` + 30-int `daily` reveal counts) from `secret.reveal` audit events, reusing the 000029 partial index (no migration); editor row Reads panel with the `Sparkline` component. Rides `secret:read`, unaudited like the masked list. | ~~M~~ |
 | ~~Cross-environment diff view — pick any two configs, key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — `GET /v1/configs/{cid}/compare?against={cid}` returns **booleans only** (in_a/in_b/differs + per-side origin), never a value; requires `secret:read` on BOTH configs (each authorized independently, denial audited) + one value-free `config.compare` audit event; generalizes the promotion preview. New Compare screen + nav + palette entry. No migration. | ~~M~~ |
 | ~~Secret annotations — owner + note metadata per key (never values)~~ **SHIPPED 2026-07-23** — `config_secret_annotations` (migration 000033, value-free); `PUT /v1/configs/{cid}/secrets/{key}/annotation`, `owner`/`note` on the masked list, editor affordance; `secret:write` to set / `secret:read` to view; value-free audit. Mirrors the max-age pattern. | ~~M~~ |
-| ~~Require-approval-for-prod-edits toggle — direct saves to protected configs become a promotion-style request~~ **SHIPPED 2026-07-24** — per-config `require_approval` flag (`promotion:manage` to toggle); a save to a protected config files a **pending edit request** (`202`, not a commit) with the proposed changes **envelope-encrypted** (fresh DEK under the project KEK, domain-separated `ConfigEditRequestAAD`); a **different** user with `secret:write` approves (four-eyes, self-approval `403`, mark-on-success CAS → commit via `SetSecrets`) or rejects; requester cancels. Migration 000036. Value-free (key names only); crypto 100%. Editor Protect toggle + Approvals section. | ~~M~~ |
+| ~~Require-approval-for-prod-edits toggle — direct saves to protected configs become a promotion-style request~~ **SHIPPED 2026-07-24** — per-config `require_approval` flag (`promotion:manage` to toggle); a save to a protected config files a **pending edit request** (`202`, not a commit) with the proposed changes **envelope-encrypted** (fresh DEK under the project KEK, domain-separated `ConfigEditRequestAAD`); a **different** user with `secret:write` approves (four-eyes, self-approval `403`, mark-on-success CAS → commit via `SetSecrets`) or rejects; requester cancels. Migration 000036. Value-free (key names only); crypto 100%. Editor Protect toggle + Approvals section. **Hardened 2026-07-24 (PR #148):** rollback + promote-apply now honor `require_approval` too (route the changeset through the edit-request flow instead of committing directly), and approval is claim-before-commit (no double-commit) — see Release & distribution below. | ~~M~~ |
 
 ### Integrations & delivery
 
@@ -166,23 +166,58 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action (focus-in + `Tab` cycle + restore-on-close) on all 3 modal overlays with `role="dialog"`/`aria-modal`; `aria-label` + `<th scope="col">` across all 22 ledger tables; `ProjectBoard` drop columns `role="group"`; hardened `prefers-reduced-motion` rule. svelte-check now **0 errors / 0 warnings** (was 7). | ~~M~~ |
 | Mobile/tablet layout for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
+### Release & distribution
+
+_The binary + container ship automatically on a `v*` tag (goreleaser → GitHub
+Release + GHCR). The language-package registries do **not** — each needs an
+account/credential the maintainer must supply, so they are tracked separately._
+
+- [x] ~~**v0.1.0 — first tagged release**~~ **SHIPPED 2026-07-24** — tag `v0.1.0`
+      (`main 9490a7d`); goreleaser published the GitHub Release (6 multi-arch
+      binaries + `checksums.txt`) and the multi-arch GHCR image
+      `ghcr.io/steveokay/janus:0.1.0`. CHANGELOG consolidated (nothing was tagged
+      before → all of `main` ships as 0.1.0).
+- [x] ~~**Pre-release security hardening (PR #148)**~~ **SHIPPED 2026-07-24** —
+      the consolidation security review's findings: closed two require-approval
+      (four-eyes) bypasses where **rollback** and **promote-apply** committed
+      directly to protected configs (both now route the changeset through the
+      edit-request flow via `promote.Plan` / `secrets.RollbackChanges`); made
+      edit-request approval **claim-before-commit** (`ClaimForApply` CAS → no
+      double-commit); added **GitLab sync project-id validation** (request-URL
+      injection guard); protected pending edit requests from **KEK-version
+      retirement** during project-KEK rotation. gosec 0, full suite green.
+- [ ] **Publish the TypeScript SDK to npm** (`janus-client`, `sdk/ts/`) — needs
+      an npm account + automation token. Not covered by the existing release
+      workflow (binaries + GHCR only); add an npm-publish CI job (on an
+      `sdk-ts-v*` tag or manual dispatch) running `npm publish` with
+      `NPM_TOKEN`.
+- [ ] **Publish the Python SDK to PyPI** (`janus_client`, `sdk/python/`) — needs
+      a PyPI project + token (OIDC Trusted Publishing preferred). Add a build +
+      publish job (`python -m build` → `pypa/gh-action-pypi-publish`).
+- [ ] **Publish the Terraform provider to the Terraform Registry**
+      (`terraform-provider-janus/`) — needs a **GPG signing key** and a Registry
+      account linked to the repo, plus the provider's **own** goreleaser release
+      workflow (the Registry ingests GPG-signed release archives from a `v*` tag
+      in the provider module). Deferred provider work rides along: env-scoped
+      tokens + a batch-secret resource.
+
 ### Suggested near-term slate
 
 **The roadmap is exhausted** — every table item in `docs/roadmap.md` is now
-struck through. The 2026-07-24 run finished it off with the **Terraform
-provider** and the **TypeScript + Python SDKs** (alongside require-approval, all
-six rotators, inbound importers, the Go SDK, and the accessibility pass). All
-that remains is small/optional polish:
+struck through, and **v0.1.0 is released** (see Release & distribution). All that
+remains is small/optional polish:
 
-1. **Mobile/tablet layout** (5.6) — responsive read-mostly screens (dashboard,
+1. **Registry publishes** — TS→npm, Python→PyPI, provider→Terraform Registry
+   (tracked as the three open boxes above; each gated on a maintainer
+   credential).
+2. **Mobile/tablet layout** (5.6) — responsive read-mostly screens (dashboard,
    audit, approvals).
-2. **Import web wizard** (S) — a UI on top of the shipped `janus import` CLI.
-3. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
+3. **Import web wizard** (S) — a UI on top of the shipped `janus import` CLI.
+4. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
    dictates (all three engines are proven-pluggable).
-4. **SDK depth** — background auto-renew + `Run`-style env-injection helpers in
-   the Go / TS / Python SDKs; publish TS to npm + Python to PyPI + the Terraform
-   provider to the Registry.
-5. **Anything net-new** the product direction calls for (the original roadmap is
+5. **SDK depth** — background auto-renew + `Run`-style env-injection helpers in
+   the Go / TS / Python SDKs.
+6. **Anything net-new** the product direction calls for (the original roadmap is
    done).
 
 Both parked decisions are **resolved**. Still outstanding among the small
