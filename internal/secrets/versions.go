@@ -64,3 +64,44 @@ func (s *Service) Rollback(ctx context.Context, configID string, targetVersion i
 	cv, err := s.secrets.Rollback(ctx, configID, targetVersion, message, actor)
 	return cv, mapStoreErr(err)
 }
+
+// RollbackChanges computes the changeset that, applied to the config's current
+// latest version, reproduces targetVersion's exact state: a SET for every key
+// live at targetVersion (its value + type) and a DELETE for every key live now
+// but absent at targetVersion. Because SetSecrets carries unlisted keys forward,
+// the explicit deletes are required to drop keys added after targetVersion.
+//
+// It exists so a rollback of a PROTECTED config can be routed through the
+// four-eyes edit-request flow (which stores the proposed changes
+// envelope-encrypted) instead of committing directly. The returned changes
+// carry plaintext values; callers must not log them and must pass them only to
+// a path that zeroizes them (editreq.Create / SetSecrets).
+func (s *Service) RollbackChanges(ctx context.Context, configID string, targetVersion int) ([]SecretChange, error) {
+	targetVals, err := s.RevealConfigVersion(ctx, configID, targetVersion)
+	if err != nil {
+		return nil, err
+	}
+	// Best-effort wipe the revealed plaintext once we've copied what we need.
+	defer func() {
+		for _, sec := range targetVals {
+			for i := range sec.Value {
+				sec.Value[i] = 0
+			}
+		}
+	}()
+	// Live keys now (masked metadata only — no decryption of current values).
+	_, metas, err := s.ListSecrets(ctx, configID)
+	if err != nil {
+		return nil, err
+	}
+	changes := make([]SecretChange, 0, len(targetVals)+len(metas))
+	for k, sec := range targetVals {
+		changes = append(changes, SecretChange{Key: k, Value: append([]byte(nil), sec.Value...), Type: sec.Type})
+	}
+	for _, m := range metas {
+		if _, ok := targetVals[m.Key]; !ok {
+			changes = append(changes, SecretChange{Key: m.Key, Delete: true})
+		}
+	}
+	return changes, nil
+}

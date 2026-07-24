@@ -75,7 +75,11 @@ func (r *ProjectKEKVersionRepo) ListPending(ctx context.Context, projectID strin
 }
 
 // DeleteEmpty removes superseded versions no DEK references anymore, returning
-// the deleted version numbers.
+// the deleted version numbers. A version is kept if it is still referenced by
+// any secret_values DEK OR by a not-yet-applied config_edit_request (a pending
+// or in-flight 'applying' request wraps its proposal DEK under that KEK version
+// and would become permanently un-approvable if the version were retired). Both
+// references scope to the project via configs -> environments.
 func (r *ProjectKEKVersionRepo) DeleteEmpty(ctx context.Context, projectID string) ([]int, error) {
 	rows, err := r.s.pool.Query(ctx,
 		`DELETE FROM project_kek_versions v
@@ -85,6 +89,13 @@ func (r *ProjectKEKVersionRepo) DeleteEmpty(ctx context.Context, projectID strin
 		        JOIN configs c ON c.id = sv.config_id
 		        JOIN environments e ON e.id = c.environment_id
 		       WHERE e.project_id = $1::uuid AND sv.dek_key_version = v.version)
+		    AND NOT EXISTS (
+		      SELECT 1 FROM config_edit_requests cer
+		        JOIN configs c ON c.id = cer.config_id
+		        JOIN environments e ON e.id = c.environment_id
+		       WHERE e.project_id = $1::uuid
+		         AND cer.status IN ('pending', 'applying')
+		         AND cer.dek_key_version = v.version)
 		 RETURNING version`, projectID)
 	if err != nil {
 		return nil, mapError(err)

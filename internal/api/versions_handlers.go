@@ -96,6 +96,23 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "target_version must be a positive integer")
 		return
 	}
+	// A rollback is a direct write to the config. When the config is PROTECTED
+	// (require_approval), it must NOT commit unilaterally — route it through the
+	// four-eyes edit-request flow like every other write, by materializing the
+	// target version's state as a proposed changeset.
+	protected, handled := s.requireApproval(w, r, cid)
+	if handled {
+		return
+	}
+	if protected {
+		changes, err := s.service.RollbackChanges(r.Context(), cid, req.TargetVersion)
+		if err != nil {
+			s.writeServiceError(w, err)
+			return
+		}
+		s.submitEditRequest(w, r, cid, changes, req.Message)
+		return
+	}
 	cv, err := s.service.Rollback(r.Context(), cid, req.TargetVersion, req.Message, actorOf(r))
 	if err != nil {
 		s.writeServiceError(w, err)

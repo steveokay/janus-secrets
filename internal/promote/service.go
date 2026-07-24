@@ -240,29 +240,47 @@ func (s *Service) PreviewCreate(ctx context.Context, sourceConfigID, toEnvID, ac
 	return Diff{SourceVersion: srcVer.Version, TargetExists: false, Entries: entries}, nil
 }
 
-// Apply promotes the selected keys as one new target config version. The caller
-// has authorized secret:promote on target + secret:read on source (+ config
-// create if creating). Locked target keys are rejected. Drifted keys are skipped.
-func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, error) {
+// PlanResult is a computed promotion changeset that has NOT been committed. It
+// lets a caller route a promotion into a PROTECTED target config through the
+// four-eyes edit-request flow instead of committing directly. Changes carry
+// plaintext values, so the caller must not log them and must pass them only to a
+// path that zeroizes them (editreq.Create / SetSecrets).
+type PlanResult struct {
+	TargetConfigID string
+	SourceEnv      string
+	SourceVersion  int
+	Message        string
+	Changes        []secrets.SecretChange
+	Applied        []Selection
+	Skipped        []string // keys whose source vanished (drift)
+}
+
+// Plan computes the promotion changeset WITHOUT committing it. Authorization is
+// the caller's responsibility; the pipeline-step, locked-key, and drift rules
+// are identical to Apply. It creates the target config when req.CreateTarget is
+// set (same as Apply) — but a brand-new config can never be protected, so the
+// approval-routing caller always passes an EXISTING target and no config is
+// created on that path. The returned Changes carry plaintext values.
+func (s *Service) Plan(ctx context.Context, req ApplyRequest) (PlanResult, error) {
 	proj, srcEnv, err := s.projectAndEnv(ctx, req.SourceConfigID)
 	if err != nil {
-		return ApplyResult{}, err
+		return PlanResult{}, err
 	}
 
 	target := req.TargetConfigID
 	if target == "" && req.CreateTarget {
 		c, err := s.configs.Create(ctx, req.TargetEnvID, req.TargetName, nil)
 		if err != nil {
-			return ApplyResult{}, err
+			return PlanResult{}, err
 		}
 		target = c.ID
 	}
 	_, dstEnv, err := s.projectAndEnv(ctx, target)
 	if err != nil {
-		return ApplyResult{}, err
+		return PlanResult{}, err
 	}
 	if err := s.validateStep(ctx, proj, srcEnv, dstEnv); err != nil {
-		return ApplyResult{}, err
+		return PlanResult{}, err
 	}
 
 	// Reject locked keys among the selections (defense in depth beyond the UI).
@@ -272,18 +290,18 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, err
 	}
 	lockedMap, err := s.locked.AreLocked(ctx, target, keys)
 	if err != nil {
-		return ApplyResult{}, err
+		return PlanResult{}, err
 	}
 	for _, sel := range req.Selections {
 		if lockedMap[sel.Key] {
-			return ApplyResult{}, fmt.Errorf("%w: %s", ErrLockedKey, sel.Key)
+			return PlanResult{}, fmt.Errorf("%w: %s", ErrLockedKey, sel.Key)
 		}
 	}
 
 	// Reveal the pinned source version (raw plaintext) to re-encrypt under target.
 	srcVals, err := s.secrets.RevealConfigVersion(ctx, req.SourceConfigID, req.SourceVersion)
 	if err != nil {
-		return ApplyResult{}, err
+		return PlanResult{}, err
 	}
 	defer zeroizeSecrets(srcVals)
 
@@ -305,11 +323,31 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, err
 			applied = append(applied, sel)
 		}
 	}
-	if len(changes) == 0 {
-		return ApplyResult{Applied: applied, Skipped: skipped}, nil
+	return PlanResult{
+		TargetConfigID: target,
+		SourceEnv:      srcEnv,
+		SourceVersion:  req.SourceVersion,
+		Message:        fmt.Sprintf("promote from env %s v%d", srcEnv, req.SourceVersion),
+		Changes:        changes,
+		Applied:        applied,
+		Skipped:        skipped,
+	}, nil
+}
+
+// Apply promotes the selected keys as one new target config version. The caller
+// has authorized secret:promote on target + secret:read on source (+ config
+// create if creating). Locked target keys are rejected. Drifted keys are skipped.
+// Callers must gate a PROTECTED target through the edit-request flow BEFORE
+// calling Apply (Apply commits directly, bypassing require-approval by design).
+func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, error) {
+	plan, err := s.Plan(ctx, req)
+	if err != nil {
+		return ApplyResult{}, err
 	}
-	msg := fmt.Sprintf("promote from env %s v%d", srcEnv, req.SourceVersion)
-	cv, err := s.secrets.SetSecrets(ctx, target, changes, msg, req.Actor)
+	if len(plan.Changes) == 0 {
+		return ApplyResult{Applied: plan.Applied, Skipped: plan.Skipped}, nil
+	}
+	cv, err := s.secrets.SetSecrets(ctx, plan.TargetConfigID, plan.Changes, plan.Message, req.Actor)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -317,6 +355,6 @@ func (s *Service) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, err
 	// Best-effort / non-fatal: the version is already committed, so a failed
 	// provenance UPDATE must not fail or roll back the promotion. Value-free
 	// (only the source env id + version).
-	_ = s.secretRepo.MarkPromoted(ctx, cv.ID, srcEnv, req.SourceVersion)
-	return ApplyResult{TargetVersion: cv.Version, Applied: applied, Skipped: skipped}, nil
+	_ = s.secretRepo.MarkPromoted(ctx, cv.ID, plan.SourceEnv, plan.SourceVersion)
+	return ApplyResult{TargetVersion: cv.Version, Applied: plan.Applied, Skipped: plan.Skipped}, nil
 }
