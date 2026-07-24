@@ -82,6 +82,43 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action on all modals, `<th scope>`/`aria-label` on all tables, hardened `prefers-reduced-motion`; svelte-check 0 errors / 0 warnings. | ~~M~~ |
 | **Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
+_Sections 6–9 added 2026-07-24 after the v0.1.0 release — the post-1.0 roadmap
+from a full-system review (verified gaps, not speculation)._
+
+### 6. Trust & supply chain
+
+| Feature | Why | Effort |
+|---|---|---|
+| **`SECURITY.md`** — vulnerability disclosure policy (contact, scope, response SLO, safe-harbor) | A secrets manager without a disclosure policy is a red flag to any serious adopter; near-mandatory for the category. | S |
+| **Signed releases** — cosign keyless signing + SBOM (syft) + SLSA provenance, wired into goreleaser for both binaries and the GHCR image | "Verify what you run" is table stakes for a security product; today releases are unsigned with no SBOM. Mostly goreleaser config. | S–M |
+| **Dependabot/renovate** — automated dependency update PRs (Go modules, npm, actions) | The x/text vuln bump was done by hand once already; automate it. | S |
+| **Threat-model document** — what Janus defends against and explicitly what it does not (root on the box, malicious Postgres superuser, compromised unseal quorum, …) | The crypto docs describe mechanisms; a written adversary model builds real credibility and scopes future security work. | S |
+
+### 7. Product depth (post-1.0)
+
+| Feature | Why | Effort |
+|---|---|---|
+| **`janus run --watch`** — restart/re-exec the child process when the bound config changes (poll the config version, later SSE) | `run` is the flagship; watch-mode is the most-missed Doppler behavior for long-running dev processes. | M |
+| **`janus render`** — render secrets into a config-file template (Vault-agent style), plus an optional agent-style refresh loop | Apps that need files, not env vars; pairs naturally with `--watch`. | M |
+| **Kubernetes service-account OIDC federation** — accept cluster OIDC issuers in the existing CI-federation trust bindings | In-cluster workloads fetch secrets keylessly — a cleaner k8s story than pushed Secrets, with no controller (stays inside the non-goals). | M |
+| **Sync drift detection** — a scheduled verify pass that reads each sync target back and flags manual tampering (in-tray + notification) | Sync is push-only today; nothing notices when someone edits the GitHub/k8s copy out from under Janus. | M |
+| **WebAuthn/passkeys** — second factor (and passwordless) for the UI login | The explicitly parked TOTP follow-up; passkeys are increasingly expected. | M–L |
+
+### 8. Operational longevity
+
+| Feature | Why | Effort |
+|---|---|---|
+| **Audit retention with hash-chain checkpointing** — periodic signed checkpoints so verified-and-shipped prefixes can be archived/pruned without breaking `GET /v1/audit/verify` | `audit_events` grows forever and the chain currently forbids pruning — the one true time bomb in the design. Audit shipping is the archive path. | M–L |
+| **Secret value-version retention** — optional, owner-set "hard-destroy value versions older than N days/versions" policy | Every save keeps every DEK/ciphertext forever; long-lived instances need an explicit, audited pruning policy. | M |
+| **Grafana dashboard JSON + example alert rules** shipped in `docs/` | `/metrics` exists; give operators the dashboard instead of making each one build it. | S |
+
+### 9. Test depth
+
+| Feature | Why | Effort |
+|---|---|---|
+| **Playwright smoke suite** — a browser E2E pass (init → unseal → login → create project → save secret → audited reveal) against the docker stack | The Atrium SPA has zero browser tests (`npm test` is `echo no web tests`); svelte-check + build can't catch behavioral regressions. | M |
+| **Go fuzz tests** — native fuzzing for the reference parser (`${…}`), `.env`/properties importers, PEM sniffing, RESP encoding, federation JWT claims | Zero `Fuzz*` functions in a codebase that parses hostile input; Go makes this cheap. | S–M |
+
 ---
 
 ## Release & distribution
@@ -119,16 +156,18 @@ account/credential the maintainer must supply, so they are tracked separately._
 
 ## Suggested near-term slate
 
-**The roadmap is exhausted** — every table item above is struck through, through
-the Terraform provider and the TypeScript + Python SDKs (2026-07-24), and
-**v0.1.0 is released** (see Release & distribution). What's left is
-small/optional:
+**The original roadmap (sections 1–5) is exhausted** and **v0.1.0 is released**
+(see Release & distribution). The post-1.0 roadmap is sections 6–9. Suggested
+first batch — **"Trust & Longevity"**, all parallel-friendly:
 
-1. **Registry publishes** — TS→npm, Python→PyPI, provider→Terraform Registry
-   (the three open boxes above; each gated on a maintainer credential).
-2. **Mobile/tablet layout** (5.6) — responsive read-mostly screens.
-3. **Import web wizard** (S) on top of the shipped `janus import` CLI.
-4. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
-   dictates (the engines are proven-pluggable).
-5. **SDK depth** — background auto-renew + `Run`-style helpers.
-6. **Net-new** product direction beyond the original roadmap.
+1. **Trust & supply chain sweep** (6.1–6.4) — `SECURITY.md` + threat model +
+   dependabot + cosign/SBOM in goreleaser (one agent, mostly docs/config).
+2. **`janus run --watch` + `janus render`** (7.1–7.2) — CLI-only.
+3. **Audit chain checkpointing + retention** (8.1) — the deep one.
+4. **Playwright smoke suite** (9.1) — web-only.
+
+Then, as demand dictates: registry publishes (the three open boxes above, each
+gated on a maintainer credential), k8s SA federation (7.3), sync drift
+detection (7.4), passkeys (7.5), value-version retention (8.2), Grafana
+dashboard (8.3), fuzzing (9.2), mobile/tablet layout (5.6), import web wizard,
+and SDK depth (background auto-renew + `Run`-style helpers).

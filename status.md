@@ -102,11 +102,13 @@ _Nothing in flight._
 
 ## Open — product roadmap
 
-**This section is the canonical tracker and mirrors the five sections of
+**This section is the canonical tracker and mirrors the nine sections of
 [`docs/roadmap.md`](docs/roadmap.md) one-to-one — every roadmap item appears
 here (shipped ones struck through with a date). When you add, ship, or reword a
 roadmap item, update BOTH files so they never drift.** Effort: **S** ≈ a
-session, **M** ≈ a day or two, **L** ≈ a week-plus.
+session, **M** ≈ a day or two, **L** ≈ a week-plus. Sections 1–5 are the
+original (exhausted) roadmap; sections 6–9 are the post-1.0 roadmap added
+2026-07-24 from a full-system review.
 
 ### Security hardening
 
@@ -166,6 +168,40 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action (focus-in + `Tab` cycle + restore-on-close) on all 3 modal overlays with `role="dialog"`/`aria-modal`; `aria-label` + `<th scope="col">` across all 22 ledger tables; `ProjectBoard` drop columns `role="group"`; hardened `prefers-reduced-motion` rule. svelte-check now **0 errors / 0 warnings** (was 7). | ~~M~~ |
 | Mobile/tablet layout for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
+### Trust & supply chain
+
+| Feature | Why | Effort |
+|---|---|---|
+| `SECURITY.md` — vulnerability disclosure policy (contact, scope, response SLO, safe-harbor) | A secrets manager without a disclosure policy is a red flag to any serious adopter. | S |
+| Signed releases — cosign keyless + SBOM (syft) + SLSA provenance in goreleaser (binaries + GHCR image) | "Verify what you run" is table stakes for a security product; releases are unsigned today. | S–M |
+| Dependabot/renovate — automated dependency update PRs (Go, npm, actions) | The x/text vuln bump was done by hand once already. | S |
+| Threat-model document — what Janus defends against and explicitly what it does not | The crypto docs describe mechanisms; a written adversary model builds credibility and scopes security work. | S |
+
+### Product depth (post-1.0)
+
+| Feature | Why | Effort |
+|---|---|---|
+| `janus run --watch` — restart/re-exec the child when the bound config changes (poll version, later SSE) | `run` is the flagship; watch-mode is the most-missed Doppler behavior. | M |
+| `janus render` — template-render secrets to a config file (Vault-agent style) + optional agent refresh loop | Apps that need files, not env vars; pairs with `--watch`. | M |
+| Kubernetes service-account OIDC federation (cluster issuers in the existing trust bindings) | Keyless in-cluster secret fetch — cleaner than pushed Secrets, no controller (inside the non-goals). | M |
+| Sync drift detection — scheduled verify pass reads targets back, flags tampering (in-tray + notification) | Sync is push-only; nothing notices manual edits on the target. | M |
+| WebAuthn/passkeys for UI login | The parked TOTP follow-up; increasingly expected. | M–L |
+
+### Operational longevity
+
+| Feature | Why | Effort |
+|---|---|---|
+| Audit retention with hash-chain checkpointing — signed checkpoints so shipped prefixes can be archived/pruned without breaking `audit/verify` | `audit_events` grows forever and the chain forbids pruning — the one true time bomb. Audit shipping is the archive path. | M–L |
+| Secret value-version retention — optional owner-set "hard-destroy versions older than N days/versions" | Every save keeps every DEK/ciphertext forever. | M |
+| Grafana dashboard JSON + example alert rules in `docs/` | `/metrics` exists; ship the dashboard. | S |
+
+### Test depth
+
+| Feature | Why | Effort |
+|---|---|---|
+| Playwright smoke suite — browser E2E (init → unseal → login → create project → save secret → audited reveal) against the docker stack | The Atrium SPA has zero browser tests (`npm test` = `echo no web tests`). | M |
+| Go fuzz tests — reference parser, `.env`/properties importers, PEM sniffing, RESP encoding, federation JWT claims | Zero `Fuzz*` functions in a codebase parsing hostile input. | S–M |
+
 ### Release & distribution
 
 _The binary + container ship automatically on a `v*` tag (goreleaser → GitHub
@@ -203,22 +239,21 @@ account/credential the maintainer must supply, so they are tracked separately._
 
 ### Suggested near-term slate
 
-**The roadmap is exhausted** — every table item in `docs/roadmap.md` is now
-struck through, and **v0.1.0 is released** (see Release & distribution). All that
-remains is small/optional polish:
+**The original roadmap (sections 1–5) is exhausted** and **v0.1.0 is released**
+(see Release & distribution). The post-1.0 roadmap is the four new sections
+above. Suggested first batch — **"Trust & Longevity"**, all parallel-friendly:
 
-1. **Registry publishes** — TS→npm, Python→PyPI, provider→Terraform Registry
-   (tracked as the three open boxes above; each gated on a maintainer
-   credential).
-2. **Mobile/tablet layout** (5.6) — responsive read-mostly screens (dashboard,
-   audit, approvals).
-3. **Import web wizard** (S) — a UI on top of the shipped `janus import` CLI.
-4. **On-demand breadth** — more sync targets / CI issuers / rotators as demand
-   dictates (all three engines are proven-pluggable).
-5. **SDK depth** — background auto-renew + `Run`-style env-injection helpers in
-   the Go / TS / Python SDKs.
-6. **Anything net-new** the product direction calls for (the original roadmap is
-   done).
+1. **Trust & supply chain sweep** — `SECURITY.md` + threat model + dependabot +
+   cosign/SBOM in goreleaser (one agent, mostly docs/config).
+2. **`janus run --watch` + `janus render`** — CLI-only.
+3. **Audit chain checkpointing + retention** — the deep one.
+4. **Playwright smoke suite** — web-only.
+
+Then, as demand dictates: registry publishes (the three open boxes above, each
+gated on a maintainer credential), k8s SA federation, sync drift detection,
+passkeys, value-version retention, Grafana dashboard, fuzzing, mobile/tablet
+layout (5.6), import web wizard, and SDK depth (background auto-renew +
+`Run`-style helpers).
 
 Both parked decisions are **resolved**. Still outstanding among the small
 backend/ops items: DB pool tuning, docker-compose resource limits, and
