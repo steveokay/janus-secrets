@@ -46,14 +46,14 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Unused-secret detection** — "not read in 90 days" chip from audit data~~ **SHIPPED 2026-07-23** — advisory per-key last-read from `secret.reveal` audit events; `last_read_at`+`unused` on the masked list, editor chip + Overview in-tray count, `JANUS_UNUSED_SECRET_DAYS` (default 90), migration 000029. Value-free. | ~~M~~ |
 | ~~**Per-key read insights** — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET .../read-insights` (last-read + 30-day daily reveal counts) from audit events, reusing the 000029 index; editor Sparkline panel. | ~~M~~ |
 | ~~**Cross-environment diff view** — pick any two configs, see key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/compare?against=` (booleans + origins only), dual `secret:read`, audited `config.compare`; new Compare screen. | ~~M~~ |
-| **Secret annotations** — owner + note metadata per key (never values) | "What is this and who do I ask" is unanswerable today; helps rotation triage. | M |
+| ~~**Secret annotations** — owner + note metadata per key (never values)~~ **SHIPPED 2026-07-23** — value-free per-key owner/note (migration 000033), `secret:write` to set, editor affordance; mirrors max-age. | ~~M~~ |
 | **Require-approval-for-prod-edits** toggle — direct saves to protected configs create a promotion-style request instead | The approvals machinery exists; extending four-eyes review to raw prod edits closes its biggest bypass. | M |
 
 ### 3. Integrations & delivery
 
 | Feature | Why | Effort |
 |---|---|---|
-| **More sync providers**: ~~GitLab CI~~, ~~Cloudflare Workers secrets~~, Vercel/Netlify env, ~~AWS SSM~~/~~Secrets Manager~~ (outbound) | The sync engine is provider-pluggable; each new target is mostly an adapter + creds form. **6 providers now** — `gitlab` + `aws_ssm` + **`cloudflare` + `aws_secrets` SHIPPED 2026-07-23**. Vercel / Netlify remain. | M each |
+| ~~**More sync providers**: GitLab CI, Cloudflare Workers, Vercel/Netlify env, AWS SSM/Secrets Manager~~ **ALL SHIPPED 2026-07-23** — the sync engine now has **8 providers**: `github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, `vercel`, `netlify`. No migration. | ~~M each~~ |
 | ~~**More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule + issuer presets, single-active-issuer model. No migration. | ~~S each~~ |
 | **Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost; a `janus import` command + wizard screen. | L |
 | ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
@@ -66,8 +66,8 @@ no HSM, no multi-tenancy, no FIPS claims.
 | Feature | Why | Effort |
 |---|---|---|
 | ~~**Prometheus `/metrics`** — request rates/latency, seal state, lease counts, rotation/sync failure gauges, audit head seq~~ **SHIPPED 2026-07-22** — hand-rolled zero-dep, `JANUS_METRICS_TOKEN`-gated; + `JANUS_LOG_LEVEL`/`FORMAT`. | ~~S~~ |
-| **Scheduled encrypted backups** to S3-compatible storage with retention + a restore-rehearsal command | A backup button is not a backup strategy; the sealed-material export already exists. | M |
-| **Audit shipping** — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark | Compliance teams want the ledger in *their* store; export-on-demand doesn't scale to that. | M |
+| ~~**Scheduled encrypted backups** to S3-compatible storage with retention + a restore-rehearsal command~~ **SHIPPED 2026-07-23** — `internal/backupsched` (JANUS_BACKUP_TICK, S3-compatible + static creds, retention prune, `backup_runs` migration 000035) + `janus backup rehearse` (verify-without-clobber). Sealed-artifact preserved. | ~~M~~ |
+| ~~**Audit shipping** — stream JSONL to webhook/syslog/S3 for SIEM ingestion, with a high-water mark~~ **SHIPPED 2026-07-23** — `internal/auditship` tails past a durable high-water mark (migration 000034) to webhook (HMAC) or RFC 5424 syslog, advance-on-success (at-least-once). `JANUS_AUDIT_SHIP_*`. (S3 destination via scheduled backups.) | ~~M~~ |
 | ~~**Health panel in Settings** — DB latency, scheduler tick ages, failed-run counts~~ **SHIPPED 2026-07-22** — admin `GET /v1/sys/status` + Settings → Health (DB latency/pool, seal, audit head, per-engine tick staleness, failed-run counts). | ~~S~~ |
 | ~~**First-run onboarding checklist** on the dashboard (create project → add secrets → mint token → `janus run`) (upstream gap 1.13)~~ **SHIPPED 2026-07-23** — self-checking steps (project / secret / token existence) + copyable `janus run` block; hides once set up, dismissible. Frontend-only. | ~~S~~ |
 
@@ -86,10 +86,9 @@ no HSM, no multi-tenancy, no FIPS claims.
 
 ## Suggested near-term slate
 
-The security-hardening column is nearly exhausted (break-glass + per-token IP
-allowlists shipped 2026-07-23). **In flight** (parallel agents): secret
-annotations, audit shipping (webhook/syslog), Vercel + Netlify sync, and
-scheduled encrypted S3 backups. Next after those:
+Most of the roadmap is now shipped. The latest batch (2026-07-23): secret
+annotations, audit shipping (webhook/syslog), Vercel + Netlify sync (→ 8 sync
+providers), and scheduled encrypted S3 backups. Next:
 
 1. **Require-approval-for-prod-edits** (2.8) — extend four-eyes to raw prod saves.
 2. **More rotators** (3.x) — MySQL / Redis ACL / AWS IAM keys / OAuth refresh.
