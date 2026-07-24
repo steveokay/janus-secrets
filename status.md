@@ -131,7 +131,7 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Per-key read insights — last-read + 30-day sparkline in the editor row~~ **SHIPPED 2026-07-23** — value-free `GET /v1/configs/{cid}/read-insights` (per key: `last_read_at` + 30-int `daily` reveal counts) from `secret.reveal` audit events, reusing the 000029 partial index (no migration); editor row Reads panel with the `Sparkline` component. Rides `secret:read`, unaudited like the masked list. | ~~M~~ |
 | ~~Cross-environment diff view — pick any two configs, key-level presence/drift (values masked)~~ **SHIPPED 2026-07-23** — `GET /v1/configs/{cid}/compare?against={cid}` returns **booleans only** (in_a/in_b/differs + per-side origin), never a value; requires `secret:read` on BOTH configs (each authorized independently, denial audited) + one value-free `config.compare` audit event; generalizes the promotion preview. New Compare screen + nav + palette entry. No migration. | ~~M~~ |
 | ~~Secret annotations — owner + note metadata per key (never values)~~ **SHIPPED 2026-07-23** — `config_secret_annotations` (migration 000033, value-free); `PUT /v1/configs/{cid}/secrets/{key}/annotation`, `owner`/`note` on the masked list, editor affordance; `secret:write` to set / `secret:read` to view; value-free audit. Mirrors the max-age pattern. | ~~M~~ |
-| Require-approval-for-prod-edits toggle — direct saves to protected configs become a promotion-style request | Extends the existing four-eyes approval machinery to close its biggest bypass (raw prod edits). | M |
+| ~~Require-approval-for-prod-edits toggle — direct saves to protected configs become a promotion-style request~~ **SHIPPED 2026-07-24** — per-config `require_approval` flag (`promotion:manage` to toggle); a save to a protected config files a **pending edit request** (`202`, not a commit) with the proposed changes **envelope-encrypted** (fresh DEK under the project KEK, domain-separated `ConfigEditRequestAAD`); a **different** user with `secret:write` approves (four-eyes, self-approval `403`, mark-on-success CAS → commit via `SetSecrets`) or rejects; requester cancels. Migration 000036. Value-free (key names only); crypto 100%. Editor Protect toggle + Approvals section. | ~~M~~ |
 
 ### Integrations & delivery
 
@@ -139,11 +139,11 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 |---|---|---|
 | ~~More sync providers: GitLab CI, Cloudflare Workers, Vercel/Netlify env, AWS SSM/Secrets Manager~~ **ALL SHIPPED 2026-07-23** — the sync engine now has **8 providers**: `github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, and **`vercel` + `netlify`** (both net/http, upsert+prune, `api_token` cred; #130 also restored Cloudflare's REST decode fields). No migration. (GitLab CI/CD variables, GitHub Actions, K8s Secrets, Cloudflare Workers secrets, Vercel/Netlify env vars, AWS SSM Parameter Store + Secrets Manager.) | ~~M each~~ |
 | ~~More CI federation issuers: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule (replaces the hardcoded GitHub `repository` requirement: GitHub→`repository`, GitLab→`project_path`, Buildkite→`organization_slug`, CircleCI→org/project claim; unknown issuer → any non-empty claim), issuer presets + URL validation, single-active-issuer model, `web/src/lib/federation.ts` preset dropdown. No migration. | ~~S each~~ |
-| Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree | Migration friction is the #1 adoption cost. | L |
+| ~~Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** — CLI-first `janus import doppler|vault|aws-sm`: fetches from the source (creds from flags/env, never stored), maps → a Janus project/env/config (create-if-missing), writes as one batched config version via the existing authed client. **Default `--dry-run`** prints key names + counts only (never values); `--confirm` writes. Doppler/Vault via net/http, AWS-SM via the existing aws-sdk. No new server endpoint/migration/dep. Web wizard remains a possible follow-up. | ~~L~~ |
 | ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. **SMTP email channel added 2026-07-23** (`type=smtp`, `net/smtp` STARTTLS/implicit/none, verify-by-default + per-channel `insecure_skip_verify`, write-only password, value-free body; migration 000027). | Failures must find humans, not just an in-app tray. | ~~M~~ |
 | Terraform provider (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
 | Client SDKs (Go, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. | L |
-| More rotators: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. | M each |
+| More rotators: ~~MySQL~~, ~~Redis ACL~~, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. **`mysql` + `redis` SHIPPED 2026-07-24** — MySQL `ALTER USER … IDENTIFIED BY ?` (bound-param password, never interpolated; strict identifier validation; `go-sql-driver/mysql`) + Redis `ACL SETUSER` via hand-rolled RESP (no dep; rule-token validation blocks credential smuggling). Sanitized errors, no migration. **AWS IAM keys / OAuth refresh remain.** | M each |
 
 ### Operations & observability
 
@@ -168,19 +168,20 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 
 ### Suggested near-term slate
 
-The security-hardening column and most of lifecycle/integrations/ops are now
-shipped. The latest batch landed 2026-07-23: **secret annotations, audit
-shipping (webhook/syslog), Vercel + Netlify sync (→ 8 providers), and scheduled
-encrypted S3 backups**. Next five, weighing leverage against effort:
+Almost the entire roadmap is shipped. The 2026-07-24 batch landed
+**require-approval-for-prod-edits, MySQL + Redis rotators, and inbound importers
+(Doppler / Vault / AWS SM)**. What remains, weighing leverage against effort:
 
-1. **Require-approval-for-prod-edits** (2.8) — extend the four-eyes machinery to
-   raw prod saves; closes the approval system's biggest bypass.
-2. **More rotators** (3.x) — MySQL / Redis ACL / AWS IAM keys / OAuth refresh on
-   the crash-safe rotation framework.
-3. **Accessibility pass** (5.5) — modal focus traps, ARIA on tables, reduced-
-   motion audit.
-4. **Mobile/tablet layout** (5.6) — read-mostly screens (dashboard, audit,
-   approvals) for on-the-go review.
+1. **More rotators (round 2)** (3.x) — AWS IAM access keys + generic OAuth
+   client-credential refresh on the same crash-safe framework.
+2. **More CI federation issuers / sync providers (round 2)** — the trust/adapter
+   models are proven; add-on-demand (e.g. more OIDC issuers, more sync targets).
+3. **Terraform provider** (L) — projects/configs/secrets-as-writes/tokens/bindings;
+   infra teams want declarative config.
+4. **Client SDKs** (L) — Go / TS / Python with in-process caching + lease renewal.
+5. **Accessibility pass** (5.5) + **Mobile/tablet layout** (5.6) — the remaining
+   UI-quality polish. (An **import web wizard** on top of the shipped CLI is a
+   smaller optional follow-up.)
 5. **The adoption bets (L)** — inbound importers (Doppler / Vault / AWS SM),
    Terraform provider, client SDKs (Go / TS / Python).
 
