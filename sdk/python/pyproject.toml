@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "janus-client"
+version = "0.1.0"
+description = "Typed Python client for the Janus secrets manager (reads + in-process TTL cache)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "Janus" }]
+keywords = ["janus", "secrets", "secrets-manager", "sdk"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+# Standard-library-only runtime: no dependencies.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/steveokay/janus-secrets"
+Documentation = "https://github.com/steveokay/janus-secrets/blob/main/docs/guides/python-sdk.md"
+Source = "https://github.com/steveokay/janus-secrets/tree/main/sdk/python"
+
+[project.optional-dependencies]
+dev = ["mypy>=1.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["janus_client"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "janus_client",
+    "tests",
+    "README.md",
+]
+
+# The runtime supports Python >=3.9; mypy's own floor is 3.10, so the type
+# checker runs at 3.10 while the package remains 3.9-compatible (it uses only
+# `from __future__ import annotations` string-annotated generics).
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["janus_client", "tests"]
