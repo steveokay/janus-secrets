@@ -222,6 +222,43 @@ account/credential the maintainer must supply, so they are tracked separately._
       double-commit); added **GitLab sync project-id validation** (request-URL
       injection guard); protected pending edit requests from **KEK-version
       retirement** during project-KEK rotation. gosec 0, full suite green.
+- [x] ~~**Post-1.0 white-box audit remediation**~~ **DONE 2026-07-24** (branch
+      `hardening/security-audit-fixes`, pending merge; findings kept in the
+      local-only internal audit tracker, not published) — a 5-agent white-box
+      audit of the whole system found **0 CRITICAL**. The single **HIGH** (H-1,
+      promotion-request four-eyes) was re-examined and is **not** an exploitable
+      bypass — `secret:promote` is only granted by the developer role, which also
+      grants `secret:write`, and requester ≠ approver is enforced, so the approval
+      is always a write-authorized two-party action; the invariant is documented
+      at `promotion_request_handlers.go` rather than "fixed" with unreachable code.
+      Fixed:
+      - **M-1** — `memberPut` delegation cap now uses `BoundRole`, not
+        `EffectiveRole`, so a break-glass-elevated user can no longer mint a
+        **durable** binding at the elevated role that outlives the grant.
+      - **M-2** — TOTP codes are no longer replayable: the last consumed step is
+        persisted per user (`user_totp.last_step`, migration 000038) and any code
+        at a step `<=` it is rejected.
+      - **M-3** — a password change now `RevokeOtherSessions` + rotates the
+        caller's own session cookie (stolen cookies die immediately).
+      - **M-4 / L-2** — systemic SSRF closed with one shared `internal/nethard`
+        hardened dialer: `net.Dialer.Control` re-checks the **resolved** IP on
+        every dial (defeats DNS-rebinding), blocking link-local/cloud-metadata
+        (169.254/fe80::/fd00:ec2::254) unconditionally + optional private-range
+        block (`JANUS_OUTBOUND_BLOCK_PRIVATE`); `CheckRedirect` caps hops + scheme;
+        bounded per-dial timeouts. Applied to **every** operator-config outbound
+        caller — rotation (webhook/oauth/notify + Postgres/MySQL/Redis dials),
+        notification (webhook/Slack/SMTP), sync (k8s/gitlab/cloudflare/vercel/
+        netlify), and **OIDC discovery/JWKS** via `oidc.ClientContext` (I-4).
+        Default policy permits loopback/RFC1918/ULA since self-hosted targets are
+        legitimate.
+      - **L-1** — uniform `X-Content-Type-Options`/framing/CSP middleware on all
+        `/v1/` responses. **L-5** — `.dockerignore` added.
+      - **L-3** (cross-IP account-lockout DoS), **L-4** (dev-compose password /
+        `sslmode`), **L-6** (rotation writes bypass `require_approval`) — accepted
+        tradeoffs, now explicitly documented.
+
+      gosec 0; `internal/crypto` still 100%. INFO I-1/I-2/I-3 remain accepted
+      defense-in-depth notes.
 - [ ] **Publish the TypeScript SDK to npm** (`janus-client`, `sdk/ts/`) — needs
       an npm account + automation token. Not covered by the existing release
       workflow (binaries + GHCR only); add an npm-publish CI job (on an
