@@ -13,6 +13,10 @@ documented in depth in [operations.md](operations.md) and `docs/ops/*.md`).
 These commands consume the `/v1/` REST API; there is no separate client
 binary.
 
+> **Reading secrets from an application?** For programmatic, in-process reads
+> (with an in-memory TTL cache) as an alternative to `janus run`, use the
+> [Go client SDK](guides/go-sdk.md) (`sdk/go/`).
+
 ## The mental model
 
 Three independent pieces of state drive every secrets command:
