@@ -217,16 +217,16 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 60ms">
-    <table class="ledger">
+    <table class="ledger" aria-label="Service tokens">
       <thead>
         <tr>
-          <th>Token</th>
-          <th>Scope</th>
-          <th style="width: 110px">Access</th>
-          <th style="width: 180px">IP allowlist</th>
-          <th style="width: 160px">Last used</th>
-          <th style="width: 150px">Expiry</th>
-          <th style="width: 150px"></th>
+          <th scope="col">Token</th>
+          <th scope="col">Scope</th>
+          <th scope="col" style="width: 110px">Access</th>
+          <th scope="col" style="width: 180px">IP allowlist</th>
+          <th scope="col" style="width: 160px">Last used</th>
+          <th scope="col" style="width: 150px">Expiry</th>
+          <th scope="col" style="width: 150px"></th>
         </tr>
       </thead>
       <tbody>

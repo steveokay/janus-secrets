@@ -201,9 +201,9 @@
     {:else if grants.length === 0}
       <p class="muted">No active break-glass grants.</p>
     {:else}
-      <table class="ledger">
+      <table class="ledger" aria-label="Active break-glass grants">
         <thead>
-          <tr><th>Scope</th><th>Role</th><th>Reason</th><th>Expires in</th><th></th></tr>
+          <tr><th scope="col">Scope</th><th scope="col">Role</th><th scope="col">Reason</th><th scope="col">Expires in</th><th scope="col"></th></tr>
         </thead>
         <tbody>
           {#each grants as g (g.id)}

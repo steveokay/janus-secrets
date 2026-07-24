@@ -796,9 +796,9 @@
 
     {#if protected_ && showEditRequests && pendingEdits.length > 0}
       <div class="plate rise editreq-panel" role="region" aria-label="Pending edit requests">
-        <table class="ledger">
+        <table class="ledger" aria-label="Pending edit requests">
           <thead>
-            <tr><th>Requested by</th><th>Keys</th><th>Reason</th><th class="ra">Actions</th></tr>
+            <tr><th scope="col">Requested by</th><th scope="col">Keys</th><th scope="col">Reason</th><th scope="col" class="ra">Actions</th></tr>
           </thead>
           <tbody>
             {#each pendingEdits as req (req.id)}
@@ -829,9 +829,9 @@
           <h3>Config versions</h3>
           <span class="folio">each save is one immutable version — diff &amp; rollback</span>
         </div>
-        <table class="ledger">
+        <table class="ledger" aria-label="Config version history">
           <thead>
-            <tr><th>Fol.</th><th>Saved</th><th>By</th><th>Changes</th><th></th></tr>
+            <tr><th scope="col">Fol.</th><th scope="col">Saved</th><th scope="col">By</th><th scope="col">Changes</th><th scope="col"></th></tr>
           </thead>
           <tbody>
             {#each versions as v (v.version)}
@@ -918,9 +918,9 @@
         </div>
 
         {#if importEntries.length}
-          <table class="ledger import-preview">
+          <table class="ledger import-preview" aria-label="Import preview">
             <thead>
-              <tr><th style="width: 36px"></th><th>Key</th><th>Value</th><th style="width: 120px">Action</th></tr>
+              <tr><th scope="col" style="width: 36px"></th><th scope="col">Key</th><th scope="col">Value</th><th scope="col" style="width: 120px">Action</th></tr>
             </thead>
             <tbody>
               {#each importEntries as e (e.line)}
@@ -971,22 +971,22 @@
     {/if}
 
     <div class="sheet table-wrap rise" style="animation-delay: 100ms">
-      <table class="ledger">
+      <table class="ledger" aria-label="Secrets in this config">
         <thead>
           <tr>
-            <th style="width: 30px" class="sel-cell">
+            <th scope="col" style="width: 30px" class="sel-cell">
               <input type="checkbox" aria-label="Select all visible keys"
                 checked={allVisibleSelected}
                 indeterminate={selCount > 0 && !allVisibleSelected}
                 disabled={selectableVisible.length === 0}
                 onchange={toggleSelectAll} />
             </th>
-            <th style="width: 26%">Key</th>
-            <th>Value</th>
-            <th style="width: 100px">Origin</th>
-            <th style="width: 60px">Ver.</th>
-            <th style="width: 140px">Amended</th>
-            <th style="width: 130px"></th>
+            <th scope="col" style="width: 26%">Key</th>
+            <th scope="col">Value</th>
+            <th scope="col" style="width: 100px">Origin</th>
+            <th scope="col" style="width: 60px">Ver.</th>
+            <th scope="col" style="width: 140px">Amended</th>
+            <th scope="col" style="width: 130px"></th>
           </tr>
         </thead>
         <tbody>

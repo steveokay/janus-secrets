@@ -156,6 +156,32 @@ else is explicit:
   certs, dynamic-role DSNs, the OIDC client secret) are never echoed back by
   the API and never rendered from fetched data.
 
+## Accessibility
+
+- **Focus trapping** — every true modal overlay (the confirm/prompt/notice
+  dialog host, the ⌘K command palette, the `?` shortcuts help) is a
+  `role="dialog"` + `aria-modal="true"` surface with an accessible name.
+  A shared Svelte action, `trapFocus` in `web/src/lib/a11y.ts`, moves focus
+  into the dialog on open, cycles `Tab` / `Shift+Tab` within it, and restores
+  focus to the element that opened it on close. `Esc` and click-outside
+  dismissal remain per-surface. Apply it with `use:trapFocus` on the dialog
+  node (paired with `tabindex="-1"` so an empty dialog can still hold focus).
+- **Tables / ARIA** — the ledger tables carry an `aria-label` naming their
+  contents and expose column headers with `<th scope="col">`. Drop-target
+  columns on the project board (drag-to-promote) are `role="group"` with a
+  label. Interactive rows are real `<button>`/`<a>` elements, not
+  click-handled `<div>`s.
+- **Reduced motion** — a global `@media (prefers-reduced-motion: reduce)` rule
+  in `web/src/styles/base.css` collapses animation/transition durations and
+  delays, caps looping animations to a single iteration, and disables smooth
+  scrolling. Entrance animations use `both` fill, so nothing depends on motion
+  to become visible or usable.
+- **Focus visibility** — a single `:focus-visible` outline (the `--archivist`
+  accent, which has adequate contrast in both `daylight` and `nightwatch`)
+  applies to all interactive elements; focus outlines are never removed.
+
+`svelte-check` runs clean with **0 errors and 0 a11y warnings**.
+
 ## Development
 
 ```sh

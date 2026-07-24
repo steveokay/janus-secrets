@@ -377,7 +377,7 @@
   <hr class="ledger-rule" />
 
   <div class="sheet panel rise" style="animation-delay: 40ms">
-    <table class="ledger">
+    <table class="ledger" aria-label="Instance settings">
       <tbody>
         {#each rows as r}
           <tr>
@@ -500,9 +500,9 @@
           <!-- Schedulers -->
           <div class="hgroup schedulers">
             <h4 class="folio">Schedulers</h4>
-            <table class="ledger sched">
+            <table class="ledger sched" aria-label="Background scheduler engines">
               <thead>
-                <tr><th>Engine</th><th>State</th><th>Last tick</th><th>Interval</th></tr>
+                <tr><th scope="col">Engine</th><th scope="col">State</th><th scope="col">Last tick</th><th scope="col">Interval</th></tr>
               </thead>
               <tbody>
                 {#each schedulerRows as [name, sc] (name)}
@@ -599,13 +599,13 @@
       {:else if sessions.length === 0}
         <p class="folio">No active sessions.</p>
       {:else}
-        <table class="ledger sessions">
+        <table class="ledger sessions" aria-label="Active sessions">
           <thead>
             <tr>
-              <th>Device</th>
-              <th>IP</th>
-              <th>Last seen</th>
-              <th></th>
+              <th scope="col">Device</th>
+              <th scope="col">IP</th>
+              <th scope="col">Last seen</th>
+              <th scope="col"></th>
             </tr>
           </thead>
           <tbody>
