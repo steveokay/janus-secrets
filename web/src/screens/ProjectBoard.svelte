@@ -403,8 +403,11 @@
   .pipe-ctrl { display: inline-flex; }
   .pipe-arrow { color: var(--ink-faint); margin: 0 var(--s1); }
 
-  .env-tools { display: flex; align-items: center; gap: var(--s1); }
-  .env-title { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+  .env-tools { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+  .env-title { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; flex-wrap: wrap; }
+  /* The env slug pill can be long (e.g. "quality-assurance"); let it shrink and
+     ellipsize rather than force the header wider than its column. */
+  .env-title .pill { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .env-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── drag-to-promote ────────────────────────── */
@@ -436,6 +439,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    /* Wrap the tools group below the title in narrow columns (many envs)
+       instead of overflowing and overlapping the pill / reads label. */
+    flex-wrap: wrap;
+    column-gap: var(--s3);
+    row-gap: var(--s2);
     padding-bottom: var(--s2);
     margin-bottom: var(--s3);
     border-bottom: 2px solid;
