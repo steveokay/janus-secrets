@@ -6,100 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-- Replaced the React/Nocturne web SPA with a new Svelte 5 "Atrium" SPA
-  (banknote-engraving / archival-ledger aesthetic, `daylight`/`nightwatch`
-  themes, hand-written CSS tokens — no Tailwind, no React). Covers the same
-  full API surface (init/unseal/login, projects → envs → configs, secret
-  editor, promotion + approvals, audit ledger, tokens, members, transit,
-  operations, integrations, trash, settings, command palette).
+## [0.1.0] - 2026-07-24
 
-- Secret editor: bulk import from `.env` / Java `.properties` (paste or file
-  picker, local parsing, preview with per-key new/overwrite/invalid
-  selection, staged into the dirty buffer as one config version) and a
-  confirm-gated **Download .env** export (audited per-key reveal, sorted and
-  quoted output, filename-style keys skipped with a comment, mirroring the
-  CLI). Environment rename on the project board (display name only; slug
-  stays immutable).
-
-### Added
-- SMTP email notification channel: a third channel `type` (`smtp`) alongside
-  webhook and Slack, sending a value-free plain-text summary of an event to one
-  or more recipients over `net/smtp`. Supports STARTTLS / implicit TLS / none,
-  optional PLAIN auth (TLS-only), certificate verification on by default with a
-  per-channel `insecure_skip_verify` opt-out for self-hosted relays, and a
-  write-only master-key-wrapped password. New `janus notifications create --type
-  smtp` flags and Notifications web form; migration 000027.
-- Value generator in the secret editor: a **Gen** popover on the value being
-  edited produces a strong random **password** (with include-symbols and
-  exclude-ambiguous toggles), **hex**, or **base64**, with a length picker.
-  Generation is entirely client-side over the browser CSPRNG (unbiased rejection
-  sampling); the value flows through the normal encrypted save — no new endpoint
-  or dependency.
-- Global key search: the command palette (Ctrl+K) now searches secret **key
-  names** across every config as you type — "where is `STRIPE_KEY` set?" — via a
-  new `GET /v1/search/keys`. Results are names-only (never values), filtered
-  deny-by-default to the configs the caller can read, bounded, and emit no audit
-  event (a metadata list view). Picking a hit opens that config's editor
-  pre-filtered to the key.
-- Observability: a Prometheus **`/metrics`** endpoint (hand-rolled zero-dependency
-  exposition — HTTP request rate/latency by route pattern, seal state, audit head
-  seq, per-engine scheduler tick + failed-run gauges, active leases, DB pool, and
-  Go runtime), gated by `JANUS_METRICS_TOKEN` and disabled (404) until it is set.
-  A new admin **health panel** (Settings → Health, backed by `GET /v1/sys/status`)
-  surfaces DB latency + pool, seal state, uptime/version, audit head, and
-  per-engine tick staleness / failed-run counts. Log level and format are now
-  configurable via `JANUS_LOG_LEVEL` and `JANUS_LOG_FORMAT`.
-- Two-factor authentication (TOTP): optional RFC 6238 second factor for
-  password logins, with single-use recovery codes. Self-service enrolment from
-  Settings (scannable QR + copyable secret, both shown once), confirm/disable/
-  regenerate, and a login gate (`401 totp_required`) honoured by the web UI and
-  `janus login`. The 160-bit secret is master-key-wrapped (bound to the user id,
-  re-wrapped by master-key rotation); recovery codes are HMAC-hashed and
-  single-use; codes/secrets never touch logs or the audit log. New
-  `/v1/auth/totp/*` routes; migration 000025.
-- Account lockout / progressive backoff: after repeated failed password logins
-  an account is locked for an escalating, auto-expiring window
-  (`JANUS_LOCKOUT_*`, default 5 failures → `1m→5m→25m→1h`), complementing the
-  per-IP login rate limit. The lock is revealed only to a caller with the
-  correct password (`429 account_locked` + `Retry-After`); a wrong password
-  returns the byte-identical `invalid_credentials`, so account existence is not
-  leaked, and attempts while locked never extend the window. Admins clear a lock
-  via `POST /v1/users/{id}/unlock` (`user:manage`) or the Members page;
-  migration 000026.
-- Notifications (outbound alerting): configurable **webhook** and **Slack**
-  channels that subscribe to `rotation.failed`, `sync.failed`,
-  `promotion.pending`, and `access.denied` events. A crash-safe dispatcher
-  (`JANUS_NOTIFY_TICK`, default 30s) tails the value-free audit log from a
-  persisted cursor and fans matching events into a delivery outbox, retrying
-  with exponential backoff — so alerts are never lost and can never carry a
-  secret value. Destination URL + optional webhook HMAC signing key are
-  write-only (master-key-wrapped, re-wrapped by master-key rotation, excluded
-  from backups). New `notification:manage` RBAC action (admin/owner),
-  `/v1/notifications/channels` REST surface (+ test + delivery history),
-  `janus notifications` CLI, and a **Notifications** web screen. Migration
-  000024.
-- Session management (self-service): `GET /v1/auth/sessions` lists your active
-  sessions with non-secret client metadata (IP, user-agent, last-seen) and a
-  current-session marker; `DELETE /v1/auth/sessions/{id}` revokes one and
-  `DELETE /v1/auth/sessions` signs out everywhere else. Sessions now record the
-  client IP and user-agent at login (migration 000023). Surfaced in the web UI
-  under **Settings → Active sessions** and via the `janus session list/revoke`
-  CLI. No credential material is ever returned; a caller can only see and revoke
-  their own sessions.
-- Typed secrets (value/password/json/ssh_key/certificate/note): per-type editor,
-  validation, and generate; type carried through promotion and clone; CLI
-  `secrets set --type`.
-- Filename-style secret keys (e.g. `foo.bar.txt`) — flat charset
-  `[A-Za-z0-9._-]`; `janus run` and `.env` export skip keys that aren't valid
-  env-var names (with a warning); new `janus secrets download --format files
-  --output <dir>` materializes each secret to a file (traversal-guarded,
-  requires `--plain`). Note: dotted keys can't be `${...}`-referenced and are
-  skipped (not synced) by the GitHub Actions integration.
-
-## [0.1.0] - 2026-07-16
-
-First tagged release. Feature-complete across build Phases 1–3.
+First tagged release. Feature-complete across build Phases 1–3, plus the UI
+depth, additional auth/notification/integration work, and the pre-release
+security hardening that followed. (Nothing was tagged before this; everything on
+`main` ships as 0.1.0.)
 
 ### Added
 - **Core (Phase 1):** envelope-encryption key hierarchy with Shamir and cloud-KMS
@@ -109,18 +21,51 @@ First tagged release. Feature-complete across build Phases 1–3.
   RBAC (viewer/developer/admin/owner); hash-chained audit log; REST API; `janus`
   CLI with `run` secret injection.
 - **Transit + UI (Phase 2):** transit engine (encrypt/decrypt/sign/verify/rewrap,
-  key versioning); React SPA (Nocturne design) covering projects, the secret
-  editor, audit viewer, token/member management, transit, settings, operations,
-  and an integrations hub; OIDC login and CI federation; reads-24h usage metrics.
-- **Rotation + dynamic (Phase 3):** scheduled static rotation (Postgres + webhook);
-  sync integrations (GitHub Actions, Kubernetes Secrets); dynamic Postgres
-  credentials with a lease manager.
+  key versioning); the Svelte 5 **"Atrium"** SPA (banknote-engraving /
+  archival-ledger aesthetic, `daylight`/`nightwatch` themes, hand-written CSS
+  tokens — no Tailwind) covering init/unseal/login, projects → envs → configs,
+  the secret editor, promotion + approvals, audit ledger, token/member
+  management, transit, operations, an integrations hub, trash, and settings, with
+  a command palette; OIDC login and CI federation (GitHub Actions, GitLab,
+  Buildkite, CircleCI); reads-24h usage metrics.
+- **Rotation + dynamic (Phase 3):** scheduled static rotation (Postgres, webhook,
+  MySQL, Redis, plus external-credential-generating OAuth and AWS IAM rotators);
+  sync integrations to eight providers (GitHub Actions, Kubernetes, GitLab CI,
+  Cloudflare, Vercel, Netlify, AWS SSM, AWS Secrets Manager); dynamic Postgres
+  credentials with a TTL/renewal/revocation lease manager.
 - **Hardening & depth:** project-KEK and master-key rotation; cursor pagination;
   Idempotency-Key middleware; HTTP timeouts/body caps; trash/restore, per-key
   history, and audit expand/timeline UI; a self-sufficient CLI control plane
-  (project/env/config CRUD, token mint/list/revoke, whoami, completion, diff).
+  (project/env/config CRUD, token mint/list/revoke, whoami, completion, diff);
+  break-glass emergency role elevation; protected configs (require-approval /
+  four-eyes edit requests); env→env promotion with an approval workflow and
+  locked keys.
+- **Auth & accounts:** two-factor authentication (TOTP + single-use recovery
+  codes); progressive account lockout; self-service session management; per-token
+  IP allowlists.
+- **Editor & search:** bulk import from `.env` / Java `.properties` with preview;
+  confirm-gated **Download .env** export; typed secrets
+  (value/password/json/ssh_key/certificate/note); a client-side value generator;
+  filename-style secret keys; global secret-key-name search from the command
+  palette; environment rename on the project board.
+- **Notifications & observability:** outbound webhook / Slack / SMTP alerting on
+  rotation & sync failures, denials, and pending approvals; a Prometheus
+  `/metrics` endpoint and an admin health panel; audit shipping to a
+  webhook/syslog SIEM; configurable log level/format.
+- **Integrations & SDKs:** Go, TypeScript, and Python client SDKs and a Terraform
+  provider; inbound importers for Doppler, Vault, and AWS Secrets Manager;
+  scheduled encrypted S3-compatible backups with retention.
 - **Release:** Apache-2.0 license; OpenAPI 3.1 spec; goreleaser multi-arch
   binaries + GHCR image; production deployment guide.
+
+### Security
+- Closed two require-approval (four-eyes) bypasses where **rollback** and
+  **promote-apply** committed directly to protected configs; both now route the
+  resulting changeset through the edit-request approval flow. Made edit-request
+  approval **claim-before-commit** to prevent a double-commit race under
+  concurrent approvers, added **GitLab sync project-id validation** (request-URL
+  injection guard), and protected pending edit requests from **KEK-version
+  retirement** during project-KEK rotation.
 
 [Unreleased]: https://github.com/steveokay/janus-secrets/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/steveokay/janus-secrets/releases/tag/v0.1.0
