@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/steveokay/janus-secrets/internal/nethard"
 )
+
+// dbDialTimeout bounds a single DB connect attempt so a black-holed/internal IP
+// cannot hang a scheduler goroutine indefinitely (finding L-2).
+const dbDialTimeout = 10 * time.Second
 
 // roleRe restricts rotatable role names to plain SQL identifiers. Combined with
 // Identifier.Sanitize below it removes any injection surface from the role.
@@ -20,13 +27,26 @@ func quoteLiteral(s string) string {
 }
 
 // postgresRotator resets a single role's password via ALTER ROLE.
-type postgresRotator struct{}
+type postgresRotator struct{ policy nethard.Policy }
 
-func (postgresRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, secretKey, newValue string) error {
+func (pr postgresRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, secretKey, newValue string) error {
 	if cfg.AdminDSN == "" || !roleRe.MatchString(cfg.Role) {
 		return ErrInvalidConfig
 	}
-	conn, err := pgx.Connect(ctx, cfg.AdminDSN)
+	// Parse the DSN so we can install a bounded, SSRF-guarded dialer. pgx
+	// supports Config.DialFunc; SafeDialContext blocks link-local/IMDS at
+	// connect time and bounds the attempt so an unreachable internal host cannot
+	// hang the scheduler goroutine.
+	connCfg, err := pgx.ParseConfig(cfg.AdminDSN)
+	if err != nil {
+		return ErrInvalidConfig
+	}
+	connCfg.ConnectTimeout = dbDialTimeout
+	connCfg.DialFunc = nethard.SafeDialContext(pr.policy, dbDialTimeout)
+
+	dialCtx, cancel := context.WithTimeout(ctx, dbDialTimeout)
+	defer cancel()
+	conn, err := pgx.ConnectConfig(dialCtx, connCfg)
 	if err != nil {
 		// never surface the DSN; pgx connect errors can include host/port.
 		return fmt.Errorf("%w: admin connect failed", ErrApplyFailed)

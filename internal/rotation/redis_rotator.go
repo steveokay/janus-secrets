@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/steveokay/janus-secrets/internal/nethard"
 )
 
 // redisUserRe restricts the rotatable Redis ACL username to a strict charset.
@@ -29,26 +31,32 @@ var redisRuleRe = regexp.MustCompile(`^[A-Za-z0-9_.:*&~@+\-|]{1,256}$`)
 // a fake RESP server via net.Listen without live Redis or real TLS.
 type redisDialer func(ctx context.Context, addr string, useTLS bool, skipVerify bool) (net.Conn, error)
 
-func defaultRedisDial(ctx context.Context, addr string, useTLS bool, skipVerify bool) (net.Conn, error) {
-	d := net.Dialer{Timeout: 15 * time.Second}
-	if !useTLS {
-		return d.DialContext(ctx, "tcp", addr)
+// policyRedisDial returns a redisDialer that applies the SSRF guard (SafeControl)
+// and a bounded connect timeout. The Control fn re-checks the resolved IP at
+// connect time (blocks link-local/IMDS; loopback + RFC1918 allowed by default).
+func policyRedisDial(policy nethard.Policy) redisDialer {
+	return func(ctx context.Context, addr string, useTLS bool, skipVerify bool) (net.Conn, error) {
+		d := net.Dialer{Timeout: dbDialTimeout, Control: nethard.SafeControl(policy)}
+		if !useTLS {
+			return d.DialContext(ctx, "tcp", addr)
+		}
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		// #nosec G402 -- InsecureSkipVerify is an explicit, per-policy opt-in
+		// (documented footgun) for self-hosted Redis with private/self-signed CAs;
+		// it is off unless the operator sets redis_skip_verify on the policy.
+		cfg := &tls.Config{ServerName: host, InsecureSkipVerify: skipVerify}
+		td := tls.Dialer{NetDialer: &d, Config: cfg}
+		return td.DialContext(ctx, "tcp", addr)
 	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	// #nosec G402 -- InsecureSkipVerify is an explicit, per-policy opt-in
-	// (documented footgun) for self-hosted Redis with private/self-signed CAs;
-	// it is off unless the operator sets redis_skip_verify on the policy.
-	cfg := &tls.Config{ServerName: host, InsecureSkipVerify: skipVerify}
-	td := tls.Dialer{NetDialer: &d, Config: cfg}
-	return td.DialContext(ctx, "tcp", addr)
 }
 
 // redisRotator resets a single Redis ACL user's password via ACL SETUSER.
 type redisRotator struct {
-	dial redisDialer
+	dial   redisDialer
+	policy nethard.Policy
 }
 
 func (rr redisRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, secretKey, newValue string) error {
@@ -62,9 +70,13 @@ func (rr redisRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, se
 
 	dial := rr.dial
 	if dial == nil {
-		dial = defaultRedisDial
+		dial = policyRedisDial(rr.policy)
 	}
-	conn, err := dial(ctx, cfg.RedisAddr, cfg.RedisTLS, cfg.RedisSkipVerify)
+	// Bound the connect attempt so a black-holed internal IP cannot hang the
+	// scheduler goroutine (finding L-2).
+	dialCtx, cancel := context.WithTimeout(ctx, dbDialTimeout)
+	defer cancel()
+	conn, err := dial(dialCtx, cfg.RedisAddr, cfg.RedisTLS, cfg.RedisSkipVerify)
 	if err != nil {
 		// never surface the address/credentials.
 		return fmt.Errorf("%w: admin connect failed", ErrApplyFailed)
