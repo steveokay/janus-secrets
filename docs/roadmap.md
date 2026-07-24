@@ -58,8 +58,8 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** (CLI-first) — `janus import doppler|vault|aws-sm`: fetch → map to a Janus project/config → one batched write via the existing client; default value-free `--dry-run`, `--confirm` to write. No new endpoint/migration/dep. Web wizard = possible follow-up. | ~~L~~ |
 | ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
 | **Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
-| **Client SDKs** (Go, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. | L |
-| **More rotators**: ~~MySQL~~, ~~Redis ACL~~, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. **`mysql` + `redis` SHIPPED 2026-07-24** (bound-param password / hand-rolled RESP, no migration). AWS IAM keys / OAuth refresh remain. | M each |
+| **Client SDKs** (~~Go~~, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. **Go SDK SHIPPED 2026-07-24** — standalone `sdk/go/` (zero deps): typed reads + memory-only TTL cache + dynamic-lease renewal. TS + Python remain. | L |
+| ~~**More rotators**: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh~~ **ALL SHIPPED 2026-07-24** — 6 rotators (postgres, webhook, mysql, redis, + generating-rotator `oauth` & `aws_iam`); migration 000037 relaxes the type CHECK (fixed a latent gap that had also blocked mysql/redis). | ~~M each~~ |
 
 ### 4. Operations & observability
 
@@ -79,19 +79,19 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**Bulk row selection** in the editor — multi-select → delete / promote / export~~ **SHIPPED 2026-07-23** — checkboxes + select-all (filter-aware), bulk Delete (dirty-buffer) / Reveal (audited) / Export (confirm-gated). Frontend-only. | ~~M~~ |
 | ~~**JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor~~ **SHIPPED 2026-07-23** — format badge + client-side well-formedness check while editing (JSON parse errors, PEM label/base64 faults), one-click Pretty-print for valid JSON; advisory, never blocks a save. | ~~S~~ |
 | ~~**Shortcuts help modal** (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` help modal + `g`-chord navigation to every screen; suppressed while typing / in dialogs. | ~~S~~ |
-| **Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit | The bones are semantic; a deliberate pass would close the gaps. | M |
+| ~~**Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action on all modals, `<th scope>`/`aria-label` on all tables, hardened `prefers-reduced-motion`; svelte-check 0 errors / 0 warnings. | ~~M~~ |
 | **Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
 ---
 
 ## Suggested near-term slate
 
-Almost the whole roadmap is shipped. The 2026-07-24 batch: require-approval for
-protected-config edits, MySQL + Redis rotators, and inbound importers (Doppler /
-Vault / AWS SM). What's left:
+The roadmap is essentially exhausted (require-approval, all six rotators, inbound
+importers, the Go SDK, and the accessibility pass all shipped 2026-07-24). What's
+left:
 
-1. **More rotators (round 2)** — AWS IAM access keys + OAuth client-credential refresh.
-2. **Terraform provider** (L) — declarative config for infra teams.
-3. **Client SDKs** (L) — Go / TS / Python with caching + lease renewal.
-4. **Accessibility pass** (5.5) + **Mobile/tablet layout** (5.6).
-5. **Import web wizard** on top of the shipped `janus import` CLI (optional).
+1. **Terraform provider** (L) — the last big adoption lever.
+2. **Client SDKs — TypeScript + Python** (L) — mirror the shipped Go SDK.
+3. **Mobile/tablet layout** (5.6) — responsive read-mostly screens.
+4. **Import web wizard** (S) on top of the shipped `janus import` CLI.
+5. **Odds & ends** — more sync/CI targets on demand; Go SDK auto-renew helper.
