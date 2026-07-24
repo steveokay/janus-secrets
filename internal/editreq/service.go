@@ -133,14 +133,16 @@ type ApplyResult struct {
 	Keys    []string
 }
 
-// Approve applies a pending request: it decrypts the proposed changes and
-// commits them via SetSecrets (one config version), then marks the request
-// applied with a mark-on-success CAS. Four-eyes is enforced by the CALLER
-// (approver != requester) before calling; this method also refuses when
-// approver == requester as defense in depth. The commit happens FIRST; the mark
-// only lands if the commit succeeded, so an applied row always maps to a real
-// save. If a concurrent approver won the CAS, the commit still happened and is
-// returned with ErrRequestConflict.
+// Approve applies a pending request using CLAIM-BEFORE-COMMIT so a request can
+// never double-commit: it atomically transitions the row pending -> applying
+// FIRST (a single-winner CAS); only the winner then decrypts the proposed
+// changes and commits them via SetSecrets (one config version), then marks the
+// request applied (applying -> applied). Four-eyes is enforced by the CALLER
+// (approver != requester); this method also refuses when approver == requester
+// as defense in depth. A caller that loses the claim (or finds the request no
+// longer pending) returns ErrRequestConflict WITHOUT committing, so exactly one
+// config version is ever produced. If the commit fails after a successful claim,
+// the claim is best-effort reverted to pending so the request stays retriable.
 func (s *Service) Approve(ctx context.Context, id, approver string) (ApplyResult, error) {
 	req, err := s.requests.Get(ctx, id)
 	if err != nil {
@@ -152,6 +154,12 @@ func (s *Service) Approve(ctx context.Context, id, approver string) (ApplyResult
 	if approver == req.RequestedBy {
 		return ApplyResult{}, ErrSelfApproval
 	}
+	// Claim the request BEFORE any commit. Only the single winner of this CAS
+	// proceeds; concurrent approvers (and non-idempotent retries) see 0 rows
+	// affected and bail out with no commit.
+	if err := s.requests.ClaimForApply(ctx, id); err != nil {
+		return ApplyResult{}, ErrRequestConflict
+	}
 	pt, err := s.secrets.DecryptConfigBlob(ctx, req.ConfigID, secrets.EditRequestBlob{
 		Ciphertext:    req.ProposedCiphertext,
 		WrappedDEK:    req.WrappedDEK,
@@ -159,11 +167,14 @@ func (s *Service) Approve(ctx context.Context, id, approver string) (ApplyResult
 		DEKKeyVersion: req.DEKKeyVersion,
 	})
 	if err != nil {
+		// Nothing committed yet; hand the claim back so the request is retriable.
+		_ = s.requests.RevertApplying(ctx, id)
 		return ApplyResult{}, err
 	}
 	defer zeroize(pt)
 	var pcs []proposedChange
 	if err := json.Unmarshal(pt, &pcs); err != nil {
+		_ = s.requests.RevertApplying(ctx, id)
 		return ApplyResult{}, err
 	}
 	changes := make([]secrets.SecretChange, 0, len(pcs))
@@ -179,8 +190,12 @@ func (s *Service) Approve(ctx context.Context, id, approver string) (ApplyResult
 	}
 	cv, err := s.secrets.SetSecrets(ctx, req.ConfigID, changes, req.Message, approver)
 	if err != nil {
-		return ApplyResult{}, err // request stays pending; retriable
+		// Commit failed after the claim; revert so the request stays retriable.
+		_ = s.requests.RevertApplying(ctx, id)
+		return ApplyResult{}, err
 	}
+	// The commit succeeded and we hold the exclusive claim, so this mark always
+	// lands (applying -> applied); a failure here is unexpected and reported.
 	if merr := s.requests.MarkApplied(ctx, id, approver, cv.Version); merr != nil {
 		return ApplyResult{Version: cv.Version, Keys: keys}, ErrRequestConflict
 	}
