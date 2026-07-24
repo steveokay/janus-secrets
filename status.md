@@ -142,8 +142,8 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Inbound one-shot importers: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** — CLI-first `janus import doppler|vault|aws-sm`: fetches from the source (creds from flags/env, never stored), maps → a Janus project/env/config (create-if-missing), writes as one batched config version via the existing authed client. **Default `--dry-run`** prints key names + counts only (never values); `--confirm` writes. Doppler/Vault via net/http, AWS-SM via the existing aws-sdk. No new server endpoint/migration/dep. Web wizard remains a possible follow-up. | ~~L~~ |
 | ~~Notifications: webhook + Slack for rotation failures, sync errors, denials, pending approvals~~ **SHIPPED 2026-07-21** — audit-tailing dispatcher + delivery outbox; webhook + Slack channels; `notification:manage`, `/v1/notifications/channels`, `janus notifications` CLI, Notifications web screen; migration 000024. **SMTP email channel added 2026-07-23** (`type=smtp`, `net/smtp` STARTTLS/implicit/none, verify-by-default + per-channel `insecure_skip_verify`, write-only password, value-free body; migration 000027). | Failures must find humans, not just an in-app tray. | ~~M~~ |
 | Terraform provider (projects, configs, secrets-as-writes, tokens, bindings) | Infra teams won't click UIs; declarative config is table stakes. | L |
-| Client SDKs (Go, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. | L |
-| More rotators: ~~MySQL~~, ~~Redis ACL~~, AWS IAM access keys, generic OAuth client-credential refresh | Same crash-safe framework, new drivers. **`mysql` + `redis` SHIPPED 2026-07-24** — MySQL `ALTER USER … IDENTIFIED BY ?` (bound-param password, never interpolated; strict identifier validation; `go-sql-driver/mysql`) + Redis `ACL SETUSER` via hand-rolled RESP (no dep; rule-token validation blocks credential smuggling). Sanitized errors, no migration. **AWS IAM keys / OAuth refresh remain.** | M each |
+| Client SDKs (~~Go~~, TypeScript, Python) with in-process caching + lease renewal | `janus run` covers processes; apps wanting native reads shouldn't hand-roll HTTP. **Go SDK SHIPPED 2026-07-24** — standalone `sdk/go/` module (zero deps): `NewClient`+`WithToken`/`WithCacheTTL`, `GetSecret(s)` through a memory-only TTL cache, dynamic-lease `Issue`/`Renew`/`Revoke`, typed errors. **TS + Python remain.** | L |
+| ~~More rotators: MySQL, Redis ACL, AWS IAM access keys, generic OAuth client-credential refresh~~ **ALL SHIPPED 2026-07-24** — the rotation engine now has **6 rotators**: `postgres`, `webhook`, `mysql` (bound-param password), `redis` (hand-rolled RESP `ACL SETUSER`, no dep), plus a new **generating-rotator** category (external system mints the credential): `oauth` (RFC 6749 client-credentials → stores the access token) + `aws_iam` (`CreateAccessKey` → stores `{access_key_id,secret_access_key}` JSON, prunes old keys, aws-sdk iam). **Migration 000037** relaxes the `rotation_policies.type` CHECK to admit all six (000010 only allowed postgres/webhook — a latent gap that had blocked mysql/redis too). Injection-safe, sanitized errors, value-free. | ~~M each~~ |
 
 ### Operations & observability
 
@@ -163,27 +163,24 @@ session, **M** ≈ a day or two, **L** ≈ a week-plus.
 | ~~Bulk row selection in the editor — multi-select → delete / promote / export~~ **SHIPPED 2026-07-23** — per-row checkboxes + select-all (filter-aware), bulk-action bar: Delete selected (stages into the dirty buffer), Reveal selected (audited per-key), Export selected (confirm-gated `.env` of the selection). Frontend-only, reuses existing audited-reveal/download flows. | ~~M~~ |
 | ~~JSON/PEM awareness for file-type secrets — pretty-print, validate, syntax hint~~ **SHIPPED 2026-07-23** — client-side format sniff (content first, declared `type` as fallback) on the value being edited: JSON/PEM badge, well-formedness check (JSON parse error, PEM label/base64 faults) surfaced inline, one-click Pretty-print for valid JSON. Advisory only — never blocks a save; nothing leaves the browser. | ~~S~~ |
 | ~~Shortcuts help modal (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` opens a shortcuts modal (palette action too); `g` + letter jumps to any screen (`g p` Projects, `g a` Audit, …). Chords are suppressed while typing, with modifiers, or while a dialog is open; a pending-chord hint shows after `g`. | ~~S~~ |
-| Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit | A deliberate pass would close the remaining gaps. | M |
+| ~~Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action (focus-in + `Tab` cycle + restore-on-close) on all 3 modal overlays with `role="dialog"`/`aria-modal`; `aria-label` + `<th scope="col">` across all 22 ledger tables; `ProjectBoard` drop columns `role="group"`; hardened `prefers-reduced-motion` rule. svelte-check now **0 errors / 0 warnings** (was 7). | ~~M~~ |
 | Mobile/tablet layout for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
 
 ### Suggested near-term slate
 
-Almost the entire roadmap is shipped. The 2026-07-24 batch landed
-**require-approval-for-prod-edits, MySQL + Redis rotators, and inbound importers
-(Doppler / Vault / AWS SM)**. What remains, weighing leverage against effort:
+The roadmap is essentially exhausted. The 2026-07-24 run shipped, among much
+else, **require-approval, all six rotators (through AWS IAM + OAuth), inbound
+importers, the Go client SDK, and the accessibility pass**. The few remaining
+items, mostly larger or optional:
 
-1. **More rotators (round 2)** (3.x) — AWS IAM access keys + generic OAuth
-   client-credential refresh on the same crash-safe framework.
-2. **More CI federation issuers / sync providers (round 2)** — the trust/adapter
-   models are proven; add-on-demand (e.g. more OIDC issuers, more sync targets).
-3. **Terraform provider** (L) — projects/configs/secrets-as-writes/tokens/bindings;
-   infra teams want declarative config.
-4. **Client SDKs** (L) — Go / TS / Python with in-process caching + lease renewal.
-5. **Accessibility pass** (5.5) + **Mobile/tablet layout** (5.6) — the remaining
-   UI-quality polish. (An **import web wizard** on top of the shipped CLI is a
-   smaller optional follow-up.)
-5. **The adoption bets (L)** — inbound importers (Doppler / Vault / AWS SM),
-   Terraform provider, client SDKs (Go / TS / Python).
+1. **Terraform provider** (L) — projects/configs/secrets-as-writes/tokens/bindings;
+   the last big adoption lever for infra teams.
+2. **Client SDKs — TypeScript + Python** (L) — mirror the shipped Go SDK.
+3. **Mobile/tablet layout** (5.6) — responsive read-mostly screens (dashboard,
+   audit, approvals).
+4. **Import web wizard** (S) — a UI on top of the shipped `janus import` CLI.
+5. **Odds & ends** — more sync targets / CI issuers on demand; a `Run`-style
+   helper + background auto-renew in the Go SDK.
 
 Both parked decisions are **resolved**. Still outstanding among the small
 backend/ops items: DB pool tuning, docker-compose resource limits, and
