@@ -68,7 +68,10 @@ func validateInput(provider string, addr Addr, creds Creds) error {
 		}
 	case ProviderGitLab:
 		// gitlab_url is optional (defaults to gitlab.com); project + token required.
-		if creds.Token == "" || addr.Project == "" {
+		// Project is interpolated into the request URL, so it must be a safe
+		// path-segment value (numeric id or URL-encoded namespace/project path) —
+		// reject anything that could inject path/query/fragment.
+		if creds.Token == "" || addr.Project == "" || !gitlabProjectRe.MatchString(addr.Project) {
 			return ErrInvalidConfig
 		}
 	case ProviderAWSSSM:
