@@ -61,6 +61,8 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_AUDIT_SHIP_WEBHOOK_HMAC_KEY` | no | Optional HMAC-SHA256 signing key; when set the shipper adds `X-Janus-Signature: sha256=<hex>` over the body. Env-only, never logged or persisted |
 | `JANUS_AUDIT_SHIP_SYSLOG_ADDR` | for `syslog` | `host:port` of the syslog collector |
 | `JANUS_AUDIT_SHIP_SYSLOG_NETWORK` | no | `udp` (default) or `tcp` (RFC 6587 octet-framed) for syslog |
+| `JANUS_AUDIT_RETAIN_MIN_DAYS` | no | Minimum-retention floor on `POST /v1/audit/prune`: never prune an event younger than N days. Unset/`0` = **off** (an owner may prune the whole checkpointed prefix). Non-integer/negative = **fatal boot error** |
+| `JANUS_AUDIT_RETAIN_MIN_EVENTS` | no | Minimum-retention floor on `POST /v1/audit/prune`: always keep at least the newest N events. Unset/`0` = **off**. Combined with `_DAYS` (and with the ship high-water mark) by taking the strictest ceiling |
 | `JANUS_BREAKGLASS_MAX_TTL` | no | Ceiling a break-glass grant's requested TTL is clamped to (Go duration, positive, default `1h`) |
 | `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
@@ -753,15 +755,40 @@ zero checkpoints `verify` walks from genesis exactly as before.
   `through_hash` as its `prev_hash` (else `409`). If that boundary is already
   broken, the prefix about to be deleted is *evidence*, not noise. (No events
   past the anchor at all is fine and is allowed.)
-- **if audit shipping is configured, the prune point is clamped to the durable
-  ship high-water mark** — events not yet shipped to the external SIEM are never
-  removed; if nothing is safely prunable, prune is refused (`409`);
+- **the prune point is clamped to the durable ship high-water mark** whenever
+  this instance has ever shipped audit events — events not yet streamed to the
+  external SIEM are never removed; if nothing is safely prunable, prune is
+  refused (`409`). The guard follows the **persisted** mark, not the current
+  process's wiring: removing `JANUS_AUDIT_SHIP_*` from a deployment that has
+  been shipping does **not** drop the protection. The mark is unset (seeded `0`)
+  only on an instance that has never shipped a single event, which is the sole
+  unguarded case. A mark that cannot be read fails closed (`500`, nothing
+  pruned);
+- **the optional minimum-retention floor is respected** (see below);
 - checkpoint anchor rows are never deleted (only `audit_events`).
+
+**Minimum-retention floor (optional, off by default).** `POST /v1/audit/prune`
+is owner-only and audited, but by default an owner may checkpoint at the head
+and immediately delete the whole retained log. Two env knobs impose a floor no
+prune can cross:
+
+- `JANUS_AUDIT_RETAIN_MIN_DAYS=N` — never prune an event younger than N days;
+- `JANUS_AUDIT_RETAIN_MIN_EVENTS=N` — always keep at least the newest N events.
+
+Each translates to a ceiling on the prune point. The ship high-water mark and
+both floor settings are combined by taking the **strictest (lowest) active
+ceiling**, so a prune must satisfy every constraint simultaneously; unset knobs
+impose no ceiling and reproduce the historical behavior exactly. When the floor
+retains every event, prune is refused with a `409` that names the floor (rather
+than the shipping-oriented message). The floor is evaluated in the API layer —
+the audit engine keeps its single ceiling parameter and stays free of policy.
 
 After a prune, `verify` still passes by anchoring on the surviving checkpoint.
 The prune action is audited (`audit.prune`), chained onto the surviving log.
 `JANUS_AUDIT_RETENTION_DAYS`/`_KEEP` are reserved for a future policy-driven
-sweep; the explicit owner-gated endpoint is the supported path today.
+*automatic* sweep (distinct from the floor above, which only constrains the
+explicit endpoint); the explicit owner-gated endpoint is the supported path
+today.
 
 **Tamper evidence & its limits.** `verify` detects any field mutation, deletion,
 or reordering of past events, and the chain stays contiguous under concurrency
@@ -772,8 +799,9 @@ hashes. **Signed checkpoints** (see above) partially close this gap: a checkpoin
 MAC is keyed by a secret derived from the master key, so an attacker with only
 database access cannot forge a checkpoint over a rewritten prefix — `verify` will
 report `checkpoint_mac_invalid`. Protect the database regardless. The log is
-**append-only except via guarded prune**: a verified, checkpointed (and, when
-shipping is on, already-shipped) prefix may be hard-deleted through
+**append-only except via guarded prune**: a verified, checkpointed (and, once
+anything has ever been shipped, already-shipped) prefix that also clears any
+configured minimum-retention floor may be hard-deleted through
 `POST /v1/audit/prune`, after which `verify` anchors on the surviving checkpoint
 rather than genesis. There is a documented crash-window caveat: a crash between a
 mutation's commit and its audit insert leaves that one action unaudited (the

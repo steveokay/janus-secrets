@@ -88,9 +88,20 @@ database:
   # Key inside existingSecret holding the DSN. Defaults to JANUS_DATABASE_URL.
   existingSecretKey: "JANUS_DATABASE_URL"
 
-  # FALLBACK: if existingSecret is empty and this is set, the chart creates a
-  # Secret from this value. Convenient but the DSN lands in your values —
-  # prefer existingSecret in production. Use sslmode=require or stronger.
+  # FALLBACK (development / throwaway installs only): if existingSecret is empty
+  # and this is set, the chart RENDERS the DSN into a Secret it owns.
+  #
+  # SECURITY: that rendered Secret — Postgres password included — is stored
+  # verbatim in the Helm RELEASE HISTORY (the `sh.helm.release.v1.<name>.vN`
+  # Secret in the release namespace), and a copy is retained for EVERY revision.
+  # Anyone who can read release Secrets, run `helm get values/manifest`, or
+  # restore an etcd/Velero backup recovers the credential, and rotating the
+  # password does not remove it from past revisions. It also leaks into any
+  # values.yaml you commit or pass to CI.
+  #
+  # RECOMMENDED PRODUCTION PATH: leave this empty and set `existingSecret` to a
+  # Secret you create out-of-band (see above), so the DSN never enters Helm
+  # values or release history. Use sslmode=require or stronger either way.
   url: ""
 
 # ---------------------------------------------------------------------------
