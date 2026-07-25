@@ -23,6 +23,8 @@ type fakeSM struct {
 	putErr       error // if set, PutSecretValue returns it (non-NotFound)
 	createErr    error
 	deleteErr    error
+	listErr      error
+	getErr       error
 }
 
 func (f *fakeSM) PutSecretValue(_ context.Context, in *secretsmanager.PutSecretValueInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.PutSecretValueOutput, error) {
@@ -65,6 +67,42 @@ func (f *fakeSM) DeleteSecret(_ context.Context, in *secretsmanager.DeleteSecret
 	}
 	delete(f.store, id)
 	return &secretsmanager.DeleteSecretOutput{}, nil
+}
+
+// ListSecrets / GetSecretValue back drift verification. The list honours the
+// single name-prefix filter the provider sends; GetSecretValue returns
+// ResourceNotFoundException for an unknown id, mirroring the real API.
+func (f *fakeSM) ListSecrets(_ context.Context, in *secretsmanager.ListSecretsInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	prefix := ""
+	if len(in.Filters) == 1 && len(in.Filters[0].Values) == 1 {
+		prefix = in.Filters[0].Values[0]
+	}
+	out := &secretsmanager.ListSecretsOutput{}
+	for id := range f.store {
+		if prefix != "" && !strings.HasPrefix(id, prefix) {
+			continue
+		}
+		out.SecretList = append(out.SecretList, smtypes.SecretListEntry{Name: aws.String(id)})
+	}
+	sort.Slice(out.SecretList, func(i, j int) bool {
+		return aws.ToString(out.SecretList[i].Name) < aws.ToString(out.SecretList[j].Name)
+	})
+	return out, nil
+}
+
+func (f *fakeSM) GetSecretValue(_ context.Context, in *secretsmanager.GetSecretValueInput, _ ...func(*secretsmanager.Options)) (*secretsmanager.GetSecretValueOutput, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	id := aws.ToString(in.SecretId)
+	v, ok := f.store[id]
+	if !ok {
+		return nil, &smtypes.ResourceNotFoundException{Message: aws.String("not found")}
+	}
+	return &secretsmanager.GetSecretValueOutput{SecretString: aws.String(v)}, nil
 }
 
 func newSMProvider(f *fakeSM) awssecretsProvider {

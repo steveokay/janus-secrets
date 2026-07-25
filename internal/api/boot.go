@@ -53,6 +53,12 @@ type BootConfig struct {
 	// (tests build BootConfig directly and get no scheduler); cmd/janus applies
 	// the production default.
 	SyncTick time.Duration
+	// SyncVerifyTick is the sync DRIFT VERIFIER's tick interval (roadmap 7.4).
+	// Zero disables it — and zero is the shipped default: verification reads
+	// values back from external destinations, so it is opt-in via
+	// JANUS_SYNC_VERIFY_TICK. Manual POST /v1/sync/targets/{id}/verify always
+	// works regardless.
+	SyncVerifyTick time.Duration
 	// DynamicTick is the dynamic lease-manager tick interval. Zero disables the
 	// scheduler (tests).
 	DynamicTick time.Duration
@@ -228,6 +234,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		HTTPShutdownGrace:  bc.HTTPShutdownGrace,
 		RotationTick:       bc.RotationTick,
 		SyncTick:           bc.SyncTick,
+		SyncVerifyTick:     bc.SyncVerifyTick,
 		DynamicTick:        bc.DynamicTick,
 		BackupSchedEnabled: bc.BackupSchedule.Enabled(),
 		MetricsToken:       bc.MetricsToken,
@@ -245,6 +252,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// that never schedules leaves the hook harmlessly unused.
 	rotationSvc.SetTickHook(func() { srv.ticks.MarkTick("rotation") })
 	syncSvc.SetTickHook(func() { srv.ticks.MarkTick("sync") })
+	syncSvc.SetVerifyTickHook(func() { srv.ticks.MarkTick("sync_verify") })
 	dynamicSvc.SetTickHook(func() { srv.ticks.MarkTick("dynamic") })
 
 	// Start the rotation scheduler tied to the boot ctx (runServer's shutdown
@@ -255,6 +263,11 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// Start the sync scheduler on the same boot ctx. Zero tick (tests) disables it.
 	if bc.SyncTick > 0 {
 		go syncSvc.RunScheduler(ctx, bc.SyncTick)
+	}
+	// Start the sync DRIFT VERIFIER on the same boot ctx (roadmap 7.4). Off by
+	// default — an operator opts in with JANUS_SYNC_VERIFY_TICK.
+	if bc.SyncVerifyTick > 0 {
+		go syncSvc.RunVerifyScheduler(ctx, bc.SyncVerifyTick)
 	}
 	// Start the dynamic lease-manager scheduler on the same boot ctx. Zero tick
 	// (tests) disables it.

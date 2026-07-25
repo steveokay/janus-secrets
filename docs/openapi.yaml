@@ -296,6 +296,81 @@ components:
           type: array
           items: { type: string }
         created_at: { type: string, format: date-time }
+        verify: { $ref: '#/components/schemas/SyncVerifyState' }
+    # --- sync drift detection (roadmap 7.4) — added block ---
+    SyncVerifyState:
+      type: object
+      description: >
+        Per-target drift-verification schedule and last-pass summary. Value-free:
+        booleans, counts and timestamps only.
+      properties:
+        enabled: { type: boolean }
+        interval_seconds: { type: integer }
+        next_verify_at: { type: string, format: date-time }
+        last_verify_at: { type: string, format: date-time, nullable: true }
+        last_status: { type: string, enum: [clean, drift, error, unsupported], nullable: true }
+        last_drift_count: { type: integer }
+        capability:
+          type: string
+          enum: [values, names_only, none]
+          description: >
+            What the provider can read back. names_only destinations (GitHub
+            Actions secrets, Cloudflare Workers secrets) are write-only by
+            design — value drift is undetectable there.
+    SyncVerifyReport:
+      type: object
+      description: One verification pass. Key NAMES and counts only — never values.
+      properties:
+        target_id: { type: string, format: uuid }
+        status: { type: string, enum: [clean, drift, error, unsupported] }
+        capability: { type: string, enum: [values, names_only, none] }
+        values_compared:
+          type: boolean
+          description: >
+            False for a names-only destination. A clean result with
+            values_compared=false means the key names line up, NOT that values
+            match.
+        extra_is_drift:
+          type: boolean
+          description: >
+            True when the target prunes (Janus owns the destination namespace),
+            so an unmanaged extra key counts as drift rather than as advisory.
+        missing_keys: { type: array, items: { type: string } }
+        modified_keys: { type: array, items: { type: string } }
+        extra_keys: { type: array, items: { type: string } }
+        unreadable_keys:
+          type: array
+          items: { type: string }
+          description: Present at the destination but its value would not be returned.
+        missing_count: { type: integer }
+        modified_count: { type: integer }
+        extra_count: { type: integer }
+        unreadable_count: { type: integer }
+        checked_count: { type: integer }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        error: { type: string, description: Sanitized, value-free category. }
+    SyncVerifyRun:
+      type: object
+      description: One persisted verification pass.
+      properties:
+        id: { type: integer }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        status: { type: string, enum: [clean, drift, error, unsupported] }
+        capability: { type: string, enum: [values, names_only, none] }
+        values_compared: { type: boolean }
+        missing_keys: { type: array, items: { type: string } }
+        modified_keys: { type: array, items: { type: string } }
+        extra_keys: { type: array, items: { type: string } }
+        unreadable_keys: { type: array, items: { type: string } }
+        missing_count: { type: integer }
+        modified_count: { type: integer }
+        extra_count: { type: integer }
+        unreadable_count: { type: integer }
+        checked_count: { type: integer }
+        error: { type: string, nullable: true }
+    # --- end sync drift detection block ---
     DynamicRole:
       type: object
       description: Dynamic Postgres role definition (never admin_dsn/statements' embedded secrets in list/get views beyond what the creator configured).
@@ -3465,6 +3540,84 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "503": { description: Server is sealed. }
+
+  # --- sync drift detection (roadmap 7.4) — added block ---
+  /v1/sync/targets/{id}/verify:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [sync]
+      summary: Verify this target against its destination (drift detection)
+      description: >
+        Reads the external destination's current state back and compares it with
+        what Janus believes it pushed. Value-free: the response carries key
+        NAMES, counts and booleans only. `capability` reports what the provider
+        can see — `values` (real value comparison), `names_only` (write-only
+        destination: GitHub Actions, Cloudflare Workers — missing/extra keys
+        only) or `none`. When `values_compared` is false a clean result means
+        only that the key names line up, NOT that values match.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncVerifyReport' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "503": { description: Server is sealed. }
+  /v1/sync/targets/{id}/verify-runs:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [sync]
+      summary: List drift-verification history for a sync target (cursor-paginated)
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, required: false, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: '#/components/schemas/SyncVerifyRun' }
+                  next_cursor: { type: [integer, "null"] }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/sync/targets/{id}/verify-schedule:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [sync]
+      summary: Update this target's drift-verification schedule
+      description: >
+        Per-target opt-out and pace. The instance-wide switch is the
+        JANUS_SYNC_VERIFY_TICK environment variable (0 = scheduler off, the
+        shipped default); manual verification always works.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                interval_seconds: { type: integer, minimum: 60, maximum: 2592000 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncVerifyState' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  # --- end sync drift detection block ---
 
   # ---------------------------------------------------------------------
   # notifications

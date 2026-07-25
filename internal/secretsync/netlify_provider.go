@@ -114,6 +114,75 @@ func (p netlifyProvider) Apply(ctx context.Context, creds Creds, addr Addr, desi
 	return res, nil
 }
 
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// Netlify's env-var list returns each variable's contextual values, so this
+// provider supports real value drift detection. The one exception is a variable
+// an operator has flipped to "secret" at Netlify: the API then omits its value
+// entirely. Those keys are reported as UNREADABLE — never as silently clean.
+
+func (netlifyProvider) Capability() Capability { return CapValues }
+
+// netlifyEnvRead is one entry of the env-list response.
+type netlifyEnvRead struct {
+	Key      string         `json:"key"`
+	IsSecret bool           `json:"is_secret"`
+	Values   []netlifyValue `json:"values"`
+}
+
+// Fetch lists the account/site env vars and returns their "all"-context values
+// (falling back to the single value when only one context is defined).
+func (p netlifyProvider) Fetch(ctx context.Context, creds Creds, addr Addr, _ []string) (RemoteState, error) {
+	if creds.APIToken == "" || addr.NetlifyAccountID == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	base, err := p.envBase(addr)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+p.siteQuery(addr, "?"), bytes.NewReader(nil))
+	if err != nil {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	req.Header.Set("Authorization", "Bearer "+creds.APIToken)
+	resp, err := p.hc.Do(req)
+	if err != nil {
+		return RemoteState{}, fmt.Errorf("%w: request error", ErrApplyFailed)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return RemoteState{}, fmt.Errorf("%w: netlify status %d", ErrApplyFailed, resp.StatusCode)
+	}
+	var out []netlifyEnvRead
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return RemoteState{}, fmt.Errorf("%w: bad response", ErrApplyFailed)
+	}
+	names := make([]string, 0, len(out))
+	values := map[string]string{}
+	for _, e := range out {
+		names = append(names, e.Key)
+		if v, ok := netlifyPickValue(e); ok {
+			values[e.Key] = v
+		}
+	}
+	return RemoteState{Names: names, Values: values}, nil
+}
+
+// netlifyPickValue returns the value Janus would have written (context "all"),
+// falling back to the sole value when exactly one context exists. Secret-flagged
+// variables carry no value at all → (,false) → reported as unreadable.
+func netlifyPickValue(e netlifyEnvRead) (string, bool) {
+	for _, v := range e.Values {
+		if v.Context == "all" {
+			return v.Value, true
+		}
+	}
+	if len(e.Values) == 1 && e.Values[0].Value != "" {
+		return e.Values[0].Value, true
+	}
+	return "", false
+}
+
 // upsert POSTs to create; on a 409/400 conflict (key exists) it PUTs to replace.
 func (p netlifyProvider) upsert(ctx context.Context, token, base string, a Addr, key, val string) error {
 	arr := []netlifyEnvVar{{Key: key, Values: []netlifyValue{{Value: val, Context: "all"}}}}

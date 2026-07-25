@@ -45,6 +45,7 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_SESSION_IDLE_TIMEOUT` | no | Session inactivity window (Go duration, default `30m`; `0` disables). Applies to session cookies — web UI and CLI `janus login` sessions; service tokens unaffected |
 | `JANUS_ROTATION_TICK` | no | rotation scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_SYNC_TICK` | no | sync scheduler tick interval; 0 disables (Go duration, default `60s`) |
+| `JANUS_SYNC_VERIFY_TICK` | no | sync **drift verifier** tick interval; unset/`0` disables it (Go duration, e.g. `15m`). Off by default — verification reads values back from external destinations, so it is an explicit opt-in. Manual `POST /v1/sync/targets/{id}/verify` always works. See [sync drift detection](ops/sync.md#drift-detection) |
 | `JANUS_DYNAMIC_TICK` | no | dynamic-lease scheduler tick interval; 0 disables (Go duration, default `60s`) |
 | `JANUS_NOTIFY_TICK` | no | notification dispatcher tick interval; 0 disables (Go duration, default `30s`) |
 | `JANUS_BACKUP_TICK` | no | scheduled encrypted **S3 backup** interval; unset/`0` disables the engine (Go duration, e.g. `6h`). When set, the S3 bucket/region/credentials below become required or boot fails. See [backup & restore](guides/backup-and-restore.md#scheduled-encrypted-backups-to-s3-built-in) |

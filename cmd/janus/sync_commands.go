@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -331,6 +334,123 @@ func newSyncCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(create, list, get, update, del, syncNow)
+	// ── sync drift detection (roadmap 7.4) — added block ──
+	//
+	// verify reads the destination back and reports what drifted. Output is
+	// value-free by construction: key NAMES, counts, and a capability word.
+	verify := &cobra.Command{
+		Use:   "verify <id>",
+		Short: "Check a sync target's destination for drift",
+		Long: "Reads the external destination's current state back and compares it with what Janus\n" +
+			"pushed. GitHub Actions and Cloudflare Workers secrets are write-only by design: for\n" +
+			"those, only missing and unmanaged-extra keys are detectable — values are NOT compared.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := newAPIClient(address, token)
+			if err != nil {
+				return err
+			}
+			var out struct {
+				Status          string   `json:"status"`
+				Capability      string   `json:"capability"`
+				ValuesCompared  bool     `json:"values_compared"`
+				ExtraIsDrift    bool     `json:"extra_is_drift"`
+				MissingKeys     []string `json:"missing_keys"`
+				ModifiedKeys    []string `json:"modified_keys"`
+				ExtraKeys       []string `json:"extra_keys"`
+				UnreadableKeys  []string `json:"unreadable_keys"`
+				MissingCount    int      `json:"missing_count"`
+				ModifiedCount   int      `json:"modified_count"`
+				ExtraCount      int      `json:"extra_count"`
+				UnreadableCount int      `json:"unreadable_count"`
+				CheckedCount    int      `json:"checked_count"`
+				Error           string   `json:"error"`
+			}
+			if err := c.call("POST", "/v1/sync/targets/"+args[0]+"/verify", nil, &out); err != nil {
+				return err
+			}
+			w := cmd.OutOrStdout()
+			fmt.Fprintf(w, "status:          %s\n", out.Status)
+			fmt.Fprintf(w, "capability:      %s\n", out.Capability)
+			fmt.Fprintf(w, "values compared: %t\n", out.ValuesCompared)
+			if !out.ValuesCompared && out.Capability == "names_only" {
+				fmt.Fprintln(w, "note:            write-only destination — key names checked, values NOT verified")
+			}
+			fmt.Fprintf(w, "keys checked:    %d\n", out.CheckedCount)
+			printDriftKeys(w, "missing", out.MissingCount, out.MissingKeys)
+			printDriftKeys(w, "changed", out.ModifiedCount, out.ModifiedKeys)
+			label := "unmanaged (advisory)"
+			if out.ExtraIsDrift {
+				label = "unmanaged"
+			}
+			printDriftKeys(w, label, out.ExtraCount, out.ExtraKeys)
+			printDriftKeys(w, "unreadable", out.UnreadableCount, out.UnreadableKeys)
+			if out.Error != "" {
+				fmt.Fprintf(w, "error:           %s\n", out.Error)
+			}
+			return nil
+		},
+	}
+
+	var verifyEnable, verifyDisable bool
+	var verifyInterval int64
+	verifySchedule := &cobra.Command{
+		Use:   "verify-schedule <id>",
+		Short: "Set a sync target's drift-verification schedule",
+		Long: "Per-target opt-out and pace for scheduled drift verification. The instance-wide\n" +
+			"switch is JANUS_SYNC_VERIFY_TICK (0 = verifier off, the shipped default).",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if verifyEnable && verifyDisable {
+				return errors.New("pass at most one of --enable / --disable")
+			}
+			c, err := newAPIClient(address, token)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{}
+			if verifyEnable {
+				body["enabled"] = true
+			}
+			if verifyDisable {
+				body["enabled"] = false
+			}
+			if verifyInterval > 0 {
+				body["interval_seconds"] = verifyInterval
+			}
+			if len(body) == 0 {
+				return errors.New("nothing to update: pass --enable, --disable, or --interval-seconds")
+			}
+			var out struct {
+				Enabled         bool   `json:"enabled"`
+				IntervalSeconds int64  `json:"interval_seconds"`
+				Capability      string `json:"capability"`
+			}
+			if err := c.call("PATCH", "/v1/sync/targets/"+args[0]+"/verify-schedule", body, &out); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "verification %s, every %ds (capability: %s)\n",
+				map[bool]string{true: "enabled", false: "disabled"}[out.Enabled], out.IntervalSeconds, out.Capability)
+			return nil
+		},
+	}
+	verifySchedule.Flags().BoolVar(&verifyEnable, "enable", false, "Enable scheduled drift verification for this target")
+	verifySchedule.Flags().BoolVar(&verifyDisable, "disable", false, "Disable scheduled drift verification for this target")
+	verifySchedule.Flags().Int64Var(&verifyInterval, "interval-seconds", 0, "Seconds between scheduled verifications (60..2592000)")
+	// ── end sync drift detection block ──
+
+	cmd.AddCommand(create, list, get, update, del, syncNow, verify, verifySchedule)
 	return cmd
+}
+
+// printDriftKeys renders one drift class. Key NAMES only — never values.
+func printDriftKeys(w io.Writer, label string, count int, keys []string) {
+	if count == 0 {
+		return
+	}
+	fmt.Fprintf(w, "%-16s %d: %s", label+":", count, strings.Join(keys, ", "))
+	if len(keys) < count {
+		fmt.Fprintf(w, " (+%d more)", count-len(keys))
+	}
+	fmt.Fprintln(w)
 }

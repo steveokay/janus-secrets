@@ -185,7 +185,50 @@ export interface SyncTargetApi {
     vercel_project?: string; vercel_team_id?: string; vercel_targets?: string[]
     netlify_account_id?: string; netlify_site_id?: string
   }
+  /* sync drift detection (roadmap 7.4) — value-free schedule + last summary */
+  verify?: SyncVerifyState
 }
+
+/* ── sync drift detection (roadmap 7.4) — added block ──────────────────────
+   Every field below is value-free: key NAMES, counts, booleans, timestamps.
+   `capability` says what the destination can reveal — 'values' means real
+   value comparison; 'names_only' (GitHub Actions, Cloudflare Workers) means
+   write-only by design, so a clean result proves only that key names line up. */
+export type SyncVerifyCapability = 'values' | 'names_only' | 'none'
+export type SyncVerifyStatus = 'clean' | 'drift' | 'error' | 'unsupported'
+export interface SyncVerifyState {
+  enabled: boolean
+  interval_seconds: number
+  next_verify_at: string
+  last_verify_at?: string
+  last_status?: SyncVerifyStatus
+  last_drift_count: number
+  capability: SyncVerifyCapability
+}
+export interface SyncVerifyReport {
+  target_id: string
+  status: SyncVerifyStatus
+  capability: SyncVerifyCapability
+  values_compared: boolean
+  extra_is_drift: boolean
+  missing_keys: string[]
+  modified_keys: string[]
+  extra_keys: string[]
+  unreadable_keys: string[]
+  missing_count: number
+  modified_count: number
+  extra_count: number
+  unreadable_count: number
+  checked_count: number
+  started_at: string
+  ended_at: string
+  error?: string
+}
+export interface SyncVerifyRun extends Omit<SyncVerifyReport, 'target_id' | 'extra_is_drift'> {
+  id: number
+}
+/* ── end sync drift detection block ─────────────────────────────────────── */
+
 export interface DynamicRole {
   id: string; project_id: string; config_id: string; name: string
   default_ttl_seconds: number; max_ttl_seconds: number; created_at: string
@@ -386,7 +429,7 @@ export interface SessionInfo {
   current: boolean
 }
 
-export type NotificationEventKind = 'rotation.failed' | 'sync.failed' | 'promotion.pending' | 'access.denied' | 'breakglass.activated'
+export type NotificationEventKind = 'rotation.failed' | 'sync.failed' | 'sync.drift' | 'promotion.pending' | 'access.denied' | 'breakglass.activated'
 export type NotificationChannelType = 'webhook' | 'slack' | 'smtp'
 export type SmtpTlsMode = 'starttls' | 'implicit' | 'none'
 
@@ -730,6 +773,14 @@ export const api = {
   deleteSyncTarget: (id: string) => del<void>(`/v1/sync/targets/${id}`),
   syncRuns: (id: string) =>
     get<{ runs: RunView[]; next_cursor: number | null }>(`/v1/sync/targets/${id}/runs`).then(r => r.runs ?? []),
+
+  // operations — sync drift detection (roadmap 7.4) — added block
+  verifySyncTarget: (id: string) => post<SyncVerifyReport>(`/v1/sync/targets/${id}/verify`, {}),
+  syncVerifyRuns: (id: string) =>
+    get<{ runs: SyncVerifyRun[]; next_cursor: number | null }>(`/v1/sync/targets/${id}/verify-runs`).then(r => r.runs ?? []),
+  setSyncVerifySchedule: (id: string, body: { enabled?: boolean; interval_seconds?: number }) =>
+    request<SyncVerifyState>('PATCH', `/v1/sync/targets/${id}/verify-schedule`, body),
+  // end sync drift detection block
 
   // operations — dynamic
   listDynamicRoles: (configId: string) =>

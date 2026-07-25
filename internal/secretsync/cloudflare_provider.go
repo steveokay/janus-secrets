@@ -113,6 +113,60 @@ func (c cloudflareProvider) delete(ctx context.Context, token, base, key string)
 	return err
 }
 
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// Cloudflare Workers secrets are WRITE-ONLY by design: the list endpoint returns
+// each binding's name and type but never its text, and there is no read-back API.
+// The provider therefore declares CapNamesOnly — missing and unmanaged-extra
+// bindings are detectable; value drift is not.
+
+func (cloudflareProvider) Capability() Capability { return CapNamesOnly }
+
+// cfSecretsList is the secrets-list envelope. Only success + binding names are
+// read; the errors/result detail is never echoed.
+type cfSecretsList struct {
+	Success bool `json:"success"`
+	Result  []struct {
+		Name string `json:"name"`
+	} `json:"result"`
+}
+
+// Fetch lists the Worker script's secret binding NAMES. Values is left nil.
+func (c cloudflareProvider) Fetch(ctx context.Context, creds Creds, addr Addr, _ []string) (RemoteState, error) {
+	if creds.APIToken == "" || addr.AccountID == "" || addr.ScriptName == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	base, err := c.secretsBase(addr)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base, bytes.NewReader(nil))
+	if err != nil {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	req.Header.Set("Authorization", "Bearer "+creds.APIToken)
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return RemoteState{}, fmt.Errorf("%w: request error", ErrApplyFailed)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return RemoteState{}, fmt.Errorf("%w: cloudflare status %d", ErrApplyFailed, resp.StatusCode)
+	}
+	var out cfSecretsList
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return RemoteState{}, fmt.Errorf("%w: bad response", ErrApplyFailed)
+	}
+	if !out.Success {
+		return RemoteState{}, fmt.Errorf("%w: cloudflare api error", ErrApplyFailed)
+	}
+	names := make([]string, 0, len(out.Result))
+	for _, r := range out.Result {
+		names = append(names, r.Name)
+	}
+	return RemoteState{Names: names}, nil
+}
+
 // do performs one Cloudflare API call. It checks both the HTTP status and the
 // {success,errors} envelope. On failure it returns a value-free ErrApplyFailed
 // — the response body (which may contain secret/context) is never echoed.

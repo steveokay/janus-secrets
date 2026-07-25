@@ -103,3 +103,62 @@ func (p k8sProvider) Apply(ctx context.Context, creds Creds, addr Addr, desired 
 	_ = managedKeys // SSA handles prune server-side; managedKeys unused for k8s
 	return ApplyResult{Applied: applied, Skipped: map[string]string{}}, nil
 }
+
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// A Kubernetes Secret is fully readable with the same RBAC the sync already
+// requires (get on secrets in the namespace), so this provider supports real
+// value drift detection.
+
+func (k8sProvider) Capability() Capability { return CapValues }
+
+// k8sSecretRead is the GET response shape. Only data (base64 values) is read.
+type k8sSecretRead struct {
+	Data map[string]string `json:"data"`
+}
+
+// Fetch GETs the destination Secret and returns its keys + decoded values. A
+// 404 (Secret absent entirely) is reported as an empty state, so every managed
+// key shows up as missing rather than as an error.
+func (p k8sProvider) Fetch(ctx context.Context, creds Creds, addr Addr, _ []string) (RemoteState, error) {
+	if creds.APIURL == "" || creds.Token == "" || addr.Namespace == "" || addr.SecretName == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	hc, err := p.client(creds.CACert)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	target := fmt.Sprintf("%s/api/v1/namespaces/%s/secrets/%s", creds.APIURL, addr.Namespace, addr.SecretName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	req.Header.Set("Authorization", "Bearer "+creds.Token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return RemoteState{}, fmt.Errorf("%w: request error", ErrApplyFailed)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return RemoteState{Names: nil, Values: map[string]string{}}, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return RemoteState{}, fmt.Errorf("%w: k8s status %d", ErrApplyFailed, resp.StatusCode)
+	}
+	var out k8sSecretRead
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return RemoteState{}, fmt.Errorf("%w: bad response", ErrApplyFailed)
+	}
+	names := make([]string, 0, len(out.Data))
+	values := make(map[string]string, len(out.Data))
+	for k, b64 := range out.Data {
+		names = append(names, k)
+		raw, derr := base64.StdEncoding.DecodeString(b64)
+		if derr != nil {
+			continue // present by name but undecodable → reported as unreadable
+		}
+		values[k] = string(raw)
+	}
+	return RemoteState{Names: names, Values: values}, nil
+}

@@ -17,8 +17,9 @@ type fakeSSM struct {
 	store     map[string]string // name -> value
 	puts      []ssm.PutParameterInput
 	deleted   []string
-	putErr    error
-	deleteErr error
+	putErr     error
+	deleteErr  error
+	getPathErr error
 }
 
 func (f *fakeSSM) PutParameter(_ context.Context, in *ssm.PutParameterInput, _ ...func(*ssm.Options)) (*ssm.PutParameterOutput, error) {
@@ -42,6 +43,31 @@ func (f *fakeSSM) DeleteParameters(_ context.Context, in *ssm.DeleteParametersIn
 		delete(f.store, n)
 	}
 	return &ssm.DeleteParametersOutput{DeletedParameters: in.Names}, nil
+}
+
+// GetParametersByPath backs drift verification: it returns the parameters
+// directly under the requested path (non-recursive), decrypted.
+func (f *fakeSSM) GetParametersByPath(_ context.Context, in *ssm.GetParametersByPathInput, _ ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error) {
+	if f.getPathErr != nil {
+		return nil, f.getPathErr
+	}
+	prefix := strings.TrimRight(aws.ToString(in.Path), "/") + "/"
+	out := &ssm.GetParametersByPathOutput{}
+	for name, val := range f.store {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		if strings.Contains(strings.TrimPrefix(name, prefix), "/") {
+			continue
+		}
+		out.Parameters = append(out.Parameters, ssmtypes.Parameter{
+			Name: aws.String(name), Value: aws.String(val),
+		})
+	}
+	sort.Slice(out.Parameters, func(i, j int) bool {
+		return aws.ToString(out.Parameters[i].Name) < aws.ToString(out.Parameters[j].Name)
+	})
+	return out, nil
 }
 
 func newSSMProvider(f *fakeSSM) awsssmProvider {
