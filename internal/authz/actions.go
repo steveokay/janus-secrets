@@ -36,6 +36,7 @@ const (
 	KEKManage        Action = "kek:manage"        // project-scoped, owner-only (rotate/rewrap/status project KEK)
 	SysMasterKey     Action = "sys:master-key"    // instance-scoped, owner-only (master-key rotation / rekey)
 	AuditManage      Action = "audit:manage"      // instance-scoped, owner-only (signed checkpoints + retention prune)
+	SecretPrune      Action = "secret:prune"      // project-scoped, owner-only (destroy old config versions + value history)
 	SecretPromote    Action = "secret:promote"    // developer+, target-env scoped
 	PromotionManage  Action = "promotion:manage"  // admin+, project-scoped (pipeline + locked keys)
 	PromotionRequest Action = "promotion:request" // developer+, source-env scoped (approval workflow)
@@ -77,7 +78,9 @@ var (
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, EnvUpdate, ProjectCreate, ProjectUpdate, MemberManage,
 		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage, NotificationManage))
-	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey, AuditManage))
+	// SecretPrune is owner-only: it is the only operation in the system that
+	// destroys secret value history, and unlike a soft delete it is irreversible.
+	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey, AuditManage, SecretPrune))
 
 	roleActions = map[Role]map[Action]bool{
 		RoleViewer:    viewerActions,

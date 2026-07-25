@@ -108,6 +108,16 @@ type BootConfig struct {
 	// unused-secret detection (cmd/janus reads JANUS_UNUSED_SECRET_DAYS). Zero or
 	// negative → the secrets service default (90 days). Purely advisory.
 	UnusedSecretDays int
+	// SecretRetainMinVersions / SecretRetainMinDays are the optional
+	// instance-wide minimum-retention floor on secret value-version pruning
+	// (POST /v1/configs/{cid}/versions/prune). A prune may never leave fewer than
+	// SecretRetainMinVersions of a config's newest versions behind, nor remove a
+	// config version younger than SecretRetainMinDays days. Both zero (the
+	// default) = OFF, which preserves the historical behavior of an instance that
+	// could not prune at all. cmd/janus reads JANUS_SECRET_RETAIN_MIN_VERSIONS /
+	// JANUS_SECRET_RETAIN_MIN_DAYS.
+	SecretRetainMinVersions int
+	SecretRetainMinDays     int
 	// TLS configures the optional native HTTPS listener (static certs or ACME).
 	// Zero value → plain HTTP (TLS delegated to a reverse proxy, the default).
 	TLS TLSConfig
@@ -194,6 +204,12 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	if bc.UnusedSecretDays > 0 {
 		svc.SetUnusedSecretDays(bc.UnusedSecretDays)
 	}
+	// Instance-wide minimum-retention floor on secret value-version pruning.
+	// Both zero = off (no floor), the default.
+	svc.SetRetentionFloor(secrets.RetentionFloor{
+		MinVersions: bc.SecretRetainMinVersions,
+		MinDays:     bc.SecretRetainMinDays,
+	})
 	transitSvc := transit.New(kr, st)
 	authSvc := auth.NewService(st, kr)
 	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)

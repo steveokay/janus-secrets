@@ -562,6 +562,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Get("/v1/configs/{cid}/versions", s.handleVersionList)
 			r.Get("/v1/configs/{cid}/versions/diff", s.handleVersionDiff)
 			r.Post("/v1/configs/{cid}/rollback", s.handleRollback)
+			// ── secret value-version retention (roadmap 8.2) — added block ──
+			r.Get("/v1/configs/{cid}/versions/retention", s.handleVersionRetentionGet)
+			r.Put("/v1/configs/{cid}/versions/retention", s.handleVersionRetentionPut)
+			r.Post("/v1/configs/{cid}/versions/prune", s.handleVersionPrune)
+			// ── end secret value-version retention block ──
 		})
 		if s.transit != nil {
 			r.Group(func(r chi.Router) {
