@@ -236,6 +236,16 @@ targets.
 > cannot see through a hostname, so a DNS name pointing at the metadata address
 > will pass. When you enable it, enforce destination allowlisting on the proxy
 > itself.
+>
+> **This gap is permanent by design, not a pending fix.** Once traffic leaves
+> through a proxy, the proxy — not Janus — performs DNS resolution and opens the
+> connection, so no client-side check can be authoritative: a split-horizon or
+> attacker-controlled name can resolve differently there than here. Resolving
+> hostnames locally would only add the *appearance* of protection. If you need
+> the metadata/link-local guarantee, either leave
+> `JANUS_OUTBOUND_ALLOW_PROXY` off (the default) so Janus dials directly and the
+> connect-time guard applies, or enforce the destination policy **on the proxy**,
+> which is the only component positioned to see the real target.
 
 ### CLI / client-only
 

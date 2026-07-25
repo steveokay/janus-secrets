@@ -95,21 +95,25 @@ func (rec *Recorder) latestVerifiedCheckpoint(ctx context.Context) (*verifiedChe
 // retention over a tampered log would sign the tampered head and then prune the
 // evidence, after which verify reports valid forever.
 //
-// event_count is the store's COUNT(*) at capture time; after any earlier prune
-// that is a RETAINED-event count, not a lifetime total (see
-// CheckpointInfo.EventCount).
+// event_count is a LIFETIME total of events the chain has covered, carried
+// forward from the previous anchor plus everything appended since — not the
+// store's current row count. Those differ once a prune has removed an anchored
+// prefix, and using the row count made a post-prune checkpoint record a smaller
+// number than the verify immediately before it reported (verify computes
+// anchor-count + walked). Both now use the same rule, so the two agree.
 func (rec *Recorder) CreateCheckpoint(ctx context.Context) (CheckpointInfo, error) {
 	if rec.ckStore == nil || rec.macKey == nil {
 		return CheckpointInfo{}, ErrCheckpointsDisabled
 	}
-	seq, hash, count, err := rec.ckStore.Head(ctx)
+	seq, hash, _, err := rec.ckStore.Head(ctx)
 	if err != nil {
 		return CheckpointInfo{}, err
 	}
 	if seq == 0 {
 		return CheckpointInfo{}, ErrNoEvents
 	}
-	if err := rec.verifyBeforeAnchor(ctx, seq, hash); err != nil {
+	count, err := rec.verifyBeforeAnchor(ctx, seq, hash)
+	if err != nil {
 		return CheckpointInfo{}, err
 	}
 	var mac []byte
@@ -148,49 +152,56 @@ func (rec *Recorder) CreateCheckpoint(ctx context.Context) (CheckpointInfo, erro
 // regular schedule keeps this cheap: each run re-reads only the events appended
 // since the last checkpoint. The first checkpoint after a long gap (or the very
 // first one ever) is the only full-log read.
-func (rec *Recorder) verifyBeforeAnchor(ctx context.Context, headSeq int64, headHash []byte) error {
+// It also returns the number of events the chain covers through headSeq,
+// carried forward from the previous anchor's count (see CreateCheckpoint) so the
+// value stays a lifetime total across prunes rather than a retained-row count.
+func (rec *Recorder) verifyBeforeAnchor(ctx context.Context, headSeq int64, headHash []byte) (int64, error) {
 	w := chainWalk{prev: genesisPrevHash(), expectSeq: 1}
 
 	cp, err := rec.latestVerifiedCheckpoint(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if cp != nil {
 		if !cp.MACValid {
 			// Never re-anchor over a forged checkpoint: doing so would bless it.
-			return ErrChainInvalid
+			return 0, ErrChainInvalid
 		}
 		if cp.ThroughSeq > headSeq {
 			// The head is BELOW an existing anchor: the log was truncated under us.
-			return ErrChainInvalid
+			return 0, ErrChainInvalid
 		}
 		if cp.ThroughSeq == headSeq {
 			// Nothing new since the last anchor. The head must still match what that
 			// anchor attests; the store's UNIQUE(through_seq) then rejects the
 			// duplicate insert as a conflict.
 			if !bytes.Equal(cp.ThroughHash, headHash) {
-				return ErrChainInvalid
+				return 0, ErrChainInvalid
 			}
-			return nil
+			return cp.EventCount, nil
 		}
 		w.prev = cp.ThroughHash
 		w.expectSeq = cp.ThroughSeq + 1
 		w.headSeq = cp.ThroughSeq
 		w.headHash = cp.ThroughHash
+		// Carry the anchor's lifetime total forward; the walk adds only the
+		// events appended since. This is exactly how Verify computes its count,
+		// which is what keeps the two consistent.
+		w.count = cp.EventCount
 	}
 
 	if err := rec.walkChain(ctx, &w, headSeq); err != nil {
-		return err
+		return 0, err
 	}
 	if w.broken {
-		return ErrChainInvalid
+		return 0, ErrChainInvalid
 	}
 	// The walk must have actually reached the head we are about to sign; a short
 	// walk means events between the anchor and the head are missing.
 	if w.headSeq != headSeq || !bytes.Equal(w.headHash, headHash) {
-		return ErrChainInvalid
+		return 0, ErrChainInvalid
 	}
-	return nil
+	return w.count, nil
 }
 
 // checkAnchorBoundary confirms the surviving chain still links to the anchor:
