@@ -13,11 +13,25 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/nethard"
 )
+
+// channelTypes is the set of notification channel types the dispatcher can
+// deliver to. Exported via AllChannelTypes for the schema-enum guard, which
+// requires notification_channels.type to accept every one of them (migration
+// 000024 shipped webhook/slack and 000027 had to widen it for smtp).
+var channelTypes = []string{"webhook", "slack", "smtp"}
+
+// AllChannelTypes returns every deliverable notification channel type, sorted.
+func AllChannelTypes() []string {
+	out := append([]string(nil), channelTypes...)
+	sort.Strings(out)
+	return out
+}
 
 // send dispatches one rendered event to a channel by type. body is the
 // value-free JSON payload; for Slack it is re-shaped into Slack's message
