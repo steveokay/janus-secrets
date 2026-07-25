@@ -17,14 +17,25 @@ func hexstr(b []byte) string { return hex.EncodeToString(b) }
 type CheckpointInfo struct {
 	ThroughSeq  int64  `json:"through_seq"`
 	ThroughHash string `json:"through_hash"` // hex
-	EventCount  int64  `json:"event_count"`
-	CreatedAt   string `json:"created_at"` // RFC3339
-	MACValid    bool   `json:"mac_valid"`
+	// EventCount is the number of audit events the chain held at the moment the
+	// checkpoint was captured — i.e. COUNT(*) over audit_events at that time.
+	// After a prune, rows below an earlier anchor are gone, so a checkpoint taken
+	// later counts only the events still RETAINED, not every event ever recorded.
+	// Treat it as a retained-event count, never as a lifetime total. The field name
+	// is kept for wire compatibility.
+	EventCount int64  `json:"event_count"`
+	CreatedAt  string `json:"created_at"` // RFC3339
+	MACValid   bool   `json:"mac_valid"`
 }
 
 // VerifyResult reports chain integrity.
 type VerifyResult struct {
-	Valid       bool   `json:"valid"`
+	Valid bool `json:"valid"`
+	// Count is the number of events covered by this verification: when anchored on
+	// a checkpoint it is the checkpoint's EventCount plus every event walked past
+	// the anchor. Because a checkpoint's EventCount is itself a retained count (see
+	// CheckpointInfo.EventCount), Count means "events retained" after any prune,
+	// not "events ever recorded".
 	Count       int64  `json:"count"`
 	HeadSeq     int64  `json:"head_seq"`
 	HeadHash    string `json:"head_hash,omitempty"` // hex
@@ -38,7 +49,65 @@ type VerifyResult struct {
 	FromCheckpoint bool `json:"from_checkpoint"`
 }
 
-var errChainStop = errors.New("audit: chain verification stopped")
+var (
+	errChainStop = errors.New("audit: chain verification stopped")
+	// errWalkDone stops a bounded walk once it has consumed the event it was told
+	// to stop at. Distinct from errChainStop so "reached the bound" is never
+	// confused with "found a break".
+	errWalkDone = errors.New("audit: chain walk complete")
+)
+
+// chainWalk carries the running state and the outcome of a forward chain walk.
+// It is the single source of truth for chain validation, shared by Verify (which
+// renders it as a VerifyResult) and CreateCheckpoint (which refuses to sign a
+// head the walk did not validate).
+type chainWalk struct {
+	prev      []byte // running chain hash: the hash the next event must carry as prev_hash
+	expectSeq int64  // the seq the next event must carry
+	count     int64  // events covered so far (may start at a checkpoint's EventCount)
+	headSeq   int64  // highest seq validated (starts at the anchor's seq, if anchored)
+	headHash  []byte // chain hash at headSeq
+
+	broken   bool   // a structural break was found
+	reason   string // "chain_break" | "hash_mismatch" (only when broken)
+	brokenAt int64  // the seq at which the break was found (only when broken)
+}
+
+// walkChain walks events with seq >= w.expectSeq in ascending order, validating
+// each event's seq and prev_hash linkage and recomputing its hash, updating w in
+// place. When throughSeq > 0 the walk stops after consuming the event at that
+// seq (used by CreateCheckpoint to bound the walk at the head it is about to
+// anchor); throughSeq <= 0 walks to the end of the log.
+//
+// A structural break sets w.broken/w.reason/w.brokenAt and returns a nil error —
+// only a store failure returns non-nil.
+func (rec *Recorder) walkChain(ctx context.Context, w *chainWalk, throughSeq int64) error {
+	walkErr := rec.iterate(ctx, w.expectSeq, func(row storeRow) error {
+		want := computeHash(w.prev, row.Seq, row.OccurredAt, row.ActorKind, row.ActorID,
+			row.ActorName, row.Action, row.Resource, row.Detail, row.Result, row.ResultCode, row.IP)
+		if row.Seq != w.expectSeq || !bytes.Equal(row.PrevHash, w.prev) {
+			w.broken, w.reason, w.brokenAt = true, "chain_break", row.Seq
+			return errChainStop
+		}
+		if !bytes.Equal(row.Hash, want) {
+			w.broken, w.reason, w.brokenAt = true, "hash_mismatch", row.Seq
+			return errChainStop
+		}
+		w.prev = row.Hash
+		w.count++
+		w.headSeq = row.Seq
+		w.headHash = row.Hash
+		w.expectSeq++
+		if throughSeq > 0 && row.Seq >= throughSeq {
+			return errWalkDone
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, errChainStop) && !errors.Is(walkErr, errWalkDone) {
+		return walkErr
+	}
+	return nil
+}
 
 // Verify walks the chain and reports integrity. When a signed checkpoint exists
 // (and checkpointing is wired), it first validates the checkpoint's MAC, then
@@ -50,8 +119,7 @@ var errChainStop = errors.New("audit: chain verification stopped")
 // error; only a store error returns non-nil.
 func (rec *Recorder) Verify(ctx context.Context) (VerifyResult, error) {
 	var res VerifyResult
-	prev := genesisPrevHash()
-	var expectSeq int64 = 1
+	w := chainWalk{prev: genesisPrevHash(), expectSeq: 1}
 
 	if rec.ckStore != nil && rec.macKey != nil {
 		cp, err := rec.latestVerifiedCheckpoint(ctx)
@@ -76,41 +144,28 @@ func (rec *Recorder) Verify(ctx context.Context) (VerifyResult, error) {
 				return res, nil
 			}
 			// Anchor the forward walk on the checkpoint.
-			prev = cp.ThroughHash
-			expectSeq = cp.ThroughSeq + 1
-			res.Count = cp.EventCount
-			res.HeadSeq = cp.ThroughSeq
-			res.HeadHash = res.Checkpoint.ThroughHash
+			w.prev = cp.ThroughHash
+			w.expectSeq = cp.ThroughSeq + 1
+			w.count = cp.EventCount
+			w.headSeq = cp.ThroughSeq
+			w.headHash = cp.ThroughHash
 			res.FromCheckpoint = true
 		}
 	}
 
-	walkErr := rec.iterate(ctx, expectSeq, func(row storeRow) error {
-		want := computeHash(prev, row.Seq, row.OccurredAt, row.ActorKind, row.ActorID,
-			row.ActorName, row.Action, row.Resource, row.Detail, row.Result, row.ResultCode, row.IP)
-		if row.Seq != expectSeq || !bytes.Equal(row.PrevHash, prev) {
-			res.Reason = "chain_break"
-			res.BrokenAtSeq = row.Seq
-			return errChainStop
-		}
-		if !bytes.Equal(row.Hash, want) {
-			res.Reason = "hash_mismatch"
-			res.BrokenAtSeq = row.Seq
-			return errChainStop
-		}
-		prev = row.Hash
-		res.Count++
-		res.HeadSeq = row.Seq
-		res.HeadHash = hexstr(row.Hash)
-		expectSeq++
-		return nil
-	})
-	if errors.Is(walkErr, errChainStop) {
-		res.Valid = false
-		return res, nil
+	if err := rec.walkChain(ctx, &w, 0); err != nil {
+		return VerifyResult{}, err
 	}
-	if walkErr != nil {
-		return VerifyResult{}, walkErr
+	res.Count = w.count
+	res.HeadSeq = w.headSeq
+	if len(w.headHash) > 0 {
+		res.HeadHash = hexstr(w.headHash)
+	}
+	if w.broken {
+		res.Valid = false
+		res.Reason = w.reason
+		res.BrokenAtSeq = w.brokenAt
+		return res, nil
 	}
 	res.Valid = true
 	return res, nil
