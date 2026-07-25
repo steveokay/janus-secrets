@@ -674,21 +674,78 @@ fail-closed as above — the mutation and its audit event commit together.
 | `GET /v1/audit/export` | Streams matching events, chunked. `?format=jsonl` (default, `application/x-ndjson`) or `?format=csv`. Filters (AND-combined): `?from=`/`?to=` (RFC3339), `?actor=` (matches actor id **or** name), `?action=`, `?result=` (`success`/`denied`/`error`). Each row includes `prev_hash`+`hash` (hex) for offline verification. Self-audited (`audit.export`) **before** streaming. | `audit:read` (owner/admin) |
 | `GET /v1/audit/events` | Paginated viewer page: same filters as export, plus `?limit=` (1-200, default 50) and a sequence-number `?cursor=`. `{"events":[...],"next_cursor":N\|null}`. Not self-audited. | `audit:read` (owner/admin) |
 | `GET /v1/audit/histogram` | Bucketed event counts for a chart: requires `?from=`/`?to=`, optional `?bucket=hour\|day` (default `day`, range capped at 1000 buckets). `{"buckets":[{"start","success","denied","error"}]}` — counts only, value-free. Not self-audited. | `audit:read` (owner/admin) |
+| `GET /v1/audit/checkpoint` | Latest signed checkpoint (`{"checkpoint":{...}\|null}`). Not self-audited. | `audit:manage` (**owner-only**) |
+| `POST /v1/audit/checkpoint` | Create a signed checkpoint at the current chain head. Self-audited (`audit.checkpoint.create`). | `audit:manage` (**owner-only**) |
+| `POST /v1/audit/prune` | Hard-delete the verified prefix anchored by the latest checkpoint. Self-audited (`audit.prune`). | `audit:manage` (**owner-only**) |
 
-All four are gated by `RequireAuth` + `audit:read`, so they answer `503` while the
-server is sealed and `403` for a caller without the permission. Invalid
-`format`/`from`/`to`/`result`/`limit`/`cursor`/`bucket` → `400 validation`.
+The read/export/events/histogram routes are gated by `RequireAuth` + `audit:read`;
+the checkpoint/prune routes require the stricter **owner-only** `audit:manage`.
+All answer `503` while the server is sealed and `403` for a caller without the
+permission. Invalid `format`/`from`/`to`/`result`/`limit`/`cursor`/`bucket` →
+`400 validation`.
+
+### Checkpointing & retention (roadmap 8.1)
+
+Because `verify` walks from genesis, the log cannot simply be pruned — deleting
+any prefix would break the chain. **Signed checkpoints** solve this. A checkpoint
+records the chain head at a point in time — its `through_seq`, that event's
+chained `through_hash`, and the total `event_count` — plus an **HMAC-SHA256 tag**
+over those fields:
+
+```
+ckKey = HMAC-SHA256(tokenHMACKey, "janus/audit-checkpoint/v1")
+mac   = HMAC-SHA256(ckKey, "janus:audit:checkpoint:v1" ‖ lenPrefixed(through_seq ‖ through_hash ‖ event_count))
+```
+
+The MAC key is **derived (domain-separated) from the master-key-wrapped
+token-HMAC key** that only exists in server memory after unseal — so a checkpoint
+row cannot be forged from database access alone, and checkpoint/prune operations
+return `503` while sealed. Fields are length-prefixed and the tag is
+domain-tagged so no two distinct triples share a MAC input, and verification uses
+a constant-time compare. Creating a checkpoint (`POST /v1/audit/checkpoint`) is
+itself an audited event chained *after* the head it anchors, so it is covered by
+the next checkpoint.
+
+**Verify from a checkpoint.** When a checkpoint exists, `verify` first validates
+the latest checkpoint's MAC (a **forged checkpoint fails integrity** with
+`reason:"checkpoint_mac_invalid"` — it never falls back to a genesis walk), then
+walks the chain **forward** from `through_seq + 1`, linking the first post-anchor
+event to the anchor's `through_hash`. This is correct whether or not any prefix
+has been pruned. The response adds `from_checkpoint` and a `checkpoint` object;
+existing fields (`valid`/`count`/`head_seq`/`head_hash`) are unchanged, and with
+zero checkpoints `verify` walks from genesis exactly as before.
+
+**Prune (retention).** `POST /v1/audit/prune` hard-deletes events with
+`seq <= chosenCheckpoint.through_seq`, subject to **fail-closed guards**:
+
+- there must be at least one checkpoint (else `400`, refuses to prune an
+  unverified prefix);
+- the anchoring checkpoint's MAC must verify (else `409`);
+- **if audit shipping is configured, the prune point is clamped to the durable
+  ship high-water mark** — events not yet shipped to the external SIEM are never
+  removed; if nothing is safely prunable, prune is refused (`409`);
+- checkpoint anchor rows are never deleted (only `audit_events`).
+
+After a prune, `verify` still passes by anchoring on the surviving checkpoint.
+The prune action is audited (`audit.prune`), chained onto the surviving log.
+`JANUS_AUDIT_RETENTION_DAYS`/`_KEEP` are reserved for a future policy-driven
+sweep; the explicit owner-gated endpoint is the supported path today.
 
 **Tamper evidence & its limits.** `verify` detects any field mutation, deletion,
 or reordering of past events, and the chain stays contiguous under concurrency
 (each append serializes on a Postgres advisory lock). The chain is *unanchored*:
 an attacker with direct database write access could append a well-formed
 continuation or rewrite the whole chain from a point forward and recompute
-hashes — external anchoring / signatures are an explicit non-goal. Protect the
-database. The log is **append-only forever** (no pruning/retention — pruning
-would break the chain), and there is a documented crash-window caveat: a crash
-between a mutation's commit and its audit insert leaves that one action
-unaudited (the mutation stands; the chain remains consistent).
+hashes. **Signed checkpoints** (see above) partially close this gap: a checkpoint
+MAC is keyed by a secret derived from the master key, so an attacker with only
+database access cannot forge a checkpoint over a rewritten prefix — `verify` will
+report `checkpoint_mac_invalid`. Protect the database regardless. The log is
+**append-only except via guarded prune**: a verified, checkpointed (and, when
+shipping is on, already-shipped) prefix may be hard-deleted through
+`POST /v1/audit/prune`, after which `verify` anchors on the surviving checkpoint
+rather than genesis. There is a documented crash-window caveat: a crash between a
+mutation's commit and its audit insert leaves that one action unaudited (the
+mutation stands; the chain remains consistent).
 
 ## Security posture and current caveats
 

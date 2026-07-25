@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, errorMessage, type ApiAuditEvent, type VerifyResult } from '../lib/api'
   import { relTime, clockTime, shortDate } from '../lib/util'
+  import { dialog } from '../lib/dialog.svelte'
 
   let events = $state<ApiAuditEvent[]>([])
   let nextCursor = $state<number | null>(null)
@@ -8,8 +9,26 @@
   let resultFilter = $state<'all' | 'success' | 'denied'>('all')
   let query = $state(new URLSearchParams(window.location.search).get('q') ?? '')
   let verifying = $state(false)
+  let checkpointing = $state(false)
   let loading = $state(true)
   let error = $state('')
+
+  // The latest signed checkpoint comes from the verify response (audit:read).
+  // Creating one is owner-only; a non-owner gets a 403 surfaced as a notice.
+  const checkpoint = $derived(verify?.checkpoint ?? null)
+
+  async function createCheckpoint() {
+    checkpointing = true
+    try {
+      await api.createAuditCheckpoint()
+      await runVerify()
+      void dialog.notice({ title: 'Checkpoint created', body: 'A signed checkpoint now anchors the current chain head.' })
+    } catch (err) {
+      void dialog.notice({ title: 'Could not create checkpoint', body: errorMessage(err, 'Only an instance owner may checkpoint the audit log.') })
+    } finally {
+      checkpointing = false
+    }
+  }
 
   $effect(() => {
     // reload whenever the server-side result filter changes
@@ -66,10 +85,19 @@
         <span class="verifying mono">walking the chain…</span>
       {:else if verify?.valid}
         <span class="stamp ok">Chain verified · {verify.count.toLocaleString()} events</span>
+        {#if verify.from_checkpoint}
+          <span class="stamp flat mini-stamp" title="Verification anchored on a signed checkpoint">from checkpoint</span>
+        {/if}
       {:else if verify}
         <span class="stamp">Chain broken at №{verify.head_seq}</span>
       {/if}
+      {#if checkpoint}
+        <span class="folio ckpt mono" title={`through_hash ${checkpoint.through_hash}`}>
+          ✓ checkpoint №{checkpoint.through_seq} · {shortDate(checkpoint.created_at)}
+        </span>
+      {/if}
       <button class="btn btn-sm" onclick={runVerify} disabled={verifying}>Re-verify</button>
+      <button class="btn btn-sm" onclick={createCheckpoint} disabled={checkpointing}>Create checkpoint</button>
       <a class="btn btn-sm" href={api.auditExportUrl('jsonl')} download>Export JSONL</a>
       <a class="btn btn-sm" href={api.auditExportUrl('csv')} download>Export CSV</a>
     </div>
@@ -159,6 +187,7 @@
   .page-head h1 { margin-top: var(--s1); }
   .head-right { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
   .verifying { font-size: var(--text-xs); color: var(--archivist); animation: blink-caret 1s step-end infinite; }
+  .ckpt { font-size: var(--text-xs); color: var(--archivist); white-space: nowrap; }
   .error { color: var(--vermilion); font-size: var(--text-sm); margin-top: var(--s3); }
 
   .toolbar { display: flex; justify-content: space-between; gap: var(--s3); margin: var(--s5) 0 var(--s3); }
