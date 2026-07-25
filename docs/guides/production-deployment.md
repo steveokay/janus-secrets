@@ -204,6 +204,39 @@ the Default column). Invalid values fail boot with a clear error.
 > An admin can always clear a lockout immediately with `janus user unlock`
 > (no need to wait out the window).
 
+### Outbound integrations (egress SSRF guard)
+
+Notification webhooks/Slack/SMTP, rotation webhooks, all sync providers, and
+OIDC discovery/JWKS dial through a shared hardened dialer. It validates the
+**resolved** IP at connect time (on every dial, including redirect hops), which
+is what defeats DNS rebinding, and always rejects the link-local /
+cloud-metadata ranges (`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`) plus
+unspecified/multicast. Loopback and RFC1918/ULA are **allowed** by default,
+because a self-hosted deployment legitimately talks to in-cluster and LAN
+targets.
+
+| Name | Meaning | Default |
+|---|---|---|
+| `JANUS_OUTBOUND_BLOCK_PRIVATE` | Also reject loopback + RFC1918 + ULA on outbound integration calls. Set `true` only if no integration target is on a private network. | `false` |
+| `JANUS_OUTBOUND_ALLOW_PROXY` | Let outbound integration calls honour `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and `NO_PROXY`). **Weakens the SSRF guard — see below.** | `false` |
+
+> **Proxy environment variables are ignored by default, on purpose.** The guard
+> inspects the IP the kernel is about to dial. Through an HTTP proxy that IP is
+> the *proxy's*: the proxy then resolves and fetches whatever target the config
+> named, so the link-local/metadata block stops applying to the real
+> destination — silently, and fail-open. These are server-to-service
+> integration calls, not user browsing, so Janus ignores `HTTP_PROXY` and
+> friends for them unless you opt in.
+>
+> If your deployment's only egress path is a proxy, set
+> `JANUS_OUTBOUND_ALLOW_PROXY=true`. The server then logs a startup warning
+> naming the proxy variables in effect, and falls back to a **best-effort
+> URL-time check** that still rejects targets written as a literal blocked IP
+> (`http://169.254.169.254/…`). That check is *not* equivalent protection: it
+> cannot see through a hostname, so a DNS name pointing at the metadata address
+> will pass. When you enable it, enforce destination allowlisting on the proxy
+> itself.
+
 ### CLI / client-only
 
 These are read by the `janus` **client** commands, not the server process:

@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"time"
@@ -27,6 +28,13 @@ var (
 	// ErrPrunePastShipHWM is returned when a prune would remove events not yet
 	// shipped to the external audit sink (fail-closed retention guard).
 	ErrPrunePastShipHWM = errors.New("audit: prune would remove un-shipped events")
+	// ErrChainInvalid is returned when the hash chain itself does not verify at the
+	// moment a checkpoint or prune was requested: signing a tampered head, or
+	// deleting across an already-broken boundary, would launder a detectable
+	// compromise into an undetectable one. Fail-closed — the operator must
+	// investigate. Deliberately carries no detail beyond "does not verify" so the
+	// message stays value-free.
+	ErrChainInvalid = errors.New("audit: chain does not verify")
 )
 
 // verifiedCheckpoint is the latest stored checkpoint plus whether its MAC checks.
@@ -80,6 +88,16 @@ func (rec *Recorder) latestVerifiedCheckpoint(ctx context.Context) (*verifiedChe
 // checkpoint over (through_seq, through_hash, event_count), and returns its
 // public info. It requires at least one event. A duplicate anchor at the same
 // head seq is a store conflict (ErrAlreadyExists), surfaced to the caller.
+//
+// The chain is VERIFIED before it is signed (see verifyBeforeAnchor): a
+// checkpoint must attest "the chain up to here is intact", not merely "this is
+// what the head row said". Without that, an operator performing ordinary
+// retention over a tampered log would sign the tampered head and then prune the
+// evidence, after which verify reports valid forever.
+//
+// event_count is the store's COUNT(*) at capture time; after any earlier prune
+// that is a RETAINED-event count, not a lifetime total (see
+// CheckpointInfo.EventCount).
 func (rec *Recorder) CreateCheckpoint(ctx context.Context) (CheckpointInfo, error) {
 	if rec.ckStore == nil || rec.macKey == nil {
 		return CheckpointInfo{}, ErrCheckpointsDisabled
@@ -90,6 +108,9 @@ func (rec *Recorder) CreateCheckpoint(ctx context.Context) (CheckpointInfo, erro
 	}
 	if seq == 0 {
 		return CheckpointInfo{}, ErrNoEvents
+	}
+	if err := rec.verifyBeforeAnchor(ctx, seq, hash); err != nil {
+		return CheckpointInfo{}, err
 	}
 	var mac []byte
 	if err := rec.withMACKey(ctx, func(key []byte) error {
@@ -113,6 +134,86 @@ func (rec *Recorder) CreateCheckpoint(ctx context.Context) (CheckpointInfo, erro
 		CreatedAt:   rec.now().UTC().Format(rfc3339),
 		MACValid:    true,
 	}, nil
+}
+
+// verifyBeforeAnchor validates the hash chain up to (headSeq, headHash) and
+// returns ErrChainInvalid if anything about it fails to reconstruct. It is the
+// guard that makes a checkpoint an attestation of integrity rather than a
+// signature over whatever the head row happened to contain.
+//
+// The walk is anchored on the previous checkpoint when one exists — its MAC is
+// validated first, so a forged anchor can never be silently re-anchored over —
+// and otherwise starts at genesis. Because the walk is bounded below by the
+// previous anchor and above by the head being captured, checkpointing on a
+// regular schedule keeps this cheap: each run re-reads only the events appended
+// since the last checkpoint. The first checkpoint after a long gap (or the very
+// first one ever) is the only full-log read.
+func (rec *Recorder) verifyBeforeAnchor(ctx context.Context, headSeq int64, headHash []byte) error {
+	w := chainWalk{prev: genesisPrevHash(), expectSeq: 1}
+
+	cp, err := rec.latestVerifiedCheckpoint(ctx)
+	if err != nil {
+		return err
+	}
+	if cp != nil {
+		if !cp.MACValid {
+			// Never re-anchor over a forged checkpoint: doing so would bless it.
+			return ErrChainInvalid
+		}
+		if cp.ThroughSeq > headSeq {
+			// The head is BELOW an existing anchor: the log was truncated under us.
+			return ErrChainInvalid
+		}
+		if cp.ThroughSeq == headSeq {
+			// Nothing new since the last anchor. The head must still match what that
+			// anchor attests; the store's UNIQUE(through_seq) then rejects the
+			// duplicate insert as a conflict.
+			if !bytes.Equal(cp.ThroughHash, headHash) {
+				return ErrChainInvalid
+			}
+			return nil
+		}
+		w.prev = cp.ThroughHash
+		w.expectSeq = cp.ThroughSeq + 1
+		w.headSeq = cp.ThroughSeq
+		w.headHash = cp.ThroughHash
+	}
+
+	if err := rec.walkChain(ctx, &w, headSeq); err != nil {
+		return err
+	}
+	if w.broken {
+		return ErrChainInvalid
+	}
+	// The walk must have actually reached the head we are about to sign; a short
+	// walk means events between the anchor and the head are missing.
+	if w.headSeq != headSeq || !bytes.Equal(w.headHash, headHash) {
+		return ErrChainInvalid
+	}
+	return nil
+}
+
+// checkAnchorBoundary confirms the surviving chain still links to the anchor:
+// the first event with seq > cp.ThroughSeq must be exactly seq+1 and carry the
+// anchor's through_hash as its prev_hash. If the boundary is already broken,
+// deleting the prefix would destroy the only remaining evidence, so prune
+// refuses with ErrChainInvalid. No events past the anchor is fine (nothing to
+// link) and is allowed.
+func (rec *Recorder) checkAnchorBoundary(ctx context.Context, cp *verifiedCheckpoint) error {
+	wantSeq := cp.ThroughSeq + 1
+	var found, linked bool
+	err := rec.store.IterateFrom(ctx, wantSeq, func(row storeRow) error {
+		found = true
+		linked = row.Seq == wantSeq && bytes.Equal(row.PrevHash, cp.ThroughHash)
+		return errWalkDone // only the first survivor matters
+	})
+	if err != nil && !errors.Is(err, errWalkDone) {
+		return err
+	}
+	if found && !linked {
+		return ErrChainInvalid
+	}
+	return nil
 }
 
 // LatestCheckpoint returns the latest checkpoint's public info (with a verified
@@ -149,6 +250,9 @@ type PruneResult struct {
 //   - checkpointing must be wired (else ErrCheckpointsDisabled),
 //   - a checkpoint must exist (else ErrNoCheckpoint),
 //   - the checkpoint's MAC must verify (else ErrCheckpointMAC),
+//   - the surviving chain must still link to the anchor (else ErrChainInvalid):
+//     if the anchor→survivor boundary is already broken, the prefix about to be
+//     deleted is evidence, not noise,
 //   - if a ship high-water mark is supplied (shipHWM >= 0), the prune point is
 //     clamped to min(checkpoint.through_seq, shipHWM) so events not yet shipped to
 //     the external sink are never removed. If that clamp leaves nothing to prune,
@@ -169,6 +273,9 @@ func (rec *Recorder) Prune(ctx context.Context, shipHWM int64) (PruneResult, err
 	}
 	if !cp.MACValid {
 		return PruneResult{}, ErrCheckpointMAC
+	}
+	if err := rec.checkAnchorBoundary(ctx, cp); err != nil {
+		return PruneResult{}, err
 	}
 	pruneThrough := cp.ThroughSeq
 	if shipHWM >= 0 && shipHWM < pruneThrough {

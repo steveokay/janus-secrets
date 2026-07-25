@@ -23,6 +23,7 @@ import (
 	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/backupsched"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/nethard"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/version"
 )
@@ -239,6 +240,19 @@ func runServer(ctx context.Context) error {
 			breakGlassMaxTTL = d
 		} else {
 			logger.Warn("invalid JANUS_BREAKGLASS_MAX_TTL; using default (1h)", "value", v)
+		}
+	}
+
+	// Outbound SSRF guard: the guarded HTTP clients ignore proxy env vars by
+	// default because a proxy hides the real destination from the connect-time
+	// resolved-IP check. If an operator opted back in AND a proxy is actually
+	// configured, say so once, loudly — the residual risk is not obvious.
+	if p := nethard.PolicyFromEnv(); p.AllowProxy {
+		if vars := nethard.ProxyEnvVarsSet(); len(vars) > 0 {
+			logger.Warn("outbound proxy enabled for integration calls: the connect-time resolved-IP SSRF guard "+
+				"cannot inspect destinations behind a proxy, so link-local/cloud-metadata blocking applies only "+
+				"to literal-IP targets; unset "+nethard.EnvAllowProxy+" to restore full protection",
+				"proxy_env", strings.Join(vars, ","))
 		}
 	}
 

@@ -115,7 +115,12 @@ outbound caller dials through a shared hardened dialer that re-checks the
 link-local/cloud-metadata ranges by default, caps redirects, and bounds dial
 timeouts. This is **defense-in-depth against a mis-/maliciously-configured
 integration**, not an authorization boundary — configuring outbound targets is
-already an admin-gated privilege.
+already an admin-gated privilege. The resolved-IP recheck only holds when Janus
+dials the destination itself, so these clients ignore `HTTP_PROXY`/`HTTPS_PROXY`
+by default; `JANUS_OUTBOUND_ALLOW_PROXY=true` re-enables proxying, logs a
+startup warning, and leaves only a best-effort URL-time literal-IP check —
+through a proxy the destination is resolved by the proxy and is not inspectable
+here (see [production deployment §3](guides/production-deployment.md#3-configuration)).
 
 **Supply chain (A6).** Tagged releases are Cosign-signed (keyless/OIDC) with
 Syft SBOMs and SLSA build-provenance attestations, so operators can verify an

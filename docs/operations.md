@@ -708,6 +708,33 @@ a constant-time compare. Creating a checkpoint (`POST /v1/audit/checkpoint`) is
 itself an audited event chained *after* the head it anchors, so it is covered by
 the next checkpoint.
 
+**Verify-before-sign.** A checkpoint must attest *"the chain up to here is
+intact"*, never merely *"this is what the head row said"*. So `POST
+/v1/audit/checkpoint` **walks and validates the chain before it computes the
+MAC** — recomputing every event hash and checking every `seq`/`prev_hash` link up
+to the head it is about to anchor. The walk is anchored on the previous
+checkpoint when one exists (whose MAC is validated first, so a forged anchor can
+never be silently re-anchored over) and starts from genesis otherwise. If
+anything fails to reconstruct, the request is refused with `409` and **no anchor
+row is written**. Without this guard, ordinary retention over a tampered log
+(checkpoint → prune) would sign the tampered head and then hard-delete the
+evidence, after which `verify` would report `valid: true` forever — a legitimate
+maintenance action silently converting a *detectable* compromise into an
+*undetectable* one.
+
+Because the walk is bounded below by the previous anchor, **checkpointing on a
+regular schedule keeps it cheap**: each run re-reads only the events appended
+since the last checkpoint. The first checkpoint ever (or one taken after a long
+gap) is the only full-log read.
+
+> **`event_count` is a retained count, not a lifetime total.** A checkpoint's
+> `event_count` is `COUNT(*)` over `audit_events` at capture time. After a prune,
+> the deleted prefix is gone, so a checkpoint taken later counts only the events
+> still *retained*. `verify`'s `count` inherits the same meaning (it is the
+> anchor's `event_count` plus everything walked past it). Neither field is a
+> count of every event ever recorded. The field names are kept for wire
+> compatibility.
+
 **Verify from a checkpoint.** When a checkpoint exists, `verify` first validates
 the latest checkpoint's MAC (a **forged checkpoint fails integrity** with
 `reason:"checkpoint_mac_invalid"` — it never falls back to a genesis walk), then
@@ -723,6 +750,11 @@ zero checkpoints `verify` walks from genesis exactly as before.
 - there must be at least one checkpoint (else `400`, refuses to prune an
   unverified prefix);
 - the anchoring checkpoint's MAC must verify (else `409`);
+- the **surviving chain must still link to the anchor** — the first event with
+  `seq > through_seq` must be exactly `through_seq + 1` and carry the anchor's
+  `through_hash` as its `prev_hash` (else `409`). If that boundary is already
+  broken, the prefix about to be deleted is *evidence*, not noise. (No events
+  past the anchor at all is fine and is allowed.)
 - **the prune point is clamped to the durable ship high-water mark** whenever
   this instance has ever shipped audit events — events not yet streamed to the
   external SIEM are never removed; if nothing is safely prunable, prune is
