@@ -191,7 +191,7 @@ original (exhausted) roadmap; sections 6–9 are the post-1.0 roadmap added
 
 | Feature | Why | Effort |
 |---|---|---|
-| Audit retention with hash-chain checkpointing — signed checkpoints so shipped prefixes can be archived/pruned without breaking `audit/verify` | `audit_events` grows forever and the chain forbids pruning — the one true time bomb. Audit shipping is the archive path. | M–L |
+| ~~Audit retention with hash-chain checkpointing — signed checkpoints so shipped prefixes can be archived/pruned without breaking `audit/verify`~~ **DONE 2026-07-25 (PR #153, pending merge)** — migration `000039`; HMAC-SHA256 checkpoint MAC over length-prefixed `through_seq‖through_hash‖event_count`, key domain-separated from the master-key-wrapped token-HMAC key (`internal/crypto` untouched); owner-only `audit:manage` `POST/GET /v1/audit/checkpoint` + `POST /v1/audit/prune`; verify checks the checkpoint MAC then walks forward (forged → `checkpoint_mac_invalid`); prune fail-closed (valid checkpoint + auditship-HWM clamp + anchor-safe); audit-viewer checkpoint stamp + owner create button. Value-free; crypto gate unaffected. | ~~M–L~~ |
 | Secret value-version retention — optional owner-set "hard-destroy versions older than N days/versions" | Every save keeps every DEK/ciphertext forever. | M |
 | Grafana dashboard JSON + example alert rules in `docs/` | `/metrics` exists; ship the dashboard. | S |
 
@@ -246,7 +246,7 @@ above. Suggested first batch — **"Trust & Longevity"**, all parallel-friendly:
 1. **Trust & supply chain sweep** — `SECURITY.md` + threat model + dependabot +
    cosign/SBOM in goreleaser (one agent, mostly docs/config).
 2. ~~**`janus run --watch` + `janus render`**~~ **DONE 2026-07-25 (PR #152).**
-3. **Audit chain checkpointing + retention** — the deep one. **In progress (PR forthcoming).**
+3. ~~**Audit chain checkpointing + retention**~~ **DONE 2026-07-25 (PR #153).**
 4. ~~**Playwright smoke suite**~~ **DONE 2026-07-25 (PR #151).**
 
 Then, as demand dictates: registry publishes (the three open boxes above, each

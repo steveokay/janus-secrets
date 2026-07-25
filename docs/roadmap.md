@@ -108,7 +108,7 @@ from a full-system review (verified gaps, not speculation)._
 
 | Feature | Why | Effort |
 |---|---|---|
-| **Audit retention with hash-chain checkpointing** — periodic signed checkpoints so verified-and-shipped prefixes can be archived/pruned without breaking `GET /v1/audit/verify` | `audit_events` grows forever and the chain currently forbids pruning — the one true time bomb in the design. Audit shipping is the archive path. | M–L |
+| ~~**Audit retention with hash-chain checkpointing** — periodic signed checkpoints so verified-and-shipped prefixes can be archived/pruned without breaking `GET /v1/audit/verify`~~ **DONE 2026-07-25 (PR #153, pending merge)** — migration `000039_audit_checkpoints`; HMAC-SHA256 checkpoint MAC over length-prefixed `through_seq‖through_hash‖event_count` with a **domain-separated** key derived from the master-key-wrapped token-HMAC key (`internal/crypto` untouched, stdlib only); owner-only `audit:manage` endpoints `POST/GET /v1/audit/checkpoint` + `POST /v1/audit/prune`; verify validates the latest checkpoint MAC then walks from `through_seq+1` (forged checkpoint → `checkpoint_mac_invalid`, no genesis fallback); prune is fail-closed (needs valid checkpoint, clamps to the auditship high-water mark, never deletes anchors); audit-viewer checkpoint stamp + owner "Create checkpoint". | ~~M–L~~ |
 | **Secret value-version retention** — optional, owner-set "hard-destroy value versions older than N days/versions" policy | Every save keeps every DEK/ciphertext forever; long-lived instances need an explicit, audited pruning policy. | M |
 | **Grafana dashboard JSON + example alert rules** shipped in `docs/` | `/metrics` exists; give operators the dashboard instead of making each one build it. | S |
 
@@ -163,7 +163,7 @@ first batch — **"Trust & Longevity"**, all parallel-friendly:
 1. **Trust & supply chain sweep** (6.1–6.4) — `SECURITY.md` + threat model +
    dependabot + cosign/SBOM in goreleaser (one agent, mostly docs/config).
 2. ~~**`janus run --watch` + `janus render`** (7.1–7.2)~~ **DONE 2026-07-25 (PR #152).**
-3. **Audit chain checkpointing + retention** (8.1) — the deep one. **In progress (PR forthcoming).**
+3. ~~**Audit chain checkpointing + retention** (8.1)~~ **DONE 2026-07-25 (PR #153).**
 4. ~~**Playwright smoke suite** (9.1)~~ **DONE 2026-07-25 (PR #151).**
 
 Then, as demand dictates: registry publishes (the three open boxes above, each
