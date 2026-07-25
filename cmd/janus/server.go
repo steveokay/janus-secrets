@@ -268,6 +268,14 @@ func runServer(ctx context.Context) error {
 		}
 	}
 
+	// WebAuthn / passkeys (optional). The Relying Party ID and origins are
+	// operator configuration, never inferred from the request Host: a browser
+	// silently refuses an assertion whose RP ID does not match the one a
+	// credential was registered under. Unset → passkeys disabled. Invalid → the
+	// api package's Boot refuses to start (a typo here would otherwise present as
+	// "passkeys just don't work", with no server-side error at all).
+	webauthnCfg := buildWebAuthnConfig()
+
 	// Native TLS listener (optional). Static certs and ACME are mutually
 	// exclusive; validation is enforced in the api package at serve time, but we
 	// catch the both-halves-of-static-cert and both-modes cases early for a clear
@@ -301,6 +309,7 @@ func runServer(ctx context.Context) error {
 		HTTPIdleTimeout:    httpIdle,
 		HTTPMaxBodyBytes:   httpMaxBody,
 		Lockout:            lockout,
+		WebAuthn:           webauthnCfg,                      // zero value → passkeys disabled
 		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
 		BreakGlassMaxTTL:   breakGlassMaxTTL,                 // 0 → default 1h
 		UnusedSecretDays:   unusedSecretDays,                 // 0 → default 90 days
@@ -420,6 +429,36 @@ func buildTLSConfig() (api.TLSConfig, error) {
 		return api.TLSConfig{}, fmt.Errorf("invalid JANUS_TLS_* configuration: %w", err)
 	}
 	return cfg, nil
+}
+
+// buildWebAuthnConfig reads the JANUS_WEBAUTHN_* environment into the passkey
+// Relying Party configuration. Both halves are required together; leaving them
+// unset disables passkeys entirely.
+//
+// Env vars:
+//   - JANUS_WEBAUTHN_RP_ID:   the Relying Party ID — a bare registrable domain
+//     with no scheme, port, or path (e.g. janus.example.com). A credential is
+//     bound to this value forever, so changing it retires existing passkeys.
+//   - JANUS_WEBAUTHN_ORIGINS: comma-separated list of the fully-qualified
+//     origins the UI is served from (e.g. https://janus.example.com). Each must
+//     be the RP ID itself or a subdomain of it; http:// is accepted only for
+//     localhost.
+//   - JANUS_WEBAUTHN_RP_NAME: display name shown by the authenticator's prompt
+//     (default "Janus").
+//
+// Validation lives in auth.WebAuthnConfig.Validate and runs during Boot, so a
+// misconfiguration is a startup error rather than a silent browser failure.
+func buildWebAuthnConfig() auth.WebAuthnConfig {
+	cfg := auth.WebAuthnConfig{
+		RPID:          strings.ToLower(strings.TrimSpace(os.Getenv("JANUS_WEBAUTHN_RP_ID"))),
+		RPDisplayName: strings.TrimSpace(os.Getenv("JANUS_WEBAUTHN_RP_NAME")),
+	}
+	for _, o := range strings.Split(os.Getenv("JANUS_WEBAUTHN_ORIGINS"), ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			cfg.Origins = append(cfg.Origins, strings.TrimSuffix(o, "/"))
+		}
+	}
+	return cfg
 }
 
 // parsePoolConfig reads the JANUS_DB_* environment into a store.PoolConfig.

@@ -73,4 +73,19 @@ var (
 	// ErrTOTPState is returned for invalid TOTP enroll/confirm/disable states
 	// (e.g. confirming without a pending enrollment, or enrolling while active).
 	ErrTOTPState = errors.New("auth: invalid totp state")
+	// ErrWebAuthnNotConfigured is returned by every passkey operation when no
+	// Relying Party (JANUS_WEBAUTHN_RP_ID / JANUS_WEBAUTHN_ORIGINS) is set.
+	ErrWebAuthnNotConfigured = errors.New("auth: webauthn is not configured")
+	// ErrWebAuthnState covers invalid passkey enrollment states (too many
+	// credentials, an authenticator already registered).
+	ErrWebAuthnState = errors.New("auth: invalid webauthn state")
+	// ErrWebAuthnVerification is returned when a registration ceremony fails
+	// verification: a malformed response, or an unknown/expired/replayed/
+	// cross-session challenge. The login path collapses the same conditions into
+	// ErrInvalidCredentials so it stays free of oracles.
+	ErrWebAuthnVerification = errors.New("auth: webauthn verification failed")
+	// ErrWebAuthnCloned is returned when an assertion's signature counter failed
+	// to advance, which indicates a cloned authenticator or a replayed assertion.
+	// Distinct from ErrInvalidCredentials so it can be audited specifically.
+	ErrWebAuthnCloned = errors.New("auth: webauthn signature counter did not advance")
 )

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
   import { api, errorMessage, ApiError, type OIDCLoginStatus } from '../lib/api'
+  import { passkeysSupported, getAssertion, passkeyMessage } from '../lib/webauthn'
   import JanusMark from '../components/JanusMark.svelte'
   import Guilloche from '../components/Guilloche.svelte'
 
@@ -11,10 +12,43 @@
   let error = $state('')
   let busy = $state(false)
   let oidc = $state<OIDCLoginStatus | null>(null)
+  /* passkeys: offered only when the server has a relying party configured AND
+     this browser exposes the WebAuthn API. */
+  let passkeys = $state(false)
+  let passkeyBusy = $state(false)
 
   $effect(() => {
     api.oidcLoginStatus().then(s => (oidc = s)).catch(() => (oidc = null))
+    api.webauthnStatus()
+      .then(s => (passkeys = s.enabled && passkeysSupported()))
+      .catch(() => (passkeys = false))
   })
+
+  /* A passkey sign-in is complete on its own: Janus requires user verification
+     on every ceremony, so no second factor is collected here. */
+  async function passkeySignIn() {
+    error = ''
+    const who = email.trim()
+    if (!who) {
+      error = 'Enter your registrar address first.'
+      return
+    }
+    passkeyBusy = true
+    try {
+      const options = await api.webauthnLoginBegin(who)
+      const assertion = await getAssertion(options)
+      await api.webauthnLoginFinish(assertion)
+      await session.refresh()
+    } catch (err) {
+      if (err instanceof ApiError) {
+        error = errorMessage(err, 'That passkey was not accepted.')
+      } else {
+        error = passkeyMessage(err, 'Could not sign in with a passkey.')
+      }
+    } finally {
+      passkeyBusy = false
+    }
+  }
 
   async function submit(e: SubmitEvent) {
     e.preventDefault()
@@ -80,9 +114,18 @@
         {busy ? 'Checking the register…' : totpRequired ? 'Verify & sign in' : 'Sign the register'}
       </button>
 
-      {#if oidc?.enabled}
+      {#if passkeys || oidc?.enabled}
         <div class="divider"><span class="folio">or continue with</span></div>
-        <a class="btn oidc-btn" href="/v1/auth/oidc/login">{oidc.name || 'SSO'}</a>
+      {/if}
+      {#if passkeys}
+        <button class="btn alt-btn" type="button" onclick={passkeySignIn}
+          disabled={passkeyBusy || busy || !email.trim()}>
+          {passkeyBusy ? 'Waiting for your device…' : 'A passkey'}
+        </button>
+        <span class="folio passkey-hint">Your device will ask for its PIN, fingerprint, or face.</span>
+      {/if}
+      {#if oidc?.enabled}
+        <a class="btn alt-btn" href="/v1/auth/oidc/login">{oidc.name || 'SSO'}</a>
       {/if}
     </form>
   </div>
@@ -140,7 +183,8 @@
   }
   .divider span { position: relative; background: var(--paper-high); padding: 0 var(--s3); }
 
-  .oidc-btn { justify-content: center; }
+  .alt-btn { justify-content: center; }
+  .passkey-hint { text-align: center; margin-top: calc(var(--s2) * -1); }
 
   @media (max-width: 680px) {
     .card { grid-template-columns: 1fr; }

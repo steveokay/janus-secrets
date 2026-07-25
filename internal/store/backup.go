@@ -63,8 +63,8 @@ type backupTable struct {
 }
 
 // backupTables is the full-instance dump set. Excluded on purpose:
-// sessions and oidc_auth_requests (ephemeral login state — everyone
-// re-authenticates after a restore); schema_migrations (owned by
+// sessions, oidc_auth_requests, and webauthn_challenges (ephemeral login state —
+// everyone re-authenticates after a restore); schema_migrations (owned by
 // golang-migrate; the header pins the version instead); and the notification
 // tables (notification_channels/_deliveries/_cursor) — operational alerting
 // config re-established after a restore. The cursor is seeded to the audit head
@@ -76,6 +76,11 @@ var backupTables = []backupTable{
 	{"users", "created_at, id"},
 	{"user_totp", "user_id"},
 	{"user_recovery_codes", "created_at, id"},
+	// Passkeys carry public credential material only (no wrapped secret), but a
+	// restore that dropped them would silently un-enrol every device.
+	// webauthn_challenges is deliberately excluded: it is ephemeral in-flight
+	// ceremony state, like sessions.
+	{"webauthn_credentials", "created_at, id"},
 	{"oidc_providers", "created_at, id"},
 	{"oidc_identities", "created_at, id"},
 	{"oidc_federation_config", "created_at, id"},

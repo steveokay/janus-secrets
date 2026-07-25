@@ -93,6 +93,11 @@ type BootConfig struct {
 	// Tests building BootConfig directly get the zero value (Enabled=false), so
 	// lockout is off unless a test opts in.
 	Lockout auth.LockoutPolicy
+	// WebAuthn is the passkey Relying Party configuration. cmd/janus populates it
+	// from JANUS_WEBAUTHN_RP_ID / JANUS_WEBAUTHN_ORIGINS / JANUS_WEBAUTHN_RP_NAME.
+	// The zero value disables passkeys; an invalid value fails the boot rather
+	// than silently breaking the ceremony in the browser.
+	WebAuthn auth.WebAuthnConfig
 	// MetricsToken, when non-empty, enables GET /metrics gated by this static
 	// bearer token (cmd/janus reads JANUS_METRICS_TOKEN). Empty → /metrics 404s.
 	MetricsToken string
@@ -193,6 +198,12 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	authSvc := auth.NewService(st, kr)
 	authSvc.SetSessionIdleTimeout(bc.SessionIdleTimeout)
 	authSvc.SetLockoutPolicy(bc.Lockout)
+	// Passkeys: a bad RP ID / origin pairing breaks the ceremony silently in the
+	// browser, so validate it here and refuse to boot instead.
+	if err := authSvc.SetWebAuthnConfig(bc.WebAuthn); err != nil {
+		st.Close()
+		return nil, nil, fmt.Errorf("webauthn config: %w", err)
+	}
 	// The authorizer overlays active break-glass grants on the bound role, so
 	// wire the grant store from the start.
 	authorizer := authz.New(store.NewRoleBindingRepo(st)).
