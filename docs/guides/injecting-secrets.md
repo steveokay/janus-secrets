@@ -121,7 +121,7 @@ without an external orchestrator. Without `--watch`, behaviour is unchanged
 
 When your app reads a **config file** rather than environment variables, and you
 want it kept in sync with the secrets, `janus render` fills a Go `text/template`
-with the config's secrets and writes the result to a file (Vault-agent style):
+with the config's secrets and writes the result to a file:
 
 ```sh
 janus render --template app.conf.tmpl --out app.conf         # render once, 0600

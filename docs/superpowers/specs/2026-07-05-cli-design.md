@@ -34,7 +34,7 @@ Global/shared flags (persistent where sensible): `--address`, `--token`,
 
 ## 3. Credential model & storage
 
-Two credential tiers, mirroring Doppler/Vault:
+Two credential tiers:
 
 - **Session** (interactive humans): `janus login` prompts for email (or `--email`)
   and password (echo-off, reusing the existing `term.ReadPassword` pattern from

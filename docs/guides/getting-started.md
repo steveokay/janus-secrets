@@ -128,8 +128,8 @@ each off as you complete it and hiding once you're set up.
 
 ## 4. Create your first project, environment, config, and secret
 
-Janus organizes secrets as **project → environment → config → secret** (a
-Doppler-style hierarchy). Create one of each, then set a secret. The quickest
+Janus organizes secrets as **project → environment → config → secret**.
+Create one of each, then set a secret. The quickest
 way is the CLI, binding the current directory to a config once with
 `janus setup` and then writing:
 

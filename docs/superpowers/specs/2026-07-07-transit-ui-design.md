@@ -4,7 +4,7 @@
 
 ## Goal
 
-A web UI for the transit engine: manage named encryption/signing keys and run a small, plaintext-free crypto playground. Instance-scoped. Dev-focused, Doppler-ish, minus SaaS.
+A web UI for the transit engine: manage named encryption/signing keys and run a small, plaintext-free crypto playground. Instance-scoped. Dev-focused, minus SaaS.
 
 ## Scope decision (locked)
 

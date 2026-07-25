@@ -1,9 +1,9 @@
 # Janus
 
 A single-tenant, self-hosted secrets manager, deployed as one Go binary plus
-PostgreSQL. It combines ideas from Doppler (project/environment/config model,
-`run` injection), Vault (transit encryption, dynamic secrets, hash-chained
-audit), and AWS KMS (encrypt-as-a-service with key versioning).
+PostgreSQL. It brings together a project/environment/config model with
+subprocess `run` injection, transit encryption, dynamic secrets, a hash-chained
+audit log, and encryption-as-a-service with key versioning.
 
 > **Status: Phases 1–3 complete.** All three build phases have shipped and are
 > tested against real Postgres:
@@ -17,7 +17,7 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 >   (project/env/config CRUD + lifecycle, secret masked-list/reveal/write/delete,
 >   config version list/diff/rollback), config inheritance + secret references,
 >   and the secrets CLI (`janus login`/`setup`/`secrets`/`run`).
-> - **Phase 2 — Transit + UI:** the Vault-style transit (encryption-as-a-service)
+> - **Phase 2 — Transit + UI:** the transit engine (encryption-as-a-service)
 >   engine; the **Svelte SPA** (embedded via `go:embed`, served same-origin) —
 >   unseal/login, project/env/config nav, the flagship secret editor, version
 >   diff, audit viewer, token/member management, transit console, and the
@@ -97,7 +97,7 @@ unseal reject a wrong-but-well-formed master key before it is ever used.
 The server exposes the seal lifecycle under `/v1/sys/` (`health`,
 `seal-status`, `init`, `unseal`, `unseal/reset`, `seal`); every other route
 returns `503 {"error":{"code":"sealed"}}` until unsealed. `init` and `unseal`
-are unauthenticated by bootstrap necessity (the Vault model); `POST /v1/sys/seal`
+are unauthenticated by bootstrap necessity; `POST /v1/sys/seal`
 re-seals a running server and now **requires the `sys:seal` permission**.
 
 ### Identity & access
@@ -159,7 +159,7 @@ The engine (`internal/audit`) is pure and HTTP-free.
 
 ### Transit (encryption as a service)
 
-The first Phase-2 subsystem is live: a Vault-style **transit engine**
+The first Phase-2 subsystem is live: a **transit engine**
 (`internal/transit`) that encrypts, decrypts, signs, verifies, rewraps, and mints
 data keys against **instance-scoped named keys whose material never leaves the
 server in plaintext** — Janus holds the keys, your app holds the ciphertext, and
@@ -222,7 +222,7 @@ Three engines extend Janus past static storage:
   `k8s` (server-side apply, verified TLS), `gitlab`, `aws_ssm`, `cloudflare`,
   `aws_secrets`, `vercel`, and `netlify` — with keyed-HMAC change detection and a
   project-scoped resolver that blocks cross-project exfiltration.
-- **Dynamic Postgres credentials** (`internal/dynamic`) — Vault-style
+- **Dynamic Postgres credentials** (`internal/dynamic`) — on-demand,
   config-scoped dynamic roles from admin-authored creation/revocation SQL
   templates, with a lease manager (TTL, monotonic renewal capped at max-TTL,
   revoke-on-expiry, and a revoke-on-startup sweep for leases orphaned by a crash).
@@ -255,7 +255,7 @@ Server configuration is env-only:
 
 ### Data model
 
-Doppler-style hierarchy: **Project → Environment → Config → Secrets**, with
+Four-level hierarchy: **Project → Environment → Config → Secrets**, with
 two-level versioning (immutable config versions for diff/rollback, plus
 per-secret value history). The schema, migrations, and repositories are built
 and tested — see [docs/data-model.md](docs/data-model.md). The store is
@@ -276,7 +276,7 @@ cd my-service && janus setup                       # writes .janus.yaml (project
 janus secrets set DATABASE_URL=postgres://…        # one new config version
 janus run -- ./my-service                          # inject secrets as env vars
 janus run --watch -- ./my-service                  # restart the child when the config version bumps
-janus render --template app.tmpl --out app.conf    # render a text/template with the secrets (Vault-agent style)
+janus render --template app.tmpl --out app.conf    # render a text/template with the secrets to a file
 janus secrets download --format env --output .env --plain
 ```
 
@@ -390,7 +390,7 @@ floor.
   (`JANUS_TLS_ACME_*`, TLS 1.2 floor) — or run plain HTTP behind a reverse proxy
   that terminates TLS. See the [production-deployment guide](docs/guides/production-deployment.md).
 - `POST /v1/sys/seal` requires the `sys:seal` permission; `init` and `unseal`
-  are unauthenticated by bootstrap necessity, matching the Vault model.
+  are unauthenticated by bootstrap necessity.
 - RBAC is deny-by-default; denied requests return a generic `403 forbidden` that
   never leaks role names, bindings, or query internals (enforced by a leak test).
 - The audit log is append-only and hash-chained; recording is fail-closed (an
@@ -413,7 +413,7 @@ floor.
 
 ## Roadmap
 
-**Phase 1 — Core (usable Doppler replacement):**
+**Phase 1 — Core (a usable day-to-day secrets manager):**
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →
@@ -443,6 +443,17 @@ feature depth — see the live [state & roadmap](docs/roadmap.md) and the
 HA/Raft clustering, PKI/certificate authority, SSH signing, HSM/PKCS#11,
 multi-tenancy/organizations, and FIPS certification claims are explicitly out of
 scope.
+
+## Trademarks
+
+Third-party product and company names used in this project — including
+Doppler, HashiCorp Vault, Amazon Web Services (AWS), Google Cloud, Microsoft
+Azure, Kubernetes, GitHub, GitLab, and any others — are the trademarks or
+registered trademarks of their respective owners. Janus is an independent
+project and is **not affiliated with, endorsed by, or sponsored by** any of
+them. Such names appear here solely to identify the third-party systems that
+Janus interoperates with (for example, the `janus import` source systems and
+the cloud KMS providers used for auto-unseal), which is nominative use.
 
 ## License
 

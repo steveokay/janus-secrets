@@ -22,7 +22,7 @@ with zero UI dependency.
 
 ## 1. Goal
 
-A Vault-style transit secrets engine: Janus holds **named keys** and performs
+A transit secrets engine: Janus holds **named keys** and performs
 encrypt / decrypt / sign / verify / rewrap on data it never stores, plus key
 lifecycle (rotate, versioning, `min_decryption_version`, trim) and datakey
 generation. Keys are instance-scoped and never leave the server in plaintext.
@@ -61,7 +61,7 @@ A key has **versions**:
 - `latest_version` — used for new encrypt/sign and as the rewrap/datakey target.
 - `min_decryption_version` — floor; decrypt/verify against a version below it is
   rejected (`ErrVersionTooOld`). Default 1.
-- `deletion_allowed` — must be true before a key can be destroyed (Vault-style
+- `deletion_allowed` — must be true before a key can be destroyed (a
   guard). Default false.
 
 **Rotate** appends `v(latest+1)` with fresh material and bumps `latest_version`.

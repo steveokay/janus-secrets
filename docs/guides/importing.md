@@ -139,3 +139,10 @@ The import lands as a single config version. Review it in the web UI (config
 version diff) or with `janus secrets list` / `janus secrets diff`, and roll back
 to the previous version if anything is wrong. For the web-UI `.env`/paste
 importer, see [import-export.md](import-export.md).
+
+---
+
+**Trademarks.** Doppler, HashiCorp Vault, and Amazon Web Services (AWS) are
+trademarks of their respective owners. Janus is an independent project and is
+not affiliated with, endorsed by, or sponsored by any of them; these names are
+used only to identify the source systems this command imports from.

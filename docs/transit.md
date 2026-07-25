@@ -2,7 +2,7 @@
 
 The transit engine lets applications encrypt, decrypt, sign, verify, rewrap, and
 mint data keys against **named keys that Janus holds but whose material never
-leaves the server in plaintext** — the Vault "transit secrets engine" model. The
+leaves the server in plaintext** — the transit-secrets-engine model. The
 app sends data, Janus returns a result; Janus stores keys, the app stores
 ciphertext. This is distinct from the secret store (project → environment →
 config → secret): transit keys are **instance-scoped**, have no hierarchy, and
@@ -38,7 +38,7 @@ A key has one or more **versions**, and three pieces of version policy:
   or signature whose version is below this is rejected with `ErrVersionTooOld`
   (400). Default 1.
 - **`deletion_allowed`** — a key cannot be deleted until this is set true
-  (a Vault-style guard against accidental destruction). Default false.
+  (a guard against accidental destruction). Default false.
 
 **Rotate** appends `v(latest+1)` with fresh material and bumps `latest_version`;
 old versions stay so previously-encrypted data still decrypts. **Trim**

@@ -57,14 +57,14 @@ Settings) render visible **"Coming soon" placeholders** so nothing dead-ends.
 
 ## Locked decisions
 
-1. **Navigation model = project-centric (Doppler-style).** The left sidebar is
+1. **Navigation model = project-centric.** The left sidebar is
    the project switcher + environment/config tree (the primary spine); project-
    scoped Audit/Tokens/Members sit beneath it; Transit + Settings are small
-   top-level entries. Chosen over a Vault-style sectioned nav because the flagship
-   is the secret editor and the data model is Doppler-shaped, so mirroring it
+   top-level entries. Chosen over a sectioned nav because the flagship
+   is the secret editor and the data model is project-centric, so mirroring it
    makes the most-used flow the most direct.
 2. **Sealed server → in-UI unseal screen** (not a CLI-only banner). The operator
-   is the user in a self-hosted tool; mirrors Vault's UI.
+   is the user in a self-hosted tool.
 3. **Include lightweight structure creation** (project/env/config) so the UI
    stands alone; exclude rename/delete/destroy of structure.
 4. **Architecture approach = conventional React SPA** (React Router v6 + TanStack

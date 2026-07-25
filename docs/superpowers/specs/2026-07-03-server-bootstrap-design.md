@@ -223,7 +223,7 @@ Handlers are thin translation layers; all seal logic stays in `internal/crypto`.
   network reach can seal the server. Availability-only and fail-closed
   (confidentiality unaffected); acceptable for single-tenant compose; will be
   auth-gated when auth lands. Documented in code and README.
-- Init/unseal being unauthenticated matches the Vault model: init races are
+- Init/unseal being unauthenticated is a bootstrap necessity: init races are
   guarded by `ErrAlreadyInitialized`, and unsealing requires valid shares.
 
 ## Testing

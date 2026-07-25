@@ -856,7 +856,7 @@ mutation stands; the chain remains consistent).
   middleware; unknown paths are 503 while sealed too.
 - **`POST /v1/sys/seal` requires the `sys:seal` permission** (owner/admin) as
   of the RBAC milestone. `init` and `unseal` remain unauthenticated by
-  bootstrap necessity, matching the Vault model: init races are guarded, and
+  bootstrap necessity: init races are guarded, and
   unsealing requires valid shares. The `janus seal` CLI authenticates
   accordingly (`--token` > `JANUS_TOKEN` > stored session from `janus login`).
 - **Rate limiting keys on `RemoteAddr`.** The login limiter buckets by direct

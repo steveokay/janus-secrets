@@ -8,8 +8,8 @@
 
 On-demand, short-lived Postgres credentials issued by Janus, with a lease
 manager that enforces TTL, renewal, and revocation on expiry — plus a
-revoke-on-startup sweep for leases orphaned by a crash. Modeled on Vault's
-dynamic database secrets, scoped and encrypted the same way as the two Phase-3
+revoke-on-startup sweep for leases orphaned by a crash. Dynamic database
+credentials, scoped and encrypted the same way as the two Phase-3
 packages already shipped (`internal/rotation`, `internal/secretsync`).
 
 Postgres is the only backend (per CLAUDE.md non-goals: "Dynamic secrets backends
@@ -17,7 +17,7 @@ beyond Postgres (until explicitly requested)").
 
 ## Design decisions (locked)
 
-1. **Role model — Vault-style SQL templates.** An admin stores
+1. **Role model — SQL templates.** An admin stores
    `creation_statements` / `revocation_statements` / `renew_statements` with
    `{{name}}`, `{{password}}`, `{{expiration}}` placeholders. Maximum flexibility
    (schema grants, `ALTER DEFAULT PRIVILEGES`, connection limits, `SET
@@ -33,7 +33,7 @@ beyond Postgres (until explicitly requested)").
 3. **Surface — standalone.** Ship `/v1/dynamic` + `janus dynamic` mirroring the
    rotation/sync surfaces. No `janus run` auto-leasing this slice (deferred fast
    follow-up once the engine is proven).
-4. **TTL/renewal — Vault conventions.** A role has `default_ttl` and `max_ttl`.
+4. **TTL/renewal.** A role has `default_ttl` and `max_ttl`.
    A lease is created with `default_ttl`; renewal extends `expires_at` but never
    past `issued_at + max_ttl`.
 
