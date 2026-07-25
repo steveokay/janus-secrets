@@ -32,4 +32,49 @@ func TestOIDCFederationConfigRBAC(t *testing.T) {
 	if code := doAuthed(t, "DELETE", ts.URL+"/v1/sys/oidc/federation", owner, "", "", nil); code != 204 {
 		t.Fatalf("owner DELETE: %d", code)
 	}
+
+	// --- multi-issuer trust set (roadmap 7.3) ---
+	type issuerRow struct {
+		ID       string `json:"id"`
+		Issuer   string `json:"issuer"`
+		Audience string `json:"audience"`
+		Preset   string `json:"preset"`
+	}
+	const issuersPath = "/v1/sys/oidc/federation/issuers"
+	gh := `{"issuer":"https://token.actions.githubusercontent.com","audience":"janus","preset":"github","enabled":true}`
+	k8s := `{"issuer":"https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE","audience":"janus","preset":"kubernetes","enabled":true}`
+	if code := doAuthed(t, "POST", ts.URL+issuersPath, viewer, "", k8s, nil); code != 403 {
+		t.Fatalf("viewer POST issuer: want 403, got %d", code)
+	}
+	for _, body := range []string{gh, k8s} {
+		if code := doAuthed(t, "POST", ts.URL+issuersPath, owner, "", body, nil); code != 200 {
+			t.Fatalf("owner POST issuer: %d", code)
+		}
+	}
+	// Bad preset and missing issuer are rejected.
+	if code := doAuthed(t, "POST", ts.URL+issuersPath, owner, "",
+		`{"issuer":"https://x.example","audience":"janus","preset":"nope","enabled":true}`, nil); code != 400 {
+		t.Fatalf("bad preset: want 400, got %d", code)
+	}
+	if code := doAuthed(t, "POST", ts.URL+issuersPath, owner, "",
+		`{"issuer":"","audience":"janus","enabled":true}`, nil); code != 400 {
+		t.Fatalf("empty issuer: want 400, got %d", code)
+	}
+	var list []issuerRow
+	if code := doAuthed(t, "GET", ts.URL+issuersPath, owner, "", "", &list); code != 200 || len(list) != 2 {
+		t.Fatalf("list issuers: %d len=%d", code, len(list))
+	}
+	// The legacy single-issuer PUT refuses to silently drop the other issuer.
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/sys/oidc/federation", owner, "", body, nil); code != 409 {
+		t.Fatalf("legacy PUT with two issuers: want 409, got %d", code)
+	}
+	if code := doAuthed(t, "DELETE", ts.URL+issuersPath+"/"+list[0].ID, viewer, "", "", nil); code != 403 {
+		t.Fatalf("viewer DELETE issuer: want 403, got %d", code)
+	}
+	if code := doAuthed(t, "DELETE", ts.URL+issuersPath+"/"+list[0].ID, owner, "", "", nil); code != 204 {
+		t.Fatalf("owner DELETE issuer: %d", code)
+	}
+	if code := doAuthed(t, "DELETE", ts.URL+issuersPath+"/"+list[0].ID, owner, "", "", nil); code != 404 {
+		t.Fatalf("second DELETE issuer: want 404, got %d", code)
+	}
 }

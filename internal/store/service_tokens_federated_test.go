@@ -23,8 +23,9 @@ func TestCreateFederatedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, err := bindings.Create(ctx, OIDCFederationBinding{
-		Name: "b1", MatchClaims: map[string]string{"repository": "org/app"},
-		ScopeKind: "config", ScopeID: scopeID, Access: "read", TTLSeconds: 900, Enabled: true,
+		Name: "b1", Issuer: "https://token.actions.githubusercontent.com",
+		MatchClaims: map[string]string{"repository": "org/app"},
+		ScopeKind:   "config", ScopeID: scopeID, Access: "read", TTLSeconds: 900, Enabled: true,
 	})
 	if err != nil {
 		t.Fatal(err)

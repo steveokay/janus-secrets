@@ -26,7 +26,7 @@ func (s *Server) handleOIDCFederate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.record(r, "auth.federate", "auth/oidc/federate", "success", "",
-		"binding="+res.Binding+" repository="+res.Repository+" sub="+res.Subject); err != nil {
+		"binding="+res.Binding+" issuer="+res.Issuer+" repository="+res.Repository+" sub="+res.Subject); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
@@ -51,6 +51,12 @@ func federationReason(err error) string {
 		return "no_match"
 	case errors.Is(err, auth.ErrFederationAmbiguous):
 		return "ambiguous_match"
+	case errors.Is(err, auth.ErrFederationIssuerUntrusted):
+		return "issuer_untrusted"
+	case errors.Is(err, auth.ErrFederationIssuerConflict):
+		return "issuer_conflict"
+	case errors.Is(err, auth.ErrFederationClaims):
+		return "ambiguous_claims"
 	default:
 		return "error"
 	}
@@ -59,6 +65,7 @@ func federationReason(err error) string {
 type fedConfigRequest struct {
 	Issuer   string `json:"issuer"`
 	Audience string `json:"audience"`
+	Preset   string `json:"preset"`
 	Enabled  bool   `json:"enabled"`
 }
 
@@ -83,10 +90,17 @@ func (s *Server) handleFederationConfigPut(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.auth.SetFederationConfig(r.Context(), auth.FederationConfigInput{
-		Issuer: req.Issuer, Audience: req.Audience, Enabled: req.Enabled,
+		Issuer: req.Issuer, Audience: req.Audience, Preset: req.Preset, Enabled: req.Enabled,
 	}); err != nil {
 		if errors.Is(err, auth.ErrValidation) {
 			writeError(w, http.StatusBadRequest, CodeValidation, "invalid federation config")
+			return
+		}
+		if errors.Is(err, auth.ErrFederationIssuerConflict) {
+			// This endpoint replaces the whole trusted-issuer set; refuse rather
+			// than silently drop the other issuers an admin added.
+			writeError(w, http.StatusConflict, "conflict",
+				"several federation issuers are configured; use /v1/sys/oidc/federation/issuers")
 			return
 		}
 		s.writeServiceError(w, err)
@@ -113,8 +127,72 @@ func (s *Server) handleFederationConfigDelete(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// --- multi-issuer trust set (roadmap 7.3) ---------------------------------
+// The legacy /v1/sys/oidc/federation endpoints above address a SINGLE issuer;
+// these address the set, so a deployment can trust its CI provider and its
+// Kubernetes cluster at the same time.
+
+func (s *Server) handleFederationIssuersList(w http.ResponseWriter, r *http.Request) {
+	list, err := s.auth.ListFederationIssuers(r.Context())
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if list == nil {
+		list = []auth.FederationConfigView{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleFederationIssuerPut(w http.ResponseWriter, r *http.Request) {
+	var req fedConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	v, err := s.auth.PutFederationIssuer(r.Context(), auth.FederationIssuerInput{
+		Issuer: req.Issuer, Audience: req.Audience, Preset: req.Preset, Enabled: req.Enabled,
+	})
+	if err != nil {
+		if errors.Is(err, auth.ErrValidation) {
+			writeError(w, http.StatusBadRequest, CodeValidation, "invalid federation issuer")
+			return
+		}
+		s.writeServiceError(w, err)
+		return
+	}
+	// Audit: issuer + audience + preset only, never any secret material (a
+	// federation trust anchor is a public-key relationship; there is no secret).
+	if err := s.record(r, "oidc.federation.issuer.write", "oidc/federation/issuers", "success", "",
+		"issuer="+v.Issuer+" audience="+v.Audience+" preset="+v.Preset); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) handleFederationIssuerDelete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.auth.DeleteFederationIssuer(r.Context(), id); err != nil {
+		if errors.Is(err, auth.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "not found")
+			return
+		}
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "oidc.federation.issuer.delete", "oidc/federation/issuers/"+id, "success", "", ""); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- end multi-issuer trust set -------------------------------------------
+
 type fedBindingRequest struct {
 	Name        string            `json:"name"`
+	Issuer      string            `json:"issuer"`
 	MatchClaims map[string]string `json:"match_claims"`
 	ScopeKind   string            `json:"scope_kind"`
 	ScopeID     string            `json:"scope_id"`
@@ -142,7 +220,7 @@ func (s *Server) handleFederationBindingCreate(w http.ResponseWriter, r *http.Re
 		return
 	}
 	b, err := s.auth.CreateFederationBinding(r.Context(), auth.FederationBindingInput{
-		Name: req.Name, MatchClaims: req.MatchClaims, ScopeKind: req.ScopeKind,
+		Name: req.Name, Issuer: req.Issuer, MatchClaims: req.MatchClaims, ScopeKind: req.ScopeKind,
 		ScopeID: req.ScopeID, Access: req.Access, TTLSeconds: req.TTLSeconds, Enabled: req.Enabled,
 	})
 	if err != nil {
@@ -158,7 +236,7 @@ func (s *Server) handleFederationBindingCreate(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if err := s.record(r, "oidc.federation.binding.write", "oidc/federation/"+b.Name, "success", "",
-		"scope="+b.ScopeKind+":"+b.ScopeID); err != nil {
+		"issuer="+b.Issuer+" scope="+b.ScopeKind+":"+b.ScopeID); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}

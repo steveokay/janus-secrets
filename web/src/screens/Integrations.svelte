@@ -7,10 +7,12 @@
   import { listAllSyncs } from '../lib/ops'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
-  import { federationProviders, providerForIssuer, bindingClaimSummary } from '../lib/federation'
+  import { federationProviders, providerFor, bindingClaimSummary } from '../lib/federation'
 
   let oidc = $state<OIDCProviderView | null>(null)
-  let fed = $state<FederationConfigView | null>(null)
+  // Every trusted federation issuer: a CI provider and a Kubernetes cluster can
+  // be trusted at the same time, and each binding is pinned to one of them.
+  let issuers = $state<FederationConfigView[]>([])
   let bindings = $state<FederationBindingView[]>([])
   let syncs = $state<SyncTargetApi[]>([])
   let note = $state('')
@@ -24,32 +26,36 @@
   let oRedirect = $state('')
   let oError = $state('')
 
-  /* federation form */
+  /* trusted-issuer form */
   let editFed = $state(false)
   let fProvider = $state('github')
   let fIssuer = $state('https://token.actions.githubusercontent.com')
   let fAudience = $state('')
   let fError = $state('')
 
-  // The provider active for the currently-saved config (drives claim labels).
-  const activeProvider = $derived(providerForIssuer(fed?.issuer ?? ''))
+  const formProvider = $derived(providerFor(fIssuer, fProvider))
 
   function pickProvider(id: string) {
     fProvider = id
     const p = federationProviders.find(x => x.id === id)
-    if (p && p.issuer) fIssuer = p.issuer
-    else if (p) fIssuer = '' // custom / CircleCI: admin supplies the URL
+    // custom / CircleCI / Kubernetes: the admin supplies the URL.
+    fIssuer = p?.issuer ?? ''
   }
 
   /* binding form */
   let addingBinding = $state(false)
   let bName = $state('')
-  let bClaim = $state('')
+  let bIssuerId = $state('')
+  let bClaims = $state<Record<string, string>>({})
   let bScopeKind = $state<'config' | 'environment'>('config')
   let bScopeId = $state('')
   let bAccess = $state<'read' | 'readwrite'>('read')
   let bTtl = $state(900)
   let bError = $state('')
+
+  // The issuer a new binding is pinned to, and the claim fields it demands.
+  const bIssuer = $derived(issuers.find(i => i.id === bIssuerId) ?? issuers[0])
+  const bProvider = $derived(providerFor(bIssuer?.issuer ?? '', bIssuer?.preset))
 
   $effect(() => {
     void load()
@@ -57,7 +63,7 @@
 
   async function load() {
     oidc = await api.getOIDCConfig().catch(() => null)
-    fed = await api.getFederationConfig().catch(() => null)
+    issuers = await api.listFederationIssuers().catch(() => [])
     bindings = await api.listFederationBindings().catch(() => [])
     syncs = await listAllSyncs(registry.projects).catch(() => [])
   }
@@ -115,13 +121,46 @@
     e.preventDefault()
     fError = ''
     try {
-      await api.setFederationConfig({ issuer: fIssuer.trim(), audience: fAudience.trim(), enabled: true })
+      await api.putFederationIssuer({
+        issuer: fIssuer.trim(), audience: fAudience.trim(), preset: fProvider, enabled: true,
+      })
       editFed = false
-      flash('Federation config saved.')
+      flash('Trusted issuer saved.')
       await load()
     } catch (err) {
-      fError = errorMessage(err, 'Could not save the federation config.')
+      fError = errorMessage(err, 'Could not save the trusted issuer.')
     }
+  }
+
+  async function removeIssuer(iss: FederationConfigView) {
+    const ok = await dialog.confirm({
+      title: `Stop trusting ${iss.issuer}?`,
+      body: 'Its trust bindings stay but can never match again until the issuer is trusted anew.',
+      confirmLabel: 'Stop trusting',
+      danger: true,
+    })
+    if (!ok || !iss.id) return
+    try {
+      await api.deleteFederationIssuer(iss.id)
+      flash('Issuer removed.')
+      await load()
+    } catch (err) {
+      flash(errorMessage(err, 'Remove failed.'))
+    }
+  }
+
+  function startIssuerAdd() {
+    editFed = true
+    fAudience = ''
+    fError = ''
+    pickProvider(issuers.length ? 'kubernetes' : 'github')
+  }
+
+  function startBindingAdd() {
+    addingBinding = true
+    bIssuerId = issuers[0]?.id ?? ''
+    bClaims = {}
+    bError = ''
   }
 
   const scopeOptions = $derived(
@@ -136,12 +175,15 @@
     try {
       await api.createFederationBinding({
         name: bName.trim(),
-        match_claims: { [activeProvider.claimKey]: bClaim.trim() },
+        issuer: bIssuer?.issuer ?? '',
+        match_claims: Object.fromEntries(
+          bProvider.claims.map(c => [c.key, (bClaims[c.key] ?? '').trim()]),
+        ),
         scope_kind: bScopeKind, scope_id: bScopeId,
         access: bAccess, ttl_seconds: bTtl, enabled: true,
       })
       addingBinding = false
-      bName = ''; bClaim = ''; bScopeId = ''
+      bName = ''; bClaims = {}; bScopeId = ''
       flash('Trust binding created.')
       await load()
     } catch (err) {
@@ -220,10 +262,23 @@
   <!-- CI federation -->
   <section class="op-section rise" style="animation-delay: 60ms">
     <div class="section-head">
-      <h3>CI federation</h3>
-      <span class="folio">exchange a workflow OIDC JWT for a short-lived scoped token · GitHub Actions · GitLab · Buildkite · CircleCI · one provider active at a time</span>
+      <h3>Machine identity federation</h3>
+      <span class="folio">exchange a workload OIDC JWT for a short-lived scoped token · GitHub Actions · GitLab · Buildkite · CircleCI · Kubernetes service accounts · several issuers can be trusted at once</span>
     </div>
     <div class="sheet card">
+      {#each issuers as iss (iss.id ?? iss.issuer)}
+        <div class="row">
+          <div>
+            <span class="t-name">{providerFor(iss.issuer, iss.preset).label} <span class="pill" class:pill-info={iss.enabled} class:pill-neutral={!iss.enabled}>{iss.enabled ? 'active' : 'off'}</span></span>
+            <span class="folio mono">{iss.issuer} · aud {iss.audience}</span>
+          </div>
+          <div class="row-actions">
+            <button class="btn btn-sm" onclick={() => { editFed = true; fProvider = providerFor(iss.issuer, iss.preset).id; fIssuer = iss.issuer; fAudience = iss.audience; fError = '' }}>Edit</button>
+            <button class="btn btn-ghost btn-sm del-btn" onclick={() => removeIssuer(iss)}>Remove</button>
+          </div>
+        </div>
+      {/each}
+
       {#if editFed}
         <form class="grid-form" onsubmit={saveFed}>
           <label class="field"><span class="label">Provider</span>
@@ -231,39 +286,32 @@
               {#each federationProviders as p}<option value={p.id}>{p.label}</option>{/each}
             </select>
           </label>
-          <label class="field"><span class="label">Issuer</span><input class="input mono" bind:value={fIssuer} placeholder="https://oidc.circleci.com/org/ORG_ID" required /></label>
+          <label class="field"><span class="label">Issuer</span><input class="input mono" bind:value={fIssuer} placeholder="https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE" required /></label>
           <label class="field wide"><span class="label">Audience</span><input class="input mono" bind:value={fAudience} placeholder="https://janus.company.dev" required /></label>
-          <p class="folio wide">Bind the <span class="mono">{federationProviders.find(p => p.id === fProvider)?.claimKey}</span> claim for this provider to identify trusted pipelines.</p>
+          <p class="folio wide">Bind the <span class="mono">{formProvider.claims.map(c => c.key).join(' + ')}</span> claim{formProvider.claims.length > 1 ? 's' : ''} for this provider to identify trusted workloads.{#if formProvider.hint}&nbsp;{formProvider.hint}{/if}</p>
           {#if fError}<p class="error wide">{fError}</p>{/if}
           <div class="form-actions wide">
             <button class="btn btn-ghost" type="button" onclick={() => (editFed = false)}>Cancel</button>
             <button class="btn btn-stamp" type="submit">Save</button>
           </div>
         </form>
-      {:else if fed}
-        <div class="row">
-          <div>
-            <span class="t-name">{activeProvider.label} <span class="pill" class:pill-info={fed.enabled} class:pill-neutral={!fed.enabled}>{fed.enabled ? 'active' : 'off'}</span></span>
-            <span class="folio mono">{fed.issuer} · aud {fed.audience}</span>
-          </div>
-          <button class="btn btn-sm" onclick={() => { editFed = true; fProvider = activeProvider.id; fIssuer = fed!.issuer; fAudience = fed!.audience }}>Edit</button>
-        </div>
       {:else}
         <div class="row">
-          <span class="folio">Not configured — CI must use long-lived service tokens.</span>
-          <button class="btn btn-sm" onclick={() => { editFed = true; pickProvider('github') }}>Configure</button>
+          <span class="folio">{issuers.length ? 'Trust another issuer — a CI provider and a Kubernetes cluster can both federate.' : 'Not configured — CI and workloads must use long-lived service tokens.'}</span>
+          <button class="btn btn-sm" onclick={startIssuerAdd}>{issuers.length ? '+ Trusted issuer' : 'Configure'}</button>
         </div>
       {/if}
 
-      {#if fed}
-        <table class="ledger bindings" aria-label="CI federation trust bindings">
+      {#if issuers.length}
+        <table class="ledger bindings" aria-label="Federation trust bindings">
           <thead>
-            <tr><th scope="col">Trust binding</th><th scope="col">{activeProvider.claimLabel} claim</th><th scope="col">Scope</th><th scope="col" style="width:90px">Access</th><th scope="col" style="width:80px">TTL</th><th scope="col" style="width:90px"></th></tr>
+            <tr><th scope="col">Trust binding</th><th scope="col">Issuer</th><th scope="col">Identity claims</th><th scope="col">Scope</th><th scope="col" style="width:90px">Access</th><th scope="col" style="width:80px">TTL</th><th scope="col" style="width:90px"></th></tr>
           </thead>
           <tbody>
             {#each bindings as b (b.id)}
               <tr>
                 <td class="t-name">{b.name}</td>
+                <td class="mono small">{providerFor(b.issuer ?? '', issuers.find(i => i.issuer === b.issuer)?.preset).label}</td>
                 <td class="mono small">{bindingClaimSummary(b.match_claims)}</td>
                 <td class="mono small">{b.scope_kind === 'config' ? registry.configLabel(b.scope_id) : b.scope_id}</td>
                 <td><span class="pill pill-neutral">{b.access}</span></td>
@@ -271,14 +319,21 @@
                 <td class="row-actions"><button class="btn btn-ghost btn-sm del-btn" onclick={() => removeBinding(b)}>Delete</button></td>
               </tr>
             {:else}
-              <tr><td colspan="6" class="folio">No trust bindings — a workflow cannot federate until one matches its {activeProvider.claimLabel.toLowerCase()}.</td></tr>
+              <tr><td colspan="7" class="folio">No trust bindings — a workload cannot federate until one matches its identity claims.</td></tr>
             {/each}
           </tbody>
         </table>
         {#if addingBinding}
           <form class="grid-form binding-form" onsubmit={addBinding}>
             <label class="field"><span class="label">Name</span><input class="input" bind:value={bName} placeholder="atlas-ci" required /></label>
-            <label class="field"><span class="label">{activeProvider.claimLabel} <span class="folio mono">({activeProvider.claimKey})</span></span><input class="input mono" bind:value={bClaim} placeholder={activeProvider.claimExample} required /></label>
+            <label class="field"><span class="label">Issuer</span>
+              <select class="select" bind:value={bIssuerId}>
+                {#each issuers as iss}<option value={iss.id}>{providerFor(iss.issuer, iss.preset).label} · {iss.issuer}</option>{/each}
+              </select>
+            </label>
+            {#each bProvider.claims as c (c.key)}
+              <label class="field"><span class="label">{c.label} <span class="folio mono">({c.key})</span></span><input class="input mono" bind:value={bClaims[c.key]} placeholder={c.example} required /></label>
+            {/each}
             <label class="field"><span class="label">Scope kind</span>
               <select class="select" bind:value={bScopeKind}><option value="config">config</option><option value="environment">environment</option></select>
             </label>
@@ -299,7 +354,7 @@
             </div>
           </form>
         {:else}
-          <button class="btn btn-sm add-binding" onclick={() => (addingBinding = true)}>+ Trust binding</button>
+          <button class="btn btn-sm add-binding" onclick={startBindingAdd}>+ Trust binding</button>
         {/if}
       {/if}
     </div>

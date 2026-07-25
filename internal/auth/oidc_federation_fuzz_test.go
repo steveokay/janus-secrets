@@ -58,6 +58,82 @@ func FuzzStringClaims(f *testing.F) {
 	})
 }
 
+// FuzzFlattenClaims feeds arbitrary JSON claim sets through the dotted-path
+// projection that federation bindings actually match on. Three properties must
+// hold for any input a (possibly hostile) issuer can produce: the result is
+// deterministic despite Go's randomized map iteration, no value is invented or
+// coerced (every projected value must be a string that literally appears in the
+// payload), and top-level string claims are never shadowed by a nested path.
+func FuzzFlattenClaims(f *testing.F) {
+	for _, seed := range []string{
+		`{"sub":"system:serviceaccount:prod:api","kubernetes.io":{"namespace":"prod","serviceaccount":{"name":"api"}}}`,
+		`{"a.b":"x","a":{"b":"y"}}`, `{"a":{"b.c":"x"},"a.b":{"c":"y"}}`,
+		`{"aud":["janus"]}`, `{"aud":["a","b"]}`, `{"aud":"janus"}`, `{"aud":[42]}`,
+		`{"kubernetes.io":{"pod":{"uid":42}}}`, `{"nested":{"deep":{"deeper":{"x":"y"}}}}`,
+		`{"oidc.circleci.com/project-id":"p"}`, `{"":{"":"x"}}`, `{".":{".":"x"}}`,
+		`{"repository":"acme/app","repository_id":42}`, `{}`, `null`, `not json`,
+	} {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, payload string) {
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(payload), &raw); err != nil || raw == nil {
+			return // not a JSON object: never reaches flattenClaims
+		}
+
+		got, err := flattenClaims(raw)
+		again, errAgain := flattenClaims(raw)
+		if (err == nil) != (errAgain == nil) {
+			t.Fatalf("flattenClaims is order-dependent: %v vs %v (payload %q)", err, errAgain, payload)
+		}
+		if err != nil {
+			return // ambiguous / too deep / too many: rejected, nothing to check
+		}
+		if len(got) != len(again) {
+			t.Fatalf("flattenClaims is not deterministic (payload %q)", payload)
+		}
+		for k, v := range again {
+			if got[k] != v {
+				t.Fatalf("flattenClaims is not deterministic at %q (payload %q)", k, payload)
+			}
+		}
+
+		// No invented or coerced values: every projected value must be a string
+		// that literally occurs somewhere in the claim set.
+		strs := map[string]bool{}
+		var walk func(any)
+		walk = func(v any) {
+			switch t := v.(type) {
+			case string:
+				strs[t] = true
+			case map[string]any:
+				for _, e := range t {
+					walk(e)
+				}
+			case []any:
+				for _, e := range t {
+					walk(e)
+				}
+			}
+		}
+		walk(raw)
+		for k, v := range got {
+			if !strs[v] {
+				t.Fatalf("flattenClaims invented value for %q: %q (payload %q)", k, v, payload)
+			}
+		}
+		// Top-level string claims survive with their literal keys: a nested path
+		// must never shadow one (that would silently redefine what a binding
+		// pinning that key matches).
+		for k, rv := range raw {
+			if s, isString := rv.(string); isString && got[k] != s {
+				t.Fatalf("flattenClaims shadowed top-level claim %q (%q → %q)", k, s, got[k])
+			}
+		}
+	})
+}
+
 // FuzzClaimsSatisfyFailClosed pins the matching rule that decides whether a CI
 // token is allowed to mint a Janus service token. Two properties matter:
 // an EMPTY requirement set must never match (a binding that pins nothing must

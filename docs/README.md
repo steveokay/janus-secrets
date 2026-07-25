@@ -122,10 +122,10 @@ Task-oriented walkthroughs for the common workflows:
 - [OIDC login](oidc.md) — human sign-in via a generic OIDC provider
   (Authorization Code + PKCE + state + nonce), master-key-wrapped client secret,
   and admin config under `/v1/sys/oidc`. **Implemented.**
-- [CI federation](ci-federation.md) — OIDC-federated machine identity: exchanging
-  a CI OIDC JWT (**GitHub Actions, GitLab, Buildkite, CircleCI**) for a
-  short-lived scoped service token via provider-aware structured-claim trust
-  bindings. **Implemented.**
+- [Federation](ci-federation.md) — OIDC-federated machine identity: exchanging a
+  workload OIDC JWT (**GitHub Actions, GitLab, Buildkite, CircleCI, Kubernetes
+  service accounts**) for a short-lived scoped service token via provider-aware
+  structured-claim trust bindings, over a multi-issuer trust set. **Implemented.**
 - [Web UI](web.md) — the embedded **Atrium** SPA (Svelte, dual-theme
   "Security Printing" design): init/unseal/login ceremony, the secret editor
   (import/export, multi-line + JSON/PEM-aware values, bulk select, per-key

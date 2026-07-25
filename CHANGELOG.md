@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Kubernetes service-account federation + multi-issuer trust.** The federation
+  trust anchor is now a *set* of issuers (`/v1/sys/oidc/federation/issuers`), so a
+  CI provider and a Kubernetes cluster can be trusted at the same time; every
+  trust binding is pinned to one issuer, and the verifier is chosen by the
+  token's own `iss` (signature checked against that issuer's JWKS), so a token
+  from one issuer can never satisfy a binding written for another. Nested JWT
+  claims are matched by dotted path (`kubernetes.io.serviceaccount.name`) with
+  non-string values still dropped rather than coerced and any path collision
+  rejecting the token. A `kubernetes` preset forces bindings to pin
+  service-account identity (`sub`, or namespace + service-account name).
+  The pre-existing single issuer and its bindings are preserved on upgrade.
 - **`janus run --watch`** — supervise the child and gracefully restart it
   (SIGTERM → grace → Kill) when the bound config's version bumps, re-fetching
   secrets; poll cadence via `--watch-interval` (default `10s`).

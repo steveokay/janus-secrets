@@ -163,14 +163,14 @@ tokens behave once minted.
 
 ### Trust bindings (admin, one-time)
 
-For any of this to work an **admin** must first configure the federation
-provider (issuer + audience) and at least one trust binding via the
-`oidc:manage` admin API. A binding maps a set of claim conditions to a
-scope, an access level, and a TTL. The safety rules are non-negotiable: a
-binding **must** include a non-empty `repository` claim, **exactly one**
-binding may match a given token (zero or multiple → denied), the audience
-is exact-matched, and the TTL is **capped at 1h** (default 15m). A
-representative binding:
+For any of this to work an **admin** must first trust the GitHub Actions
+issuer (issuer + audience) and create at least one trust binding via the
+`oidc:manage` admin API. A binding is pinned to one trusted issuer and maps a
+set of claim conditions to a scope, an access level, and a TTL. The safety
+rules are non-negotiable: a GitHub binding **must** include a non-empty
+`repository` claim, **exactly one** binding **for that issuer** may match a
+given token (zero or multiple → denied), the audience is exact-matched, and
+the TTL is **capped at 1h** (default 15m). A representative binding:
 
 ```json
 {

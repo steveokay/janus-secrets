@@ -334,15 +334,26 @@ components:
         enabled: { type: boolean }
     FederationConfigView:
       type: object
+      description: >-
+        One trusted federation issuer. Several may be configured at once (CI
+        provider + Kubernetes cluster); see /v1/sys/oidc/federation/issuers.
       properties:
+        id: { type: string, format: uuid }
         issuer: { type: string }
         audience: { type: string }
+        preset:
+          type: string
+          enum: ["", github, gitlab, buildkite, circleci, kubernetes, custom]
+          description: Selects the provider-aware required-claim rule for bindings on this issuer.
         enabled: { type: boolean }
     FederationBinding:
       type: object
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        issuer:
+          type: string
+          description: The trusted issuer this binding is pinned to; tokens from any other issuer can never satisfy it.
         match_claims:
           type: object
           additionalProperties: { type: string }
@@ -4298,6 +4309,9 @@ paths:
                     defaults to GitHub Actions.
                   example: "https://token.actions.githubusercontent.com"
                 audience: { type: string }
+                preset:
+                  type: string
+                  enum: ["", github, gitlab, buildkite, circleci, kubernetes, custom]
                 enabled: { type: boolean }
       responses:
         "200":
@@ -4310,12 +4324,69 @@ paths:
                   ok: { type: boolean }
         "400": { description: Invalid federation config. }
         "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Several issuers are trusted; use /v1/sys/oidc/federation/issuers. }
     delete:
       tags: [sys]
-      summary: Delete the OIDC CI-federation configuration
+      summary: Delete the OIDC CI-federation configuration (removes every trusted issuer)
       responses:
         "204": { description: Deleted. }
         "403": { $ref: '#/components/responses/Forbidden' }
+  # --- multi-issuer federation trust set (roadmap 7.3) ---
+  /v1/sys/oidc/federation/issuers:
+    get:
+      tags: [sys]
+      summary: List every trusted federation issuer (CI providers and Kubernetes clusters)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/FederationConfigView' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [sys]
+      summary: Add or update ONE trusted federation issuer (leaves the others untouched)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [issuer, audience]
+              properties:
+                issuer:
+                  type: string
+                  description: >-
+                    OIDC issuer URL (absolute http(s), no implicit default).
+                    Kubernetes clusters use their own `--service-account-issuer`
+                    URL, e.g. `https://oidc.eks.eu-west-1.amazonaws.com/id/<hash>`.
+                  example: "https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE"
+                audience: { type: string, example: janus }
+                preset:
+                  type: string
+                  enum: ["", github, gitlab, buildkite, circleci, kubernetes, custom]
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FederationConfigView' }
+        "400": { description: Invalid issuer, audience or preset. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/sys/oidc/federation/issuers/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [sys]
+      summary: Stop trusting one federation issuer (its bindings become inert)
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  # --- end multi-issuer federation trust set ---
   /v1/sys/oidc/federation/bindings:
     get:
       tags: [sys]
@@ -4340,15 +4411,22 @@ paths:
               type: object
               properties:
                 name: { type: string, example: deploy-prod }
+                issuer:
+                  type: string
+                  description: >-
+                    The trusted issuer to pin this binding to. Optional when
+                    exactly one issuer is trusted; required once several are.
                 match_claims:
                   type: object
                   additionalProperties: { type: string }
                   description: >-
-                    Exact claim conditions (all AND-ed). Must constrain at least
-                    one strong identifying claim for the configured issuer
-                    (GitHub `repository`, GitLab `project_path`, Buildkite
-                    `organization_slug`, CircleCI project-id; any non-empty claim
-                    for a custom issuer). Empty values are rejected.
+                    Exact claim conditions (all AND-ed). Nested JWT claims are
+                    matched by dotted path (`kubernetes.io.serviceaccount.name`).
+                    Must constrain at least one strong identifying claim for the
+                    binding's issuer (GitHub `repository`, GitLab `project_path`,
+                    Buildkite `organization_slug`, CircleCI project-id,
+                    Kubernetes `sub` or namespace + service-account name; any
+                    non-empty claim for a custom issuer). Empty values are rejected.
                   example: { repository: "acme/web" }
                 scope_kind: { type: string, enum: [config, environment] }
                 scope_id: { type: string, format: uuid }
