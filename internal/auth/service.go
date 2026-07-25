@@ -76,7 +76,7 @@ type Service struct {
 	oidcFedConfig   *store.OIDCFederationConfigRepo
 	oidcFedBindings *store.OIDCFederationBindingRepo
 	fedMu           sync.Mutex
-	fedCache        *fedVerifier
+	fedCache        map[string]*fedVerifier // keyed by normalized trusted issuer
 }
 
 // NewService builds the repositories from st. kr is the (possibly still

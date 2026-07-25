@@ -358,9 +358,11 @@ export type SaveResult =
 /* OIDC provider + CI federation (admin) */
 export interface OIDCProviderView { name: string; issuer: string; client_id: string; scopes: string[]; redirect_url: string; enabled: boolean; secret_set: boolean }
 export interface OIDCConfigInput { name: string; issuer: string; client_id: string; client_secret: string; scopes: string[]; redirect_url: string; enabled: boolean }
-export interface FederationConfigView { issuer: string; audience: string; enabled: boolean }
+/* One trusted federation issuer. Several may be trusted at once (a CI provider
+   AND a Kubernetes cluster) — see listFederationIssuers below. */
+export interface FederationConfigView { id?: string; issuer: string; audience: string; preset?: string; enabled: boolean }
 export interface FederationBindingView {
-  id: string; name: string; match_claims: Record<string, string>
+  id: string; name: string; issuer?: string; match_claims: Record<string, string>
   scope_kind: 'config' | 'environment'; scope_id: string
   access: 'read' | 'readwrite'; ttl_seconds: number; enabled: boolean
 }
@@ -671,6 +673,11 @@ export const api = {
   listFederationBindings: () => get<FederationBindingView[]>('/v1/sys/oidc/federation/bindings'),
   createFederationBinding: (b: FederationBindingInput) => post<FederationBindingView>('/v1/sys/oidc/federation/bindings', b),
   deleteFederationBinding: (id: string) => del<void>(`/v1/sys/oidc/federation/bindings/${id}`),
+  // --- multi-issuer federation trust set (roadmap 7.3) ---
+  listFederationIssuers: () => get<FederationConfigView[]>('/v1/sys/oidc/federation/issuers'),
+  putFederationIssuer: (iss: FederationConfigView) => post<FederationConfigView>('/v1/sys/oidc/federation/issuers', iss),
+  deleteFederationIssuer: (id: string) => del<void>(`/v1/sys/oidc/federation/issuers/${id}`),
+  // --- end multi-issuer federation trust set ---
 
   // account + master key + backup
   changePassword: (current_password: string, new_password: string) =>

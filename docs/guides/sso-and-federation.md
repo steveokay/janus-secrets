@@ -18,35 +18,45 @@ save, and the read view only reports whether one is set. The flow is
 Authorization Code + PKCE with state/nonce; tested against GitHub and Google.
 Password login keeps working alongside SSO.
 
-## CI federation (machines, no long-lived secret)
+## Machine identity federation (no long-lived secret)
 
-Lets a CI pipeline exchange its runtime OIDC JWT for a short-lived scoped
-`janus_svc_…` token — nothing stored in CI. **GitHub Actions, GitLab CI/CD,
-Buildkite, and CircleCI** are supported; **one provider is active at a time**.
+Lets a CI pipeline — or a Kubernetes pod — exchange its runtime OIDC JWT for a
+short-lived scoped `janus_svc_…` token, with nothing stored in CI or in the
+cluster. **GitHub Actions, GitLab CI/CD, Buildkite, CircleCI and Kubernetes
+service accounts** are supported, and **several issuers can be trusted at once**
+(each trust binding is pinned to one issuer, so they cannot impersonate each
+other).
 
-1. **CI federation → Configure**: pick a **provider preset** (fills the issuer
-   URL and hints the claim to bind), then set the audience your pipelines will
-   request (commonly your Janus URL). Issuers:
+1. **Machine identity federation → Configure / + Trusted issuer**: pick a
+   **provider preset** (fills the issuer URL where it is fixed and names the
+   claims to bind), then set the audience your workloads will request (commonly
+   your Janus URL). Issuers:
 
-   | Provider | Issuer | Strong claim to bind |
+   | Provider | Issuer | Strong claim(s) to bind |
    |---|---|---|
    | GitHub Actions | `https://token.actions.githubusercontent.com` | `repository` |
    | GitLab CI/CD | `https://gitlab.com` (or self-hosted URL) | `project_path` |
    | Buildkite | `https://agent.buildkite.com` | `organization_slug` |
    | CircleCI | `https://oidc.circleci.com/org/<ORG_ID>` | `oidc.circleci.com/project-id` |
+   | Kubernetes | cluster-specific (`kubectl get --raw /.well-known/openid-configuration`) | `kubernetes.io.namespace` + `kubernetes.io.serviceaccount.name`, or `sub` |
 
-2. **+ Trust binding**: name, the provider's strong identifying claim value the
-   JWT must carry, scope (a config or environment), access (read / read-write),
-   TTL (≤ 1 hour). Every binding must constrain at least one strong claim for
-   the configured provider (a claim-less binding is rejected). A pipeline can
-   federate only if **exactly one** enabled binding matches its claims.
-3. In the pipeline, request an ID token and exchange it at
+   The cluster issuer must be reachable from Janus — EKS and GKE publish theirs
+   publicly, most self-hosted clusters do not. See the
+   [federation reference](../ci-federation.md#kubernetes-service-accounts).
+
+2. **+ Trust binding**: name, the issuer, the strong identifying claim value(s)
+   the JWT must carry, scope (a config or environment), access (read /
+   read-write), TTL (≤ 1 hour). Every binding must constrain at least one strong
+   claim for its issuer (a claim-less binding is rejected). A workload can
+   federate only if **exactly one** enabled binding **for its issuer** matches
+   its claims.
+3. In the pipeline (or the Pod spec), request an ID token and exchange it at
    `POST /v1/auth/oidc/federate` — full YAML per provider in the
-   [CI federation reference](../ci-federation.md); the GitHub flow is also in the
+   [federation reference](../ci-federation.md); the GitHub flow is also in the
    [GitHub Actions guide](github-actions.md).
 
-Delete a binding to cut that pipeline off immediately; disable the federation
-config to stop all exchanges.
+Delete a binding to cut that workload off immediately; disable or remove a
+trusted issuer to stop all exchanges for it (the others keep working).
 
 ## Outbound sync summary
 

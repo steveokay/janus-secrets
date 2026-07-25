@@ -329,6 +329,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation/bindings", s.handleFederationBindingsList)
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Post("/oidc/federation/bindings", s.handleFederationBindingCreate)
 			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/bindings/{id}", s.handleFederationBindingDelete)
+			// --- multi-issuer federation trust set (roadmap 7.3) ---
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Get("/oidc/federation/issuers", s.handleFederationIssuersList)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Post("/oidc/federation/issuers", s.handleFederationIssuerPut)
+			r.With(RequireAuth(s.auth, s), s.requireInstance(authz.OIDCManage, "oidc.federation", "oidc")).Delete("/oidc/federation/issuers/{id}", s.handleFederationIssuerDelete)
+			// --- end multi-issuer federation trust set ---
 			// Master-key rotation + Shamir rekey ceremony (owner-only). Owner-only
 			// is enforced in-handler via s.authorize/s.can (authz.SysMasterKey), so
 			// only RequireAuth is applied here. Mounted when the service is wired.
