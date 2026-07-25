@@ -1,0 +1,312 @@
+# Janus — example alerting rules
+#
+# Format: a standard **Prometheus rule file** (`groups:` → `rules:` with
+# `alert` / `expr` / `for` / `labels` / `annotations`). Validated with
+# `promtool check rules` from Prometheus 3.x; the same file loads unchanged in
+# Prometheus 2.x, in the Grafana Mimir / Cortex ruler, and in Grafana 11+
+# Alerting via "Alert rules → Import → Prometheus-style rules" (or the
+# `mimirtool`/`cortextool` rule sync). It is *not* Grafana's own provisioning
+# schema (`apiVersion: 1` + `groups[].rules[].grafana_alert`), because the
+# Prometheus form is portable across all of the above and is what the metrics
+# themselves are native to.
+#
+# These are EXAMPLES with defensible defaults, not a policy. Read the rationale
+# on each rule and tune the threshold and `for:` to your instance before
+# enabling. Wire them up with:
+#
+#   rule_files:
+#     - /etc/prometheus/rules/janus-alerts.yaml
+#
+# Selector note: every `janus_*` series is unambiguous on its own, so most rules
+# carry no job selector — add one (`{job="janus"}`) if you scrape other
+# exporters that could collide. The two rules that MUST name the job are the
+# ones about the target itself (`up`, `absent`), because there is no Janus
+# series to select when Janus is gone; change `job="janus"` there to match your
+# `scrape_configs` job name.
+#
+# Metric-type note: `janus_rotation_runs_failed`, `janus_sync_runs_failed` and
+# `janus_audit_head_seq` are exported as **gauges** (scrape-time COUNTs), even
+# though they only move up in practice. That is why the rules below compare
+# against an `offset` window instead of using `rate()` / `increase()`, which
+# are only correct on counters.
+
+groups:
+  # ------------------------------------------------------------------------
+  - name: janus.availability
+    interval: 30s
+    rules:
+      - alert: JanusSealed
+        # janus_sealed is 1 while the master key is not in memory. A sealed
+        # server answers 503 to every secret operation — the CLI, `janus run`,
+        # CI, and the UI are all down. 5m of tolerance covers a rolling restart
+        # with KMS auto-unseal (seconds) while still paging fast on a Shamir
+        # instance nobody unsealed.
+        expr: max by (job, instance) (janus_sealed) == 1
+        for: 5m
+        labels:
+          severity: critical
+          service: janus
+        annotations:
+          summary: "Janus is sealed on {{ $labels.instance }}"
+          description: >-
+            Janus holds no master key and is returning 503 for every secret read
+            and write. If this instance uses cloud-KMS auto-unseal, check the
+            server logs for a KMS/permission error (IRSA / workload-identity
+            expiry, key policy, region). If it uses Shamir, run the unseal
+            ceremony now: `janus unseal` with the required threshold of shares.
+            Confirm with `GET /v1/sys/seal-status`.
+
+      - alert: JanusDown
+        # The synthetic `up` series: the scrape itself failed. Also fires if
+        # JANUS_METRICS_TOKEN was rotated without updating Prometheus — check
+        # that before declaring an outage. 2m ≈ 4 missed scrapes at 30s.
+        expr: up{job="janus"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: janus
+        annotations:
+          summary: "Janus scrape target is down ({{ $labels.instance }})"
+          description: >-
+            Prometheus cannot scrape Janus. Check the process/pod is running and
+            its liveness probe (`/v1/sys/live`) answers, then check that the
+            scrape credential still matches JANUS_METRICS_TOKEN — a rotated
+            token returns 401 and looks identical to an outage from here. If the
+            endpoint returns 404, the token is unset entirely and /metrics is
+            disabled.
+
+      - alert: JanusTargetAbsent
+        # `up` cannot fire if the target vanished from service discovery
+        # altogether (deleted Deployment, bad relabel). absent() catches that.
+        expr: absent(janus_build_info{job="janus"})
+        for: 10m
+        labels:
+          severity: critical
+          service: janus
+        annotations:
+          summary: "No Janus target is being scraped at all"
+          description: >-
+            No janus_build_info series exists, so Janus has disappeared from
+            service discovery rather than merely failing to answer. Check that
+            the workload still exists and that your scrape_configs / relabel
+            rules still select it.
+
+      - alert: JanusRestartLoop
+        # janus_start_time_seconds is stamped once at boot, so a change means a
+        # restart. >2 restarts in 15m is a crash loop, not a deploy. Migrations
+        # run on boot, so a crash loop can also be a failing migration.
+        expr: changes(janus_start_time_seconds[15m]) > 2
+        for: 0m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus restarted more than twice in 15m ({{ $labels.instance }})"
+          description: >-
+            The process start time changed repeatedly. Read the container logs
+            from the first failure — the usual causes are an unreachable or
+            unmigratable database (migrations run at boot), a bad seal/KMS
+            configuration, or the OOM killer. Note each restart re-seals a
+            Shamir instance.
+
+  # ------------------------------------------------------------------------
+  - name: janus.http
+    interval: 30s
+    rules:
+      - alert: JanusHighErrorRate
+        # 5% of requests failing with a server fault, sustained for 10m. The
+        # clamp_min keeps the ratio defined on a near-idle instance. 5xx also
+        # covers the 503 a sealed server returns, so always read this next to
+        # JanusSealed before chasing a code bug.
+        expr: >-
+          sum by (job, instance) (rate(janus_http_requests_total{status=~"5.."}[5m]))
+            /
+          clamp_min(sum by (job, instance) (rate(janus_http_requests_total[5m])), 0.001)
+            > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus 5xx ratio above 5% on {{ $labels.instance }}"
+          description: >-
+            More than 5% of requests are failing server-side. First check
+            janus_sealed — a sealed server answers 503 and shows up here. If it
+            is unsealed, break the rate down by route
+            (`sum by (route, status) (rate(janus_http_requests_total{status=~"5.."}[5m]))`)
+            and check database reachability on the health panel
+            (`GET /v1/sys/status`).
+
+      - alert: JanusLatencyHigh
+        # p95 over 1s for 15m. Janus requests are a DB round-trip plus an
+        # AES-GCM unwrap; healthy p95 is single-digit ms, so 1s means the
+        # database or the connection pool is in trouble.
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (job, instance, le) (rate(janus_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 15m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus p95 request latency above 1s on {{ $labels.instance }}"
+          description: >-
+            Requests are an order of magnitude slower than the expected
+            single-digit-millisecond p95. Check DB pool saturation
+            (janus_db_pool_conns) and Postgres itself — slow queries, autovacuum,
+            or a saturated disk. Break down by route with
+            `histogram_quantile(0.95, sum by (route, le) (rate(janus_http_request_duration_seconds_bucket[5m])))`.
+
+  # ------------------------------------------------------------------------
+  - name: janus.schedulers
+    interval: 30s
+    rules:
+      - alert: JanusSchedulerStalled
+        # rotation / sync / dynamic all tick every 60s by default, so 300s is
+        # 5 missed ticks — beyond any plausible jitter or slow pass. This is a
+        # silent failure mode: nothing errors, scheduled work just stops.
+        # If you lengthened JANUS_*_TICK, raise this to ~5x your interval.
+        expr: time() - janus_scheduler_last_tick_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus {{ $labels.engine }} scheduler has not ticked in over 5 minutes"
+          description: >-
+            The {{ $labels.engine }} loop is not running. Scheduled rotations,
+            secret syncs and dynamic-lease revocation stop silently when this
+            happens — no request fails, the work simply never occurs. Check the
+            server logs and the Schedulers section of the health panel
+            (`GET /v1/sys/status`); a restart re-arms every loop. Note a sealed
+            server does not run the engines, so check janus_sealed first.
+
+      - alert: JanusRotationFailuresIncreasing
+        # Gauge, so compare against an offset rather than using increase().
+        # Any new failure inside an hour is worth a ticket: a rotation that did
+        # not complete can leave a credential the consumers no longer hold.
+        expr: janus_rotation_runs_failed - (janus_rotation_runs_failed offset 1h) > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "New failed rotation runs on {{ $labels.instance }}"
+          description: >-
+            At least one rotation run failed in the last hour. Open the
+            Operations console (or `GET /v1/rotation/policies/{id}/runs`) to read
+            the failing run's error, then fix the target credential/webhook and
+            re-run. A half-applied rotation can leave the upstream system holding
+            a password Janus no longer has.
+
+      - alert: JanusSyncFailuresIncreasing
+        expr: janus_sync_runs_failed - (janus_sync_runs_failed offset 1h) > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "New failed sync runs on {{ $labels.instance }}"
+          description: >-
+            At least one sync run failed in the last hour, so a downstream
+            destination (GitHub Actions, Kubernetes Secret, SSM, …) is now
+            serving stale secret material. Check the target's run history in the
+            Operations console; the usual causes are an expired destination
+            credential or a revoked permission.
+
+      - alert: JanusDynamicLeasesUnreapable
+        # Active dynamic credentials plus a dead lease manager = database
+        # credentials that will outlive their TTL because nothing is left to
+        # revoke them. This is a security issue, not just an ops one.
+        expr: >-
+          (janus_dynamic_leases_active > 0)
+            and on (job, instance)
+          (time() - janus_scheduler_last_tick_seconds{engine="dynamic"} > 300)
+        for: 5m
+        labels:
+          severity: critical
+          service: janus
+        annotations:
+          summary: "Dynamic leases are active but the lease manager is stalled"
+          description: >-
+            There are live dynamic Postgres credentials and the `dynamic`
+            scheduler has stopped ticking, so expired leases will not be revoked
+            — the credentials outlive their TTL. Restart Janus to re-arm the
+            lease manager (it also runs a revoke-on-startup sweep for orphaned
+            leases), then confirm the active-lease count falls.
+
+  # ------------------------------------------------------------------------
+  - name: janus.storage
+    interval: 30s
+    rules:
+      - alert: JanusDBPoolExhausted
+        # acquired/max above 90% sustained for 10m. Below that, bursts are
+        # normal; above it, requests are queueing on connection checkout and
+        # latency is about to follow.
+        expr: >-
+          janus_db_pool_conns{state="acquired"}
+            / on (job, instance)
+          janus_db_pool_conns{state="max"}
+            > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus database pool is over 90% acquired on {{ $labels.instance }}"
+          description: >-
+            Nearly every pooled connection is checked out, so new requests are
+            waiting on the pool. Raise JANUS_DB_MAX_CONNS (and Postgres'
+            max_connections to match), or find the slow query holding
+            connections — check p95 latency and Postgres pg_stat_activity.
+
+  # ------------------------------------------------------------------------
+  - name: janus.audit
+    interval: 30s
+    rules:
+      - alert: JanusAuditHeadNotAdvancing
+        # Every audited mutation fails closed if the audit write fails, so a
+        # frozen chain head while real (non-/v1/sys) traffic is succeeding is an
+        # outage. The traffic gate (>20 successful non-sys requests in 30m)
+        # stops this firing on a genuinely idle instance, where a flat head is
+        # correct. Health probes are excluded because they are not audited.
+        expr: >-
+          (janus_audit_head_seq - (janus_audit_head_seq offset 30m) == 0)
+            and on (job, instance)
+          (sum by (job, instance) (increase(janus_http_requests_total{status=~"2..", route!~"/v1/sys/.*"}[30m])) > 20)
+        for: 15m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus audit chain head is not advancing on {{ $labels.instance }}"
+          description: >-
+            Successful non-health traffic is being served but the hash-chain head
+            has not moved in 30 minutes. Either only read-only, non-audited
+            endpoints are in use, or audit writes are failing. Check the server
+            logs and run `GET /v1/audit/verify` to confirm the chain is still
+            intact; audit-write failure fails the request, so investigate before
+            assuming it is benign.
+
+  # ------------------------------------------------------------------------
+  - name: janus.runtime
+    interval: 30s
+    rules:
+      - alert: JanusGoroutineLeak
+        # Janus is a single-node server whose steady state is tens of
+        # goroutines. 2000 sustained for 30m is far outside normal and is the
+        # classic leak signature; tune upward if you run very high concurrency.
+        expr: janus_go_goroutines > 2000
+        for: 30m
+        labels:
+          severity: warning
+          service: janus
+        annotations:
+          summary: "Janus goroutine count above 2000 on {{ $labels.instance }}"
+          description: >-
+            Goroutines are far above the expected steady state (tens). If the
+            count climbs monotonically it is a leak — capture the graph and the
+            server version, restart to restore service, and file an issue with
+            the trend.
