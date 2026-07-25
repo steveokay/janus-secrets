@@ -160,7 +160,7 @@ Running Janus and connecting it to the outside world:
 - [Kubernetes integration](guides/kubernetes.md) — the end-to-end k8s how-to
   (cluster RBAC, consuming the Secret, refreshing pods) built on the sync
   reference.
-- [Dynamic Postgres credentials](ops/dynamic.md) — Vault-style short-lived
+- [Dynamic Postgres credentials](ops/dynamic.md) — short-lived
   database roles with a TTL/renewal/revocation lease manager. **Implemented.**
 
 ## API reference

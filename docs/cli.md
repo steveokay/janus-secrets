@@ -523,7 +523,7 @@ unknown key) rather than silently emitting an empty string. Values are
 stored values verbatim.
 
 > **The rendered `--out` file contains plaintext secret VALUES by design.** This
-> is the command's explicit purpose (Vault-agent–style templating), analogous to
+> is the command's explicit purpose (secret-file templating), analogous to
 > `download --plain`. Unlike `download`, it is **not** gated behind a `--plain`
 > flag — rendering to a file *is* the operation — but janus prints a one-line
 > stderr notice that the output may contain secret values. Protect the output
@@ -685,7 +685,7 @@ Shamir ceremony, how many shares have been submitted so far.
 
 Thin CLI fronts for the Phase 3 engines — scheduled secret rotation
 (Postgres password / webhook rotators), one-way sync to GitHub Actions /
-Kubernetes, and Vault-style dynamic Postgres credentials with a lease
+Kubernetes, and dynamic Postgres credentials with a lease
 manager. All three follow the same `create/list/get/update/delete` shape
 plus an engine-specific action (`rotation rotate`, `sync sync`,
 `dynamic creds`/`renew`/`revoke`/`leases`). Full flag reference, the SQL/

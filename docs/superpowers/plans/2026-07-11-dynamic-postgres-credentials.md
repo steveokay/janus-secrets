@@ -4,7 +4,7 @@
 
 **Goal:** Add on-demand, short-lived Postgres credentials to Janus with a lease manager that enforces TTL, renewal, revocation on expiry, and revoke-on-startup cleanup of crash-orphaned leases.
 
-**Architecture:** A new `internal/dynamic/` package mirrors the shipped `internal/rotation/` and `internal/secretsync/` packages: config-scoped rows with an envelope-encrypted config blob, an in-process due-scan scheduler on a `JANUS_DYNAMIC_TICK`, and a post-unseal sweep. An admin registers a *dynamic role* holding Vault-style `creation`/`revocation`/`renew` SQL templates + admin DSN + TTLs. Issuing creds runs the creation SQL to mint a unique Postgres role and records a *lease*; the lease manager drops the DB role on expiry. Postgres-only (per CLAUDE.md non-goals).
+**Architecture:** A new `internal/dynamic/` package mirrors the shipped `internal/rotation/` and `internal/secretsync/` packages: config-scoped rows with an envelope-encrypted config blob, an in-process due-scan scheduler on a `JANUS_DYNAMIC_TICK`, and a post-unseal sweep. An admin registers a *dynamic role* holding `creation`/`revocation`/`renew` SQL templates + admin DSN + TTLs. Issuing creds runs the creation SQL to mint a unique Postgres role and records a *lease*; the lease manager drops the DB role on expiry. Postgres-only (per CLAUDE.md non-goals).
 
 **Tech Stack:** Go stdlib + `github.com/jackc/pgx/v5`, `chi` router, `cobra` CLI, `golang-migrate` SQL migrations, testcontainers-go for integration tests. Envelope crypto reuses `internal/crypto` (stdlib AES-256-GCM).
 
@@ -2717,7 +2717,7 @@ git commit -m "test(dynamic): password-leak coverage + docs(status): Phase 3.3 d
 ## Self-Review (completed by plan author)
 
 **Spec coverage:**
-- Vault-style templates → Task 4/5 (`RoleConfig`, `interpolate`, placeholder validation Task 6). ✓
+- SQL templates → Task 4/5 (`RoleConfig`, `interpolate`, placeholder validation Task 6). ✓
 - Config-scoped, envelope-encrypted → Task 2 (AAD), Task 3 (schema), Task 4 (`sealConfig`/`openConfig`), Task 6 (`projectForConfig`). ✓
 - Two tables, password-never-persisted → Task 1, Task 7 (`IssueCreds` returns password, stores only `db_username`). ✓
 - Crash-safe persist→apply→commit → Task 7 (reserve `creating` → apply → `Activate`). ✓

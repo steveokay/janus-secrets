@@ -252,7 +252,7 @@ In `internal/crypto/shamir.go`:
 	var parts [][]byte
 	if s.shares == 1 && s.threshold == 1 {
 		// Single-share seal (dev/simple deployments): the vendored shamir
-		// library requires threshold >= 2, so — like Vault — the one share is
+		// library requires threshold >= 2, so the one share is
 		// the master key itself. The KCV still rejects a wrong share at unseal.
 		parts = [][]byte{append([]byte(nil), master...)}
 	} else {

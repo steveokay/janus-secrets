@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A Vault-style transit "encryption as a service" engine — instance-scoped named keys with encrypt/decrypt/sign/verify/rewrap/datakey, versioning, `min_decryption_version`, rotate, and trim — over `/v1/transit/*`, RBAC-enforced and (for management ops) audited.
+**Goal:** A transit "encryption as a service" engine — instance-scoped named keys with encrypt/decrypt/sign/verify/rewrap/datakey, versioning, `min_decryption_version`, rotate, and trim — over `/v1/transit/*`, RBAC-enforced and (for management ops) audited.
 
 **Architecture:** New `internal/transit` engine reusing `internal/crypto` (AEAD + wrap/unwrap + the unsealed master key) and a crypto-blind `store.TransitRepo`. New stdlib-Ed25519 helpers in `internal/crypto`. Thin `internal/api` handlers over the existing `s.authorize`/`s.can`/`s.record`/`writeServiceError` seam. A new `transit` service-token scope plugs into the existing token+authz model.
 

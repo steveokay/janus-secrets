@@ -17,7 +17,7 @@ exactly once, at issue time, and is never persisted, logged, or audited.
 There is nothing to reveal later — if you lose it, revoke the lease and
 issue a new one.
 
-This is the Vault "database secrets engine" model, scoped to Postgres.
+This is the database-secrets-engine model, scoped to Postgres.
 
 ## SQL templates
 

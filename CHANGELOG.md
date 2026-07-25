@@ -11,7 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (SIGTERM → grace → Kill) when the bound config's version bumps, re-fetching
   secrets; poll cadence via `--watch-interval` (default `10s`).
 - **`janus render`** — fill a Go `text/template` with a config's secrets and
-  write it to a file (atomic, `0600`), Vault-agent style; `--watch` re-renders on
+  write it to a file (atomic, `0600`); `--watch` re-renders on
   version bumps.
 - **Audit hash-chain checkpointing + retention** — owner-only
   (`audit:manage`) `POST/GET /v1/audit/checkpoint` and `POST /v1/audit/prune`.
