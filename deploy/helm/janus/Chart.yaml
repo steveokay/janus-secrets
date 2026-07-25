@@ -1,7 +1,7 @@
 apiVersion: v2
 name: janus
 description: >-
-  Janus — a self-hosted, single-tenant secrets manager (Doppler-style
+  Janus — a self-hosted, single-tenant secrets manager (a
   project/env/config model, Vault-style transit + dynamic secrets, KMS-style
   encrypt-as-a-service). Deploys as one Go binary against a bring-your-own
   Postgres. Single-node by design (HA is an explicit non-goal): this chart
@@ -19,7 +19,6 @@ keywords:
   - secrets
   - secrets-manager
   - vault
-  - doppler
   - kms
   - encryption
   - single-tenant
