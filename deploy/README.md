@@ -16,6 +16,7 @@ unseal / monitoring reference each mode links into.
 ```
 deploy/
   helm/janus/     Helm chart for Kubernetes
+  grafana/        Grafana dashboard + example Prometheus alert rules
 ```
 
 Raw `kubectl apply` YAML (Secret + Deployment + Service, hardened) lives inline
@@ -87,6 +88,36 @@ helm lint deploy/helm/janus
 helm template janus deploy/helm/janus                          # default (awskms)
 helm template janus deploy/helm/janus --set seal.type=shamir   # shamir variant
 ```
+
+## Monitoring (`grafana/`)
+
+An importable Grafana dashboard and a set of example alerting rules, so the
+`/metrics` endpoint arrives with a board rather than a homework assignment.
+
+```
+deploy/grafana/
+  janus-overview.json   dashboard, import format (DS_PROMETHEUS input)
+  alerts.yaml           13 example Prometheus alert rules
+  README.md             import + scrape setup, and the metric-type gotchas
+```
+
+- **Dashboard** — seal state (a sealed server serves nothing, so it leads the
+  board), HTTP rate/errors/latency quantiles, scheduler tick age per engine,
+  rotation/sync failures, active dynamic leases, DB pool saturation, audit chain
+  head, and Go runtime. `$job`/`$instance` are template variables; nothing is
+  hardcoded to a hostname.
+- **Alerts** — sealed, target down/absent, restart loop, elevated 5xx, high p95,
+  stalled scheduler, growing rotation/sync failures, unreapable dynamic leases,
+  exhausted DB pool, audit head not advancing, goroutine leak. Plain Prometheus
+  rule-file format (also loads in the Mimir ruler and Grafana 11+ Alerting).
+
+Both require `JANUS_METRICS_TOKEN` to be set — `/metrics` **404s** until it is.
+Set it via `metrics.existingSecret` (preferred) or `metrics.token` in the Helm
+chart, or the equivalent environment variable elsewhere; never commit it. Full
+setup, including a working `scrape_configs` snippet with bearer auth and a
+Prometheus-Operator `ServiceMonitor`, is in
+[`grafana/README.md`](grafana/README.md) and
+[the observability guide](../docs/guides/observability.md).
 
 ## Verify before you deploy
 

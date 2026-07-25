@@ -12,6 +12,10 @@ tuning logs. For the deeper "Reads 24h" usage aggregate in the dashboard, see
 the web UI guide; for the audit chain and its on-demand verify, see the audit
 sections of [members-and-rbac.md](./members-and-rbac.md) and the app itself.
 
+**In a hurry?** A ready-made Grafana dashboard and a set of example alerting
+rules ship in [`deploy/grafana/`](../../deploy/grafana/) — import the JSON,
+load the rules, done. See [Dashboards and alerts](#dashboards-and-alerts) below.
+
 ## Prometheus metrics
 
 ### Turning it on
@@ -92,6 +96,28 @@ janus_sealed == 1
 janus_rotation_runs_failed > 0 or janus_sync_runs_failed > 0
 time() - janus_scheduler_last_tick_seconds{engine="rotation"} > 180   # scheduler stalled
 ```
+
+Careful with metric types when writing your own: `janus_rotation_runs_failed`,
+`janus_sync_runs_failed` and `janus_audit_head_seq` are **gauges** (scrape-time
+`COUNT`s), so `rate()`/`increase()` do not apply — compare against an `offset`
+window instead. Only `janus_http_requests_total` and the histogram's `_bucket`
+series are true counters.
+
+### Dashboards and alerts
+
+You don't have to build the board yourself. [`deploy/grafana/`](../../deploy/grafana/)
+contains:
+
+| File | What it is |
+| --- | --- |
+| [`janus-overview.json`](../../deploy/grafana/janus-overview.json) | Grafana dashboard in import format — seal state, HTTP rate/errors/latency, scheduler tick age per engine, rotation/sync failures, dynamic leases, DB pool, audit chain head, Go runtime. Uses a `DS_PROMETHEUS` datasource input and `$job`/`$instance` template variables, so nothing is hardcoded to your hostnames. |
+| [`alerts.yaml`](../../deploy/grafana/alerts.yaml) | Example Prometheus alerting rules (13 of them) with justified thresholds, `for:` durations, and an annotation on each saying what to actually do. Loads in Prometheus, the Mimir/Cortex ruler, or Grafana 11+ Alerting. |
+| [`README.md`](../../deploy/grafana/README.md) | Import instructions (UI + provisioning), a working `scrape_configs` snippet with bearer auth, a `ServiceMonitor` for the Prometheus Operator, and the metric-type gotchas. |
+
+Import the dashboard with *Dashboards → New → Import → Upload JSON file* and
+select your Prometheus datasource; add `alerts.yaml` to your `rule_files:`. The
+alert rules assume the scrape job is named `janus` (only the `up`/`absent` rules
+depend on that — adjust the selector if yours differs).
 
 ## Health panel
 
