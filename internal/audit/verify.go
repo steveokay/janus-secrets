@@ -19,10 +19,9 @@ type CheckpointInfo struct {
 	ThroughHash string `json:"through_hash"` // hex
 	// EventCount is the number of audit events the chain held at the moment the
 	// checkpoint was captured — i.e. COUNT(*) over audit_events at that time.
-	// After a prune, rows below an earlier anchor are gone, so a checkpoint taken
-	// later counts only the events still RETAINED, not every event ever recorded.
-	// Treat it as a retained-event count, never as a lifetime total. The field name
-	// is kept for wire compatibility.
+	// A LIFETIME total of events the chain has covered: the previous anchor's
+	// count plus every event appended since. It is deliberately NOT the store's
+	// current row count, which diverges once a prune removes an anchored prefix.
 	EventCount int64  `json:"event_count"`
 	CreatedAt  string `json:"created_at"` // RFC3339
 	MACValid   bool   `json:"mac_valid"`
@@ -33,9 +32,9 @@ type VerifyResult struct {
 	Valid bool `json:"valid"`
 	// Count is the number of events covered by this verification: when anchored on
 	// a checkpoint it is the checkpoint's EventCount plus every event walked past
-	// the anchor. Because a checkpoint's EventCount is itself a retained count (see
-	// CheckpointInfo.EventCount), Count means "events retained" after any prune,
-	// not "events ever recorded".
+	// the anchor. Since CheckpointInfo.EventCount is itself a lifetime total,
+	// Count means "events the chain has covered", consistent across prunes and
+	// consistent with what a checkpoint taken at the same moment records.
 	Count       int64  `json:"count"`
 	HeadSeq     int64  `json:"head_seq"`
 	HeadHash    string `json:"head_hash,omitempty"` // hex

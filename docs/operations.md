@@ -763,9 +763,44 @@ zero checkpoints `verify` walks from genesis exactly as before.
   been shipping does **not** drop the protection. The mark is unset (seeded `0`)
   only on an instance that has never shipped a single event, which is the sole
   unguarded case. A mark that cannot be read fails closed (`500`, nothing
-  pruned);
+  pruned) — see [the seeded-mark caveat](#seeded-high-water-mark-pre-000034-instances)
+  for one historical edge case;
 - **the optional minimum-retention floor is respected** (see below);
 - checkpoint anchor rows are never deleted (only `audit_events`).
+
+#### Seeded high-water mark (pre-`000034` instances)
+
+Migration `000034` seeds `audit_ship_state` **unconditionally**, at the audit
+head that existed when it ran:
+
+```sql
+INSERT INTO audit_ship_state (id, last_seq)
+    SELECT true, COALESCE(MAX(seq), 0) FROM audit_events;
+```
+
+For a fresh install that is `0`, so the guard is correctly inactive. But an
+instance that **already had audit history** when `000034` landed, and has
+**never** shipped, carries a positive mark it never earned. Prune on such an
+instance is capped at the migration-time head and reports:
+
+```
+409 {"error":{"code":"conflict","message":"prune blocked: events not yet shipped to the audit sink …"}}
+```
+
+This is **fail-closed** — it over-retains, never over-deletes — but it is
+misleading, because nothing was ever shipped. The database cannot distinguish
+"seeded" from "genuinely shipped" after the fact: both are just a number, and
+no code change can recover the history. If you are certain this instance has
+never shipped audit events, clear the seeded mark once, directly:
+
+```sql
+-- ONLY if audit shipping was never configured on this instance.
+UPDATE audit_ship_state SET last_seq = 0;
+```
+
+Do **not** do this on an instance that has shipped: it would let a later prune
+delete events the SIEM never received. If shipping *is* configured, the mark is
+authoritative — let the shipper advance it instead.
 
 **Minimum-retention floor (optional, off by default).** `POST /v1/audit/prune`
 is owner-only and audited, but by default an owner may checkpoint at the head

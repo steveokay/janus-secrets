@@ -220,7 +220,11 @@ func (s *Server) writeCheckpointErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, audit.ErrChainInvalid):
 		writeError(w, http.StatusConflict, "conflict", "audit chain does not verify; refusing to checkpoint")
 	case errors.Is(err, audit.ErrPrunePastShipHWM):
-		writeError(w, http.StatusConflict, "conflict", "prune blocked: events not yet shipped to the audit sink")
+		// Name the mark explicitly: on an instance that never shipped but was
+		// seeded by migration 000034, "not yet shipped" alone reads as wrong.
+		// See docs/operations.md → "Seeded high-water mark".
+		writeError(w, http.StatusConflict, "conflict",
+			"prune blocked by the audit-ship high-water mark: events at or below it are not yet shipped to the audit sink")
 	case errors.Is(err, store.ErrAlreadyExists):
 		writeError(w, http.StatusConflict, "conflict", "a checkpoint already anchors the current chain head")
 	default:

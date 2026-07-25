@@ -647,3 +647,56 @@ func TestLatestCheckpoint(t *testing.T) {
 		t.Fatalf("cp=%+v err=%v", cp, err)
 	}
 }
+
+// TestEventCountConsistentAcrossPrune pins QA finding I-6: a checkpoint taken
+// after a prune must record the same lifetime total that Verify reports at that
+// moment. Previously CreateCheckpoint used the store's COUNT(*) (a retained-row
+// count), so the checkpoint recorded a smaller number than the verify right
+// before it — the two disagreed about the same chain.
+func TestEventCountConsistentAcrossPrune(t *testing.T) {
+	r, m, _ := ckRec(t)
+	ctx := context.Background()
+
+	seed(t, r, 5)
+	if _, err := r.CreateCheckpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, r, 3) // seq 6,7,8
+	if _, err := r.Prune(ctx, -1); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.rows) != 3 {
+		t.Fatalf("expected 3 retained rows after prune, got %d", len(m.rows))
+	}
+
+	// Verify reports the lifetime total (anchor count + walked).
+	before, err := r.Verify(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Count != 8 {
+		t.Fatalf("verify count = %d, want 8 (lifetime, not retained)", before.Count)
+	}
+
+	// A checkpoint captured now must agree with it — not report the 3 retained rows.
+	info, err := r.CreateCheckpoint(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.EventCount != before.Count {
+		t.Fatalf("checkpoint event_count = %d, want %d (must match verify's count)",
+			info.EventCount, before.Count)
+	}
+	if info.EventCount == int64(len(m.rows)) {
+		t.Fatalf("event_count %d is the retained-row count — the I-6 regression", info.EventCount)
+	}
+
+	// And verify anchored on the NEW checkpoint still reports the same total.
+	after, err := r.Verify(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Count != before.Count {
+		t.Fatalf("verify count drifted after re-anchoring: %d → %d", before.Count, after.Count)
+	}
+}

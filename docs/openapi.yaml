@@ -379,11 +379,11 @@ components:
         event_count:
           type: integer
           description: >
-            Number of audit events retained at capture time (COUNT(*) over
-            audit_events). After a prune the deleted prefix is gone, so a
-            checkpoint taken later counts only the events still RETAINED — this
-            is not a count of every event ever recorded. The field name is kept
-            for wire compatibility.
+            Lifetime total of audit events the chain has covered through
+            through_seq: the previous anchor's event_count plus every event
+            appended since. Deliberately NOT the store's current row count,
+            which diverges once a prune removes an anchored prefix — so this
+            value stays consistent with the verify endpoint's count.
         created_at: { type: string, format: date-time }
         mac_valid: { type: boolean, description: Whether the stored HMAC verifies under the current key. }
   parameters:
@@ -2553,9 +2553,9 @@ paths:
                     description: >
                       Events covered by this verification: when anchored on a
                       checkpoint, the anchor's event_count plus every event
-                      walked past it. Because event_count is itself a retained
-                      count, this means events RETAINED after any prune, not
-                      events ever recorded.
+                      walked past it. Since event_count is itself a lifetime
+                      total, this is consistent across prunes and matches what a
+                      checkpoint captured at the same moment records.
                   head_seq: { type: integer }
                   head_hash: { type: string, description: Hex-encoded chain head hash. }
                   broken_at_seq: { type: integer }
