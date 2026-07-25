@@ -32,6 +32,8 @@ const (
 	CodeSyncNotFound       = "sync_not_found"
 	CodeDynamicNotFound    = "dynamic_not_found"
 	CodeAccountLocked      = "account_locked"
+	CodeNotFound           = "not_found"
+	CodeMethodNotAllowed   = "method_not_allowed"
 )
 
 type errorBody struct {

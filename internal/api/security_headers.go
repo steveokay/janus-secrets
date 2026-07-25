@@ -34,9 +34,10 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// isAPIPath reports whether p is a JSON API path (the /v1/* surface or the root
+// isAPIPath reports whether p is a JSON API path (the /v1 surface or the root
 // /metrics endpoint) as opposed to an embedded-SPA/static path served by the
-// NotFound fallback.
+// NotFound fallback. Bare "/v1" counts too, so an unmatched request there gets
+// the JSON error envelope rather than the SPA (see MountUI).
 func isAPIPath(p string) bool {
-	return strings.HasPrefix(p, "/v1/") || p == "/metrics"
+	return p == "/v1" || strings.HasPrefix(p, "/v1/") || p == "/metrics"
 }

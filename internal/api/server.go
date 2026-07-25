@@ -654,11 +654,32 @@ func (s *Server) Handler() http.Handler { return s.router }
 // MountUI installs h as the router's fallback for any route the /v1 API does not
 // match — i.e. the embedded SPA and its assets. Call after New, before serving.
 // nil is a no-op (unit-test servers with no UI keep chi's default 404).
+//
+// The SPA owns client-side deep links (/projects/x/configs/y must return
+// index.html), but it must NEVER answer for the API surface: an unmatched
+// /v1/ path is a routing error and has to return the standard JSON envelope.
+// Serving 200 + index.html there breaks the documented error contract and
+// makes SDKs parse HTML as JSON, so a typo'd endpoint fails far from its cause.
 func (s *Server) MountUI(h http.Handler) {
 	if h == nil {
 		return
 	}
-	s.router.NotFound(h.ServeHTTP)
+	s.router.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if isAPIPath(r.URL.Path) {
+			writeError(w, http.StatusNotFound, CodeNotFound, "no such endpoint")
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+	// A known path with the wrong method is likewise an API error, not an SPA
+	// deep link. chi's default emits a bare 405 with no body.
+	s.router.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		if isAPIPath(r.URL.Path) {
+			writeError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "method not allowed")
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
 }
 
 // buildHTTPServer constructs the http.Server from s.cfg. ReadHeaderTimeout

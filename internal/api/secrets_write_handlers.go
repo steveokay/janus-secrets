@@ -123,7 +123,15 @@ func (s *Server) handleSecretsBatchWrite(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req batchWriteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Changes) == 0 {
+	// Keep these two failures distinct: a malformed/wrong-shaped body is a
+	// different mistake from a well-formed body with nothing to apply, and
+	// reporting "no changes" for a shape error sends callers hunting in the
+	// wrong place (e.g. sending {"secrets":{…}} instead of {"changes":[…]}).
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid JSON body")
+		return
+	}
+	if len(req.Changes) == 0 {
 		writeError(w, http.StatusBadRequest, CodeValidation, "at least one change is required")
 		return
 	}

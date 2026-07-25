@@ -2,9 +2,40 @@ package main
 
 import "fmt"
 
+// looksLikeUUID reports whether s has the canonical 8-4-4-4-12 hex form. Kept
+// stdlib-only (google/uuid is an indirect dependency; this is a format check,
+// not a parse).
+func looksLikeUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if ch != '-' {
+				return false
+			}
+			continue
+		}
+		isHex := (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return true
+}
+
 // resolveConfigID walks projects→environments→configs, matching project & env by
 // slug and config by name, and returns the config uuid the secret routes require.
+//
+// A config given as a UUID already identifies the target, so the walk is
+// skipped: slug resolution needs project-level reads that the narrowest (and
+// most recommended) credential — a config-scoped service token — legitimately
+// does not have, which otherwise made `--config <uuid>` unusable in CI.
 func (c *apiClient) resolveConfigID(project, environment, config string) (string, error) {
+	if looksLikeUUID(config) {
+		return config, nil
+	}
 	pid, eid, err := c.resolveEnvID(project, environment)
 	if err != nil {
 		return "", err

@@ -80,3 +80,46 @@ func TestResolveProjectAndEnvID(t *testing.T) {
 		t.Fatal("expected error for unknown env")
 	}
 }
+
+// TestLooksLikeUUID pins QA finding D-4's format check.
+func TestLooksLikeUUID(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want bool
+	}{
+		{"27db23d5-5b26-4f15-913a-55a14783e00c", true},
+		{"27DB23D5-5B26-4F15-913A-55A14783E00C", true},
+		{"prod", false},
+		{"", false},
+		{"27db23d5-5b26-4f15-913a-55a14783e00", false},  // too short
+		{"27db23d5-5b26-4f15-913a-55a14783e00cc", false}, // too long
+		{"27db23d5x5b26-4f15-913a-55a14783e00c", false},  // wrong separator
+		{"27db23d5-5b26-4f15-913a-55a14783e00g", false},  // non-hex
+	} {
+		if got := looksLikeUUID(tc.in); got != tc.want {
+			t.Errorf("looksLikeUUID(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestResolveBindingAcceptsConfigUUIDAlone pins D-4: a config UUID fully
+// identifies the target, so project/env slugs must not be required. A
+// config-scoped token cannot list projects, so requiring them made the
+// narrowest credential unusable.
+func TestResolveBindingAcceptsConfigUUIDAlone(t *testing.T) {
+	dir := t.TempDir()
+	const cid = "27db23d5-5b26-4f15-913a-55a14783e00c"
+
+	_, _, config, err := resolveBinding(dir, "", "", cid)
+	if err != nil {
+		t.Fatalf("config uuid alone should resolve, got error: %v", err)
+	}
+	if config != cid {
+		t.Fatalf("config = %q, want %q", config, cid)
+	}
+
+	// A non-UUID config still requires the full triple.
+	if _, _, _, err := resolveBinding(dir, "", "", "prod"); err == nil {
+		t.Fatal("bare config slug with no project/env should still error")
+	}
+}

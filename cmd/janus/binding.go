@@ -70,14 +70,19 @@ func bindingValues(dir, flagProject, flagEnv, flagConfig string) (project, env, 
 }
 
 // resolveBinding applies, per field: flag > JANUS_* env > .janus.yaml. All three
-// fields must resolve to non-empty or it errors (pointing at `janus setup`).
+// fields must resolve to non-empty or it errors (pointing at `janus setup`) —
+// EXCEPT when the config is given as a UUID, which identifies the target on its
+// own (see resolveConfigID) and so needs no project/environment slugs.
 func resolveBinding(dir, flagProject, flagEnv, flagConfig string) (project, env, config string, err error) {
 	project, env, config, err = bindingValues(dir, flagProject, flagEnv, flagConfig)
 	if err != nil {
 		return "", "", "", err
 	}
+	if looksLikeUUID(config) {
+		return project, env, config, nil
+	}
 	if project == "" || env == "" || config == "" {
-		return "", "", "", fmt.Errorf("no project/environment/config configured — run `janus setup` or pass --project/--env/--config")
+		return "", "", "", fmt.Errorf("no project/environment/config configured — run `janus setup`, pass --project/--env/--config, or pass --config <config-uuid>")
 	}
 	return project, env, config, nil
 }
