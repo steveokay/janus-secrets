@@ -769,7 +769,7 @@
     {/if}
 
     {#if toast}
-      <p class="reveal-note sheet" role="status">
+      <p class="reveal-note sheet" role="status" data-testid="reveal-toast">
         <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         {toast}
       </p>
@@ -1001,7 +1001,7 @@
               </td>
               <td class="key-cell">
                 {#if row.added && row.editing}
-                  <input class="input inline-input mono" placeholder="NEW_KEY or config.yaml" bind:value={row.key} />
+                  <input class="input inline-input mono" data-testid="new-key-input" placeholder="NEW_KEY or config.yaml" bind:value={row.key} />
                   {#if row.key.trim() && !isValidKey(row.key.trim())}
                     <span class="key-err">letters, digits, and . _ - only — no slashes, not "." or ".."</span>
                   {:else if row.key.trim() && !isEnvVarKey(row.key.trim())}
@@ -1041,6 +1041,7 @@
                   <div class="val-editrow">
                     <textarea
                       class="input inline-input val-edit mono"
+                      data-testid="value-input"
                       rows={Math.min(Math.max(row.draft.split('\n').length, 1), 14)}
                       spellcheck="false"
                       autocomplete="off"
@@ -1075,7 +1076,7 @@
                     {(row.draft.split('\n')[0] || '(empty)')}{#if row.draft.includes('\n')}<span class="more-lines"> ⏎ {row.draft.split('\n').length} lines</span>{/if}
                   </button>
                 {:else}
-                  <button class="val mono masked" onclick={() => reveal(row)} title="Reveal (recorded in audit ledger)">{mask}</button>
+                  <button class="val mono masked" data-testid="reveal-btn" onclick={() => reveal(row)} title="Reveal (recorded in audit ledger)">{mask}</button>
                 {/if}
               </td>
               <td>
@@ -1258,7 +1259,7 @@
         {#if saveError}<span class="error">{saveError}</span>{/if}
         <div class="save-actions">
           <button class="btn" onclick={discard} disabled={saving}>Discard</button>
-          <button class="btn btn-stamp" onclick={saveAll} disabled={saving || badKeys > 0}>
+          <button class="btn btn-stamp" data-testid="save-secrets" onclick={saveAll} disabled={saving || badKeys > 0}>
             {saving
               ? (protected_ ? 'Submitting…' : 'Committing…')
               : (protected_ ? 'Submit for approval' : `Save as v${latestVersion + 1}`)}

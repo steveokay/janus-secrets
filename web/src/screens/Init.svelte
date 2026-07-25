@@ -82,17 +82,17 @@
       </header>
 
       {#if result.shares?.length}
-        <ol class="shares">
+        <ol class="shares" data-testid="init-shares">
           {#each result.shares as sh, i}
-            <li><span class="folio">Share {i + 1}</span><code class="mono">{sh}</code></li>
+            <li><span class="folio">Share {i + 1}</span><code class="mono" data-testid="init-share">{sh}</code></li>
           {/each}
         </ol>
       {/if}
 
       {#if result.admin}
         <div class="admin sheet">
-          <div><span class="folio">Registrar</span><code class="mono">{result.admin.email}</code></div>
-          <div><span class="folio">One-time password</span><code class="mono">{result.admin.password}</code></div>
+          <div><span class="folio">Registrar</span><code class="mono" data-testid="init-admin-email">{result.admin.email}</code></div>
+          <div><span class="folio">One-time password</span><code class="mono" data-testid="init-admin-password">{result.admin.password}</code></div>
         </div>
       {/if}
 
