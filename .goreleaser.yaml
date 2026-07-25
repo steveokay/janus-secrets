@@ -89,6 +89,10 @@ docker_signs:
       - sign
       - "${artifact}@${digest}"
       - "--yes"
+# Auto-flag pre-release tags (…-rc1, -beta, -alpha) as GitHub pre-releases so a
+# release candidate never displaces a stable tag as "Latest".
+release:
+  prerelease: auto
 changelog:
   use: github
   sort: asc
