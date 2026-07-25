@@ -102,6 +102,10 @@ Task-oriented walkthroughs for the common workflows:
 - [Cryptography](crypto.md) — envelope encryption, the key hierarchy, AAD
   binding, the in-memory keyring, and the unseal mechanisms (Shamir + cloud-KMS
   auto-unseal for **AWS KMS, GCP KMS, and Azure Key Vault**). **Implemented.**
+- [Threat model](threat-model.md) — trust boundaries, assets, the adversary
+  table, defended properties → mechanisms, and the explicit **non-defenses**
+  (host/DBA/owner compromise, multi-tenancy, DoS). The [`SECURITY.md`](../SECURITY.md)
+  disclosure policy references it. **Implemented.**
 - [Data model & versioning](data-model.md) — the project → environment → config
   → secret hierarchy and the two-level (config-version + per-key) versioning
   scheme. **Implemented.**

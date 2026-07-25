@@ -23,9 +23,9 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 >   diff, audit viewer, token/member management, transit console, and the
 >   operations console; **OIDC** human login **and** OIDC-federated CI machine
 >   identity; and the usage-metrics ("Reads 24h") dashboard.
-> - **Phase 3 — Rotation + dynamic:** scheduled static rotation (Postgres +
->   webhook), sync integrations (GitHub Actions + Kubernetes), and dynamic
->   Postgres credentials with a lease manager.
+> - **Phase 3 — Rotation + dynamic:** scheduled static rotation (six rotators),
+>   sync integrations (eight providers), and dynamic Postgres credentials with a
+>   lease manager.
 >
 > Janus is usable end-to-end: `docker compose up`, create a project in the UI or
 > CLI, set secrets, and `janus run` injects them into your process. What remains
@@ -99,12 +99,20 @@ re-seals a running server and now **requires the `sys:seal` permission**.
 
 ### Identity & access
 
-Two authentication methods ship today: **email + password** (Argon2id, opaque
-Postgres-backed sessions via an HTTP-only cookie) for humans, and **scoped
+Several authentication methods ship today. For humans: **email + password**
+(Argon2id, opaque Postgres-backed sessions via an HTTP-only cookie) with an
+optional **TOTP second factor** (RFC 6238 + single-use recovery codes;
+`401 totp_required` gate) and **OIDC** login (see below). For machines: **scoped
 service tokens** (`janus_svc_…`, shown once at creation, only their HMAC is
-stored) for machines. A single `Principal{Kind,ID,Name}` is the seam that
-authorization, audit, and Phase-2 federation build on. The initial admin is
-created during the init ceremony (one-time password shown once).
+stored, with optional **per-token CIDR IP allowlists**) and **OIDC-federated CI
+identity** (see below). A single `Principal{Kind,ID,Name}` is the seam that
+authorization, audit, and federation build on. The initial admin is created
+during the init ceremony (one-time password shown once). The password path is
+further hardened by **progressive per-account lockout** (`JANUS_LOCKOUT_*`,
+admin unlock) and **session management** (`GET/DELETE /v1/auth/sessions` —
+list/revoke, with a password change revoking every other session). For
+emergencies, **break-glass** grants time-boxed, loud-audited role elevation on a
+scope you already hold — see [docs/guides/break-glass.md](docs/guides/break-glass.md).
 
 Authorization is **deny-by-default RBAC**. Four roles — viewer ⊂ developer ⊂
 admin ⊂ owner — bind to a user at **instance**, **project**, or **environment**
@@ -131,10 +139,20 @@ Recording is **synchronous and fail-closed**: if the audit write fails, the
 request fails — no mutation is left unaudited. Services stay audit-blind; only the
 API layer records (a one-line `s.record(...)` per handler), with denied requests
 captured centrally. `GET /v1/audit/verify` walks the chain and reports integrity
-(the future UI's "chain verified" badge); `GET /v1/audit/export` streams the log
+(the UI's "chain verified" badge); `GET /v1/audit/export` streams the log
 as JSONL or CSV, filterable by time/actor/action/result, with each row carrying
-`prev_hash`+`hash` for offline verification. The engine (`internal/audit`) is
-pure and HTTP-free.
+`prev_hash`+`hash` for offline verification. **Hash-chain checkpointing +
+retention** let a growing log be pruned without breaking `verify`: an owner-only
+`POST /v1/audit/checkpoint` (`audit:manage`) records a **signed checkpoint** — a
+domain-separated HMAC-SHA256 over the head's `through_seq‖through_hash‖event_count`,
+keyed off a key derived from (but separate from) the token-HMAC key — and
+`verify` then validates the latest checkpoint's MAC and walks *forward* from it
+(a forged checkpoint fails as `checkpoint_mac_invalid`, never falling back to a
+genesis walk). `POST /v1/audit/prune` (`audit:manage`) hard-deletes the verified
+prefix anchored by a checkpoint; it is **fail-closed** (no checkpoint or a bad
+MAC refuses) and **clamped to the audit-ship high-water mark** so nothing is
+pruned before it has been shipped, and checkpoint anchor rows are never deleted.
+The engine (`internal/audit`) is pure and HTTP-free.
 
 ### Transit (encryption as a service)
 
@@ -176,11 +194,13 @@ server (no Node in production). It covers in-browser Shamir unseal and login, th
 project → environment → config tree, the flagship **secret editor** (masked list
 with origin badges, audited per-key/bulk reveal, a client-side dirty buffer, and
 batched "Save as vN"), config version diff, the audit viewer with chain-verify
-badge and export, token/member management, the transit key console, a usage
+badge, export, and an owner-only **create-checkpoint** affordance, token/member
+management, the transit key console, a usage
 dashboard ("Reads 24h") with a **first-run onboarding checklist** (create project
 → add secrets → mint token → `janus run`, self-checking and dismissible), and an
 **operations console** over the three Phase-3
-engines (rotation, sync, dynamic leases — manage and act, not create). The visual
+engines (rotation, sync, dynamic leases — create/configure, manage, and act,
+including shown-once dynamic-credential issuance). The visual
 system is dual-theme (`daylight` default + `nightwatch` dark) via CSS-variable
 tokens. Revealed plaintext and unseal shares live only in component state, never
 persisted or cached. See [docs/web.md](docs/web.md).
@@ -190,12 +210,15 @@ persisted or cached. See [docs/web.md](docs/web.md).
 Three engines extend Janus past static storage:
 
 - **Static rotation** (`internal/rotation`) — scheduled, webhook-notified secret
-  rotation with a crash-safe persist → apply → commit sequence; Postgres
-  (`ALTER ROLE`) and generic-webhook (HMAC) rotators ship first.
+  rotation with a crash-safe persist → apply → commit sequence; **six rotators**:
+  `postgres` (`ALTER ROLE`), `webhook` (HMAC), `mysql`, `redis` (RESP
+  `ACL SETUSER`), plus two external-credential-generating rotators —
+  `oauth` (client-credentials) and `aws_iam` (`CreateAccessKey`).
 - **Sync integrations** (`internal/secretsync`) — outbound one-way replication of
-  a config's resolved secrets to **GitHub Actions secrets** (NaCl sealed-box) and
-  **Kubernetes Secrets** (server-side apply, verified TLS), with keyed-HMAC change
-  detection and a project-scoped resolver that blocks cross-project exfiltration.
+  a config's resolved secrets to **eight providers**: `github` (NaCl sealed-box),
+  `k8s` (server-side apply, verified TLS), `gitlab`, `aws_ssm`, `cloudflare`,
+  `aws_secrets`, `vercel`, and `netlify` — with keyed-HMAC change detection and a
+  project-scoped resolver that blocks cross-project exfiltration.
 - **Dynamic Postgres credentials** (`internal/dynamic`) — Vault-style
   config-scoped dynamic roles from admin-authored creation/revocation SQL
   templates, with a lease manager (TTL, monotonic renewal capped at max-TTL,
@@ -223,8 +246,8 @@ Server configuration is env-only:
 |---|---|
 | `JANUS_DATABASE_URL` | Postgres DSN (required) |
 | `JANUS_LISTEN_ADDR` | listen address, default `:8200` |
-| `JANUS_SEAL_TYPE` | `shamir` or `awskms`; required before first init, stored type is authoritative after |
-| `JANUS_AWS_KMS_KEY_ARN` | KMS key for `awskms` (plus standard AWS SDK env) |
+| `JANUS_SEAL_TYPE` | `shamir`, `awskms`, `gcpkms`, or `azurekv`; required before first init, stored type is authoritative after |
+| `JANUS_AWS_KMS_KEY_ARN` | KMS key for `awskms` (plus standard AWS SDK env); GCP uses `JANUS_GCP_KMS_KEY`, Azure `JANUS_AZURE_KEYVAULT_URL`/`_KEY_NAME` |
 | `JANUS_ADDR` | CLI default server address |
 
 ### Data model
@@ -249,21 +272,28 @@ janus login --address http://localhost:8200      # email + password → session
 cd my-service && janus setup                       # writes .janus.yaml (project/env/config)
 janus secrets set DATABASE_URL=postgres://…        # one new config version
 janus run -- ./my-service                          # inject secrets as env vars
+janus run --watch -- ./my-service                  # restart the child when the config version bumps
+janus render --template app.tmpl --out app.conf    # render a text/template with the secrets (Vault-agent style)
 janus secrets download --format env --output .env --plain
 ```
 
+`janus break-glass activate/list/revoke` drives the emergency role elevation
+from the terminal.
+
 Machine/CI: set `JANUS_TOKEN=janus_svc_…` (a scoped service token minted with
 `POST /v1/tokens`) instead of logging in — it is sent as a bearer token and
-takes precedence over any stored session. Full command reference, the
+takes precedence over any stored session. Full command reference (including the
+`run --watch`, `render`, and `break-glass` flags), the
 credential/address/binding precedence rules, the `.janus.yaml` format, and the
 `run` / `--plain` semantics are in [docs/cli.md](docs/cli.md).
 
 ## Tech stack
 
 - **Server / CLI:** Go (stdlib-first, minimal dependencies).
-- **Crypto:** Go stdlib `crypto/*` and `golang.org/x/crypto` only, plus AWS KMS
-  (used as a service, not a crypto library) and a vendored copy of HashiCorp
-  Vault's Shamir implementation (MPL-2.0). No third-party crypto primitives.
+- **Crypto:** Go stdlib `crypto/*` and `golang.org/x/crypto` only, plus cloud KMS
+  auto-unseal (AWS KMS, GCP KMS, Azure Key Vault — used as a service, not a crypto
+  library) and a vendored copy of HashiCorp Vault's Shamir implementation
+  (MPL-2.0). No third-party crypto primitives.
 - **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
 - **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, OIDC,
   token, user, membership, audit, metrics, transit, and the secret routes —
@@ -299,11 +329,12 @@ internal/auth/       passwords, sessions, service tokens, OIDC + federation   �
 internal/authz/      RBAC engine (roles, scopes, enforcement)                ← implemented
 internal/audit/      hash-chained audit log                                  ← implemented
 internal/transit/    transit engine (encrypt/decrypt/sign/verify, versioning) ← implemented
-internal/rotation/   scheduled static rotation (Postgres + webhook)          ← implemented
-internal/secretsync/ sync to GitHub Actions + Kubernetes Secrets             ← implemented
+internal/rotation/   scheduled static rotation (6 rotators)                  ← implemented
+internal/secretsync/ one-way sync to 8 providers (github/k8s/gitlab/…)       ← implemented
 internal/dynamic/    dynamic Postgres credentials + lease manager            ← implemented
+internal/nethard/    SSRF-hardened outbound dialer/HTTP client               ← implemented
 internal/web/        //go:embed dist + SPA handler (CSP, deep-link fallback) ← implemented
-migrations/          SQL migrations (000001–000012)
+migrations/          SQL migrations (000001–000039)
 web/                 Svelte SPA (Vite + TS, hand-written CSS)                ← implemented
 docs/                subsystem docs, design specs, implementation plans
 ```
@@ -351,8 +382,10 @@ floor.
   config/key path, value version), so relocated or swapped ciphertext fails
   closed.
 - Seal config lives in Postgres (the file-based store remains for tests). The
-  server runs TLS-less behind your own network for now — terminate TLS at a
-  reverse proxy; native TLS is a later milestone.
+  server can terminate TLS itself — a **native TLS listener** with static certs
+  (`JANUS_TLS_CERT`/`JANUS_TLS_KEY`) or built-in ACME/Let's Encrypt
+  (`JANUS_TLS_ACME_*`, TLS 1.2 floor) — or run plain HTTP behind a reverse proxy
+  that terminates TLS. See the [production-deployment guide](docs/guides/production-deployment.md).
 - `POST /v1/sys/seal` requires the `sys:seal` permission; `init` and `unseal`
   are unauthenticated by bootstrap necessity, matching the Vault model.
 - RBAC is deny-by-default; denied requests return a generic `403 forbidden` that
@@ -360,6 +393,20 @@ floor.
 - The audit log is append-only and hash-chained; recording is fail-closed (an
   audit-write failure fails the request), and `GET /v1/audit/verify` detects any
   field mutation, deletion, or reorder of past events.
+- **Outbound requests are SSRF-hardened** (`internal/nethard`): a shared
+  hardened dialer re-checks the *resolved* IP on every dial (defeating
+  DNS-rebinding), unconditionally blocks link-local and cloud-metadata ranges
+  (169.254/fe80::/`fd00:ec2::254`, optional private-range block via
+  `JANUS_OUTBOUND_BLOCK_PRIVATE`), and caps redirect hops/scheme — applied to
+  every operator-configured outbound caller (rotation, sync, notifications, and
+  OIDC discovery/JWKS).
+- **Verify what you run.** Releases are **cosign keyless-signed** (over
+  `checksums.txt` and the multi-arch GHCR image by digest) with **syft SBOMs**
+  and **SLSA build-provenance** attestations (verify with `cosign verify-blob`
+  or `gh attestation verify`). A [SECURITY.md](SECURITY.md) disclosure policy
+  (GitHub private vulnerability reporting) and a
+  [docs/threat-model.md](docs/threat-model.md) document what Janus does and does
+  not defend against, and **Dependabot** keeps dependencies current.
 
 ## Roadmap
 
@@ -380,8 +427,9 @@ see [docs/web.md](docs/web.md)); OIDC login + CI federation ✅ (sub-project C �
 usage metrics ✅ (sub-project D — "Reads 24h"). **Phase 2 complete.**
 
 **Phase 3 — Rotation + dynamic:** scheduled static rotation (Postgres +
-webhook) ✅; sync integrations (GitHub Actions, Kubernetes) ✅; dynamic Postgres
-credentials with a lease manager ✅. **Phase 3 complete.**
+webhook, since expanded to six rotators) ✅; sync integrations (GitHub Actions,
+Kubernetes, since expanded to eight providers) ✅; dynamic Postgres credentials
+with a lease manager ✅. **Phase 3 complete.**
 
 All three build phases have shipped. Remaining work is polish and further
 feature depth — see the live [state & roadmap](docs/roadmap.md) and the
