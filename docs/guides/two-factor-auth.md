@@ -1,4 +1,18 @@
-# Two-factor authentication (TOTP)
+# Two-factor authentication (TOTP) and passkeys
+
+Janus offers two ways to strengthen a human login:
+
+- **TOTP** — a rotating 6-digit code layered on top of your password. Covered
+  first, below.
+- **Passkeys (WebAuthn)** — a hardware- or platform-backed credential that
+  replaces the password *and* the code in a single step. See
+  [Passkeys (WebAuthn)](#passkeys-webauthn) at the end of this guide.
+
+The two are independent: you can enable either, both, or neither. Passkeys are
+off until an operator configures the Relying Party (`JANUS_WEBAUTHN_RP_ID` /
+`JANUS_WEBAUTHN_ORIGINS`).
+
+---
 
 **Two-factor authentication (2FA)** adds a second credential to a password
 login: after your email + password, Janus asks for a short **time-based
@@ -170,3 +184,202 @@ enforce MFA at the IdP and route all human logins through OIDC, or (b) do not ma
 an OIDC identity onto an account that relies on Janus TOTP as its sole second
 factor. A future release may add an opt-in "require app-level 2FA even for OIDC"
 switch; today it is not enforced by design.
+
+---
+
+## Passkeys (WebAuthn)
+
+A **passkey** is a public-key credential held by your device — a laptop's secure
+enclave, a phone, or a hardware security key. Signing in with one is a single
+step: Janus sends a random challenge, your device asks you to confirm with its
+PIN, fingerprint, or face, and returns a signature. Nothing that a phishing site
+or a database dump could reuse ever crosses the wire.
+
+Passkeys are **not a second factor bolted onto the password** — they are an
+alternative front door that is already two factors on its own (possession of the
+device + the PIN/biometric that unlocks it). See
+[Passkeys and TOTP](#passkeys-and-totp) for exactly how the two interact.
+
+### Enabling passkeys on the server
+
+Passkeys are **off by default**. An operator turns them on with two environment
+variables, because the WebAuthn **Relying Party ID** cannot be guessed from the
+request: a credential is permanently bound to the RP ID that created it, and a
+browser silently refuses an assertion whose RP ID does not match. Deriving it
+from the `Host` header would make passkeys break the moment a user reached the
+server through a different hostname.
+
+| Variable | Meaning |
+| --- | --- |
+| `JANUS_WEBAUTHN_RP_ID` | The Relying Party ID: a bare registrable domain — no scheme, no port, no path (e.g. `janus.example.com`). |
+| `JANUS_WEBAUTHN_ORIGINS` | Comma-separated list of the fully-qualified origins the UI is served from (e.g. `https://janus.example.com`). |
+| `JANUS_WEBAUTHN_RP_NAME` | Optional display name shown in your device's prompt. Defaults to `Janus`. |
+
+```sh
+JANUS_WEBAUTHN_RP_ID=janus.example.com
+JANUS_WEBAUTHN_ORIGINS=https://janus.example.com
+JANUS_WEBAUTHN_RP_NAME="Janus — Acme"
+```
+
+Janus validates the pair **at startup** and refuses to boot on a mismatch, so a
+typo is a loud startup error rather than "passkeys mysteriously don't work":
+
+- The RP ID must be a bare host — no `https://`, no `:8443`, no trailing path,
+  no wildcard, lower-case, and not an IP address.
+- Every origin must parse, use `http`/`https`, and carry no path, query, or
+  credentials.
+- `http://` is accepted **only** for `localhost` / loopback (the browser requires
+  a secure context everywhere else).
+- Every origin's host must be the RP ID itself or a **subdomain** of it. This is
+  label-aware: `https://notexample.com` is not a subdomain of `example.com`.
+
+Local development, with the Vite dev server on `:5173`:
+
+```sh
+JANUS_WEBAUTHN_RP_ID=localhost
+JANUS_WEBAUTHN_ORIGINS=http://localhost:5173,http://localhost:8200
+```
+
+> **Changing `JANUS_WEBAUTHN_RP_ID` retires existing passkeys.** Credentials are
+> stored against the RP ID they were registered under and are only offered under
+> that same ID, so moving domains means everyone re-enrols. Plan it like a
+> domain migration, and keep the password path available while you do.
+
+### Registering a passkey
+
+From **Settings → Passkeys**, click **Register a passkey**, give the device a
+name you'll recognise, and follow your platform's prompt.
+
+Under the hood: the server issues a **single-use, expiring challenge bound to
+your session**, the browser calls `navigator.credentials.create()`, and the
+server verifies the origin, the RP ID, the challenge, the attestation, and that
+your device actually performed **user verification** before storing the
+credential.
+
+You can register several passkeys — a laptop, a phone, a backup security key —
+each with its own name. Registering the *same* authenticator twice is refused;
+your device will usually tell you it already has a passkey for this account.
+
+#### What gets stored
+
+Only **public** material: the credential id, the COSE public key, attestation
+metadata, the signature counter, your nickname, and timestamps. There is no
+secret-equivalent value, so — unlike the TOTP secret — nothing here is wrapped
+under the master key, and master-key rotation has nothing to re-wrap. The
+private key never leaves your authenticator.
+
+### Signing in with a passkey
+
+On the login screen, type your email and choose **A passkey**. Your device
+prompts; on success you are signed in. There is no password step and no
+two-factor code step.
+
+The login-begin endpoint answers **identically** whether the address is a real
+account with passkeys, a real account without them, a disabled account, or a
+complete stranger — a stable, unguessable decoy credential id is substituted so
+the endpoint cannot be used to enumerate accounts. The ceremony simply fails in
+the browser ("no matching passkey"), exactly as it would for a real account whose
+device isn't present.
+
+One residual: the decoy is a single credential, so an account with **two or
+more** registered passkeys is distinguishable by the length of the returned
+credential list — never by existence, and never in the common one-passkey case.
+The per-IP rate limit bounds how far that can be sampled.
+
+> Passkeys are currently **email-identified**: you type your address, then the
+> browser picks the matching credential. Fully username-less (discoverable /
+> conditional-UI) sign-in is not implemented yet, though credentials are enrolled
+> as discoverable where the authenticator supports it, so adding it later will
+> not require re-enrolment.
+
+### Managing passkeys
+
+**Settings → Passkeys** lists every registered device with when it was added and
+when it was last used, and lets you **Rename** or **Remove** each one.
+
+**Removing your last passkey cannot lock you out.** A passkey is an additional
+way in, never a replacement for the password: your passphrase — and your TOTP
+code, where enabled — keeps working throughout. The UI says so explicitly before
+you confirm.
+
+### Passkeys and TOTP
+
+A passkey login is **complete on its own** and does *not* additionally prompt for
+a TOTP code. That is deliberate, not an oversight:
+
+- Janus sets `userVerification: required` on **every** passkey ceremony, both
+  registration and login, and rejects an assertion whose authenticator did not
+  perform it. So a passkey sign-in already proves two things — possession of the
+  device, and the PIN/biometric that unlocks it.
+- Requiring a TOTP code on top would add a *third* factor to the strongest path
+  while leaving the weakest path (password + TOTP) unchanged, which nudges users
+  back toward passwords. That is the wrong incentive.
+
+If your policy is "an authenticator app code, always", do not enable passkeys.
+The two features are independent, and TOTP continues to gate every password
+login regardless of how many passkeys an account has.
+
+### Passkeys and account lockout
+
+Progressive per-account lockout counts **password** failures. Passkeys interact
+with it as follows:
+
+- A locked account is locked for passkey login too. A lock is a lock.
+- The lock is revealed **only after a valid assertion** — the same rule the
+  password path applies to the password-holder. An invalid assertion against a
+  locked account returns the ordinary invalid-credentials error, so the endpoint
+  is not a lock oracle.
+- A **failed** passkey assertion never increments the lockout counter. There is
+  no guessable secret to brute-force, and counting failures would let anyone lock
+  an account out by spamming the endpoint.
+- A **successful** passkey login clears the failure counter, exactly like a
+  successful password login.
+
+### API reference
+
+Management routes require a **user session** (service tokens are rejected). All
+passkey routes are rate-limited per client IP. Ceremony payloads are the standard
+WebAuthn JSON structures.
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /v1/auth/webauthn/status` | none | `{ enabled, rp_id }` — the login screen's probe. |
+| `GET /v1/auth/webauthn` | session | List the caller's passkeys (value-free metadata). |
+| `POST /v1/auth/webauthn/register/begin` | session | Issue a registration challenge. |
+| `POST /v1/auth/webauthn/register/finish` | session | Verify and store; label via `X-Janus-Passkey-Name`. |
+| `PATCH /v1/auth/webauthn/credentials/{id}` | session | Body `{ nickname }`; rename. |
+| `DELETE /v1/auth/webauthn/credentials/{id}` | session | Remove a passkey. |
+| `POST /v1/auth/webauthn/login/begin` | none | Body `{ email }`; issue an assertion challenge. |
+| `POST /v1/auth/webauthn/login/finish` | none | Verify the assertion and set the session cookie. |
+
+### Security notes
+
+- **Challenges are single-use, random, expiring (5 minutes), and bound to an
+  account.** A finish claims the challenge with an atomic delete, so a replay —
+  or two concurrent finishes of the same challenge — cannot both succeed. A
+  registration challenge additionally has to belong to the session that started
+  it; a login challenge determines which account the assertion is spent on, so a
+  challenge minted for one account can never be redeemed for another.
+- **Origin and RP ID are verified on both ceremonies**, against the
+  operator-configured values.
+- **The signature counter is enforced.** Every assertion must carry a counter
+  strictly greater than the stored one, checked as a compare-and-swap in the
+  database so concurrent replays cannot race past it. A counter that fails to
+  advance means a cloned authenticator or a replayed assertion, and the login is
+  refused. Authenticators that report a permanent `0` (they don't implement a
+  counter) keep working — a counter that is always zero carries no clone signal.
+- **Attestation conveyance is `none`.** Janus does not run a FIDO Metadata
+  Service, so demanding a signed attestation statement would yield a blob it
+  cannot evaluate while de-anonymising your authenticator model. The public key,
+  RP ID hash, origin, challenge, and flags are verified regardless.
+- **Enrol, sign in, rename, and delete each write a value-free audit event**
+  recording the credential id (a public handle) and the outcome — never key
+  material. A rejected assertion is audited as a denied login; a counter
+  regression is recorded distinctly so a cloned authenticator is visible in the
+  trail.
+- **The SPA loads no external script.** WebAuthn is a native browser API, so the
+  strict `'self'` CSP is untouched.
+- **Third-party crypto.** Passkeys use `github.com/go-webauthn/webauthn` for COSE
+  key parsing and attestation/assertion verification — a recorded, approved
+  exception to the stdlib-only crypto rule (see `CLAUDE.md`). The envelope,
+  transit, and unseal crypto remain stdlib + `x/crypto`.

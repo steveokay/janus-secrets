@@ -29,6 +29,31 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T
 }
 
+/* requestRaw posts an already-serialized JSON string with optional extra
+   headers. Used by the passkey ceremonies, whose bodies are the browser's own
+   PublicKeyCredential JSON and must be forwarded verbatim. */
+async function requestRaw<T>(
+  method: string,
+  path: string,
+  body: string,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body,
+  })
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : undefined
+  if (!res.ok) {
+    const e = (data as { error?: { code?: string; message?: string } } | undefined)?.error
+    throw new ApiError(res.status, e?.code ?? 'error', e?.message ?? res.statusText)
+  }
+  return data as T
+}
+
 const get = <T>(path: string) => request<T>('GET', path)
 const post = <T>(path: string, body?: unknown) => request<T>('POST', path, body)
 const put = <T>(path: string, body?: unknown) => request<T>('PUT', path, body)
@@ -243,6 +268,22 @@ export interface ApiLease {
   expires_at: string; max_expires_at: string; renewed_at?: string; created_at: string
 }
 export interface OIDCLoginStatus { enabled: boolean; name?: string }
+
+/* passkeys (WebAuthn) — value-free metadata only; no key material crosses the
+   wire beyond the public credential id handle. */
+export interface WebAuthnStatus { enabled: boolean; rp_id: string }
+export interface PasskeyCredential {
+  id: string
+  nickname: string
+  credential_id: string
+  created_at: string
+  last_used_at?: string | null
+}
+export interface WebAuthnList {
+  enabled: boolean
+  rp_id: string
+  credentials: PasskeyCredential[]
+}
 export interface VersionInfo { version: string; commit?: string }
 
 /* operational health snapshot — value-free (GET /v1/sys/status, admin) */
@@ -687,6 +728,27 @@ export const api = {
   totpConfirm: (code: string) => post<{ recovery_codes: string[] }>('/v1/auth/totp/confirm', { code }),
   totpDisable: (code: string) => post<void>('/v1/auth/totp/disable', { code }),
   totpRegenerateRecovery: (code: string) => post<{ recovery_codes: string[] }>('/v1/auth/totp/recovery-codes', { code }),
+
+  /* ── passkeys (WebAuthn) ──────────────────────────────────────────────
+     The begin/finish bodies are the raw ceremony payloads defined by the
+     WebAuthn spec, so they are typed as `unknown`/`string` and handed to
+     web/src/lib/webauthn.ts rather than reshaped here. */
+  webauthnStatus: () => get<WebAuthnStatus>('/v1/auth/webauthn/status'),
+  webauthnList: () => get<WebAuthnList>('/v1/auth/webauthn'),
+  webauthnRegisterBegin: () => post<unknown>('/v1/auth/webauthn/register/begin'),
+  webauthnRegisterFinish: (body: string, nickname: string) =>
+    // The body is the browser's PublicKeyCredential JSON verbatim; the label
+    // rides in a header so it cannot disturb the ceremony payload.
+    requestRaw<PasskeyCredential>('POST', '/v1/auth/webauthn/register/finish', body, {
+      'X-Janus-Passkey-Name': nickname,
+    }),
+  webauthnRename: (id: string, nickname: string) =>
+    patch<void>(`/v1/auth/webauthn/credentials/${id}`, { nickname }),
+  webauthnDelete: (id: string) => del<void>(`/v1/auth/webauthn/credentials/${id}`),
+  webauthnLoginBegin: (email: string) => post<unknown>('/v1/auth/webauthn/login/begin', { email }),
+  webauthnLoginFinish: (body: string) =>
+    requestRaw<{ user: { id: string; email: string } }>('POST', '/v1/auth/webauthn/login/finish', body),
+  /* ── end passkeys ─────────────────────────────────────────────────────── */
 
   // notifications (alerting channels)
   listChannels: () => get<{ channels: NotificationChannel[] }>('/v1/notifications/channels').then(r => r.channels),

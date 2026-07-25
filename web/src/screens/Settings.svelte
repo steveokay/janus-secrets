@@ -1,9 +1,10 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
-  import { api, downloadBackup, errorMessage, sealTypeLabel, type VersionInfo, type MasterKeyStatus, type SessionInfo, type SysStatus } from '../lib/api'
+  import { api, downloadBackup, errorMessage, sealTypeLabel, type VersionInfo, type MasterKeyStatus, type SessionInfo, type SysStatus, type WebAuthnList } from '../lib/api'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
   import { renderSVG } from 'uqr'
+  import { passkeysSupported, createCredential, passkeyMessage } from '../lib/webauthn'
 
   let version = $state<VersionInfo | null>(null)
   let mk = $state<MasterKeyStatus | null>(null)
@@ -52,13 +53,101 @@
   let regenOpen = $state(false)
   let regenCode = $state('')
 
+  /* passkeys (WebAuthn) */
+  let passkeys = $state<WebAuthnList | null>(null)
+  let passkeyError = $state('')
+  let passkeyBusy = $state(false)
+  const passkeySupport = passkeysSupported()
+
   $effect(() => {
     api.version().then(v => (version = v)).catch(() => (version = null))
     void loadMk()
     void loadSessions()
     void loadTotp()
+    void loadPasskeys()
     void loadHealth()
   })
+
+  async function loadPasskeys() {
+    passkeyError = ''
+    try {
+      passkeys = await api.webauthnList()
+    } catch (err) {
+      passkeyError = errorMessage(err, 'Could not load passkeys.')
+      passkeys = null
+    }
+  }
+
+  async function addPasskey() {
+    passkeyError = ''
+    const name = await dialog.prompt({
+      title: 'Register a passkey',
+      body: 'Give this device a name you will recognise later, then follow your device’s prompt. Your device will ask for its PIN, fingerprint, or face — Janus requires that step.',
+      label: 'Device name',
+      placeholder: 'Work laptop',
+      confirmLabel: 'Continue',
+    })
+    if (name === null) return
+    passkeyBusy = true
+    try {
+      const options = await api.webauthnRegisterBegin()
+      const attestation = await createCredential(options)
+      await api.webauthnRegisterFinish(attestation, name.trim())
+      flash('Passkey registered.')
+      await loadPasskeys()
+    } catch (err) {
+      // passkeyMessage handles the platform DOMExceptions and otherwise defers
+      // to the server envelope's curated text.
+      passkeyError = passkeyMessage(err, errorMessage(err, 'Could not register that passkey.'))
+    } finally {
+      passkeyBusy = false
+    }
+  }
+
+  async function renamePasskey(id: string, current: string) {
+    passkeyError = ''
+    const name = await dialog.prompt({
+      title: 'Rename passkey',
+      body: 'Choose a new name for this device.',
+      label: 'Device name',
+      placeholder: current,
+      confirmLabel: 'Rename',
+    })
+    if (name === null || !name.trim()) return
+    passkeyBusy = true
+    try {
+      await api.webauthnRename(id, name.trim())
+      await loadPasskeys()
+    } catch (err) {
+      passkeyError = errorMessage(err, 'Could not rename that passkey.')
+    } finally {
+      passkeyBusy = false
+    }
+  }
+
+  async function removePasskey(id: string, name: string) {
+    passkeyError = ''
+    const last = (passkeys?.credentials.length ?? 0) <= 1
+    const ok = await dialog.confirm({
+      title: 'Remove this passkey?',
+      body: last
+        ? `“${name}” is your last passkey. Removing it does not lock you out — your passphrase (and two-factor code, if enabled) keeps working — but you will need to register a new passkey to use one again.`
+        : `“${name}” will no longer be able to sign in. Your other passkeys and your passphrase are unaffected.`,
+      confirmLabel: 'Remove passkey',
+      danger: true,
+    })
+    if (!ok) return
+    passkeyBusy = true
+    try {
+      await api.webauthnDelete(id)
+      flash('Passkey removed.')
+      await loadPasskeys()
+    } catch (err) {
+      passkeyError = errorMessage(err, 'Could not remove that passkey.')
+    } finally {
+      passkeyBusy = false
+    }
+  }
 
   async function loadHealth() {
     healthError = ''
@@ -731,6 +820,67 @@
       {#if totpError}<p class="error">{totpError}</p>{/if}
     </div>
   </section>
+
+  <section class="op-section rise" style="animation-delay: 280ms">
+    <div class="section-head">
+      <h3>Passkeys</h3>
+      <span class="folio">sign in with this device instead of a passphrase — no code to type</span>
+    </div>
+    <div class="sheet card">
+      {#if passkeys === null}
+        <p class="folio">Loading…</p>
+      {:else if !passkeys.enabled}
+        <p class="folio">
+          Passkeys are not configured on this server. An operator must set
+          <code class="mono">JANUS_WEBAUTHN_RP_ID</code> and
+          <code class="mono">JANUS_WEBAUTHN_ORIGINS</code>.
+        </p>
+      {:else if !passkeySupport}
+        <p class="folio">This browser does not support passkeys, or the page is not in a secure context.</p>
+      {:else}
+        <div class="passkeys">
+          {#if passkeys.credentials.length === 0}
+            <p class="folio">
+              No passkeys registered. A passkey replaces both your passphrase and your two-factor
+              code in one step — your device verifies you with its PIN, fingerprint, or face.
+            </p>
+          {:else}
+            <table class="sessions">
+              <thead>
+                <tr><th>Device</th><th>Registered</th><th>Last used</th><th class="act"></th></tr>
+              </thead>
+              <tbody>
+                {#each passkeys.credentials as c (c.id)}
+                  <tr>
+                    <td><span class="dev">{c.nickname}</span></td>
+                    <td><span class="when">{relTime(c.created_at)}</span></td>
+                    <td><span class="when">{c.last_used_at ? relTime(c.last_used_at) : 'never'}</span></td>
+                    <td class="act">
+                      <button class="btn btn-ghost btn-sm" onclick={() => renamePasskey(c.id, c.nickname)}
+                        disabled={passkeyBusy}>Rename</button>
+                      <button class="btn btn-stamp btn-sm" onclick={() => removePasskey(c.id, c.nickname)}
+                        disabled={passkeyBusy}>Remove</button>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+          <div class="row">
+            <button class="btn btn-primary" onclick={addPasskey} disabled={passkeyBusy}>
+              {passkeyBusy ? 'Waiting for your device…' : 'Register a passkey'}
+            </button>
+          </div>
+          <p class="folio">
+            Removing your last passkey never locks you out: your passphrase — and your two-factor
+            code, where enabled — keeps working.
+          </p>
+        </div>
+      {/if}
+
+      {#if passkeyError}<p class="error">{passkeyError}</p>{/if}
+    </div>
+  </section>
 </div>
 
 <style>
@@ -811,6 +961,11 @@
     border-bottom: 1px solid var(--rule-faint);
   }
   .codes code { font-size: var(--text-xs); word-break: break-all; }
+
+  /* passkeys */
+  .passkeys { display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; }
+  .passkeys .sessions { width: 100%; }
+  .passkeys .act .btn + .btn { margin-left: var(--s2); }
 
   /* health panel */
   .health-grid {

@@ -353,12 +353,27 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	})
 	if s.auth != nil {
 		loginLimiter := newIPRateLimiter(10.0/60.0, 5) // 10/min sustained, burst 5
+		// Passkey ceremonies cost TWO requests each (begin + finish) and a user
+		// commonly runs several back to back (probe → enroll → sign in), so the
+		// password limiter's burst of 5 would reject legitimate traffic. The
+		// looser budget is safe here: a WebAuthn assertion is a signature over a
+		// server-chosen challenge and cannot be guessed, so this limiter exists
+		// to bound resource abuse, not credential brute-forcing.
+		passkeyLimiter := newIPRateLimiter(30.0/60.0, 12) // 30/min sustained, burst 12
 		r.Route("/v1/auth", func(r chi.Router) {
 			r.With(loginLimiter.middleware).Post("/login", s.handleLogin)
 			r.With(loginLimiter.middleware).Get("/oidc/status", s.handleOIDCStatus)
 			r.With(loginLimiter.middleware).Get("/oidc/login", s.handleOIDCLogin)
 			r.With(loginLimiter.middleware).Get("/oidc/callback", s.handleOIDCCallback)
 			r.With(loginLimiter.middleware).Post("/oidc/federate", s.handleOIDCFederate)
+			// ── WebAuthn / passkeys (pre-auth) ─────────────────────────────
+			// /status is the login screen's probe (feature-configured only, no
+			// account data). login/begin+finish are the assertion ceremony. All
+			// three are per-IP rate limited (see passkeyLimiter above).
+			r.With(passkeyLimiter.middleware).Get("/webauthn/status", s.handleWebAuthnStatus)
+			r.With(passkeyLimiter.middleware).Post("/webauthn/login/begin", s.handleWebAuthnLoginBegin)
+			r.With(passkeyLimiter.middleware).Post("/webauthn/login/finish", s.handleWebAuthnLoginFinish)
+			// ── end WebAuthn (pre-auth) ────────────────────────────────────
 			r.Group(func(r chi.Router) {
 				r.Use(RequireAuth(s.auth, s))
 				r.Post("/logout", s.handleLogout)
@@ -372,6 +387,13 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.With(loginLimiter.middleware).Post("/totp/confirm", s.handleTOTPConfirm)
 				r.With(loginLimiter.middleware).Post("/totp/disable", s.handleTOTPDisable)
 				r.With(loginLimiter.middleware).Post("/totp/recovery-codes", s.handleTOTPRecoveryCodes)
+				// ── WebAuthn / passkeys (self-service management) ────────────
+				r.Get("/webauthn", s.handleWebAuthnList)
+				r.With(passkeyLimiter.middleware).Post("/webauthn/register/begin", s.handleWebAuthnRegisterBegin)
+				r.With(passkeyLimiter.middleware).Post("/webauthn/register/finish", s.handleWebAuthnRegisterFinish)
+				r.Patch("/webauthn/credentials/{id}", s.handleWebAuthnRename)
+				r.Delete("/webauthn/credentials/{id}", s.handleWebAuthnDelete)
+				// ── end WebAuthn (self-service management) ───────────────────
 			})
 		})
 	}

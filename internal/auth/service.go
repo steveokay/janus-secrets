@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/nethard"
@@ -52,7 +53,14 @@ type Service struct {
 	envs     *store.EnvironmentRepo
 	transit  transitKeys
 	totp     *store.TOTPRepo
+	webauthn *store.WebAuthnRepo
 	keyring  *crypto.Keyring
+
+	// wa is the go-webauthn Relying Party instance; nil disables passkeys.
+	// waCfg is the validated operator configuration behind it. Both are set once
+	// at boot via SetWebAuthnConfig, before the server serves requests.
+	wa    *webauthn.WebAuthn
+	waCfg WebAuthnConfig
 
 	// idleTimeout is the session inactivity window; 0 disables enforcement.
 	idleTimeout time.Duration
@@ -92,6 +100,7 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		envs:     store.NewEnvironmentRepo(st),
 		transit:  store.NewTransitRepo(st),
 		totp:     store.NewTOTPRepo(st),
+		webauthn: store.NewWebAuthnRepo(st),
 		keyring:  kr,
 
 		oidcHTTP: newOIDCHTTPClient(),

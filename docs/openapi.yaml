@@ -2467,6 +2467,204 @@ paths:
                     items: { type: string, writeOnly: true }
         "401": { description: Invalid code. }
         "409": { description: TOTP not enabled. }
+  # ── WebAuthn / passkeys ──────────────────────────────────────────────────
+  /v1/auth/webauthn/status:
+    get:
+      tags: [auth]
+      summary: Whether passkeys are configured on this server
+      description: >-
+        Pre-auth probe used by the login screen to decide whether to offer a
+        passkey button. Reveals only the feature flag and the Relying Party ID
+        (both public); no account information.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  rp_id: { type: string, example: "janus.example.com" }
+  /v1/auth/webauthn:
+    get:
+      tags: [auth]
+      summary: List the caller's registered passkeys
+      description: >-
+        Value-free metadata only — nickname, the public credential id, and usage
+        timestamps. No key material is ever returned.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  rp_id: { type: string }
+                  credentials:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        nickname: { type: string }
+                        credential_id: { type: string, description: "base64url authenticator credential id (a public handle)" }
+                        created_at: { type: string, format: date-time }
+                        last_used_at: { type: string, format: date-time, nullable: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/auth/webauthn/register/begin:
+    post:
+      tags: [auth]
+      summary: Begin passkey enrollment
+      description: >-
+        Issues a single-use, expiring registration challenge bound to the
+        caller's session and returns the PublicKeyCredentialCreationOptions
+        payload for `navigator.credentials.create()`. User verification is
+        required, so an enrolled credential is two factors on its own.
+      responses:
+        "200":
+          description: PublicKeyCredentialCreationOptions (public ceremony parameters).
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "409": { description: "Passkeys are not configured (`webauthn_not_configured`), or too many are registered." }
+  /v1/auth/webauthn/register/finish:
+    post:
+      tags: [auth]
+      summary: Finish passkey enrollment
+      description: >-
+        Body is the raw PublicKeyCredential JSON produced by the browser. The
+        server verifies the challenge (single-use, bound to this session), the
+        origin, the RP ID, the user-verification flag, and the attestation, then
+        stores the public credential. The optional `X-Janus-Passkey-Name` header
+        carries the user's label; a blank or duplicate label is uniquified rather
+        than discarding a completed ceremony.
+      parameters:
+        - in: header
+          name: X-Janus-Passkey-Name
+          required: false
+          schema: { type: string, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  nickname: { type: string }
+                  credential_id: { type: string }
+                  created_at: { type: string, format: date-time }
+                  last_used_at: { type: string, format: date-time, nullable: true }
+        "401": { description: "The ceremony could not be verified (`webauthn_verification`)." }
+        "409": { description: "Passkeys not configured, or this authenticator is already registered." }
+  /v1/auth/webauthn/credentials/{id}:
+    patch:
+      tags: [auth]
+      summary: Rename one of the caller's passkeys
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nickname]
+              properties:
+                nickname: { type: string, maxLength: 64 }
+      responses:
+        "204": { description: Renamed. }
+        "400": { description: Missing or empty nickname. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { description: No such passkey owned by the caller. }
+    delete:
+      tags: [auth]
+      summary: Delete one of the caller's passkeys
+      description: >-
+        Removing the last passkey is allowed and cannot lock the account out —
+        the password (and TOTP, where enabled) keeps working.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "404": { description: No such passkey owned by the caller. }
+  /v1/auth/webauthn/login/begin:
+    post:
+      tags: [auth]
+      summary: Begin a passkey login
+      description: >-
+        Returns the PublicKeyCredentialRequestOptions payload for
+        `navigator.credentials.get()`. The response is deliberately identical for
+        unknown, disabled, and passkey-less accounts (a decoy credential id is
+        substituted), so this endpoint is not an account-existence oracle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200":
+          description: PublicKeyCredentialRequestOptions.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "400": { description: Missing email. }
+        "409": { description: "Passkeys are not configured (`webauthn_not_configured`)." }
+        "429": { description: Rate limited. }
+  /v1/auth/webauthn/login/finish:
+    post:
+      tags: [auth]
+      summary: Finish a passkey login
+      description: >-
+        Body is the raw PublicKeyCredential JSON from `navigator.credentials.get()`.
+        The server verifies the signature, the single-use challenge (and the
+        account it was issued to), the origin, the RP ID, the user-verification
+        flag, and that the signature counter advanced — a counter that fails to
+        advance indicates a cloned authenticator and is rejected. On success it
+        sets the session cookie. A passkey login does NOT additionally require a
+        TOTP code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Signed in; session cookie set.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      email: { type: string }
+        "401": { description: "Invalid credentials (a bad, replayed, or cloned assertion are indistinguishable)." }
+        "409": { description: Passkeys are not configured. }
+        "429": { description: "Rate limited, or the account is locked (`account_locked`, revealed only after a valid assertion)." }
   /v1/auth/oidc/status:
     get:
       tags: [auth]
