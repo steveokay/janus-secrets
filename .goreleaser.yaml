@@ -74,7 +74,11 @@ docker_manifests:
     image_templates:
       - "ghcr.io/steveokay/janus:{{ .Version }}-amd64"
       - "ghcr.io/steveokay/janus:{{ .Version }}-arm64"
+  # `latest` must only ever track a STABLE release. skip_push: auto omits it for
+  # prerelease tags (-rc/-beta/-alpha) — without this a release candidate
+  # silently takes over `latest`, which is exactly what v0.1.1-rc1 did.
   - name_template: "ghcr.io/steveokay/janus:latest"
+    skip_push: auto
     image_templates:
       - "ghcr.io/steveokay/janus:{{ .Version }}-amd64"
       - "ghcr.io/steveokay/janus:{{ .Version }}-arm64"
