@@ -51,6 +51,13 @@ services:
       # the password from a secret and use sslmode=require. See header comment.
       JANUS_DATABASE_URL: postgres://janus:janus-dev@postgres:5432/janus?sslmode=disable
       JANUS_SEAL_TYPE: shamir
+      # Passkeys (WebAuthn). The dev stack is published on localhost:8210 and
+      # browsers treat http://localhost as a secure context, so the ceremony
+      # works without TLS here. Production MUST use the real registrable domain
+      # and https:// origins — see docs/guides/two-factor-auth.md.
+      JANUS_WEBAUTHN_RP_ID: localhost
+      JANUS_WEBAUTHN_ORIGINS: http://localhost:8210
+      JANUS_WEBAUTHN_RP_NAME: Janus (dev)
     ports:
       - "127.0.0.1:8210:8200"
     depends_on:
