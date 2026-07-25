@@ -398,7 +398,13 @@ func claimsSatisfy(tokenClaims, want map[string]string) bool {
 		return false
 	}
 	for k, v := range want {
-		if tokenClaims[k] != v {
+		// Two-value lookup on purpose: a plain tokenClaims[k] yields "" for an
+		// ABSENT claim, so a required value of "" would be satisfied by a token
+		// that lacks the claim entirely — turning a constraint into a wildcard.
+		// CreateFederationBinding already rejects empty match-claim values, but
+		// this matcher must not depend on a validator running somewhere else.
+		got, ok := tokenClaims[k]
+		if !ok || got != v {
 			return false
 		}
 	}
