@@ -2,7 +2,7 @@
 
 ## Project: Janus — self-hosted, single-tenant secrets manager
 
-A single-tenant, self-hosted secrets manager combining the best of Doppler (project/env/config model, `run` injection), Vault (transit encryption, dynamic secrets, audit), and AWS KMS (encrypt-as-a-service with key versioning). Deployed as one Go binary + Postgres via docker-compose.
+A single-tenant, self-hosted secrets manager combining a project/env/config model with `run` injection, transit encryption, dynamic secrets, a hash-chained audit log, and encrypt-as-a-service with key versioning. Deployed as one Go binary + Postgres via docker-compose.
 
 ## Tech stack
 
@@ -31,13 +31,13 @@ web/                 Svelte SPA
 migrations/          SQL migrations
 ```
 
-## Data model (Doppler-style)
+## Data model
 
 Hierarchy: **Project → Environment (dev/staging/prod, user-definable) → Config → Secrets (key/value)**.
 
 - **Two-level versioning:** each save (which may batch edits to multiple secrets) creates one immutable **config version** (v1, v2, ...) — the unit of diff and rollback. Each secret additionally has its own **value version history** for per-key trace. The UI edits in a dirty-state buffer and commits all changes as a single config version ("Save as vN").
 - Reads default to latest config version. Soft delete with undelete; hard destroy is a separate explicit operation.
-- Configs can inherit from a base config within the same environment (root config + branch configs, like Doppler).
+- Configs can inherit from a base config within the same environment (root config + branch configs).
 - Secret values support references: `${projects.other.prod.KEY}` resolved at read time, cycle-checked.
 
 ## Cryptography (do not deviate without discussion)
@@ -108,7 +108,7 @@ Core secrets commands (same `janus` binary as the server): `janus login`, `janus
 
 ## Build phases (work in order; do not start a later phase early)
 
-**Phase 1 — Core (usable Doppler replacement):**
+**Phase 1 — Core (a usable day-to-day secrets manager):**
 crypto layer + unseal → store + migrations → projects/envs/configs/secrets CRUD with versioning → auth (passwords, service tokens) → RBAC → audit log → REST API → CLI with `run`. Ends with: docker-compose up, create project, set secrets, `janus run` works.
 
 **Phase 2 — Transit + UI:**

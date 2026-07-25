@@ -15,7 +15,7 @@ reference see [../cli.md](../cli.md); for the web UI see
 
 ## The hierarchy
 
-Janus organizes secrets in four Doppler-style levels:
+Janus organizes secrets in four levels:
 
 ```
 Project            e.g. "acme-web"          — owns a wrapped project KEK

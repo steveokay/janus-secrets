@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Re-theme the app shell to the dev-focused Doppler layout and add a keyboard-driven ⌘K command palette that jumps to projects, configs, secret key names, and nav actions.
+**Goal:** Re-theme the app shell to the dev-focused sidebar layout and add a keyboard-driven ⌘K command palette that jumps to projects, configs, secret key names, and nav actions.
 
 **Architecture:** A new `web/src/palette/` module owns a fuzzy matcher, a cache-sourced item index (built from already-loaded React Query data — no new fetches, secret KEY NAMES only), a Radix-Dialog command palette with arrow-key navigation, and a `PaletteProvider` exposing open state + a global ⌘K listener. The `TopBar` gains a palette trigger + a standalone theme toggle; the `Sidebar` gets a primary nav block (Projects/Activity/Members/Tokens/Settings) above the existing (now contextual) project/env/config tree, all re-themed with R1's `sidebar`/`topbar`/`elevated` tokens. A new instance-level `/audit` route gives "Activity" a home.
 
@@ -688,7 +688,7 @@ git commit -m "feat(web): topbar command-palette trigger + theme toggle; instanc
 
 ### Task 6: Sidebar — primary nav + re-theme (contextual tree preserved)
 
-Add a Doppler primary nav block (Projects/Activity/Members/Tokens/Settings) at the top; keep the project/env/config tree as a contextual block below (so config navigation never regresses); re-theme with tokens. Drop the redundant bottom "Instance" duplicates (Audit→Activity at top; Tokens/Members move up). Transit stays reachable by URL and is added to nav by B5 (not shown in the Doppler mockup).
+Add a primary nav block (Projects/Activity/Members/Tokens/Settings) at the top; keep the project/env/config tree as a contextual block below (so config navigation never regresses); re-theme with tokens. Drop the redundant bottom "Instance" duplicates (Audit→Activity at top; Tokens/Members move up). Transit stays reachable by URL and is added to nav by B5 (not shown in the reference mockup).
 
 **Files:** Modify `web/src/shell/Sidebar.tsx`; check `web/src/shell/Sidebar.test.tsx`.
 
@@ -878,7 +878,7 @@ Notes: `text-brand-text` (active nav text) = the dark-legible accent `#A79CFF` i
 Run (from `web/`): `npx vitest run && npm run typecheck`. Expected: green.
 ```bash
 git add web/src/shell/Sidebar.tsx web/src/shell/Sidebar.test.tsx
-git commit -m "feat(web): sidebar primary nav (Doppler) with contextual project tree"
+git commit -m "feat(web): sidebar primary nav with contextual project tree"
 ```
 
 ---
@@ -916,4 +916,4 @@ git commit -m "docs(fe): check off R2 shell & command palette"
 
 `npm run typecheck && npx vitest run && npm run build && npm run smoke` (web/) + `go build ./...` (root). Then hand off to `superpowers:finishing-a-development-branch`.
 
-**Exit criteria:** ⌘K (and the topbar search button) opens a palette that fuzzy-searches projects (always) + the active project's configs and secret KEY NAMES + nav actions, navigates on Enter/click, and closes on Esc; the sidebar shows the Doppler primary nav with the project/env/config tree preserved contextually; a standalone theme toggle sits in the topbar; both themes still pass smoke; NO secret value is ever indexed, displayed, requested, or logged by the palette.
+**Exit criteria:** ⌘K (and the topbar search button) opens a palette that fuzzy-searches projects (always) + the active project's configs and secret KEY NAMES + nav actions, navigates on Enter/click, and closes on Esc; the sidebar shows the primary nav with the project/env/config tree preserved contextually; a standalone theme toggle sits in the topbar; both themes still pass smoke; NO secret value is ever indexed, displayed, requested, or logged by the palette.

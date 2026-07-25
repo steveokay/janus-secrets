@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the plain Landing + ProjectOverview screens with the Doppler-style projects list (searchable/sortable card grid) and the signature env-columns project board (config cards, add-config, inheritance nesting), plus a polished create-project modal.
+**Goal:** Replace the plain Landing + ProjectOverview screens with the card-based projects list (searchable/sortable card grid) and the signature env-columns project board (config cards, add-config, inheritance nesting), plus a polished create-project modal.
 
 **Architecture:** Two new page components under `web/src/home/` — `ProjectsList.tsx` (route `/`) and `ProjectBoard.tsx` (route `/projects/:projectId`) — replace `Landing.tsx` + `ProjectOverview.tsx`. Both compose from existing tokens + kit (`Pill`, `EmptyState`, `envTone`, `useProjects`/`useEnvironments`/`useConfigs`, `CreateProjectForm`/`CreateEnvironmentForm`/`CreateConfigForm`). Config counts are aggregated client-side from cached queries (single-tenant scale). `CreateProjectForm` gets a light restyle to the mockup (helper text, full-width primary).
 

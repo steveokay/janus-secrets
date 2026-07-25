@@ -15,7 +15,7 @@ a raw-value reader (`internal/secrets`) and an authorization port
 ## Inheritance
 
 A config may set `inherits_from` (at config-create time) to another config **in
-the same environment** — a root config plus branch configs, like Doppler. A
+the same environment** — a root config plus branch configs. A
 branch's effective values are its base's values overlaid with its own, **child
 wins** per key. Chains are followed to the deepest ancestor.
 
@@ -128,6 +128,6 @@ fail-closed; no secret value ever enters an audit row.
 - Cross-environment / cross-project inheritance (inheritance is same-environment;
   cross-boundary sharing is what references are for).
 - Reference defaults / fallback syntax (`${KEY:-default}`).
-- Config-authorized (Doppler-like) transitive reads — rejected in favor of strict
+- Config-authorized transitive reads — rejected in favor of strict
   per-target authorization.
 - Caching of resolved configs across requests (each reveal resolves fresh).

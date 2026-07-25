@@ -12,7 +12,7 @@
 
 ## Direction (one paragraph)
 
-A modern, polished, Doppler-inspired **light-first** theme with a P1 dark mode. Violet-biased neutrals, exactly one accent (violet `#6A5CF5`), semantic colors reserved strictly for state. Monospace type is used **only** for secret keys/values — the mono-vs-sans texture contrast is the product's typographic signature. Content sits on a tinted page in white cards with hairline borders and soft shadows. Production always reads as "danger-adjacent" via env color coding.
+A modern, polished **light-first** theme with a P1 dark mode. Violet-biased neutrals, exactly one accent (violet `#6A5CF5`), semantic colors reserved strictly for state. Monospace type is used **only** for secret keys/values — the mono-vs-sans texture contrast is the product's typographic signature. Content sits on a tinted page in white cards with hairline borders and soft shadows. Production always reads as "danger-adjacent" via env color coding.
 
 ## Design tokens
 
@@ -43,7 +43,7 @@ These are wired into `tailwind.config.js` as theme tokens in Slice 1. **Componen
 | `danger`  | `#C92A2A` | `#FBE9E9` | sealed pill, removed rows, prod env, destructive actions |
 | `info`    | `#2563EB` | `#E7EFFD` | dev env, inheritance hints |
 
-### Environment colors (Doppler signature)
+### Environment colors
 
 `development` = info blue · `staging` = warning amber · `production` = danger red. Repeated consistently: sidebar env dot, config page-header pill, destructive confirms. Custom envs beyond these get assigned from the same semantic set at creation (default: info).
 

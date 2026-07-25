@@ -325,7 +325,7 @@ export function Pill({ tone, dot = false, className, children }: {
 ```ts
 import type { Tone } from './Pill'
 
-// Doppler-signature env coding (spec §Environment colors):
+// Environment-signature colour coding (spec §Environment colors):
 // dev=info blue · staging/test/qa=warning amber · prod=danger red · other=info.
 export function envTone(slugOrName: string): Extract<Tone, 'info' | 'warning' | 'danger'> {
   const s = slugOrName.toLowerCase()

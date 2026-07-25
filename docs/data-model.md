@@ -16,7 +16,7 @@ plaintext. All encryption happens in a layer above it.
 
 ## Hierarchy
 
-Doppler-style, four levels:
+Four levels:
 
 ```
 Project            e.g. "acme-web"          — owns a wrapped project KEK

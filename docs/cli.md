@@ -119,7 +119,7 @@ the secrets workflow and the project/env/config/token/promotion control plane.
 
 ## Credentials & storage
 
-Two credential tiers, mirroring Doppler/Vault:
+Two credential tiers:
 
 - **Session** (interactive humans): `janus login` prompts for email (or
   `--email`) and password (echo-off on a TTY, a plain read when piped), calls

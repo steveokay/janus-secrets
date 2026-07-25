@@ -1,9 +1,9 @@
 # Janus
 
 A single-tenant, self-hosted secrets manager, deployed as one Go binary plus
-PostgreSQL. It combines ideas from Doppler (project/environment/config model,
-`run` injection), Vault (transit encryption, dynamic secrets, hash-chained
-audit), and AWS KMS (encrypt-as-a-service with key versioning).
+PostgreSQL. It brings together a project/environment/config model with
+subprocess `run` injection, transit encryption, dynamic secrets, a hash-chained
+audit log, and encryption-as-a-service with key versioning.
 
 > **Status: Phases 1–3 complete.** All three build phases have shipped and are
 > tested against real Postgres:
@@ -255,7 +255,7 @@ Server configuration is env-only:
 
 ### Data model
 
-Doppler-style hierarchy: **Project → Environment → Config → Secrets**, with
+Four-level hierarchy: **Project → Environment → Config → Secrets**, with
 two-level versioning (immutable config versions for diff/rollback, plus
 per-secret value history). The schema, migrations, and repositories are built
 and tested — see [docs/data-model.md](docs/data-model.md). The store is
@@ -413,7 +413,7 @@ floor.
 
 ## Roadmap
 
-**Phase 1 — Core (usable Doppler replacement):**
+**Phase 1 — Core (a usable day-to-day secrets manager):**
 crypto + unseal ✅ → store + migrations + versioning ✅ → CRUD service +
 encryption orchestration ✅ → server bootstrap (sys API + `janus` CLI) ✅ →
 auth (passwords, service tokens) ✅ → RBAC (roles, scopes, enforcement) ✅ →

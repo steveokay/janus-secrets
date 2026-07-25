@@ -13,7 +13,7 @@ Two read-time resolution features over the existing project → environment →
 config → secret hierarchy:
 
 1. **Config inheritance** — a config may inherit from a base config **within the
-   same environment** (root config + branch configs, like Doppler). The
+   same environment** (root config + branch configs). The
    `configs.inherits_from` column exists (added in M2) but resolution was never
    implemented. A branch's effective values are its base's values overlaid with
    its own (**child wins** per key).
@@ -254,7 +254,7 @@ returning), matching `RevealConfig` today.
 - Reference defaults / fallback syntax (e.g. `${KEY:-default}`) — YAGNI for now.
 - Write-time reference validation UI / linting (references are validated at read
   time; a bad reference surfaces on reveal, not on write).
-- Config-authorized (Doppler-like) transitive reads — explicitly rejected in
+- Config-authorized transitive reads — explicitly rejected in
   favor of strict per-target authorization.
 - Caching / memoization of resolved configs across requests (each reveal resolves
   fresh; add memoization only if a real hot path appears).

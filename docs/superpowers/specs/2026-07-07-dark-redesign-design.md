@@ -20,7 +20,7 @@
 
 ## Direction (one paragraph)
 
-A **dark-first**, Doppler-calibrated theme with a real **light/dark toggle**. Near
+A **dark-first**, carefully calibrated theme with a real **light/dark toggle**. Near
 -black neutral surfaces with a faint violet-cool bias, exactly one accent (violet
 `#6A5CF5`, lifted to `#A79CFF` for text on dark), semantic colors reserved strictly
 for state, and env color coding (dev=blue / staging=amber / prod=red) as the
@@ -75,7 +75,7 @@ system font stacks (sans for chrome, mono for secret material only) are unchange
 `brand-line #D8D2FB` · `success #178A50`/soft `#E4F5EC` · `warning #B45309`/soft
 `#FCF0DF` · `danger #C92A2A`/soft `#FBE9E9` · `info #2563EB`/soft `#E7EFFD`.
 
-### Dark (new — calibrated to the Doppler near-black reference)
+### Dark (new — calibrated to a near-black reference)
 
 | Role | Value |
 |------|-------|
