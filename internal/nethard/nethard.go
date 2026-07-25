@@ -16,6 +16,11 @@
 // The guard runs at CONNECT time via net.Dialer.Control, inspecting the RESOLVED
 // IP the kernel is about to dial — this is what defeats DNS rebinding, since the
 // name is re-resolved and re-checked on every dial (including redirect follows).
+//
+// Because the guard inspects the address the kernel dials, an HTTP proxy defeats
+// it: the TCP connection goes to the PROXY, and the proxy (not Janus) resolves
+// and fetches the operator-supplied target. Outbound HTTP clients therefore
+// IGNORE the proxy environment variables by default; see EnvAllowProxy.
 package nethard
 
 import (
@@ -24,6 +29,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"syscall"
@@ -33,6 +39,18 @@ import (
 // EnvBlockPrivate, when set truthy, tightens the default policy to also reject
 // loopback + RFC1918 + ULA (private) address space.
 const EnvBlockPrivate = "JANUS_OUTBOUND_BLOCK_PRIVATE"
+
+// EnvAllowProxy, when set truthy, restores http.ProxyFromEnvironment on the
+// guarded HTTP clients (HTTP_PROXY / HTTPS_PROXY / ALL_PROXY, honouring NO_PROXY).
+//
+// SECURITY: it is OFF by default and should stay off. These are server-to-service
+// integration calls (webhooks, sync providers, OIDC discovery), not user browsing,
+// so there is normally no reason to proxy them. When a proxy IS used, SafeControl
+// only ever sees the proxy's IP — the link-local / cloud-metadata block stops
+// applying to the real destination, and the protection fails open silently. The
+// escape hatch exists for deployments whose only egress path is a proxy; it logs
+// a startup warning and enables a partial URL-time check (see checkURLHost).
+const EnvAllowProxy = "JANUS_OUTBOUND_ALLOW_PROXY"
 
 // ErrBlockedAddress is returned by the guard when a resolved dial target is in a
 // blocked range. It is intentionally value-free (carries no host/credential).
@@ -49,12 +67,39 @@ type Policy struct {
 	// BlockPrivate, when true, also rejects loopback + RFC1918 + ULA (private)
 	// space in addition to the always-blocked link-local/metadata ranges.
 	BlockPrivate bool
+	// AllowProxy, when true, restores http.ProxyFromEnvironment on the clients
+	// built by SafeHTTPClient. Default false — see EnvAllowProxy for why.
+	AllowProxy bool
 }
 
 // PolicyFromEnv builds a Policy from the process environment. The link-local /
-// metadata block is unconditional; only the private-space tightening is env-gated.
+// metadata block is unconditional; only the private-space tightening and the
+// proxy escape hatch are env-gated.
 func PolicyFromEnv() Policy {
-	return Policy{BlockPrivate: envTruthy(os.Getenv(EnvBlockPrivate))}
+	return Policy{
+		BlockPrivate: envTruthy(os.Getenv(EnvBlockPrivate)),
+		AllowProxy:   envTruthy(os.Getenv(EnvAllowProxy)),
+	}
+}
+
+// proxyEnvVars are the variables http.ProxyFromEnvironment consults for a proxy
+// URL, in canonical upper case; the lower-case spelling of each is also honoured.
+// NO_PROXY is excluded: it only narrows an already-configured proxy.
+var proxyEnvVars = []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
+
+// ProxyEnvVarsSet returns the canonical NAMES of the proxy environment variables
+// that are set in the process environment. Only names are returned — a proxy URL
+// may embed credentials, so the values must never be logged. Each variable is
+// reported at most once even where lookups are case-insensitive (Windows).
+func ProxyEnvVarsSet() []string {
+	var set []string
+	for _, name := range proxyEnvVars {
+		if strings.TrimSpace(os.Getenv(name)) != "" ||
+			strings.TrimSpace(os.Getenv(strings.ToLower(name))) != "" {
+			set = append(set, name)
+		}
+	}
+	return set
 }
 
 func envTruthy(v string) bool {
@@ -132,20 +177,60 @@ func SafeDialContext(policy Policy, timeout time.Duration) func(ctx context.Cont
 	return d.DialContext
 }
 
+// checkURLHost is a BEST-EFFORT, URL-time check of a request's target host. It
+// is used ONLY when the proxy escape hatch is enabled, because a proxy blinds
+// the authoritative connect-time guard.
+//
+// LIMITATION — be honest about this: it is NOT equivalent protection. It only
+// rejects targets whose host is a LITERAL IP in a blocked range. A hostname is
+// deliberately not resolved here: through a proxy the PROXY resolves the name and
+// fetches it, so what this process resolves proves nothing (and re-resolving is
+// exactly the TOCTOU the connect-time check exists to close). Any DNS-based
+// bypass — including a hostname that simply has an A record for 169.254.169.254 —
+// passes this check. It is a partial mitigation, not a substitute.
+func checkURLHost(u *url.URL, policy Policy) error {
+	if u == nil {
+		return ErrBlockedAddress
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil {
+		// Not a literal IP; unverifiable at URL time through a proxy.
+		return nil
+	}
+	return checkIP(ip, policy)
+}
+
 // SafeHTTPClient returns an *http.Client whose transport dials through a
 // SafeControl-guarded dialer and whose CheckRedirect caps the redirect count and
 // rejects non-http(s) redirect targets. The per-dial Control re-check means each
 // redirect hop's resolved IP is validated too, so a 30x to an internal/metadata
 // host is refused at connect time.
+//
+// Proxy handling: the transport has NO proxy function by default, so proxy
+// environment variables cannot route these calls through a proxy that would hide
+// the true destination from the connect-time guard. When policy.AllowProxy is
+// set, http.ProxyFromEnvironment is restored behind a best-effort URL-time host
+// check (Transport consults Proxy once per request, including each redirect hop).
 func SafeHTTPClient(timeout time.Duration, policy Policy) *http.Client {
 	tr := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
+		Proxy:                 nil, // explicit: see EnvAllowProxy
 		DialContext:           SafeDialContext(policy, timeout),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+	if policy.AllowProxy {
+		tr.Proxy = func(req *http.Request) (*url.URL, error) {
+			// Runs per request before the connection is selected. Returning an
+			// error here aborts the request. This keeps hc.Transport an
+			// *http.Transport for callers that must set TLSClientConfig.
+			if err := checkURLHost(req.URL, policy); err != nil {
+				return nil, err
+			}
+			return http.ProxyFromEnvironment(req)
+		}
 	}
 	return &http.Client{
 		Timeout:       timeout,
