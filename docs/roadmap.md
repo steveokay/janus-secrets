@@ -98,8 +98,8 @@ from a full-system review (verified gaps, not speculation)._
 
 | Feature | Why | Effort |
 |---|---|---|
-| **`janus run --watch`** — restart/re-exec the child process when the bound config changes (poll the config version, later SSE) | `run` is the flagship; watch-mode is the most-missed Doppler behavior for long-running dev processes. | M |
-| **`janus render`** — render secrets into a config-file template (Vault-agent style), plus an optional agent-style refresh loop | Apps that need files, not env vars; pairs naturally with `--watch`. | M |
+| ~~**`janus run --watch`** — restart/re-exec the child process when the bound config changes~~ **DONE 2026-07-25 (PR #152, pending merge)** — `--watch [--watch-interval 10s]` polls the bound config's current version (value-free version metadata only) and on a bump gracefully restarts the child (SIGTERM→5s grace→Kill, cross-platform build-tagged; Windows uses Kill), re-fetching secrets and re-spawning with fresh env; std streams stay wired. No `--watch` = unchanged single run. | ~~M~~ |
+| ~~**`janus render`** — render secrets into a config-file template (Vault-agent style), plus an optional agent-style refresh loop~~ **DONE 2026-07-25 (PR #152, pending merge)** — `render --template <f> --out <f> [--watch] [--interval]`: Go `text/template` (missingkey=error) with secrets as both `{{ .KEY }}` and a `secret "KEY"` func; atomic `0600` write (reuses the `download --plain` file path), prints a plaintext-file notice; `--watch` re-renders on version bumps via the shared poll helper. | ~~M~~ |
 | **Kubernetes service-account OIDC federation** — accept cluster OIDC issuers in the existing CI-federation trust bindings | In-cluster workloads fetch secrets keylessly — a cleaner k8s story than pushed Secrets, with no controller (stays inside the non-goals). | M |
 | **Sync drift detection** — a scheduled verify pass that reads each sync target back and flags manual tampering (in-tray + notification) | Sync is push-only today; nothing notices when someone edits the GitHub/k8s copy out from under Janus. | M |
 | **WebAuthn/passkeys** — second factor (and passwordless) for the UI login | The explicitly parked TOTP follow-up; passkeys are increasingly expected. | M–L |
@@ -116,7 +116,7 @@ from a full-system review (verified gaps, not speculation)._
 
 | Feature | Why | Effort |
 |---|---|---|
-| **Playwright smoke suite** — a browser E2E pass (init → unseal → login → create project → save secret → audited reveal) against the docker stack | The Atrium SPA has zero browser tests (`npm test` is `echo no web tests`); svelte-check + build can't catch behavioral regressions. | M |
+| ~~**Playwright smoke suite** — a browser E2E pass (init → unseal → login → create project → save secret → audited reveal) against the docker stack~~ **DONE 2026-07-25 (PR #151, pending merge)** — `web/tests/e2e/smoke.spec.ts` (8 ordered steps incl. Shamir 5/3 init + unseal quorum + audited reveal + chain-verified badge), `playwright.config.ts` (`JANUS_E2E_BASE_URL`, default `:8210`), opt-in `.github/workflows/e2e.yml` (`workflow_dispatch`/`e2e` label; not in per-PR CI), additive `data-testid`s only. Full run needs the live docker stack. | ~~M~~ |
 | **Go fuzz tests** — native fuzzing for the reference parser (`${…}`), `.env`/properties importers, PEM sniffing, RESP encoding, federation JWT claims | Zero `Fuzz*` functions in a codebase that parses hostile input; Go makes this cheap. | S–M |
 
 ---
@@ -162,9 +162,9 @@ first batch — **"Trust & Longevity"**, all parallel-friendly:
 
 1. **Trust & supply chain sweep** (6.1–6.4) — `SECURITY.md` + threat model +
    dependabot + cosign/SBOM in goreleaser (one agent, mostly docs/config).
-2. **`janus run --watch` + `janus render`** (7.1–7.2) — CLI-only.
-3. **Audit chain checkpointing + retention** (8.1) — the deep one.
-4. **Playwright smoke suite** (9.1) — web-only.
+2. ~~**`janus run --watch` + `janus render`** (7.1–7.2)~~ **DONE 2026-07-25 (PR #152).**
+3. **Audit chain checkpointing + retention** (8.1) — the deep one. **In progress (PR forthcoming).**
+4. ~~**Playwright smoke suite** (9.1)~~ **DONE 2026-07-25 (PR #151).**
 
 Then, as demand dictates: registry publishes (the three open boxes above, each
 gated on a maintainer credential), k8s SA federation (7.3), sync drift
