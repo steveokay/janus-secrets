@@ -47,27 +47,41 @@ func (a projectAuthorizer) CanReadSecrets(_ context.Context, t resolve.RawConfig
 	return nil
 }
 
+// providerRegistry is the SINGLE source of truth for which sync providers exist.
+// Both providerFor and AllProviders derive from it, so a provider cannot be
+// constructible without also appearing in AllProviders — and the schema-enum
+// guard (internal/store) then requires the sync_targets.provider CHECK
+// constraint to accept it. That combination is what stops a repeat of the
+// migration 000011 bug, where six providers shipped in code but no migration
+// ever widened the constraint, so none of them could be persisted.
+var providerRegistry = map[string]func(*Service) Provider{
+	ProviderGitHub:     func(s *Service) Provider { return githubProvider{hc: s.hc, baseURL: s.githubBaseURL} },
+	ProviderK8s:        func(s *Service) Provider { return k8sProvider{policy: s.policy} },
+	ProviderGitLab:     func(s *Service) Provider { return gitlabProvider{hc: s.hc} },
+	ProviderAWSSSM:     func(*Service) Provider { return awsssmProvider{} },
+	ProviderCloudflare: func(s *Service) Provider { return cloudflareProvider{hc: s.hc} },
+	ProviderAWSSecrets: func(*Service) Provider { return awssecretsProvider{} },
+	ProviderVercel:     func(s *Service) Provider { return vercelProvider{hc: s.hc} },
+	ProviderNetlify:    func(s *Service) Provider { return netlifyProvider{hc: s.hc} },
+}
+
+// AllProviders returns every supported sync-provider name, sorted. It is the
+// list the schema-enum guard compares against the database CHECK constraint.
+func AllProviders() []string {
+	out := make([]string, 0, len(providerRegistry))
+	for name := range providerRegistry {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (s *Service) providerFor(name string) (Provider, error) {
-	switch name {
-	case ProviderGitHub:
-		return githubProvider{hc: s.hc, baseURL: s.githubBaseURL}, nil
-	case ProviderK8s:
-		return k8sProvider{policy: s.policy}, nil
-	case ProviderGitLab:
-		return gitlabProvider{hc: s.hc}, nil
-	case ProviderAWSSSM:
-		return awsssmProvider{}, nil
-	case ProviderCloudflare:
-		return cloudflareProvider{hc: s.hc}, nil
-	case ProviderAWSSecrets:
-		return awssecretsProvider{}, nil
-	case ProviderVercel:
-		return vercelProvider{hc: s.hc}, nil
-	case ProviderNetlify:
-		return netlifyProvider{hc: s.hc}, nil
-	default:
+	mk, ok := providerRegistry[name]
+	if !ok {
 		return nil, ErrInvalidType
 	}
+	return mk(s), nil
 }
 
 // resolveDesired returns the config's resolved key/value map (references

@@ -3,6 +3,7 @@ package rotation
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/audit"
@@ -50,23 +51,39 @@ type rotatorGenerator interface {
 // rotatorFor returns the rotator for typ as an `any` so the caller can type-assert
 // it to rotatorApplier or rotatorGenerator. Generating rotators (oauth/aws_iam)
 // implement rotatorGenerator; the rest implement rotatorApplier.
+// rotatorRegistry is the SINGLE source of truth for which rotator types exist.
+// rotatorFor and AllTypes both derive from it, so a rotator cannot be
+// constructible without appearing in AllTypes — and the schema-enum guard
+// (internal/store) then requires rotation_policies.type to accept it. Migration
+// 000010 pinned that column to postgres/webhook and mysql/redis shipped without
+// widening it (repaired in 000037); this makes that failure mode impossible to
+// reintroduce silently.
+var rotatorRegistry = map[string]func(*Service) any{
+	TypePostgres: func(s *Service) any { return postgresRotator{policy: s.policy} },
+	TypeWebhook:  func(s *Service) any { return webhookRotator{hc: s.hc} },
+	TypeMySQL:    func(*Service) any { return mysqlRotator{} },
+	TypeRedis:    func(s *Service) any { return redisRotator{policy: s.policy} },
+	TypeOAuth:    func(s *Service) any { return oauthRotator{hc: s.hc} },
+	TypeAWSIAM:   func(*Service) any { return awsiamRotator{} },
+}
+
+// AllTypes returns every supported rotation-policy type, sorted. It is the list
+// the schema-enum guard compares against the database CHECK constraint.
+func AllTypes() []string {
+	out := make([]string, 0, len(rotatorRegistry))
+	for t := range rotatorRegistry {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (s *Service) rotatorFor(typ string) (any, error) {
-	switch typ {
-	case TypePostgres:
-		return postgresRotator{policy: s.policy}, nil
-	case TypeWebhook:
-		return webhookRotator{hc: s.hc}, nil
-	case TypeMySQL:
-		return mysqlRotator{}, nil
-	case TypeRedis:
-		return redisRotator{policy: s.policy}, nil
-	case TypeOAuth:
-		return oauthRotator{hc: s.hc}, nil
-	case TypeAWSIAM:
-		return awsiamRotator{}, nil
-	default:
+	mk, ok := rotatorRegistry[typ]
+	if !ok {
 		return nil, ErrInvalidType
 	}
+	return mk(s), nil
 }
 
 // rotate performs one crash-safe rotation of p, then commits (write new config
