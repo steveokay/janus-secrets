@@ -172,10 +172,10 @@ original (exhausted) roadmap; sections 6–9 are the post-1.0 roadmap added
 
 | Feature | Why | Effort |
 |---|---|---|
-| `SECURITY.md` — vulnerability disclosure policy (contact, scope, response SLO, safe-harbor) | A secrets manager without a disclosure policy is a red flag to any serious adopter. | S |
-| Signed releases — cosign keyless + SBOM (syft) + SLSA provenance in goreleaser (binaries + GHCR image) | "Verify what you run" is table stakes for a security product; releases are unsigned today. | S–M |
-| Dependabot/renovate — automated dependency update PRs (Go, npm, actions) | The x/text vuln bump was done by hand once already. | S |
-| Threat-model document — what Janus defends against and explicitly what it does not | The crypto docs describe mechanisms; a written adversary model builds credibility and scopes security work. | S |
+| ~~`SECURITY.md` — vulnerability disclosure policy~~ **SHIPPED 2026-07-25** — GitHub private vulnerability reporting as the primary channel (email fallback), response-target table, supported-versions, in/out-of-scope tied to the threat model, safe-harbor, and a "verify what you run" pointer. | ~~S~~ |
+| ~~Signed releases — cosign keyless + SBOM (syft) + SLSA provenance~~ **SHIPPED 2026-07-25** — goreleaser gains Syft SBOMs (archives), Cosign **keyless** signature over `checksums.txt`, and Cosign signing of the multi-arch GHCR manifests by digest; the release workflow adds `attestations: write`, installs Cosign+Syft, and emits **SLSA build-provenance** (`actions/attest-build-provenance`) for binaries/archives **and** the image (by resolved digest) plus an image-SBOM attestation. Validated by `goreleaser check`; end-to-end exercise needs a real `v*` tag. | ~~S–M~~ |
+| ~~Dependabot — automated dependency update PRs (Go, npm, actions)~~ **SHIPPED 2026-07-25** — `.github/dependabot.yml`: weekly grouped PRs across all 3 Go modules (root/`sdk/go`/`terraform-provider-janus`), both npm packages (`web`/`sdk/ts`), the Python SDK, and GitHub Actions. | ~~S~~ |
+| ~~Threat-model document — what Janus defends against and explicitly what it does not~~ **SHIPPED 2026-07-25** — `docs/threat-model.md`: trust boundaries, assets, a 7-actor adversary table, defended properties→mechanisms, explicit **non-defenses** (host/DBA/owner/multi-tenancy/DoS), operator responsibilities, and crypto assumptions. `SECURITY.md` scope references it. | ~~S~~ |
 
 ### Product depth (post-1.0)
 
@@ -243,8 +243,9 @@ account/credential the maintainer must supply, so they are tracked separately._
 (see Release & distribution). The post-1.0 roadmap is the four new sections
 above. Suggested first batch — **"Trust & Longevity"**, all parallel-friendly:
 
-1. **Trust & supply chain sweep** — `SECURITY.md` + threat model + dependabot +
-   cosign/SBOM in goreleaser (one agent, mostly docs/config).
+1. ~~**Trust & supply chain sweep**~~ **DONE 2026-07-25** — `SECURITY.md` +
+   `docs/threat-model.md` + `.github/dependabot.yml` + cosign/SBOM/SLSA-provenance
+   in goreleaser & the release workflow.
 2. **`janus run --watch` + `janus render`** — CLI-only.
 3. **Audit chain checkpointing + retention** — the deep one.
 4. **Playwright smoke suite** — web-only.
