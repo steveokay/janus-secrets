@@ -48,6 +48,7 @@ janus logout                                            # server logout (best-ef
 janus whoami [--json]                                   # show the authenticated principal
 janus session list [--json]                             # your active sessions (current marked *)
 janus session revoke <id> | --others                    # revoke one session, or sign out everywhere else
+janus break-glass activate/list/revoke                  # time-boxed emergency role elevation (guarded, loud, audited)
 janus setup [--project P --env E --config C]            # validate + write ./.janus.yaml
 
 janus secrets list [--json]                             # masked table + ORIGIN (no reveal, no audit)
@@ -76,6 +77,15 @@ janus dynamic roles …/creds/renew/revoke/leases         # dynamic Postgres cre
 janus notifications create/list/update/delete/test/deliveries  # outbound alerting channels (see operations.md)
 
 janus import doppler/vault/aws-sm                       # one-shot inbound import → one config version (see guides/importing.md)
+
+# Server & operator lifecycle — detail in operations.md / guides, listed here for completeness
+janus server                                            # run the Janus server
+janus init                                              # initialize the seal (returns Shamir shares once)
+janus unseal / seal / seal-status                       # seal lifecycle (submit share / wipe key / status)
+janus migrate                                           # apply DB migrations (JANUS_DATABASE_URL)
+janus backup [--out FILE] / janus restore [FILE]        # full-instance backup & restore (sealed material)
+janus completion [bash|zsh|fish|powershell]             # shell completion script
+janus version                                           # print version / build info
 ```
 
 **Inbound import (`janus import`).** Read secrets from an external system —
@@ -271,6 +281,26 @@ returned); the session behind the current credential is flagged. `revoke`
 deletes one of *your* sessions (another user's id is indistinguishable from a
 missing one), and `--others` is the "log out everywhere else" action. The same
 surface is available in the web UI under **Settings → Active sessions**.
+
+### `janus break-glass`
+
+```bash
+# --scope is the level; name the resource with --project/--environment (omit both for instance)
+janus break-glass activate --scope environment --environment <id> --role admin --reason "…" [--ttl 30m]
+janus break-glass activate --scope project --project <id> --role owner --reason "…"
+janus break-glass activate --scope instance --role owner --reason "…"
+janus break-glass list [--json]            # your active grants (admins see every grant)
+janus break-glass revoke <grant-id>        # end a grant early (self, or admin for any)
+```
+
+Time-boxed **emergency role elevation**. You can only `activate` on a scope
+(`instance` / `project` / `environment`) where you already hold a role, to a
+strictly-higher `--role` (`developer`/`admin`/`owner`), with a mandatory
+`--reason`; the `--ttl` is clamped to `JANUS_BREAKGLASS_MAX_TTL` (default 1h). Every activate/revoke/expiry is stamped into the audit chain
+(fail-closed) and fires a notification — it is meant to be *loud*. The
+resulting elevation is a live overlay on your effective role, not a durable
+binding, and it disappears when the grant expires or is revoked. Mirrors the
+Overview banner + activate flow in the web UI.
 
 ### `janus setup`
 
