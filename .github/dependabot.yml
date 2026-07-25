@@ -51,6 +51,12 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # TypeScript 7 (the native port) breaks svelte-check / the current
+      # toolchain; a major TS migration is deliberate work, not an automated
+      # bump. Minor/patch TS updates still flow.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]
@@ -64,6 +70,11 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      # See /web above — hold major TypeScript bumps until the SDK toolchain
+      # is verified against them (sdk/ts is not yet built in CI).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]
