@@ -106,6 +106,8 @@ func (s *Server) writeCheckpointErr(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "no checkpoint exists; create one before pruning")
 	case errors.Is(err, audit.ErrCheckpointMAC):
 		writeError(w, http.StatusConflict, "conflict", "checkpoint integrity check failed; refusing to prune")
+	case errors.Is(err, audit.ErrChainInvalid):
+		writeError(w, http.StatusConflict, "conflict", "audit chain does not verify; refusing to checkpoint")
 	case errors.Is(err, audit.ErrPrunePastShipHWM):
 		writeError(w, http.StatusConflict, "conflict", "prune blocked: events not yet shipped to the audit sink")
 	case errors.Is(err, store.ErrAlreadyExists):

@@ -376,7 +376,14 @@ components:
       properties:
         through_seq: { type: integer, description: The audit seq this checkpoint anchors. }
         through_hash: { type: string, description: Hex-encoded chained hash of the event at through_seq. }
-        event_count: { type: integer, description: Total events up to and including through_seq. }
+        event_count:
+          type: integer
+          description: >
+            Number of audit events retained at capture time (COUNT(*) over
+            audit_events). After a prune the deleted prefix is gone, so a
+            checkpoint taken later counts only the events still RETAINED — this
+            is not a count of every event ever recorded. The field name is kept
+            for wire compatibility.
         created_at: { type: string, format: date-time }
         mac_valid: { type: boolean, description: Whether the stored HMAC verifies under the current key. }
   parameters:
@@ -2541,7 +2548,14 @@ paths:
                 type: object
                 properties:
                   valid: { type: boolean }
-                  count: { type: integer }
+                  count:
+                    type: integer
+                    description: >
+                      Events covered by this verification: when anchored on a
+                      checkpoint, the anchor's event_count plus every event
+                      walked past it. Because event_count is itself a retained
+                      count, this means events RETAINED after any prune, not
+                      events ever recorded.
                   head_seq: { type: integer }
                   head_hash: { type: string, description: Hex-encoded chain head hash. }
                   broken_at_seq: { type: integer }
@@ -2653,10 +2667,18 @@ paths:
       tags: [audit]
       summary: Create a signed checkpoint at the current chain head (owner-only)
       description: >
-        Captures the current chain head (seq, hash, event count) and stores an
-        HMAC-SHA256 checkpoint over those fields. The MAC key is derived
-        (domain-separated) from the master-key-wrapped token-HMAC key, so the
-        anchor cannot be forged from database access alone. Owner-only
+        Captures the current chain head (seq, hash, retained event count) and
+        stores an HMAC-SHA256 checkpoint over those fields. The MAC key is
+        derived (domain-separated) from the master-key-wrapped token-HMAC key, so
+        the anchor cannot be forged from database access alone.
+
+
+        The chain is VERIFIED before it is signed: every event hash is recomputed
+        and every seq/prev_hash link checked, from the previous checkpoint (whose
+        MAC is validated first) or from genesis, up to the head being anchored.
+        If it does not reconstruct, the request is refused with 409 and no anchor
+        row is written — otherwise ordinary retention (checkpoint then prune)
+        would sign a tampered head and delete the evidence. Owner-only
         (audit:manage). Self-audited.
       responses:
         "200":
@@ -2669,7 +2691,7 @@ paths:
                   checkpoint: { $ref: '#/components/schemas/AuditCheckpoint' }
         "400": { description: No audit events to checkpoint. }
         "403": { $ref: '#/components/responses/Forbidden' }
-        "409": { description: A checkpoint already anchors the current chain head. }
+        "409": { description: A checkpoint already anchors the current chain head, or the audit chain does not verify (refusing to sign a tampered head). }
         "503": { description: Sealed or checkpointing not configured. }
   /v1/audit/prune:
     post:
@@ -2678,10 +2700,13 @@ paths:
       description: >
         Deletes audit events with seq <= the latest verified checkpoint's
         through_seq. Fail-closed guards: a checkpoint must exist and its MAC must
-        verify; when audit shipping is configured, the prune point is clamped to
-        the durable ship high-water mark so un-shipped events are never removed;
-        checkpoint anchor rows are never deleted. Owner-only (audit:manage).
-        Self-audited (chained after the delete).
+        verify; the surviving chain must still link to the anchor (the first
+        event past through_seq must be through_seq+1 and carry the anchor's
+        through_hash as its prev_hash — a broken boundary makes the prefix
+        evidence, so prune refuses); when audit shipping is configured, the prune
+        point is clamped to the durable ship high-water mark so un-shipped events
+        are never removed; checkpoint anchor rows are never deleted. Owner-only
+        (audit:manage). Self-audited (chained after the delete).
       responses:
         "200":
           description: OK
@@ -2694,7 +2719,7 @@ paths:
                   deleted: { type: integer, description: Number of events hard-deleted. }
         "400": { description: No checkpoint exists to prune to. }
         "403": { $ref: '#/components/responses/Forbidden' }
-        "409": { description: Checkpoint integrity check failed, or prune blocked by the ship high-water mark. }
+        "409": { description: Checkpoint integrity check failed, the anchor-to-survivor chain link is broken, or prune blocked by the ship high-water mark. }
         "503": { description: Sealed or checkpointing not configured. }
 
   # ---------------------------------------------------------------------

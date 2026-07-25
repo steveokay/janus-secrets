@@ -371,6 +371,267 @@ func TestPruneGuards(t *testing.T) {
 	})
 }
 
+// flipCopy returns a copy of b with the first byte flipped. The in-memory rows
+// share slices (a row's PrevHash IS the previous row's Hash), so tampering must
+// replace the slice rather than mutate it in place, or the "tamper" silently
+// edits two fields at once.
+func flipCopy(b []byte) []byte {
+	out := append([]byte(nil), b...)
+	out[0] ^= 0xFF
+	return out
+}
+
+// TestCreateCheckpointVerifiesBeforeSigning covers M-5: a checkpoint must attest
+// "the chain up to here is intact", not merely "this is what the head row said".
+// Each case tampers the chain (or the previous anchor) in a different way and
+// asserts CreateCheckpoint refuses with ErrChainInvalid and writes NO anchor row.
+func TestCreateCheckpointVerifiesBeforeSigning(t *testing.T) {
+	tests := []struct {
+		name string
+		// tamper mutates the seeded state after `seedN` events (and after an
+		// optional first checkpoint) but before the checkpoint under test.
+		firstCheckpointAfter int // 0 = no prior checkpoint; else seed this many, anchor, then seed more
+		seedN                int
+		tamper               func(t *testing.T, m *memStore, ck *memCkStore)
+	}{
+		{
+			name:   "tampered event field from genesis",
+			seedN:  4,
+			tamper: func(_ *testing.T, m *memStore, _ *memCkStore) { m.rows[1].Action = "user.disable" },
+		},
+		{
+			name:   "tampered stored hash from genesis",
+			seedN:  4,
+			tamper: func(_ *testing.T, m *memStore, _ *memCkStore) { m.rows[2].Hash = flipCopy(m.rows[2].Hash) },
+		},
+		{
+			name:   "tampered prev_hash link from genesis",
+			seedN:  4,
+			tamper: func(_ *testing.T, m *memStore, _ *memCkStore) { m.rows[3].PrevHash = flipCopy(m.rows[3].PrevHash) },
+		},
+		{
+			name:   "deleted event from genesis",
+			seedN:  4,
+			tamper: func(_ *testing.T, m *memStore, _ *memCkStore) { m.rows = append(m.rows[:1], m.rows[2:]...) },
+		},
+		{
+			name:                 "tampered event past a prior checkpoint",
+			firstCheckpointAfter: 3,
+			seedN:                3,
+			tamper:               func(_ *testing.T, m *memStore, _ *memCkStore) { m.rows[4].Action = "tampered" },
+		},
+		{
+			name:                 "forged previous checkpoint MAC",
+			firstCheckpointAfter: 3,
+			seedN:                2,
+			tamper:               func(_ *testing.T, _ *memStore, ck *memCkStore) { ck.checkpoints[0].MAC[0] ^= 0xFF },
+		},
+		{
+			name:                 "previous anchor sits above the head (log truncated)",
+			firstCheckpointAfter: 5,
+			seedN:                2,
+			tamper: func(_ *testing.T, m *memStore, _ *memCkStore) {
+				m.rows = m.rows[:3] // head drops to seq 3, below the seq-5 anchor
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, m, ck := ckRec(t)
+			ctx := context.Background()
+			if tc.firstCheckpointAfter > 0 {
+				seed(t, r, tc.firstCheckpointAfter)
+				if _, err := r.CreateCheckpoint(ctx); err != nil {
+					t.Fatalf("first checkpoint: %v", err)
+				}
+			}
+			seed(t, r, tc.seedN)
+			before := len(ck.checkpoints)
+			tc.tamper(t, m, ck)
+
+			if _, err := r.CreateCheckpoint(ctx); !errors.Is(err, ErrChainInvalid) {
+				t.Fatalf("want ErrChainInvalid, got %v", err)
+			}
+			if len(ck.checkpoints) != before {
+				t.Fatalf("no checkpoint row may be written on a failed verify: %d -> %d",
+					before, len(ck.checkpoints))
+			}
+		})
+	}
+}
+
+// TestCreateCheckpointFromPreviousCheckpoint proves the happy path when a prior
+// anchor exists: the walk starts at the anchor (not genesis) and still signs the
+// real head.
+func TestCreateCheckpointFromPreviousCheckpoint(t *testing.T) {
+	r, m, ck := ckRec(t)
+	ctx := context.Background()
+	seed(t, r, 3)
+	if _, err := r.CreateCheckpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, r, 4) // seq 4..7
+	info, err := r.CreateCheckpoint(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ThroughSeq != 7 || !info.MACValid {
+		t.Fatalf("checkpoint info = %+v", info)
+	}
+	if len(ck.checkpoints) != 2 || ck.checkpoints[1].ThroughSeq != 7 {
+		t.Fatalf("stored checkpoints = %+v", ck.checkpoints)
+	}
+	if string(ck.checkpoints[1].ThroughHash) != string(m.rows[6].Hash) {
+		t.Fatal("checkpoint through_hash must equal head hash")
+	}
+}
+
+// TestCreateCheckpointAfterPruneStillVerifies proves the pre-sign walk anchors on
+// the surviving checkpoint and does not require the pruned prefix to still exist.
+func TestCreateCheckpointAfterPruneStillVerifies(t *testing.T) {
+	r, _, ck := ckRec(t)
+	ctx := context.Background()
+	seed(t, r, 5)
+	if _, err := r.CreateCheckpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, r, 3) // seq 6,7,8
+	if _, err := r.Prune(ctx, -1); err != nil {
+		t.Fatal(err)
+	}
+	info, err := r.CreateCheckpoint(ctx)
+	if err != nil {
+		t.Fatalf("checkpoint over a pruned log must succeed: %v", err)
+	}
+	if info.ThroughSeq != 8 || !info.MACValid {
+		t.Fatalf("checkpoint info = %+v", info)
+	}
+	if len(ck.checkpoints) != 2 {
+		t.Fatalf("stored checkpoints = %+v", ck.checkpoints)
+	}
+}
+
+// TestCreateCheckpointAtSameHeadConflicts proves re-anchoring an unchanged head
+// is still a store conflict (not ErrChainInvalid) — the head matches the anchor.
+func TestCreateCheckpointAtSameHeadConflicts(t *testing.T) {
+	r, _, _ := ckRec(t)
+	ctx := context.Background()
+	seed(t, r, 3)
+	if _, err := r.CreateCheckpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.CreateCheckpoint(ctx); !errors.Is(err, store.ErrAlreadyExists) {
+		t.Fatalf("want store.ErrAlreadyExists, got %v", err)
+	}
+}
+
+// TestCreateCheckpointPropagatesStoreError proves a store failure during the
+// pre-sign walk surfaces as the store error, not as ErrChainInvalid.
+func TestCreateCheckpointPropagatesStoreError(t *testing.T) {
+	r, m, ck := ckRec(t)
+	ctx := context.Background()
+	seed(t, r, 3)
+	m.failIterate = true
+	if _, err := r.CreateCheckpoint(ctx); err != errBoom {
+		t.Fatalf("want errBoom, got %v", err)
+	}
+	if len(ck.checkpoints) != 0 {
+		t.Fatal("no checkpoint may be written when the walk fails")
+	}
+}
+
+// TestCheckpointStoreErrorsSurface proves store failures on the new guard paths
+// surface as store errors (fail-closed), never as a silent success or a
+// misleading ErrChainInvalid.
+func TestCheckpointStoreErrorsSurface(t *testing.T) {
+	t.Run("create: anchor lookup fails", func(t *testing.T) {
+		r, _, ck := ckRec(t)
+		seed(t, r, 3)
+		ck.failLatest = true
+		if _, err := r.CreateCheckpoint(context.Background()); err != errBoom {
+			t.Fatalf("want errBoom, got %v", err)
+		}
+		if len(ck.checkpoints) != 0 {
+			t.Fatal("no checkpoint may be written when the anchor lookup fails")
+		}
+	})
+
+	t.Run("prune: boundary scan fails", func(t *testing.T) {
+		r, m, _ := ckRec(t)
+		ctx := context.Background()
+		seed(t, r, 3)
+		if _, err := r.CreateCheckpoint(ctx); err != nil {
+			t.Fatal(err)
+		}
+		seed(t, r, 2)
+		rows := len(m.rows)
+		m.failIterate = true
+		if _, err := r.Prune(ctx, -1); err != errBoom {
+			t.Fatalf("want errBoom, got %v", err)
+		}
+		if len(m.rows) != rows {
+			t.Fatal("prune must not delete anything when the boundary scan fails")
+		}
+	})
+}
+
+// TestPruneRefusesBrokenAnchorBoundary proves prune will not hard-delete the
+// prefix when the first surviving event no longer links to the anchor — that
+// prefix is the remaining evidence of the break.
+func TestPruneRefusesBrokenAnchorBoundary(t *testing.T) {
+	tests := []struct {
+		name   string
+		tamper func(m *memStore)
+	}{
+		{
+			name:   "survivor prev_hash does not match the anchor",
+			tamper: func(m *memStore) { m.rows[5].PrevHash = flipCopy(m.rows[5].PrevHash) }, // seq 6
+		},
+		{
+			name:   "survivor seq is not anchor+1 (gap)",
+			tamper: func(m *memStore) { m.rows = append(m.rows[:5], m.rows[6:]...) }, // drop seq 6
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, m, _ := ckRec(t)
+			ctx := context.Background()
+			seed(t, r, 5)
+			if _, err := r.CreateCheckpoint(ctx); err != nil { // anchor at 5
+				t.Fatal(err)
+			}
+			seed(t, r, 3) // seq 6,7,8
+			tc.tamper(m)
+			rows := len(m.rows)
+			if _, err := r.Prune(ctx, -1); !errors.Is(err, ErrChainInvalid) {
+				t.Fatalf("want ErrChainInvalid, got %v", err)
+			}
+			if len(m.rows) != rows {
+				t.Fatal("prune must not delete anything when it refuses")
+			}
+		})
+	}
+}
+
+// TestPruneAllowsWhenNothingSurvivesTheAnchor proves the boundary guard does not
+// block the ordinary case where the anchor IS the head (no events past it).
+func TestPruneAllowsWhenNothingSurvivesTheAnchor(t *testing.T) {
+	r, m, _ := ckRec(t)
+	ctx := context.Background()
+	seed(t, r, 4)
+	if _, err := r.CreateCheckpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pr, err := r.Prune(ctx, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.PrunedThrough != 4 || pr.Deleted != 4 || len(m.rows) != 0 {
+		t.Fatalf("prune = %+v, rows = %d", pr, len(m.rows))
+	}
+}
+
 func TestLatestCheckpoint(t *testing.T) {
 	r, _, _ := ckRec(t)
 	ctx := context.Background()
