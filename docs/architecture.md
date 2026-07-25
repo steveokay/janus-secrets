@@ -53,7 +53,7 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 
 | Package | Purpose | State |
 |---------|---------|-------|
-| `internal/crypto` | AES-256-GCM envelope encryption, key hierarchy, in-memory keyring, Shamir + AWS KMS unseal | ✅ implemented |
+| `internal/crypto` | AES-256-GCM envelope encryption, key hierarchy, in-memory keyring, Shamir + cloud-KMS unseal (AWS KMS, GCP KMS, Azure Key Vault) | ✅ implemented |
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
 | `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning, trash, idempotency | ✅ implemented |
 | `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops, key validation | ✅ implemented |
@@ -62,15 +62,15 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 | `internal/projectkeys` | Per-project KEK rotation + resumable DEK rewrap sweep, version-aware reads | ✅ implemented |
 | `internal/promote` | Env-to-env secret promotion pipeline: locked keys, per-key selection, four-eyes approval workflow (`promotion_requests`) | ✅ implemented |
 | `internal/transit` | Named-key encrypt/decrypt/sign/verify/rewrap-as-a-service, key versioning, `min_decryption_version` | ✅ implemented |
-| `internal/rotation` | Scheduled static secret rotation (Postgres password + webhook rotators), run history | ✅ implemented |
-| `internal/secretsync` | One-way sync of resolved secrets to GitHub Actions + Kubernetes Secrets, run history | ✅ implemented |
+| `internal/rotation` | Scheduled static secret rotation (six rotators: `postgres`, `webhook`, `mysql`, `redis`, `oauth`, `aws_iam`), run history | ✅ implemented |
+| `internal/secretsync` | One-way sync of resolved secrets to eight providers (`github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, `vercel`, `netlify`), run history | ✅ implemented |
 | `internal/dynamic` | Dynamic Postgres credentials: lease manager, TTL/renewal/revocation, crash-safe issue, orphan sweep | ✅ implemented |
-| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `/v1/trash`, `.../members`, `/v1/projects` (+ KEK rotate/rewrap, pipeline, locked-keys, promote) + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete/history, `/v1/configs/{cid}/versions` list/diff/rollback, `/v1/transit/*`, `/v1/rotation/*`, `/v1/sync/*`, `/v1/dynamic/*`, `/v1/audit/*` (verify/export/events/histogram), `/v1/metrics/reads-24h`, cursor pagination + `Idempotency-Key` middleware, sealed-state + auth + authz middleware, `Boot` composition | ✅ implemented |
+| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `/v1/trash`, `.../members`, `/v1/projects` (+ KEK rotate/rewrap, pipeline, locked-keys, promote) + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete/history, `/v1/configs/{cid}/versions` list/diff/rollback, `/v1/transit/*`, `/v1/rotation/*`, `/v1/sync/*`, `/v1/dynamic/*`, `/v1/audit/*` (verify/export/events/histogram + owner-only checkpoint/prune), `/v1/metrics/reads-24h` (+ token-gated Prometheus `/metrics`), cursor pagination + `Idempotency-Key` middleware, sealed-state + auth + authz middleware, `Boot` composition | ✅ implemented |
 | `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, OIDC login + CI federation, `Principal` | ✅ implemented |
 | `internal/authz` | Pure deny-by-default RBAC engine (viewer/developer/admin/owner; instance/project/env scopes; `Can`, `EffectiveRole`, grant/revoke) | ✅ implemented |
-| `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export, bucketed histogram; fail-closed per-handler recording for internal mutations (the engine action endpoints are a deliberate best-effort exception — see [operations.md](operations.md#audit-log)) | ✅ implemented |
+| `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export, bucketed histogram, and signed hash-chain **checkpointing + retention prune** (domain-separated HMAC checkpoint MAC, verify-from-checkpoint, fail-closed prune clamped to the audit-ship high-water mark); fail-closed per-handler recording for internal mutations (the engine action endpoints are a deliberate best-effort exception — see [operations.md](operations.md#audit-log)) | ✅ implemented |
 | `web/` | Svelte 5 (runes) + TypeScript + Vite SPA (Atrium design, hand-written CSS tokens), embedded via `go:embed` | ✅ implemented |
-| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) + secrets/control-plane CLI (`login`, `setup`, `run`, `secrets …`, `project`/`env`/`config`/`token` CRUD, `promote`, `pipeline`, `master-key`, `dynamic`, `sync`, `rotation`, `backup`, `restore`, `whoami`, `completion`) | ✅ implemented |
+| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) + secrets/control-plane CLI (`login`, `setup`, `run` [+`--watch`], `render`, `secrets …`, `project`/`env`/`config`/`token` CRUD, `promote`, `pipeline`, `master-key`, `dynamic`, `sync`, `rotation`, `import`, `break-glass`, `backup`, `restore`, `whoami`, `completion`) | ✅ implemented |
 
 ## Sealed vs. unsealed
 

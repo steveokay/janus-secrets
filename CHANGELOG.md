@@ -6,6 +6,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`janus run --watch`** — supervise the child and gracefully restart it
+  (SIGTERM → grace → Kill) when the bound config's version bumps, re-fetching
+  secrets; poll cadence via `--watch-interval` (default `10s`).
+- **`janus render`** — fill a Go `text/template` with a config's secrets and
+  write it to a file (atomic, `0600`), Vault-agent style; `--watch` re-renders on
+  version bumps.
+- **Audit hash-chain checkpointing + retention** — owner-only
+  (`audit:manage`) `POST/GET /v1/audit/checkpoint` and `POST /v1/audit/prune`.
+  Signed (domain-separated HMAC) checkpoints let `verify` anchor on a trusted
+  checkpoint and walk forward, so verified-and-shipped prefixes can be pruned;
+  prune is fail-closed and clamped to the audit-ship high-water mark. An
+  owner-only "create checkpoint" affordance is surfaced in the audit viewer.
+
+### Security
+- **Systemic SSRF hardening** (`internal/nethard`): a shared hardened dialer
+  re-checks the resolved IP on every dial (defeating DNS-rebinding), blocks
+  link-local/cloud-metadata ranges unconditionally (optional private-range block
+  via `JANUS_OUTBOUND_BLOCK_PRIVATE`), and caps redirect hops/scheme — applied to
+  every operator-configured outbound caller (rotation, sync, notifications, and
+  OIDC discovery/JWKS).
+- **Trust & supply chain:** `SECURITY.md` disclosure policy (GitHub private
+  vulnerability reporting) and `docs/threat-model.md`; releases now cosign
+  keyless-signed with syft SBOMs and SLSA build-provenance attestations; a
+  `.github/dependabot.yml` keeps Go/npm/pip/Actions dependencies current.
+- White-box audit remediation: TOTP codes are no longer replayable; a password
+  change revokes other sessions and rotates the caller's own cookie; a
+  break-glass-elevated user can no longer mint a durable binding at the elevated
+  role; uniform security headers on `/v1/` responses.
+
+### Tests
+- Playwright browser smoke suite (`web/tests/e2e/`): init → unseal → login →
+  create project → save secret → audited reveal → chain-verified badge.
+
 ## [0.1.0] - 2026-07-24
 
 First tagged release. Feature-complete across build Phases 1–3, plus the UI

@@ -100,6 +100,40 @@ be.
 janus run --raw -- ./my-service              # stored values verbatim, unresolved
 ```
 
+### `--watch`: restart on a new config version
+
+By default `janus run` fetches secrets once, at launch. Pass `--watch` to keep
+`run` supervising the child: it polls the bound config's current version
+(value-free) on an interval and, when the version bumps, re-fetches the secrets
+and **gracefully restarts** the child (SIGTERM → grace window → Kill) with a
+fresh environment. The poll cadence is `--watch-interval` (default `10s`).
+
+```sh
+janus run --watch -- ./my-service                    # restart on every version bump
+janus run --watch --watch-interval 30s -- ./my-service
+```
+
+This suits long-lived processes that should pick up rotated or edited secrets
+without an external orchestrator. Without `--watch`, behaviour is unchanged
+(fetch once, exec once).
+
+## Rendering a template instead: `janus render`
+
+When your app reads a **config file** rather than environment variables, and you
+want it kept in sync with the secrets, `janus render` fills a Go `text/template`
+with the config's secrets and writes the result to a file (Vault-agent style):
+
+```sh
+janus render --template app.conf.tmpl --out app.conf         # render once, 0600
+janus render --template app.conf.tmpl --out app.conf --watch # re-render on version bumps
+```
+
+Secrets are available in the template as `{{ .KEY }}` or via the `secret "KEY"`
+function; missing keys are an error (`missingkey=error`). Like a `--plain`
+download, the output is a plaintext file (written atomically at mode `0600`) — so
+the same "don't commit it, keep it short-lived" caveats apply. See
+[../cli.md](../cli.md) for the full flag set.
+
 ## Selecting the config
 
 `janus run` (and every `janus secrets ...` command) needs to know which

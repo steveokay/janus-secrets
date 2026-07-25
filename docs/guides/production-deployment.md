@@ -275,6 +275,35 @@ docker pull ghcr.io/steveokay/janus:v0.5.0
 automatically on server startup (see [§8](#8-upgrades)), so an unpinned
 image can silently apply a newer schema migration on a routine restart.
 
+### Verify what you run
+
+Releases are **cosign keyless-signed** and carry **SLSA build-provenance**
+attestations, so you can confirm an artifact was built by this repo's release
+workflow before deploying it.
+
+Verify the release binaries' checksums signature (cosign, keyless — the identity
+is the release workflow's OIDC subject):
+
+```sh
+cosign verify-blob checksums.txt \
+  --signature checksums.txt.sig \
+  --certificate checksums.txt.pem \
+  --certificate-identity-regexp 'https://github.com/steveokay/janus-secrets/\.github/workflows/release\.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Verify build provenance for a downloaded binary/archive or the container image
+via the GitHub attestations API:
+
+```sh
+gh attestation verify janus_<version>_linux_amd64.tar.gz --repo steveokay/janus-secrets
+gh attestation verify oci://ghcr.io/steveokay/janus:v0.5.0 --repo steveokay/janus-secrets
+```
+
+Each release archive also ships a **syft SBOM**, and an SBOM attestation is
+attached to the image. See [`SECURITY.md`](../../SECURITY.md) and the
+[threat model](../threat-model.md) for the trust assumptions behind this.
+
 Minimal docker-compose for a production-shaped stack (app + Postgres; put a
 reverse proxy from [§2](#2-tls-termination) in front of the `janus` service):
 
@@ -407,9 +436,10 @@ For usage/traffic visibility, the web UI's dashboard shows a **reads-24h**
 metric (derived from audit events, no external metrics stack required) — see
 [usage metrics](../web.md).
 
-**There is no Prometheus `/metrics` endpoint yet.** If you need
-scrape-based metrics (request rates, latencies, error counts) you'll need to
-front Janus with something that derives them externally (e.g. reverse-proxy
-access-log metrics) for now; a native `/metrics` endpoint is tracked as a
-known gap (`gaps.md` §7.6) and is not yet implemented — don't point a
-Prometheus scrape config at Janus expecting one.
+For scrape-based metrics, Janus exposes a **Prometheus `/metrics` endpoint**
+(request rates/latencies keyed by chi route pattern, seal state, engine/DB/audit
+gauges). It is **off by default** and enabled by setting `JANUS_METRICS_TOKEN`;
+scrapers then present that value as `Authorization: Bearer <token>` (with the
+token unset, `/metrics` returns `404`). The admin **health panel** in Settings,
+backed by `GET /v1/sys/status`, surfaces DB latency, scheduler tick ages, and
+failed-run counts. See the [observability guide](observability.md).
