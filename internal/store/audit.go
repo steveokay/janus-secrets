@@ -83,6 +83,28 @@ func (r *AuditRepo) Iterate(ctx context.Context, fn func(AuditRow) error) error 
 	return mapError(rows.Err())
 }
 
+// IterateFrom calls fn for every event with seq >= fromSeq in ascending seq
+// order. Used by verify-from-checkpoint: the walk starts at the checkpoint's
+// anchor+1 so a pruned prefix (seq < fromSeq) need not still exist.
+func (r *AuditRepo) IterateFrom(ctx context.Context, fromSeq int64, fn func(AuditRow) error) error {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT `+auditCols+` FROM audit_events WHERE seq >= $1 ORDER BY seq ASC`, fromSeq)
+	if err != nil {
+		return mapError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		a, err := scanAuditRow(rows)
+		if err != nil {
+			return err
+		}
+		if err := fn(a); err != nil {
+			return err
+		}
+	}
+	return mapError(rows.Err())
+}
+
 // List calls fn for every event matching f, in ascending seq order (export).
 func (r *AuditRepo) List(ctx context.Context, f AuditFilter, fn func(AuditRow) error) error {
 	var where []string

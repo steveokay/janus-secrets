@@ -110,3 +110,14 @@ func TestSysMasterKeyOwnerOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditManageOwnerOnly(t *testing.T) {
+	if !roleAllows(RoleOwner, AuditManage) {
+		t.Fatal("owner must have audit:manage")
+	}
+	for _, role := range []Role{RoleViewer, RoleDeveloper, RoleAdmin} {
+		if roleAllows(role, AuditManage) {
+			t.Fatalf("%s must NOT have audit:manage", role)
+		}
+	}
+}

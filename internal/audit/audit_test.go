@@ -41,6 +41,20 @@ func (m *memStore) Iterate(_ context.Context, fn func(store.AuditRow) error) err
 	}
 	return nil
 }
+func (m *memStore) IterateFrom(_ context.Context, fromSeq int64, fn func(store.AuditRow) error) error {
+	if m.failIterate {
+		return errBoom
+	}
+	for _, r := range m.rows {
+		if r.Seq < fromSeq {
+			continue
+		}
+		if err := fn(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 func (m *memStore) List(_ context.Context, _ store.AuditFilter, fn func(store.AuditRow) error) error {
 	return m.Iterate(context.Background(), fn)
 }

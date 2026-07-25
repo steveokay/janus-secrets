@@ -584,6 +584,10 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/export", s.handleAuditExport)
 				r.Get("/events", s.handleAuditEvents)
 				r.Get("/histogram", s.handleAuditHistogram)
+				// Signed checkpoints + retention prune (owner-only integrity ops).
+				r.Get("/checkpoint", s.handleAuditCheckpointGet)
+				r.Post("/checkpoint", s.handleAuditCheckpointCreate)
+				r.Post("/prune", s.handleAuditPrune)
 			})
 		}
 		if s.notification != nil {

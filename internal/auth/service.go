@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
@@ -127,6 +128,21 @@ func (s *Service) hmacKey(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	return s.keyring.UnwrapAuthKey(ct)
+}
+
+// CheckpointMACKey returns the domain-separated audit-checkpoint MAC key derived
+// from the token-HMAC key: HMAC-SHA256(tokenHMACKey, "janus/audit-checkpoint/v1").
+// The token key is unwrapped and zeroized here; the caller owns zeroizing the
+// returned checkpoint key. Returns crypto.ErrSealed while sealed. Wired into the
+// audit Recorder so signed checkpoints can be created/verified without exposing
+// the raw token-HMAC key outside the auth service.
+func (s *Service) CheckpointMACKey(ctx context.Context) ([]byte, error) {
+	key, err := s.hmacKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer zeroize(key)
+	return audit.DeriveCheckpointKey(key), nil
 }
 
 // mac computes HMAC-SHA256(key, data).
