@@ -27,14 +27,19 @@ type Service struct {
 	kekVers  *store.ProjectKEKVersionRepo
 	maxAge   *store.MaxAgeRepo
 	annots   *store.AnnotationRepo
-	lastRead *store.LastReadRepo
-	readIns  *store.ReadInsightsRepo
-	keyring  *crypto.Keyring
+	lastRead  *store.LastReadRepo
+	readIns   *store.ReadInsightsRepo
+	retention *store.VersionRetentionRepo
+	keyring   *crypto.Keyring
 
 	// unusedDays is the advisory unused-secret threshold in days (a key with no
 	// per-key reveal within this window is flagged "unused"). Server config, not
 	// per-config state; defaults to DefaultUnusedSecretDays.
 	unusedDays int
+
+	// retentionFloor is the instance-wide minimum-retention floor on secret
+	// value-version pruning (JANUS_SECRET_RETAIN_MIN_*). Zero value = OFF.
+	retentionFloor RetentionFloor
 }
 
 // NewService retains st and builds the repositories from it. kr must be an
@@ -49,9 +54,10 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		kekVers:  store.NewProjectKEKVersionRepo(st),
 		maxAge:   store.NewMaxAgeRepo(st),
 		annots:   store.NewAnnotationRepo(st),
-		lastRead: store.NewLastReadRepo(st),
-		readIns:  store.NewReadInsightsRepo(st),
-		keyring:  kr,
+		lastRead:  store.NewLastReadRepo(st),
+		readIns:   store.NewReadInsightsRepo(st),
+		retention: store.NewVersionRetentionRepo(st),
+		keyring:   kr,
 
 		unusedDays: DefaultUnusedSecretDays,
 	}

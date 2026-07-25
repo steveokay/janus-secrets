@@ -244,6 +244,31 @@ func runServer(ctx context.Context) error {
 		}
 	}
 
+	// Optional instance-wide minimum-retention floor on secret value-version
+	// pruning (both OFF by default, which preserves the historical "history is
+	// never destroyed" behavior — with no floor an owner may still prune a
+	// config's history down to its latest version, but only by asking). Each is
+	// a ceiling on how aggressive POST /v1/configs/{cid}/versions/prune may be.
+	// A typo is a FATAL boot error, matching JANUS_AUDIT_RETAIN_MIN_*: silently
+	// ignoring a retention floor an operator believes is in force would be worse
+	// than refusing to start, because the data it protects cannot be recovered.
+	secretRetainMinVersions := 0
+	if v := os.Getenv("JANUS_SECRET_RETAIN_MIN_VERSIONS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid JANUS_SECRET_RETAIN_MIN_VERSIONS %q: use a non-negative integer version count, or leave unset to disable", v)
+		}
+		secretRetainMinVersions = n
+	}
+	secretRetainMinDays := 0
+	if v := os.Getenv("JANUS_SECRET_RETAIN_MIN_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid JANUS_SECRET_RETAIN_MIN_DAYS %q: use a non-negative integer number of days, or leave unset to disable", v)
+		}
+		secretRetainMinDays = n
+	}
+
 	// Break-glass TTL ceiling. A grant's requested TTL is clamped to this max.
 	// Non-positive/invalid → the api package default (1h). Never fail boot on it.
 	breakGlassMaxTTL := time.Duration(0) // 0 → api default (1h)
@@ -313,6 +338,10 @@ func runServer(ctx context.Context) error {
 		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
 		BreakGlassMaxTTL:   breakGlassMaxTTL,                 // 0 → default 1h
 		UnusedSecretDays:   unusedSecretDays,                 // 0 → default 90 days
+
+		SecretRetainMinVersions: secretRetainMinVersions, // 0 → no version-count floor
+		SecretRetainMinDays:     secretRetainMinDays,     // 0 → no age floor
+
 		TLS:                tlsCfg,
 		Pool:               pool,
 		HTTPShutdownGrace:  shutdownGrace,

@@ -75,7 +75,9 @@ git tree — a config version is a **manifest** pointing at immutable value rows
 
 - **`secret_values`** — append-only. One row per *distinct* value:
   `(config_id, key, value_version, wrapped_dek, ciphertext, nonce, …)`. This
-  table **is** the per-key history. Rows are never updated or deleted.
+  table **is** the per-key history. Rows are never updated, and are only ever
+  removed by the explicit, owner-gated retention prune described below — never
+  as a side effect of an ordinary write.
 - **`config_versions`** — one row per save: `(config_id, version, message,
   created_by, created_at)`. Immutable.
 - **`config_version_entries`** — the manifest: for each config version, one row
@@ -105,6 +107,42 @@ FROM config_version_entries e
 JOIN secret_values sv ON sv.id = e.secret_value_id
 WHERE e.config_version_id = $latest AND NOT e.tombstone;
 ```
+
+### Retention: pruning history (roadmap 8.2)
+
+Because history is append-only, a long-lived instance accumulates every value
+every key has ever held. `POST /v1/configs/{cid}/versions/prune` (owner-only,
+audited, **preview by default**, disabled unless asked for) bounds that growth.
+
+**It prunes at the config-version granularity, never the value-version
+granularity, and that is load-bearing.** Migration `000005` declares
+
+```sql
+config_version_entries.secret_value_id → secret_values (id) ON DELETE CASCADE
+```
+
+so deleting a `secret_values` row **silently deletes the manifest entries that
+point at it**. A naive "delete value versions older than N days" would strip
+keys out of old config versions with no error anywhere, and a rollback to one of
+them would restore an *incomplete* config. The prune therefore:
+
+1. deletes whole `config_versions` rows (their manifest entries go with them via
+   the `config_version_id` cascade), then
+2. garbage-collects `secret_values` rows of that config that no surviving
+   `config_version_entries` row references
+   (migration `000043` adds the partial index on `secret_value_id` this needs).
+
+This preserves the invariant **every retained config version is fully
+restorable**, which the prune transaction re-asserts by counting the surviving
+versions' live manifest entries before and after the deletes and rolling back on
+any mismatch. Guards (all fail-closed): the latest version is never pruned; a
+soft-deleted config is refused; a config with a pending/in-flight edit request is
+refused outright; and a version a pending promotion request names as its source
+is pinned. Retention floors live in `config_version_retention` (per config,
+migration `000043`) and `JANUS_SECRET_RETAIN_MIN_VERSIONS` /
+`JANUS_SECRET_RETAIN_MIN_DAYS` (instance-wide); the effective floor is the
+**strictest** of those and the request, so an override can only ever retain
+more. See `docs/operations.md` → *Value-version retention*.
 
 ## Deletion semantics
 

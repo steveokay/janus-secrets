@@ -190,6 +190,20 @@ components:
         version: { type: integer }
         id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
+    VersionRetention:
+      type: object
+      description: >-
+        Resolved secret value-version retention policy for one config. Integers
+        only; never secret values. The effective floor is the STRICTEST (largest)
+        of the instance floor and the config override, so an override can only
+        ever retain more.
+      properties:
+        instance_min_versions: { type: integer, description: "JANUS_SECRET_RETAIN_MIN_VERSIONS; 0 = off." }
+        instance_min_days: { type: integer, description: "JANUS_SECRET_RETAIN_MIN_DAYS; 0 = off." }
+        config_min_versions: { type: integer, nullable: true }
+        config_min_days: { type: integer, nullable: true }
+        effective_min_versions: { type: integer }
+        effective_min_days: { type: integer }
     Reads24h:
       type: object
       description: Names + counts only; never secret values.
@@ -1994,6 +2008,118 @@ paths:
               schema: { $ref: '#/components/schemas/VersionResponse' }
         "400": { description: Validation error. }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/configs/{cid}/versions/retention:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [configs]
+      summary: Resolved secret value-version retention policy (value-free)
+      description: >-
+        Returns the instance-wide minimum-retention floor
+        (JANUS_SECRET_RETAIN_MIN_VERSIONS / JANUS_SECRET_RETAIN_MIN_DAYS), this
+        config's override, and the effective floor — the strictest of the two.
+        Requires secret:read.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionRetention' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [configs]
+      summary: Set or clear this config's retention override (owner-only)
+      description: >-
+        An override can only RETAIN MORE than the instance floor — the effective
+        floor is the larger of the two — so it can never weaken an operator's
+        instance-wide guarantee. A body with both fields null CLEARS the
+        override. Gated on secret:prune (owner-only) and audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_versions: { type: integer, minimum: 1, nullable: true }
+                min_days: { type: integer, minimum: 1, nullable: true }
+      responses:
+        "200":
+          description: The resolved policy after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionRetention' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/configs/{cid}/versions/prune:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [configs]
+      summary: Prune old config versions and unreferenced value history (owner-only, destructive)
+      description: >-
+        Removes whole CONFIG VERSIONS — the unit of diff and rollback — and then
+        garbage-collects secret value rows no surviving config version
+        references. It never deletes a value version directly: the manifest
+        cascades on a value delete, so a value-level prune would silently strip
+        keys out of old config versions. Every RETAINED config version stays
+        fully restorable.
+
+
+        DEFAULTS TO A DRY RUN: omit dry_run (or send true) for a preview. The
+        latest config version is never pruned; the effective retention floor is
+        the strictest of the request, the instance floor and the config
+        override; a config with a pending or in-flight edit request is refused
+        (409); and a config version a pending promotion request names as its
+        source is retained. Gated on secret:prune (owner-only) and audited. The
+        response is value-free — version numbers and counts only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keep_versions:
+                  type: integer
+                  minimum: 0
+                  description: Retain the newest N config versions. At least one of keep_versions / keep_days must be positive.
+                keep_days:
+                  type: integer
+                  minimum: 0
+                  description: Retain config versions created in the last N days. 0 disables the age rule.
+                dry_run:
+                  type: boolean
+                  default: true
+                  description: When true (the default), report what would be removed and change nothing.
+      responses:
+        "200":
+          description: Prune result (or preview).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dry_run: { type: boolean }
+                  latest_version: { type: integer }
+                  keep_versions: { type: integer, description: The EFFECTIVE version floor applied. }
+                  keep_days: { type: integer, description: The EFFECTIVE age floor applied, in days. }
+                  pruned_versions:
+                    type: array
+                    items: { type: integer }
+                  pinned_versions:
+                    type: array
+                    items: { type: integer }
+                    description: Versions the floor would have pruned but a pending promotion request depends on.
+                  versions_deleted: { type: integer }
+                  values_deleted: { type: integer }
+                  versions_retained: { type: integer }
+        "400": { description: Validation error (no keep_versions / keep_days given). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Blocked by a pending or in-flight edit request, or the config is soft-deleted. }
 
   # ---------------------------------------------------------------------
   # trash

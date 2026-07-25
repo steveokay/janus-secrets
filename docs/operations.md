@@ -64,6 +64,8 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_AUDIT_SHIP_SYSLOG_NETWORK` | no | `udp` (default) or `tcp` (RFC 6587 octet-framed) for syslog |
 | `JANUS_AUDIT_RETAIN_MIN_DAYS` | no | Minimum-retention floor on `POST /v1/audit/prune`: never prune an event younger than N days. Unset/`0` = **off** (an owner may prune the whole checkpointed prefix). Non-integer/negative = **fatal boot error** |
 | `JANUS_AUDIT_RETAIN_MIN_EVENTS` | no | Minimum-retention floor on `POST /v1/audit/prune`: always keep at least the newest N events. Unset/`0` = **off**. Combined with `_DAYS` (and with the ship high-water mark) by taking the strictest ceiling |
+| `JANUS_SECRET_RETAIN_MIN_VERSIONS` | no | Minimum-retention floor on `POST /v1/configs/{cid}/versions/prune`: never leave fewer than the newest N config versions of a config behind. Unset/`0` = **off**. Non-integer/negative = **fatal boot error** |
+| `JANUS_SECRET_RETAIN_MIN_DAYS` | no | Minimum-retention floor on `POST /v1/configs/{cid}/versions/prune`: never prune a config version younger than N days. Unset/`0` = **off**. Combined with `_MIN_VERSIONS`, the per-config override, and the request itself by taking the **strictest** floor |
 | `JANUS_BREAKGLASS_MAX_TTL` | no | Ceiling a break-glass grant's requested TTL is clamped to (Go duration, positive, default `1h`) |
 | `JANUS_HTTP_READ_TIMEOUT` | no | HTTP server read timeout (Go duration, default `30s`; `0` disables) |
 | `JANUS_HTTP_IDLE_TIMEOUT` | no | HTTP server idle (keep-alive) timeout (Go duration, default `120s`; `0` disables) |
@@ -362,6 +364,81 @@ audited (`secret.write` / `secret.delete`).
 | `GET /v1/configs/{cid}/versions` | List config versions (v1, v2, …) | `config:read` |
 | `GET /v1/configs/{cid}/versions/diff?a=N&b=M` | Added / changed / removed keys between two versions (no values) | `config:read` |
 | `POST /v1/configs/{cid}/rollback` | Roll the config back to a target version — repoints at existing ciphertext, no re-encryption, as a new version | `secret:write` |
+
+### Value-version retention (roadmap 8.2)
+
+Every save writes a new immutable `secret_values` row (its own DEK + ciphertext)
+and, historically, nothing ever removed one — a long-lived instance keeps every
+value a key has ever held, forever. Pruning is **explicit, owner-gated, audited,
+and off by default**; nothing is ever destroyed on a timer.
+
+**Granularity: config versions, not value versions.** This is the whole design,
+and it is not an implementation detail you can change later. The manifest table
+`config_version_entries` declares
+`secret_value_id → secret_values (id) ON DELETE CASCADE` (migration `000005`), so
+deleting a `secret_values` row **silently deletes the manifest entries that
+reference it**. A "delete value versions older than N days" implementation would
+therefore strip keys out of old config versions with no error anywhere, and a
+rollback to one of them would restore an *incomplete* config. Janus instead
+prunes whole **config versions** — the unit of diff and rollback — and only then
+garbage-collects `secret_values` rows that no surviving manifest entry
+references. This preserves the invariant
+
+> **every retained config version is fully restorable.**
+
+The prune transaction re-asserts it directly: it counts the manifest entries
+belonging to the versions meant to survive before and after the deletes, and
+aborts (rolls back) on any mismatch.
+
+**Guards — all fail-closed. If in doubt, Janus retains.**
+
+- The **latest** config version is never pruned (the version floor is clamped to ≥ 1).
+- A **soft-deleted** config is refused: it may still be restored from the trash.
+- A config with a **pending or in-flight (`applying`) edit request** is refused
+  entirely (`409`) — resolve or cancel the request and retry. The request's
+  proposal DEK is wrapped under a project-KEK version whose retirement is itself
+  gated on it, so the whole config is left alone rather than reasoned about
+  piecemeal.
+- A config version a **pending promotion request** names as its source is
+  retained even when the floors would drop it (reported as `pinned_versions`).
+- Requests are **preview-by-default**: omitting `dry_run` reports what *would*
+  go and changes nothing.
+
+**Floors.** The effective floor is the **strictest (largest)** of three inputs,
+so neither a per-config override nor an aggressive request can defeat an
+operator's instance-wide guarantee:
+
+1. the request's `keep_versions` / `keep_days`;
+2. the instance floor `JANUS_SECRET_RETAIN_MIN_VERSIONS` / `JANUS_SECRET_RETAIN_MIN_DAYS` (both unset = off);
+3. the per-config override (`PUT …/versions/retention`).
+
+| Route | Purpose | Requires |
+|---|---|---|
+| `GET /v1/configs/{cid}/versions/retention` | Resolved policy: instance floor, config override, effective floor (integers only) | `secret:read` |
+| `PUT /v1/configs/{cid}/versions/retention` | Set (`{"min_versions":25,"min_days":90}`) or clear (both `null`) the config override. Audited (`secret.retention.set` / `.clear`) | `secret:prune` (**owner-only**) |
+| `POST /v1/configs/{cid}/versions/prune` | Prune old config versions + GC unreferenced values. `{"keep_versions":N,"keep_days":D,"dry_run":true}`; **`dry_run` defaults to `true`**. Audited (`secret.version.prune` / `.preview`) | `secret:prune` (**owner-only**) |
+
+The response is value-free: `pruned_versions`, `pinned_versions`,
+`versions_deleted`, `values_deleted`, `versions_retained`, and the effective
+floor actually applied. Audit details carry the same counts — never a key's
+value.
+
+**CLI.**
+
+```bash
+janus secrets retention get                        # instance / config / effective floors
+janus secrets retention set --min-versions 25      # raise this config's floor
+janus secrets retention clear                      # fall back to the instance floor
+
+janus secrets prune --keep-versions 20             # PREVIEW (default)
+janus secrets prune --keep-versions 20 --apply     # destroy; cannot be undone
+janus secrets prune --keep-days 180 --apply
+```
+
+**Why there is no scheduled sweep.** A background job that silently destroys
+secret history is exactly the thing an operator should have to ask for by name.
+Pruning is a deliberate act with a preview; there is no tick that does it for
+you. Run the prune from your own scheduler if you want it periodic.
 
 ## Transit (encryption as a service)
 
