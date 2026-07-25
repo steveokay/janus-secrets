@@ -191,6 +191,19 @@ the Default column). Invalid values fail boot with a clear error.
 | `JANUS_DYNAMIC_TICK` | In-process dynamic-lease manager tick (renew/expire sweep); `0` disables. | `60s` |
 | `JANUS_UNUSED_SECRET_DAYS` | Advisory unused-secret threshold in days: a key with no per-key reveal within this window is flagged "unused" in the masked list, editor, and overview In tray. Positive integer; `0`/unset/invalid ⇒ 90. Advisory only — never blocks. | `90` |
 
+> **Account lockout is per-account, across all source IPs (known tradeoff).**
+> Progressive login lockout (`JANUS_LOCKOUT_*`) counts consecutive failed
+> logins for an *account*, not per source IP. That's deliberate — it stops
+> distributed/rotating-IP password guessing that a per-IP counter would miss —
+> but it also means an attacker who knows a victim's email can deliberately
+> feed wrong passwords to keep that account locked out (a targeted denial of
+> service against one account). This is an accepted tradeoff. Tune it with the
+> `JANUS_LOCKOUT_*` knobs above (raise `JANUS_LOCKOUT_THRESHOLD`, shorten
+> `JANUS_LOCKOUT_BASE`/`JANUS_LOCKOUT_MAX`), or set `JANUS_LOCKOUT_ENABLED=false`
+> to disable lockout entirely if your front door already rate-limits by IP.
+> An admin can always clear a lockout immediately with `janus user unlock`
+> (no need to wait out the window).
+
 ### CLI / client-only
 
 These are read by the `janus` **client** commands, not the server process:

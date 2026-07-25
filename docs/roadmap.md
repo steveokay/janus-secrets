@@ -139,6 +139,24 @@ account/credential the maintainer must supply, so they are tracked separately._
       **claim-before-commit** (no double-commit), added **GitLab sync
       project-id validation** (URL-injection guard), and protected pending edit
       requests from **KEK-version retirement**. gosec 0, full suite green.
+- [x] ~~**Post-1.0 white-box audit remediation**~~ **DONE 2026-07-24** (branch
+      `hardening/security-audit-fixes`, pending merge; details in the internal
+      audit tracker) — 5-agent white-box audit found 0 CRITICAL. The lone **HIGH**
+      (H-1, promotion-request four-eyes) was re-examined and is **not** an
+      exploitable bypass (`secret:promote` implies `secret:write` and requester ≠
+      approver is enforced) — the invariant is now documented at the site rather
+      than "fixed" with dead code. Fixed: **M-1** member-grant delegation capped at
+      `BoundRole` not `EffectiveRole` (break-glass can no longer be made durable);
+      **M-2** TOTP replay rejected by persisting the last consumed step (migration
+      000038); **M-3** password change now revokes other sessions + rotates the
+      current cookie; **M-4** systemic SSRF closed by one shared `nethard`
+      hardened dialer (blocks link-local/cloud-metadata, `CheckRedirect`, bounded
+      per-dial timeouts) across **every** operator-configured outbound caller —
+      rotation (webhook/oauth/notify + Postgres/MySQL/Redis dials, **L-2**),
+      notification (webhook/Slack/SMTP), sync (k8s/gitlab/cloudflare/vercel/
+      netlify), and **OIDC discovery/JWKS** (I-4); **L-1** uniform API
+      security-header middleware; **L-5** `.dockerignore`. L-3/L-4/L-6 are
+      documented accepted tradeoffs. gosec 0.
 - [ ] **Publish the TypeScript SDK to npm** (`janus-client`, `sdk/ts/`) — needs
       an npm account + automation token; add an npm-publish CI job (on an
       `sdk-ts-v*` tag or manual dispatch) running `npm publish` with `NPM_TOKEN`.

@@ -15,6 +15,8 @@ import (
 	"net/smtp"
 	"strings"
 	"time"
+
+	"github.com/steveokay/janus-secrets/internal/nethard"
 )
 
 // send dispatches one rendered event to a channel by type. body is the
@@ -182,7 +184,10 @@ func (s *Service) sendSMTP(ctx context.Context, cfg channelConfig, p eventPayloa
 	// it is off unless the operator sets insecure_skip_verify on the channel.
 	tlsCfg := &tls.Config{ServerName: cfg.Host, InsecureSkipVerify: cfg.InsecureSkipVerify}
 
-	dialer := &net.Dialer{}
+	// Route the SMTP dial through the SSRF guard so the resolved relay IP is
+	// re-checked at connect time (blocks link-local/IMDS; loopback + RFC1918
+	// remain allowed for self-hosted LAN relays unless BLOCK_PRIVATE is set).
+	dialer := &net.Dialer{Control: nethard.SafeControl(s.policy)}
 	if deadline, ok := ctx.Deadline(); ok {
 		dialer.Deadline = deadline
 	}

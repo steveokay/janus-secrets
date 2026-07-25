@@ -13,6 +13,7 @@ import (
 
 	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/nethard"
 	"github.com/steveokay/janus-secrets/internal/secrets"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
@@ -40,6 +41,7 @@ type Service struct {
 	logger   *slog.Logger
 	st       *store.Store
 	hc       *http.Client
+	policy   nethard.Policy   // SSRF policy applied to shared + k8s HTTP clients
 	now      func() time.Time // injectable clock (tests)
 	tickHook func()           // optional; called at the top of each RunDue (metrics/health)
 
@@ -56,10 +58,12 @@ func New(kr *crypto.Keyring, st *store.Store, sec *secrets.Service, aud *audit.R
 	if logger == nil {
 		logger = slog.Default()
 	}
+	policy := nethard.PolicyFromEnv()
 	return &Service{
 		kr: kr, repo: store.NewSyncTargetRepo(st), projects: store.NewProjectRepo(st),
 		secrets: sec, audit: aud, logger: logger, st: st,
-		hc:            &http.Client{Timeout: 20 * time.Second},
+		hc:            nethard.SafeHTTPClient(20*time.Second, policy),
+		policy:        policy,
 		now:           time.Now,
 		githubBaseURL: "https://api.github.com",
 	}

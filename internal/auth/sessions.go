@@ -203,26 +203,49 @@ func (s *Service) Logout(ctx context.Context, cookie string) error {
 	return nil
 }
 
-// ChangePassword re-verifies the old password and stores a new hash.
-func (s *Service) ChangePassword(ctx context.Context, userID string, oldPW, newPW []byte) error {
+// ChangePassword re-verifies the old password, stores a new hash, and then
+// rotates the caller's sessions: it mints a FRESH session (returned as newCookie
+// for the caller to set) and revokes every OTHER session for the user, so a
+// stolen session cookie cannot survive a password change. The caller is never
+// left logged out — the new session exists before any others are revoked.
+//
+// If the password update succeeds but session rotation fails, the returned error
+// is non-nil AND newCookie is "": the password is already changed, but the
+// caller must re-authenticate. Handlers should treat a non-empty newCookie as
+// the signal to set the cookie and report success.
+func (s *Service) ChangePassword(ctx context.Context, userID string, oldPW, newPW []byte) (newCookie string, err error) {
 	defer zeroize(oldPW)
 	defer zeroize(newPW)
 	u, err := s.users.Get(ctx, userID)
 	if err != nil {
-		return ErrInvalidCredentials
+		return "", ErrInvalidCredentials
 	}
 	if u.PasswordHash == nil {
-		return ErrInvalidCredentials
+		return "", ErrInvalidCredentials
 	}
 	ok, _, err := VerifyPassword(*u.PasswordHash, oldPW)
 	if err != nil || !ok {
-		return ErrInvalidCredentials
+		return "", ErrInvalidCredentials
 	}
 	hash, err := HashPassword(newPW)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return s.users.UpdatePassword(ctx, u.ID, hash)
+	if err := s.users.UpdatePassword(ctx, u.ID, hash); err != nil {
+		return "", err
+	}
+	// Password is now changed. Mint a fresh session for the caller FIRST so
+	// there is no window in which they are logged out, then revoke every other
+	// session — including the caller's previous cookie — invalidating any
+	// stolen cookie.
+	fresh, err := s.createSession(ctx, u.ID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.RevokeOtherSessions(ctx, u.ID, fresh); err != nil {
+		return "", err
+	}
+	return fresh, nil
 }
 
 // SweepExpiredSessions removes all expired sessions (called at boot).

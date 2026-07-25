@@ -111,9 +111,14 @@ func (s *Server) memberPut(w http.ResponseWriter, r *http.Request, spec scopeSpe
 	if !s.authorize(w, r, authz.MemberManage, spec.resource, "member.grant", memberResource(spec, userID)) {
 		return
 	}
-	// Delegation: you cannot grant a role above your own effective role here.
+	// Delegation: you cannot grant a role above your own DURABLE (bound) role.
+	// Deliberately BoundRole, not EffectiveRole: a temporary break-glass
+	// elevation must never be convertible into a permanent binding at the
+	// elevated role. EffectiveRole includes active break-glass grants, so using
+	// it here would let a user who broke glass up to admin/owner mint a lasting
+	// binding at that role that outlives the grant's TTL (privilege persistence).
 	granter, _ := PrincipalFrom(r.Context())
-	gRole, err := s.authz.EffectiveRole(r.Context(), granter.ID, spec.resource)
+	gRole, err := s.authz.BoundRole(r.Context(), granter.ID, spec.resource)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return

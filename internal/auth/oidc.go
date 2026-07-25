@@ -145,7 +145,9 @@ func (s *Service) oidcVerifierFor(ctx context.Context) (*oidcVerifier, error) {
 	if err != nil {
 		return nil, err
 	}
-	provider, err := oidc.NewProvider(ctx, p.Issuer)
+	// Discovery + the lazily-built JWKS RemoteKeySet both use the client carried
+	// on this context, so the SSRF-hardened client covers both fetches (M-4/I-4).
+	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, s.oidcHTTP), p.Issuer)
 	if err != nil {
 		zeroize(secret)
 		return nil, err
