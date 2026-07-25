@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type CDPSession, type Page } from '@playwright/test'
 
 /**
  * Flagship end-to-end smoke suite for Janus.
@@ -42,6 +42,8 @@ test.describe.serial('Janus flagship smoke', () => {
   let page: Page
   let shares: string[] = []
   let adminPassword = ''
+  let cdp: CDPSession
+  let authenticatorId = ''
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage()
@@ -200,5 +202,96 @@ test.describe.serial('Janus flagship smoke', () => {
 
     // The chain-verified badge should be present (the ledger is intact).
     await expect(page.getByText(/Chain verified/i)).toBeVisible()
+  })
+  // ---------------------------------------------------------------------------
+  // Passkeys (WebAuthn).
+  //
+  // These steps exercise the ONE part of the passkey feature that Go tests
+  // cannot reach: the browser half. The server side is covered by unit/e2e tests
+  // driving a software authenticator, but nothing there proves the real
+  // navigator.credentials ceremony works — that the RP ID matches, that the
+  // origin check passes, that the browser accepts the options object Janus
+  // emits, or that our client code round-trips the PublicKeyCredential.
+  //
+  // Chrome's CDP virtual authenticator provides a real WebAuthn implementation
+  // with a scriptable authenticator, so the ceremony below is genuine: Chrome
+  // performs the RP-ID/origin checks itself and would refuse a mismatch.
+  //
+  // Requires the server to be configured with JANUS_WEBAUTHN_RP_ID/ORIGINS (the
+  // dev compose stack sets them); when it is not, the UI hides the passkey
+  // controls and these tests fail with a clear message rather than silently
+  // passing.
+  // ---------------------------------------------------------------------------
+
+  test('register a passkey via the real browser ceremony', async () => {
+    cdp = await page.context().newCDPSession(page)
+    await cdp.send('WebAuthn.enable')
+    const created = await cdp.send('WebAuthn.addVirtualAuthenticator', {
+      options: {
+        protocol: 'ctap2',
+        transport: 'internal',
+        hasResidentKey: true,
+        // Janus sends userVerification:"required" on every ceremony, so an
+        // authenticator that cannot verify the user would be rejected outright.
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+      },
+    })
+    authenticatorId = created.authenticatorId
+
+    await page.goto('/settings')
+    const registerBtn = page.getByRole('button', { name: /Register a passkey/i })
+    await expect(
+      registerBtn,
+      'passkey controls are hidden — is JANUS_WEBAUTHN_RP_ID/ORIGINS set on the server?',
+    ).toBeVisible()
+    await registerBtn.click()
+
+    // The app's own prompt (never a native dialog) asks for a device nickname.
+    const nickname = page.getByLabel(/Device name/i)
+    await expect(nickname).toBeVisible()
+    await nickname.fill('E2E virtual key')
+    await page.getByRole('button', { name: /^Continue$/ }).click()
+
+    // The credential is listed by nickname, and the authenticator really holds it.
+    await expect(page.getByText('E2E virtual key')).toBeVisible()
+    const { credentials } = await cdp.send('WebAuthn.getCredentials', { authenticatorId })
+    expect(
+      credentials.length,
+      'the virtual authenticator holds no credential — the ceremony did not complete',
+    ).toBe(1)
+    expect(credentials[0].isResidentCredential ?? false).toBeDefined()
+  })
+
+  test('sign in with the passkey after signing out', async () => {
+    // Sign out via the shell's user chip. NOTE: do not match on /Sign out/i —
+    // Settings also has a "Sign out all other sessions" button, which revokes
+    // OTHER sessions and would leave us logged in.
+    await page.goto('/')
+    await page.locator('button.user-chip').click()
+    await expect(page.locator('#email')).toBeVisible()
+
+    await page.locator('#email').fill(ADMIN_EMAIL)
+    const passkeyBtn = page.getByRole('button', { name: /^A passkey$/ })
+    await expect(
+      passkeyBtn,
+      'the passkey sign-in button is absent — the server reported passkeys unavailable',
+    ).toBeVisible()
+    await passkeyBtn.click()
+
+    // A successful assertion lands us in the shell with no password typed.
+    const projectsNav = page.locator('nav').getByRole('link', { name: 'Projects' })
+    await expect(projectsNav).toBeVisible()
+  })
+
+  test('the passkey login is recorded in the audit ledger', async () => {
+    await page.goto('/audit')
+    await expect(page.getByRole('heading', { name: /Audit ledger/i })).toBeVisible()
+    await page.locator('input.search').fill('webauthn')
+    await expect(
+      page.locator('table.ledger tbody tr', { hasText: /webauthn/i }).first(),
+      'no webauthn audit event — the passkey login was not audited',
+    ).toBeVisible()
   })
 })
