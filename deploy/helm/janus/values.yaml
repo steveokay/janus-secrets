@@ -1,0 +1,283 @@
+# Default values for the Janus Helm chart.
+#
+# Janus is a single-tenant, self-hosted secrets manager. It ships as one Go
+# binary that stores ALL state in Postgres (the master key lives only in
+# server memory after unseal). This chart deploys the server; you bring your
+# own Postgres (managed RDS / Cloud SQL / Cloud SQL / self-run) — see
+# `postgresql:` at the bottom for an EVALUATION-ONLY bundled Postgres.
+#
+# READ FIRST — three things that make Janus different on Kubernetes:
+#   1. It boots SEALED. Every secret route returns 503 until the master key is
+#      supplied. On k8s, prefer cloud-KMS auto-unseal (seal.type=awskms/gcpkms/
+#      azurekv) so each pod self-unseals on boot. With seal.type=shamir a human
+#      must `janus unseal` after EVERY pod restart (see NOTES.txt).
+#   2. It is SINGLE-NODE by design. replicaCount is fixed at 1 with a Recreate
+#      strategy — two replicas would double-run the in-process schedulers
+#      (rotation / sync / dynamic leases). Do not raise replicaCount.
+#   3. Liveness vs readiness differ: liveness = /v1/sys/live (always 200, never
+#      gate on unseal), readiness = /v1/sys/ready (200 only when DB-reachable +
+#      initialized + unsealed). With Shamir the pod stays NotReady until unseal.
+
+# -- Container image. Production images are cosign-signed and carry SBOM +
+#    SLSA provenance — verify before deploy (see deploy/README.md).
+image:
+  repository: ghcr.io/steveokay/janus
+  # Pin a real released tag. NEVER use ":latest": Janus auto-runs schema
+  # migrations on boot, so an unpinned image can migrate on a routine restart.
+  tag: "0.1.0"
+  # Optional immutable digest (e.g. "sha256:abc..."). When set it takes
+  # precedence over tag (image referenced as repository@digest).
+  digest: ""
+  pullPolicy: IfNotPresent
+
+# -- imagePullSecrets for private registries (list of {name: <secret>}).
+imagePullSecrets: []
+
+# -- Name overrides.
+nameOverride: ""
+fullnameOverride: ""
+
+# -- Number of Janus pods. FIXED at 1 — Janus is single-node (HA is a
+#    non-goal). Two replicas double-run the schedulers and are unsupported.
+#    Left here only so you can scale to 0 for maintenance.
+replicaCount: 1
+
+# ---------------------------------------------------------------------------
+# Seal / unseal
+# ---------------------------------------------------------------------------
+# The seal type is chosen at the very first `janus init` and then the STORED
+# type is authoritative on every boot — this value must keep matching it.
+seal:
+  # One of: shamir | awskms | gcpkms | azurekv.
+  # Cloud-KMS types auto-unseal on boot (recommended for k8s). shamir needs a
+  # manual `janus unseal` after every restart.
+  type: awskms
+
+  # --- AWS KMS (seal.type=awskms) ---
+  # Provide credentials via IRSA (serviceAccount.annotations) — no static keys.
+  awskms:
+    keyArn: ""            # arn:aws:kms:<region>:<acct>:key/<id>  → JANUS_AWS_KMS_KEY_ARN
+    region: ""            # optional; sets AWS_REGION if your IRSA env doesn't
+
+  # --- GCP KMS (seal.type=gcpkms) ---
+  # Provide credentials via GKE Workload Identity (serviceAccount.annotations).
+  gcpkms:
+    key: ""              # projects/P/locations/L/keyRings/R/cryptoKeys/K → JANUS_GCP_KMS_KEY
+
+  # --- Azure Key Vault (seal.type=azurekv) ---
+  # Provide credentials via AAD Workload Identity (pod label + SA annotation).
+  azurekv:
+    vaultUrl: ""         # https://<vault>.vault.azure.net/  → JANUS_AZURE_KEYVAULT_URL
+    keyName: ""          # RSA/RSA-HSM key name              → JANUS_AZURE_KEY_NAME
+    keyVersion: ""       # optional specific version         → JANUS_AZURE_KEY_VERSION
+
+  # --- Shamir (seal.type=shamir) ---
+  # Nothing to configure here; the pod boots sealed and stays NotReady until an
+  # operator port-forwards and runs `janus unseal` k times after each restart.
+  shamir: {}
+
+# ---------------------------------------------------------------------------
+# Database (bring-your-own Postgres 16+)
+# ---------------------------------------------------------------------------
+database:
+  # PREFERRED: reference an existing Secret that holds the full DSN. This keeps
+  # the Postgres password out of Helm values / release history.
+  #   kubectl create secret generic janus-db \
+  #     --from-literal=JANUS_DATABASE_URL='postgres://user:pass@host:5432/janus?sslmode=require'
+  existingSecret: ""
+  # Key inside existingSecret holding the DSN. Defaults to JANUS_DATABASE_URL.
+  existingSecretKey: "JANUS_DATABASE_URL"
+
+  # FALLBACK: if existingSecret is empty and this is set, the chart creates a
+  # Secret from this value. Convenient but the DSN lands in your values —
+  # prefer existingSecret in production. Use sslmode=require or stronger.
+  url: ""
+
+# ---------------------------------------------------------------------------
+# Service account (attach cloud identity here for KMS auto-unseal)
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  # Cloud-identity annotations for KMS access WITHOUT static credentials:
+  #   AWS IRSA:  eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/<role>
+  #   GKE WI:    iam.gke.io/gcp-service-account: <gsa>@<proj>.iam.gserviceaccount.com
+  #   Azure WI:  azure.workload.identity/client-id: <client-id>
+  annotations: {}
+
+# For Azure AD Workload Identity, the pod also needs a label. Add it here:
+#   podLabels: { azure.workload.identity/use: "true" }
+podLabels: {}
+podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8200          # service port
+  # targetPort matches the container's listen port (JANUS_LISTEN_ADDR → :8200)
+  annotations: {}
+
+# ---------------------------------------------------------------------------
+# Ingress (disabled by default; terminate TLS here, not in the binary)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: janus.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: janus-tls
+    #   hosts:
+    #     - janus.example.com
+
+# ---------------------------------------------------------------------------
+# Resources (starting guidance for a small-to-mid team; tune to your load)
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# Security contexts — hardened defaults matching the distroless nonroot image
+# (uid/gid 65532, no shell). Janus writes nothing to disk by default, so the
+# root filesystem is read-only. If you enable in-binary ACME
+# (JANUS_TLS_ACME_CACHE) you must provide a writable volume for that path.
+# ---------------------------------------------------------------------------
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+# ---------------------------------------------------------------------------
+# Probes (verified endpoints — httpGet only; distroless has no shell for exec)
+#   liveness  → /v1/sys/live  (always 200, sealed-safe; NEVER gate on unseal)
+#   readiness → /v1/sys/ready (200 only when DB-reachable + initialized + unsealed)
+#   startup   → /v1/sys/live  (optional; gives slow DBs time before liveness)
+# ---------------------------------------------------------------------------
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    enabled: true
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 30   # ~150s for the DB to become reachable on first boot
+
+# ---------------------------------------------------------------------------
+# Core server config (rendered into env vars). Empty string ⇒ omitted ⇒ the
+# server's own default applies. See docs/guides/production-deployment.md §3.
+# ---------------------------------------------------------------------------
+env:
+  # Listen address inside the container. Leave ":8200" to match service.
+  listenAddr: ":8200"
+  # Use structured JSON logs on k8s.
+  logFormat: "json"        # text | json
+  logLevel: "info"         # debug | info | warn | error
+  # Graceful-drain window on SIGTERM (must be positive Go duration).
+  shutdownGrace: "10s"
+  # Block outbound requests to private/link-local ranges (SSRF hardening).
+  outboundBlockPrivate: true
+
+  # Optional HTTP tuning (empty ⇒ server default). See §3 of the guide.
+  http:
+    readTimeout: ""        # e.g. "30s"
+    writeTimeout: ""       # e.g. "0" (disabled — keeps long audit exports alive)
+    idleTimeout: ""        # e.g. "120s"
+    maxBodyBytes: ""       # e.g. "10485760"
+
+  # Optional pgx pool tuning (empty ⇒ pgx default).
+  db:
+    maxConns: ""
+    minConns: ""
+    maxConnLifetime: ""
+    maxConnIdleTime: ""
+
+# -- Prometheus /metrics gating. When token is set, /metrics is enabled and
+#    scrapers must present it as a bearer token. Empty ⇒ /metrics returns 404.
+metrics:
+  token: ""
+  # If set, the token is read from this existing Secret (key: JANUS_METRICS_TOKEN)
+  # instead of `token` above.
+  existingSecret: ""
+
+# -- Escape hatch: extra raw env vars appended verbatim to the container.
+#    Use for anything not surfaced above (e.g. JANUS_*_TICK, JANUS_TLS_*,
+#    JANUS_SESSION_IDLE_TIMEOUT, JANUS_LOCKOUT_*). Each item is a standard
+#    corev1.EnvVar (supports value or valueFrom).
+extraEnv: []
+  # - name: JANUS_ROTATION_TICK
+  #   value: "60s"
+  # - name: AWS_REGION
+  #   value: "us-east-1"
+
+# -- Extra volumes / mounts (e.g. a writable emptyDir for JANUS_TLS_ACME_CACHE
+#    when using in-binary ACME with readOnlyRootFilesystem).
+extraVolumes: []
+extraVolumeMounts: []
+
+# ---------------------------------------------------------------------------
+# Scheduling
+# ---------------------------------------------------------------------------
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------------------
+# EVALUATION-ONLY bundled Postgres.
+#   !!! NOT FOR PRODUCTION !!!  Single replica, no backups, no HA, no tuning.
+#   Use a managed Postgres (RDS / Cloud SQL / Azure DB) in production and set
+#   database.existingSecret instead. Off by default.
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: false
+  image: postgres:16-alpine
+  auth:
+    username: janus
+    password: janus          # eval default — change it, or better: don't use this
+    database: janus
+  storage:
+    size: 1Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi

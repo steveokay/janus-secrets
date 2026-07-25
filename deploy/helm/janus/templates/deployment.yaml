@@ -1,0 +1,202 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "janus.fullname" . }}
+  labels:
+    {{- include "janus.labels" . | nindent 4 }}
+  annotations:
+    # Janus is single-node by design; do not raise replicas above 1.
+    janus.dev/scaling: "single-node-only"
+spec:
+  # Fixed at 1: two replicas would double-run the in-process schedulers.
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    # Recreate (not RollingUpdate): never run two Janus pods at once.
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "janus.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "janus.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "janus.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: janus
+          image: "{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag | default .Chart.AppVersion }}{{ end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - server
+          ports:
+            - name: http
+              containerPort: 8200
+              protocol: TCP
+          env:
+            # --- seal type + provider wiring ---
+            - name: JANUS_SEAL_TYPE
+              value: {{ .Values.seal.type | quote }}
+            {{- if eq .Values.seal.type "awskms" }}
+            - name: JANUS_AWS_KMS_KEY_ARN
+              value: {{ .Values.seal.awskms.keyArn | quote }}
+            {{- with .Values.seal.awskms.region }}
+            - name: AWS_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else if eq .Values.seal.type "gcpkms" }}
+            - name: JANUS_GCP_KMS_KEY
+              value: {{ .Values.seal.gcpkms.key | quote }}
+            {{- else if eq .Values.seal.type "azurekv" }}
+            - name: JANUS_AZURE_KEYVAULT_URL
+              value: {{ .Values.seal.azurekv.vaultUrl | quote }}
+            - name: JANUS_AZURE_KEY_NAME
+              value: {{ .Values.seal.azurekv.keyName | quote }}
+            {{- with .Values.seal.azurekv.keyVersion }}
+            - name: JANUS_AZURE_KEY_VERSION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            # --- core server config ---
+            {{- with .Values.env.listenAddr }}
+            - name: JANUS_LISTEN_ADDR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.logFormat }}
+            - name: JANUS_LOG_FORMAT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.logLevel }}
+            - name: JANUS_LOG_LEVEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.shutdownGrace }}
+            - name: JANUS_SHUTDOWN_GRACE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: JANUS_OUTBOUND_BLOCK_PRIVATE
+              value: {{ .Values.env.outboundBlockPrivate | quote }}
+            {{- with .Values.env.http.readTimeout }}
+            - name: JANUS_HTTP_READ_TIMEOUT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.http.writeTimeout }}
+            - name: JANUS_HTTP_WRITE_TIMEOUT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.http.idleTimeout }}
+            - name: JANUS_HTTP_IDLE_TIMEOUT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.http.maxBodyBytes }}
+            - name: JANUS_HTTP_MAX_BODY_BYTES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.db.maxConns }}
+            - name: JANUS_DB_MAX_CONNS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.db.minConns }}
+            - name: JANUS_DB_MIN_CONNS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.db.maxConnLifetime }}
+            - name: JANUS_DB_MAX_CONN_LIFETIME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env.db.maxConnIdleTime }}
+            - name: JANUS_DB_MAX_CONN_IDLE_TIME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- /* metrics token from an existing Secret (token-in-values path uses envFrom below) */}}
+            {{- if .Values.metrics.existingSecret }}
+            - name: JANUS_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.metrics.existingSecret }}
+                  key: JANUS_METRICS_TOKEN
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            # Database DSN (JANUS_DATABASE_URL) — from the existing Secret or the
+            # one the chart renders. If neither is configured, boot fails with a
+            # clear "JANUS_DATABASE_URL required" error, which is intentional.
+            {{- if or .Values.database.existingSecret (eq (include "janus.createDatabaseSecret" .) "true") }}
+            - secretRef:
+                name: {{ include "janus.databaseSecretName" . }}
+            {{- end }}
+            {{- if eq (include "janus.createMetricsSecret" .) "true" }}
+            - secretRef:
+                name: {{ include "janus.metricsSecretName" . }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            # Always 200 while the process is up; sealed-safe. NEVER gate on unseal.
+            httpGet:
+              path: /v1/sys/live
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            # 200 only when DB-reachable + initialized + unsealed. With Shamir the
+            # pod stays NotReady until an operator unseals it — expected.
+            httpGet:
+              path: /v1/sys/ready
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: /v1/sys/live
+              port: http
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

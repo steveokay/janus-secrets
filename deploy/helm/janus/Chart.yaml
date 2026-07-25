@@ -1,0 +1,39 @@
+apiVersion: v2
+name: janus
+description: >-
+  Janus — a self-hosted, single-tenant secrets manager (Doppler-style
+  project/env/config model, Vault-style transit + dynamic secrets, KMS-style
+  encrypt-as-a-service). Deploys as one Go binary against a bring-your-own
+  Postgres. Single-node by design (HA is an explicit non-goal): this chart
+  pins replicas to 1 with a Recreate strategy.
+type: application
+
+# Chart version — bump on any change to the chart itself.
+version: 0.1.0
+
+# The Janus release this chart's defaults target. Keep in step with a real
+# published image tag (ghcr.io/steveokay/janus:<appVersion>).
+appVersion: "0.1.0"
+
+keywords:
+  - secrets
+  - secrets-manager
+  - vault
+  - doppler
+  - kms
+  - encryption
+  - single-tenant
+  - self-hosted
+
+home: https://github.com/steveokay/janus-secrets
+sources:
+  - https://github.com/steveokay/janus-secrets
+
+maintainers:
+  - name: Janus maintainers
+    url: https://github.com/steveokay/janus-secrets
+
+annotations:
+  # Janus is single-node by design; two replicas would double-run the
+  # in-process schedulers (rotation / sync / dynamic-lease). Do not scale out.
+  janus.dev/scaling: "single-node-only"
