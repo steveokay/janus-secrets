@@ -65,6 +65,16 @@ type Config struct {
 	// MetricsToken, when non-empty, enables the /metrics endpoint gated by this
 	// static bearer token. Empty → /metrics returns 404.
 	MetricsToken string
+	// AuditRetainMinDays and AuditRetainMinEvents are the optional
+	// minimum-retention floor on POST /v1/audit/prune: prune may never remove an
+	// event younger than AuditRetainMinDays days, nor leave fewer than
+	// AuditRetainMinEvents of the newest events behind. Both are ceilings on the
+	// prune point, combined with the audit-ship high-water mark in the handler.
+	// Zero (the default) disables that half of the floor; both zero = no floor,
+	// which is the historical behavior. cmd/janus reads
+	// JANUS_AUDIT_RETAIN_MIN_DAYS / JANUS_AUDIT_RETAIN_MIN_EVENTS.
+	AuditRetainMinDays   int
+	AuditRetainMinEvents int64
 	// BreakGlassMaxTTL is the ceiling a break-glass grant's requested TTL is
 	// clamped to (JANUS_BREAKGLASS_MAX_TTL). Zero → New applies the 1h default.
 	BreakGlassMaxTTL time.Duration

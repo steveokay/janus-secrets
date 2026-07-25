@@ -69,6 +69,12 @@ type BootConfig struct {
 	// AuditShipTick is the audit-shipper's tick interval. Zero disables the
 	// shipper (tests); cmd/janus reads JANUS_AUDIT_SHIP_TICK.
 	AuditShipTick time.Duration
+	// AuditRetainMinDays / AuditRetainMinEvents are the optional
+	// minimum-retention floor applied to audit prune. Zero (the default) leaves
+	// that half of the floor off; both zero = no floor. cmd/janus populates them
+	// from JANUS_AUDIT_RETAIN_MIN_DAYS / JANUS_AUDIT_RETAIN_MIN_EVENTS.
+	AuditRetainMinDays   int
+	AuditRetainMinEvents int64
 	// HTTP server hardening. Zero on any field disables that timeout (Go's
 	// default). cmd/janus applies production defaults; tests building BootConfig
 	// directly get zero.
@@ -227,6 +233,9 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		MetricsToken:       bc.MetricsToken,
 		BreakGlassMaxTTL:   bc.BreakGlassMaxTTL,
 		TLS:                bc.TLS,
+
+		AuditRetainMinDays:   bc.AuditRetainMinDays,
+		AuditRetainMinEvents: bc.AuditRetainMinEvents,
 	}, kr, unsealer, seals, svc, transitSvc, rotationSvc, syncSvc, dynamicSvc, authSvc, authorizer, st, auditRec, logger)
 	srv.MountUI(web.Handler())
 

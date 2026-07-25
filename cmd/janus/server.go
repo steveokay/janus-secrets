@@ -111,6 +111,29 @@ func runServer(ctx context.Context) error {
 		auditShipTick = d
 	}
 
+	// Optional minimum-retention floor on audit prune (both OFF by default, which
+	// preserves the historical "an owner may prune the whole checkpointed prefix"
+	// behavior). Each is a ceiling on the prune point, enforced by the API
+	// handler alongside the audit-ship high-water mark. A typo is a fatal boot
+	// error: silently ignoring a retention floor an operator believes is in force
+	// would be worse than refusing to start.
+	auditRetainMinDays := 0
+	if v := os.Getenv("JANUS_AUDIT_RETAIN_MIN_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid JANUS_AUDIT_RETAIN_MIN_DAYS %q: use a non-negative integer number of days, or leave unset to disable", v)
+		}
+		auditRetainMinDays = n
+	}
+	auditRetainMinEvents := int64(0)
+	if v := os.Getenv("JANUS_AUDIT_RETAIN_MIN_EVENTS"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			return fmt.Errorf("invalid JANUS_AUDIT_RETAIN_MIN_EVENTS %q: use a non-negative integer event count, or leave unset to disable", v)
+		}
+		auditRetainMinEvents = n
+	}
+
 	httpRead := 30 * time.Second
 	if v := os.Getenv("JANUS_HTTP_READ_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -241,6 +264,10 @@ func runServer(ctx context.Context) error {
 		BackupSchedule:     backupSchedule,
 		AuditShip:          auditShipCfg,
 		AuditShipTick:      auditShipTick,
+
+		AuditRetainMinDays:   auditRetainMinDays,   // 0 → no day-based floor
+		AuditRetainMinEvents: auditRetainMinEvents, // 0 → no count-based floor
+
 		Version:            version.Version,
 		HTTPReadTimeout:    httpRead,
 		HTTPWriteTimeout:   httpWrite,
