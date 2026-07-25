@@ -57,7 +57,8 @@ janus secrets delete KEY [K2 …] [--yes] [--message M]   # tombstones → new c
 janus secrets download --format env|json|yaml|files [--output PATH] [--plain] [--raw]
 janus secrets diff <vA> <vB> [--json]                   # key names only, no values
 janus secrets lock KEY / unlock KEY                     # promotion-protect a key on the bound config
-janus run [--preserve-env] [--raw] [--project P --env E --config C] -- <cmd> [args…]
+janus run [--preserve-env] [--raw] [--watch [--watch-interval 10s]] -- <cmd> [args…]
+janus render --template FILE --out FILE [--raw] [--watch [--interval 10s]]  # render a Go text/template of secrets to a file (PLAINTEXT)
 
 janus project create/list/delete/restore                # project CRUD (soft-delete + restore)
 janus project rotate-kek/rewrap/kek-status <project-id> # project KEK lifecycle (owner-only)
@@ -87,8 +88,8 @@ that would be imported (never a value) — until you pass `--confirm`; `--create
 provisions a missing target tree. Full per-source detail (credentials, mapping,
 examples) is in [guides/importing.md](guides/importing.md).
 
-**Resolution (`--raw`).** `get`, `download`, and `run` **resolve** config
-inheritance and secret references by default (they consume values). Pass `--raw`
+**Resolution (`--raw`).** `get`, `download`, `run`, and `render` **resolve**
+config inheritance and secret references by default (they consume values). Pass `--raw`
 to get the stored value verbatim (unresolved `${...}`, own values only) — mainly
 for editing or debugging. `secrets list` shows an `ORIGIN` column
 (`own`/`inherited`/`overridden`). See [references.md](references.md) for the
@@ -445,6 +446,64 @@ Exit-code propagation is cross-platform; **signal forwarding is best-effort on
 Windows**, which lacks the full POSIX signal set — a documented platform
 limitation. Under a POSIX shell (including this repo's Bash on Windows), Ctrl-C
 reaches the child as expected.
+
+**`--watch` (reload on new config version).**
+
+```bash
+janus run --watch -- ./my-service                     # restart when a new config version is saved
+janus run --watch --watch-interval 30s -- ./my-service  # poll every 30s (default 10s)
+```
+
+With `--watch`, after starting the child `janus` polls the bound config's
+**current version** every `--watch-interval` (default `10s`; minimum `1s`; a
+bare integer is read as seconds). The poll is value-free — it lists version
+metadata only (`GET …/versions`), never a secret. When the version **increases**,
+janus **gracefully restarts** the child: it sends `SIGTERM`, waits a 5s grace
+window for a clean exit, then `Kill`s it, re-fetches the (now-newer) secrets, and
+re-spawns with the fresh environment. Stdin/stdout/stderr stay wired through
+across restarts. **On Windows** there is no `SIGTERM` equivalent for a child
+process, so the graceful stop degrades to `Kill` (still after the grace window) —
+the child receives no soft-shutdown notification there. Without `--watch`,
+behavior is unchanged: run once, propagate the exit code. A failed poll is
+logged to stderr and retried on the next tick (it never tears down a healthy
+child); if the child exits on its own, its exit code is propagated as usual.
+
+### `janus render`
+
+```bash
+janus render --template app.conf.tmpl --out app.conf              # render once
+janus render --template app.conf.tmpl --out app.conf --watch      # re-render on each new config version
+janus render --template t --out o --watch --interval 30s          # poll every 30s (default 10s)
+janus render --template t --out o --raw                           # use stored values verbatim (no ${…} resolution)
+```
+
+Renders a Go **`text/template`** (not `html/template` — no HTML escaping) from
+`--template`, using the bound config's secrets, and writes the result to `--out`
+**atomically at mode `0600`** (temp file + `O_EXCL` + rename, same as
+`download --plain`). Secrets are exposed to the template **two ways**:
+
+- as the **top-level dot map** — `{{ .DB_URL }}` or `{{ index . "DB_URL" }}`
+  (use `index` for keys that aren't valid template identifiers); and
+- via a **`secret "KEY"` function** — `{{ secret "DB_URL" }}`.
+
+Referencing a **missing key errors** (the template runs with
+`Option("missingkey=error")`, and the `secret` function returns an error for an
+unknown key) rather than silently emitting an empty string. Values are
+**resolved** by default (inheritance + `${…}` references); `--raw` uses the
+stored values verbatim.
+
+> **The rendered `--out` file contains plaintext secret VALUES by design.** This
+> is the command's explicit purpose (Vault-agent–style templating), analogous to
+> `download --plain`. Unlike `download`, it is **not** gated behind a `--plain`
+> flag — rendering to a file *is* the operation — but janus prints a one-line
+> stderr notice that the output may contain secret values. Protect the output
+> path (it is `0600`, owner-only) and clean it up when done. No other plaintext
+> is written to disk.
+
+With `--watch`, janus re-renders whenever the bound config version increases,
+using the **same value-free version poll** as `janus run --watch` (default
+`10s`, minimum `1s`). A failed poll or re-render is logged to stderr and retried
+on the next tick.
 
 ## Control plane
 
