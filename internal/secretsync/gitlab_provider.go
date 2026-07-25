@@ -91,6 +91,84 @@ func (g gitlabProvider) Apply(ctx context.Context, creds Creds, addr Addr, desir
 	return res, nil
 }
 
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// GitLab's CI/CD variables list endpoint returns each variable's value with the
+// same `api`-scoped token the sync already uses, so this provider supports real
+// value drift detection.
+
+func (gitlabProvider) Capability() Capability { return CapValues }
+
+// glVarRead is one entry of the variables-list response.
+type glVarRead struct {
+	Key              string `json:"key"`
+	Value            string `json:"value"`
+	EnvironmentScope string `json:"environment_scope"`
+}
+
+// glListPerPage / glListMaxPages bound the paginated variables listing.
+const (
+	glListPerPage  = 100
+	glListMaxPages = 20
+)
+
+// Fetch lists the project's CI/CD variables. When the target pins an
+// environment_scope, only variables in that scope are considered — otherwise a
+// same-named variable scoped elsewhere would masquerade as the managed one.
+func (g gitlabProvider) Fetch(ctx context.Context, creds Creds, addr Addr, _ []string) (RemoteState, error) {
+	if creds.Token == "" || addr.Project == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	base, err := g.variablesBase(addr)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	var names []string
+	values := map[string]string{}
+	for page := 1; page <= glListMaxPages; page++ {
+		target := fmt.Sprintf("%s?per_page=%d&page=%d", base, glListPerPage, page)
+		vars, err := g.listPage(ctx, creds.Token, target)
+		if err != nil {
+			return RemoteState{}, err
+		}
+		for _, v := range vars {
+			if addr.EnvironmentScope != "" && v.EnvironmentScope != "" &&
+				v.EnvironmentScope != addr.EnvironmentScope {
+				continue
+			}
+			names = append(names, v.Key)
+			values[v.Key] = v.Value
+		}
+		if len(vars) < glListPerPage {
+			break
+		}
+	}
+	return RemoteState{Names: names, Values: values}, nil
+}
+
+// listPage GETs one page of variables. On any non-2xx the error carries only
+// the status code — never the token or a variable value.
+func (g gitlabProvider) listPage(ctx context.Context, token, target string) ([]glVarRead, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, bytes.NewReader(nil))
+	if err != nil {
+		return nil, ErrInvalidConfig
+	}
+	req.Header.Set("PRIVATE-TOKEN", token)
+	resp, err := g.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%w: request error", ErrApplyFailed)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%w: gitlab status %d", ErrApplyFailed, resp.StatusCode)
+	}
+	var out []glVarRead
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("%w: bad response", ErrApplyFailed)
+	}
+	return out, nil
+}
+
 // glVarBody is the create/update payload. masked and protected are pinned
 // false: GitLab rejects masked=true for values that don't match its mask regex,
 // which would turn ordinary secrets into spurious sync failures. Masking is a

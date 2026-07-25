@@ -73,6 +73,7 @@ janus master-key status/rekey/rotate                    # master-key rotation (S
 
 janus rotation create/list/get/update/delete/rotate     # scheduled secret rotation policies (see operations.md)
 janus sync create/list/get/update/delete/sync           # sync targets: GitHub Actions / Kubernetes (see operations.md)
+janus sync verify/verify-schedule                       # drift detection: is the destination still in step?
 janus dynamic roles …/creds/renew/revoke/leases         # dynamic Postgres credentials + leases (see operations.md)
 janus notifications create/list/update/delete/test/deliveries  # outbound alerting channels (see operations.md)
 
@@ -688,7 +689,16 @@ Thin CLI fronts for the Phase 3 engines — scheduled secret rotation
 Kubernetes, and dynamic Postgres credentials with a lease
 manager. All three follow the same `create/list/get/update/delete` shape
 plus an engine-specific action (`rotation rotate`, `sync sync`,
-`dynamic creds`/`renew`/`revoke`/`leases`). Full flag reference, the SQL/
+`dynamic creds`/`renew`/`revoke`/`leases`).
+
+`janus sync verify <id>` additionally checks a target's destination for
+**drift** — keys missing, changed, or unmanaged at the far end — and
+`janus sync verify-schedule <id> --enable|--disable|--interval-seconds N`
+paces the scheduled check. Output is value-free (key names and counts).
+GitHub Actions and Cloudflare Workers secrets are write-only by design, so
+for those two the report says `values compared: false` and covers only
+missing/extra keys. See
+[ops/sync.md](ops/sync.md#drift-detection). Full flag reference, the SQL/
 webhook templating rules, scheduler tick env vars, and runbooks live in
 [operations.md](operations.md) and `docs/ops/rotation.md` /
 `docs/ops/sync.md` / `docs/ops/dynamic.md` — this file doesn't duplicate

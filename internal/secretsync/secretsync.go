@@ -44,6 +44,9 @@ type Service struct {
 	policy   nethard.Policy   // SSRF policy applied to shared + k8s HTTP clients
 	now      func() time.Time // injectable clock (tests)
 	tickHook func()           // optional; called at the top of each RunDue (metrics/health)
+	// verifyTickHook is the drift verifier's equivalent of tickHook (called at
+	// the top of each RunVerifyDue pass).
+	verifyTickHook func()
 
 	githubBaseURL string // GitHub API base; overridden in tests to point at a fake
 }

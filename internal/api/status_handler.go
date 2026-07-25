@@ -177,6 +177,7 @@ func (s *Server) handleSysStatus(w http.ResponseWriter, r *http.Request) {
 	}{
 		{"rotation", s.cfg.RotationTick},
 		{"sync", s.cfg.SyncTick},
+		{"sync_verify", s.cfg.SyncVerifyTick},
 		{"dynamic", s.cfg.DynamicTick},
 	} {
 		st := schedulerStatus{

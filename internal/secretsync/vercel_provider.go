@@ -149,6 +149,135 @@ func (p vercelProvider) Apply(ctx context.Context, creds Creds, addr Addr, desir
 	return res, nil
 }
 
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// Vercel env vars written with type "encrypted" are not returned in the plain
+// list response, but Vercel exposes the decrypted value via
+// `GET /v9/projects/:id/env?decrypt=true` and, per variable, via
+// `GET /v1/projects/:id/env/:envId`. Verification uses the decrypting list and
+// falls back to the per-variable read for any entry that came back without a
+// value, so this provider supports real value drift detection. A variable whose
+// value the API still refuses to return is reported as UNREADABLE, never as
+// silently clean.
+
+func (vercelProvider) Capability() Capability { return CapValues }
+
+// vercelEnvEntry is one entry of the decrypting env-list response.
+type vercelEnvEntry struct {
+	ID     string   `json:"id"`
+	Key    string   `json:"key"`
+	Value  string   `json:"value"`
+	Target []string `json:"target"`
+}
+
+type vercelEnvList struct {
+	Envs []vercelEnvEntry `json:"envs"`
+}
+
+// vercelOneEnv is the per-variable read response (decrypted value).
+type vercelOneEnv struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// Fetch lists the project's env vars (decrypting) scoped to the configured
+// deployment targets, then per-variable reads any managed key whose value the
+// list omitted.
+func (p vercelProvider) Fetch(ctx context.Context, creds Creds, addr Addr, keys []string) (RemoteState, error) {
+	if creds.APIToken == "" || addr.VercelProject == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	targets, err := vercelResolveTargets(addr)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	base, err := p.envBase(addr)
+	if err != nil {
+		return RemoteState{}, err
+	}
+
+	resp, err := p.do(ctx, http.MethodGet, creds.APIToken, base+"?decrypt=true"+p.teamQuery(addr, "&"), nil)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return RemoteState{}, fmt.Errorf("%w: vercel status %d", ErrApplyFailed, resp.StatusCode)
+	}
+	var out vercelEnvList
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return RemoteState{}, fmt.Errorf("%w: bad response", ErrApplyFailed)
+	}
+
+	want := map[string]bool{}
+	for _, t := range targets {
+		want[t] = true
+	}
+	var names []string
+	values := map[string]string{}
+	idByKey := map[string]string{}
+	for _, e := range out.Envs {
+		if len(e.Target) > 0 && !anyIn(e.Target, want) {
+			continue // scoped to other deployment targets — not ours
+		}
+		names = append(names, e.Key)
+		idByKey[e.Key] = e.ID
+		if e.Value != "" {
+			values[e.Key] = e.Value
+		}
+	}
+
+	// Per-variable fallback for managed keys the list did not decrypt.
+	for _, k := range keys {
+		if _, ok := values[k]; ok {
+			continue
+		}
+		id, ok := idByKey[k]
+		if !ok || !vcIDRe.MatchString(id) {
+			continue
+		}
+		v, err := p.readOne(ctx, creds.APIToken, base, addr, id)
+		if err != nil {
+			return RemoteState{}, err
+		}
+		if v != "" {
+			values[k] = v
+		}
+	}
+	return RemoteState{Names: names, Values: values}, nil
+}
+
+// readOne GETs a single env var's decrypted value by id. A 404/403 yields "" so
+// the key is reported as unreadable rather than failing the whole pass.
+func (p vercelProvider) readOne(ctx context.Context, token, base string, a Addr, envID string) (string, error) {
+	resp, err := p.do(ctx, http.MethodGet, token, base+"/"+envID+p.teamQuery(a, "?"), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden {
+		return "", nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("%w: vercel status %d", ErrApplyFailed, resp.StatusCode)
+	}
+	var one vercelOneEnv
+	if err := json.NewDecoder(resp.Body).Decode(&one); err != nil {
+		return "", fmt.Errorf("%w: bad response", ErrApplyFailed)
+	}
+	return one.Value, nil
+}
+
+// anyIn reports whether any element of xs is in set.
+func anyIn(xs []string, set map[string]bool) bool {
+	for _, x := range xs {
+		if set[x] {
+			return true
+		}
+	}
+	return false
+}
+
 // vercelResolveTargets validates the configured targets, defaulting to
 // ["production"] when none are set.
 func vercelResolveTargets(a Addr) ([]string, error) {

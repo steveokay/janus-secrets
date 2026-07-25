@@ -10,6 +10,7 @@
   const ALL_EVENTS: Array<{ kind: NotificationEventKind; label: string }> = [
     { kind: 'rotation.failed', label: 'Rotation failed' },
     { kind: 'sync.failed', label: 'Sync failed' },
+    { kind: 'sync.drift', label: 'Sync drift detected' },
     { kind: 'promotion.pending', label: 'Promotion awaiting approval' },
     { kind: 'access.denied', label: 'Access denied' },
     { kind: 'breakglass.activated', label: 'Break-glass activated' },

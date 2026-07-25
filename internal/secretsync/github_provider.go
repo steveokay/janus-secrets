@@ -109,6 +109,55 @@ func (g githubProvider) Apply(ctx context.Context, creds Creds, addr Addr, desir
 	return res, nil
 }
 
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// GitHub Actions secrets are WRITE-ONLY by design: the list endpoint returns a
+// secret's name and timestamps but never its value, and there is no read-back
+// API at any permission level. The provider therefore declares CapNamesOnly and
+// honestly reports only what is detectable — a managed key missing at the repo,
+// and unmanaged extra secrets present. Value drift is NOT detectable here.
+
+func (githubProvider) Capability() Capability { return CapNamesOnly }
+
+// ghSecretsPage is the Actions-secrets list envelope. Only names are read.
+type ghSecretsPage struct {
+	TotalCount int `json:"total_count"`
+	Secrets    []struct {
+		Name string `json:"name"`
+	} `json:"secrets"`
+}
+
+// ghListPerPage / ghListMaxPages bound the paginated name listing.
+const (
+	ghListPerPage  = 100
+	ghListMaxPages = 20
+)
+
+// Fetch lists the destination's secret NAMES. Values is left nil — the GitHub
+// API cannot return them, and pretending otherwise would let a "no drift"
+// result be mistaken for "values verified".
+func (g githubProvider) Fetch(ctx context.Context, creds Creds, addr Addr, _ []string) (RemoteState, error) {
+	if creds.PAT == "" || addr.Owner == "" || addr.Repo == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	base := g.baseURL + g.secretsPath(addr)
+	var names []string
+	for page := 1; page <= ghListMaxPages; page++ {
+		var out ghSecretsPage
+		target := fmt.Sprintf("%s?per_page=%d&page=%d", base, ghListPerPage, page)
+		if err := g.doJSON(ctx, http.MethodGet, creds.PAT, target, nil, &out); err != nil {
+			return RemoteState{}, err
+		}
+		for _, sec := range out.Secrets {
+			names = append(names, sec.Name)
+		}
+		if len(out.Secrets) < ghListPerPage {
+			break
+		}
+	}
+	return RemoteState{Names: names}, nil
+}
+
 // sealBox encrypts value as a libsodium sealed box under recipient (GitHub's format).
 func sealBox(recipient *[32]byte, value []byte) (string, error) {
 	sealed, err := box.SealAnonymous(nil, value, recipient, rand.Reader)

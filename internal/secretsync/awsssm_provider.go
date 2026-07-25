@@ -17,6 +17,8 @@ import (
 type ssmAPI interface {
 	PutParameter(ctx context.Context, in *ssm.PutParameterInput, opts ...func(*ssm.Options)) (*ssm.PutParameterOutput, error)
 	DeleteParameters(ctx context.Context, in *ssm.DeleteParametersInput, opts ...func(*ssm.Options)) (*ssm.DeleteParametersOutput, error)
+	// GetParametersByPath backs drift verification (read-back under the prefix).
+	GetParametersByPath(ctx context.Context, in *ssm.GetParametersByPathInput, opts ...func(*ssm.Options)) (*ssm.GetParametersByPathOutput, error)
 }
 
 // awsssmProvider writes a config's resolved secrets as SecureString parameters
@@ -54,6 +56,59 @@ func (p awsssmProvider) client(ctx context.Context, creds Creds, region string) 
 // paramName joins the prefix and key into an SSM parameter path (single slash).
 func paramName(prefix, key string) string {
 	return strings.TrimRight(prefix, "/") + "/" + key
+}
+
+// ── drift verification ───────────────────────────────────────────────────────
+//
+// SSM SecureString parameters are readable with WithDecryption (the same
+// credentials already need kms:Decrypt for the account key), so this provider
+// supports real value drift detection.
+
+func (awsssmProvider) Capability() Capability { return CapValues }
+
+// ssmPageMax bounds the GetParametersByPath pagination loop.
+const ssmPageMax = 50
+
+// Fetch reads every parameter directly under the target's path prefix. Names are
+// reported relative to the prefix so they line up with Janus key names.
+func (p awsssmProvider) Fetch(ctx context.Context, creds Creds, addr Addr, _ []string) (RemoteState, error) {
+	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" || addr.Region == "" || addr.PathPrefix == "" {
+		return RemoteState{}, ErrInvalidConfig
+	}
+	cl, err := p.client(ctx, creds, addr.Region)
+	if err != nil {
+		return RemoteState{}, err
+	}
+	prefix := strings.TrimRight(addr.PathPrefix, "/") + "/"
+	var names []string
+	values := map[string]string{}
+	var token *string
+	for page := 0; page < ssmPageMax; page++ {
+		out, err := cl.GetParametersByPath(ctx, &ssm.GetParametersByPathInput{
+			Path:           aws.String(strings.TrimRight(addr.PathPrefix, "/")),
+			Recursive:      aws.Bool(false),
+			WithDecryption: aws.Bool(true),
+			NextToken:      token,
+		})
+		if err != nil {
+			// Sanitize: never echo the AWS error (may carry ARN/account id).
+			return RemoteState{}, fmt.Errorf("%w: get parameters", ErrApplyFailed)
+		}
+		for _, param := range out.Parameters {
+			full := aws.ToString(param.Name)
+			key := strings.TrimPrefix(full, prefix)
+			if key == "" || strings.Contains(key, "/") {
+				continue // not a direct child of the managed prefix
+			}
+			names = append(names, key)
+			values[key] = aws.ToString(param.Value)
+		}
+		token = out.NextToken
+		if token == nil {
+			break
+		}
+	}
+	return RemoteState{Names: names, Values: values}, nil
 }
 
 func (p awsssmProvider) Apply(ctx context.Context, creds Creds, addr Addr, desired map[string]string,

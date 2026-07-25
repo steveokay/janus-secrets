@@ -58,7 +58,10 @@ type Config struct {
 	// interval_seconds and enabled flag. Zero = disabled.
 	RotationTick time.Duration
 	SyncTick     time.Duration
-	DynamicTick  time.Duration
+	// SyncVerifyTick is the sync drift verifier's interval (roadmap 7.4); zero
+	// (the default) means the verifier is off and only manual verification runs.
+	SyncVerifyTick time.Duration
+	DynamicTick    time.Duration
 	// BackupSchedEnabled reports whether the scheduled-S3-backup engine is
 	// configured (bucket + positive tick). Surfaced value-free in /v1/sys/status.
 	BackupSchedEnabled bool
@@ -579,6 +582,11 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Patch("/v1/sync/targets/{id}", s.handleSyncUpdate)
 				r.Delete("/v1/sync/targets/{id}", s.handleSyncDelete)
 				r.Post("/v1/sync/targets/{id}/sync", s.handleSyncNow)
+				// ── sync drift detection (roadmap 7.4) — added block ──
+				r.Post("/v1/sync/targets/{id}/verify", s.handleSyncVerify)
+				r.Get("/v1/sync/targets/{id}/verify-runs", s.handleSyncVerifyRuns)
+				r.Patch("/v1/sync/targets/{id}/verify-schedule", s.handleSyncVerifySchedule)
+				// ── end sync drift detection block ──
 			})
 		}
 		if s.dynamic != nil {

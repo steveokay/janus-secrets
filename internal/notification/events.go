@@ -16,8 +16,12 @@ import (
 // derived from (audit action, result); the raw audit action strings are an
 // internal detail.
 const (
-	EventRotationFailed      = "rotation.failed"
-	EventSyncFailed          = "sync.failed"
+	EventRotationFailed = "rotation.failed"
+	EventSyncFailed     = "sync.failed"
+	// EventSyncDrift fires when a sync drift-verification pass finds the external
+	// destination out of step with Janus (or could not complete). Derived from
+	// the value-free sync.verify audit event, so it carries counts only.
+	EventSyncDrift           = "sync.drift"
 	EventPromotionPending    = "promotion.pending"
 	EventAccessDenied        = "access.denied"
 	EventBreakGlassActivated = "breakglass.activated"
@@ -25,8 +29,8 @@ const (
 
 // KnownEventKinds is the set a channel may subscribe to (validated on write).
 var KnownEventKinds = []string{
-	EventRotationFailed, EventSyncFailed, EventPromotionPending, EventAccessDenied,
-	EventBreakGlassActivated,
+	EventRotationFailed, EventSyncFailed, EventSyncDrift, EventPromotionPending,
+	EventAccessDenied, EventBreakGlassActivated,
 }
 
 func isKnownKind(k string) bool { return slices.Contains(KnownEventKinds, k) }
@@ -48,6 +52,11 @@ func classify(a store.AuditRow) string {
 		return EventRotationFailed
 	case a.Action == "sync.reconcile" && a.Result == "failure":
 		return EventSyncFailed
+	// Drift verification (roadmap 7.4): the engine records result "failure" when
+	// the destination drifted OR the pass errored; Detail carries the value-free
+	// counts (status=… missing=… modified=… extra=…).
+	case a.Action == "sync.verify" && a.Result == "failure":
+		return EventSyncDrift
 	case a.Action == "promotion.request.create" && a.Result == "success":
 		return EventPromotionPending
 	default:

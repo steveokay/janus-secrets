@@ -72,6 +72,18 @@ func runServer(ctx context.Context) error {
 		syncTick = d
 	}
 
+	// Sync DRIFT VERIFIER (roadmap 7.4). OFF by default: verification reads
+	// values back from external destinations, so it is an explicit opt-in.
+	// Manual POST /v1/sync/targets/{id}/verify works regardless.
+	syncVerifyTick := time.Duration(0)
+	if v := os.Getenv("JANUS_SYNC_VERIFY_TICK"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("invalid JANUS_SYNC_VERIFY_TICK %q: use a Go duration like 15m, or 0 to disable", v)
+		}
+		syncVerifyTick = d
+	}
+
 	dynamicTick := 60 * time.Second // production default; 0 disables
 	if v := os.Getenv("JANUS_DYNAMIC_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -273,6 +285,7 @@ func runServer(ctx context.Context) error {
 		SessionIdleTimeout: idle,
 		RotationTick:       rotationTick,
 		SyncTick:           syncTick,
+		SyncVerifyTick:     syncVerifyTick,
 		DynamicTick:        dynamicTick,
 		NotificationTick:   notifyTick,
 		BackupSchedule:     backupSchedule,

@@ -3,6 +3,7 @@
     api, errorMessage,
     type RotationPolicy, type RotationCreateInput, type SyncTargetApi, type SyncCreateInput, type DynamicRole, type ApiLease,
     type RunView, type IssuedCreds,
+    type SyncVerifyReport, type SyncVerifyRun,
   } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
   import { listAllRotations, listAllSyncs, listAllDynamicRoles, listAllLeases } from '../lib/ops'
@@ -369,6 +370,81 @@
     }
   }
 
+  /* ── sync drift detection (roadmap 7.4) ───── */
+
+  /* Which target's drift tray is open, and the report/history shown in it.
+     Everything here is value-free: key names, counts, capability words. */
+  let driftFor = $state<string | null>(null)
+  let driftReport = $state<SyncVerifyReport | null>(null)
+  let driftRuns = $state<SyncVerifyRun[]>([])
+  let driftBusy = $state(false)
+
+  async function toggleDrift(s: SyncTargetApi) {
+    if (driftFor === s.id) {
+      driftFor = null
+      return
+    }
+    driftFor = s.id
+    driftReport = null
+    driftRuns = []
+    try {
+      driftRuns = await api.syncVerifyRuns(s.id)
+    } catch (err) {
+      flash(errorMessage(err, 'Could not load verification history.'))
+      driftFor = null
+    }
+  }
+
+  async function verifyNow(s: SyncTargetApi) {
+    driftBusy = true
+    try {
+      driftFor = s.id
+      driftReport = await api.verifySyncTarget(s.id)
+      driftRuns = await api.syncVerifyRuns(s.id)
+      flash(driftReport.status === 'clean' ? 'No drift detected.' : `Verification: ${driftReport.status}.`)
+      await load()
+    } catch (err) {
+      flash(errorMessage(err, 'Verification failed.'))
+    } finally {
+      driftBusy = false
+    }
+  }
+
+  async function toggleVerifyEnabled(s: SyncTargetApi) {
+    try {
+      await api.setSyncVerifySchedule(s.id, { enabled: !(s.verify?.enabled ?? true) })
+      await load()
+    } catch (err) {
+      flash(errorMessage(err, 'Could not update the verification schedule.'))
+    }
+  }
+
+  /* Verification state word for the sync row. A names-only destination can
+     never prove values match, so its clean state is labelled distinctly. */
+  function driftState(s: SyncTargetApi): { cls: string; text: string; title: string } {
+    const v = s.verify
+    if (!v) return { cls: 'muted', text: '—', title: 'Drift verification unavailable' }
+    if (v.capability === 'none') {
+      return { cls: 'muted', text: 'n/a', title: 'This provider cannot be read back' }
+    }
+    const namesOnly = v.capability === 'names_only'
+    const note = namesOnly
+      ? 'Write-only destination: key names are checked, values cannot be compared.'
+      : 'Remote values are compared against Janus.'
+    if (!v.last_status) return { cls: 'muted', text: 'never', title: `Never verified. ${note}` }
+    if (v.last_status === 'drift') {
+      return { cls: 'bad', text: `drift ${v.last_drift_count}`, title: `${v.last_drift_count} key(s) out of step. ${note}` }
+    }
+    if (v.last_status === 'error') return { cls: 'warn', text: 'error', title: `Last verification failed. ${note}` }
+    if (v.last_status === 'unsupported') return { cls: 'muted', text: 'n/a', title: note }
+    return { cls: namesOnly ? 'warn' : 'ok', text: namesOnly ? 'names ok' : 'verified', title: note }
+  }
+
+  /* Instance-wide drift tally for the header tray. */
+  const driftTotal = $derived(
+    syncs.reduce((n, s) => n + (s.verify?.last_status === 'drift' ? s.verify.last_drift_count : 0), 0),
+  )
+
   /* ── dynamic ──────────────────────────────── */
 
   async function createRole(e: SubmitEvent) {
@@ -628,7 +704,14 @@
   <section class="op-section rise" style="animation-delay: 110ms">
     <div class="section-head">
       <h3>Sync</h3>
-      <button class="btn btn-sm" onclick={() => (showNewSync = !showNewSync)}>+ New target</button>
+      <div class="drift-actions">
+        {#if driftTotal > 0}
+          <span class="pill pill-prod" title="Keys out of step at their destinations across all sync targets">
+            {driftTotal} drifted key{driftTotal === 1 ? '' : 's'}
+          </span>
+        {/if}
+        <button class="btn btn-sm" onclick={() => (showNewSync = !showNewSync)}>+ New target</button>
+      </div>
     </div>
 
     {#if showNewSync}
@@ -737,7 +820,7 @@
     <div class="sheet table-wrap">
       <table class="ledger" aria-label="Sync integrations">
         <thead>
-          <tr><th scope="col">Destination</th><th scope="col">Source config</th><th scope="col" style="width:110px">State</th><th scope="col" style="width:130px">Last sync</th><th scope="col" style="width:230px"></th></tr>
+          <tr><th scope="col">Destination</th><th scope="col">Source config</th><th scope="col" style="width:110px">State</th><th scope="col" style="width:110px">Drift</th><th scope="col" style="width:130px">Last sync</th><th scope="col" style="width:300px"></th></tr>
         </thead>
         <tbody>
           {#each syncs as s (s.id)}
@@ -752,16 +835,98 @@
                 {:else if s.status === 'paused'}<span class="state warn">paused</span>
                 {:else}<span class="state ok">in sync</span>{/if}
               </td>
+              <td>
+                <span class="state {driftState(s).cls}" title={driftState(s).title}>{driftState(s).text}</span>
+              </td>
               <td class="folio">{s.last_synced_at ? relTime(s.last_synced_at) : 'never'}</td>
               <td class="row-actions">
                 <button class="btn btn-ghost btn-sm" onclick={() => toggleRuns('sync', s.id)}>Runs</button>
+                <button class="btn btn-ghost btn-sm" onclick={() => toggleDrift(s)}>Drift</button>
                 <button class="btn btn-ghost btn-sm" onclick={() => toggleSync(s)}>{s.status === 'paused' ? 'Resume' : 'Pause'}</button>
                 <button class="btn btn-ghost btn-sm" onclick={() => syncNow(s)}>Push now</button>
                 <button class="btn btn-ghost btn-sm del-btn" onclick={() => removeSync(s)}>✕</button>
               </td>
             </tr>
+            {#if driftFor === s.id}
+              <tr class="runs-row"><td colspan="6">
+                <div class="drift-tray">
+                  <div class="drift-head">
+                    <span class="folio">
+                      {#if s.verify?.capability === 'values'}
+                        Remote values are read back and compared by keyed digest — never stored.
+                      {:else if s.verify?.capability === 'names_only'}
+                        Write-only destination: the provider returns key names but never values, so
+                        <strong>value drift cannot be detected here</strong> — only missing and unmanaged-extra keys.
+                      {:else}
+                        This provider cannot be read back.
+                      {/if}
+                    </span>
+                    <div class="drift-actions">
+                      <button class="btn btn-sm" disabled={driftBusy} onclick={() => verifyNow(s)}>Verify now</button>
+                      <button class="btn btn-ghost btn-sm" onclick={() => toggleVerifyEnabled(s)}>
+                        {s.verify?.enabled === false ? 'Enable scheduled checks' : 'Disable scheduled checks'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {#if driftReport}
+                    <div class="drift-report">
+                      <span class="pill {driftReport.status === 'clean' ? 'pill-dev' : 'pill-prod'}">{driftReport.status}</span>
+                      <span class="folio">
+                        {driftReport.checked_count} managed key(s) checked ·
+                        values {driftReport.values_compared ? 'compared' : 'NOT compared'}
+                      </span>
+                      {#if driftReport.missing_count}
+                        <div class="drift-line"><span class="drift-tag bad">missing</span>
+                          <span class="mono small">{driftReport.missing_keys.join(', ')}</span></div>
+                      {/if}
+                      {#if driftReport.modified_count}
+                        <div class="drift-line"><span class="drift-tag bad">changed</span>
+                          <span class="mono small">{driftReport.modified_keys.join(', ')}</span></div>
+                      {/if}
+                      {#if driftReport.extra_count}
+                        <div class="drift-line">
+                          <span class="drift-tag {driftReport.extra_is_drift ? 'bad' : 'warn'}">unmanaged</span>
+                          <span class="mono small">{driftReport.extra_keys.join(', ')}</span>
+                        </div>
+                      {/if}
+                      {#if driftReport.unreadable_count}
+                        <div class="drift-line"><span class="drift-tag warn">unreadable</span>
+                          <span class="mono small">{driftReport.unreadable_keys.join(', ')}</span></div>
+                      {/if}
+                      {#if driftReport.error}
+                        <div class="drift-line"><span class="drift-tag warn">error</span>
+                          <span class="mono small">{driftReport.error}</span></div>
+                      {/if}
+                    </div>
+                  {/if}
+
+                  {#if !driftRuns.length}
+                    <span class="folio">No verification recorded yet.</span>
+                  {:else}
+                    <div class="runs">
+                      {#each driftRuns as run (run.id)}
+                        <div class="run-line">
+                          <span class="run-status" class:bad={run.status === 'drift' || run.status === 'error'}>
+                            {run.status === 'clean' ? '✓' : '!'}
+                          </span>
+                          <span class="folio">
+                            {relTime(run.started_at)} · {run.status} · {run.checked_count} checked
+                            {run.values_compared ? '' : ' · names only'}
+                            {run.missing_count ? ` · ${run.missing_count} missing` : ''}
+                            {run.modified_count ? ` · ${run.modified_count} changed` : ''}
+                            {run.extra_count ? ` · ${run.extra_count} unmanaged` : ''}
+                          </span>
+                          {#if run.error}<span class="run-err mono">{run.error}</span>{/if}
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              </td></tr>
+            {/if}
             {#if runsFor === `sync:${s.id}`}
-              <tr class="runs-row"><td colspan="5">
+              <tr class="runs-row"><td colspan="6">
                 {#if !runs.length}<span class="folio">No runs recorded yet.</span>
                 {:else}
                   <div class="runs">
@@ -777,7 +942,7 @@
               </td></tr>
             {/if}
           {:else}
-            <tr><td colspan="5" class="empty folio">{loading ? 'Reading…' : 'No sync targets yet.'}</td></tr>
+            <tr><td colspan="6" class="empty folio">{loading ? 'Reading…' : 'No sync targets yet.'}</td></tr>
           {/each}
         </tbody>
       </table>
@@ -939,6 +1104,20 @@
   .state.ok { color: var(--verdigris); }
   .state.warn { color: var(--ochre); }
   .state.bad { color: var(--vermilion); }
+  .state.muted { color: var(--ink-soft); }
+
+  /* sync drift detection tray */
+  .drift-tray { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); }
+  .drift-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s4); flex-wrap: wrap; }
+  .drift-actions { display: flex; gap: var(--s2); flex-shrink: 0; }
+  .drift-report { display: flex; flex-direction: column; gap: var(--s1); }
+  .drift-line { display: flex; align-items: baseline; gap: var(--s2); }
+  .drift-tag {
+    font-size: var(--text-xs); font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em; flex-shrink: 0;
+  }
+  .drift-tag.bad { color: var(--vermilion); }
+  .drift-tag.warn { color: var(--ochre); }
 
   .issued {
     display: flex;

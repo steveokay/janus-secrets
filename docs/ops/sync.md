@@ -323,6 +323,117 @@ immediate reconcile **regardless of the fingerprint** — useful right
 after editing the underlying config, or to confirm a target that was
 previously `failed` is healthy again.
 
+## Drift detection
+
+Sync is one-way: Janus pushes and forgets. **Drift detection** closes the
+loop — it reads the destination's current state back and compares it with
+what Janus believes it pushed, so an out-of-band edit (someone changing a
+GitHub secret by hand, a `kubectl edit` on a mirrored Secret, an operator
+deleting a Vercel variable) is visible instead of silent.
+
+### What each provider can actually see
+
+Destinations differ in what they will reveal, so the read capability is an
+**optional** provider interface with an explicit capability level. Janus
+never pretends to have compared something it could not read.
+
+| Provider | Capability | Value drift | Missing key | Unmanaged extra key |
+|---|---|:--:|:--:|:--:|
+| Kubernetes | `values` | ✅ | ✅ | ✅ |
+| GitLab CI/CD | `values` | ✅ | ✅ | ✅ |
+| AWS SSM Parameter Store | `values` | ✅ | ✅ | ✅ |
+| AWS Secrets Manager | `values` | ✅ | ✅ | ✅ |
+| Vercel | `values` | ✅ | ✅ | ✅ |
+| Netlify | `values` | ✅ | ✅ | ✅ |
+| **GitHub Actions** | `names_only` | ❌ | ✅ | ✅ |
+| **Cloudflare Workers** | `names_only` | ❌ | ✅ | ✅ |
+
+GitHub Actions secrets and Cloudflare Workers secrets are **write-only by
+design**: their list endpoints return a secret's name (and timestamps) but
+never its value, and there is no read-back API at any permission level. For
+those two, a verification pass reports exactly what is detectable —
+managed keys missing at the target, and unmanaged extras present — and sets
+`values_compared: false`. **A clean names-only result means the key names
+line up, NOT that the values match.** The API, the audit event, and the
+Operations console all say so explicitly.
+
+### How the comparison stays value-free
+
+Remote values exist only as local variables inside one verification call.
+They are compared by taking the **keyed HMAC** of each `(key, value)` pair —
+under the same master-key-derived sync-fingerprint subkey the change
+detection path already uses — and comparing the two digests in constant
+time. The digests are never persisted, logged, or returned; the value map is
+dropped immediately after the comparison. What gets recorded is only:
+booleans, counts, a capability word, a sanitized error category, and **key
+names**.
+
+### Drift classes
+
+| Class | Meaning |
+|---|---|
+| `missing` | A Janus-managed key is absent at the destination. |
+| `modified` | The destination's value differs from the config's (values-capable providers only). |
+| `extra` | A key exists at the destination that Janus does not manage. |
+| `unreadable` | A key is present but the destination would not return its value (e.g. a Netlify variable an operator flipped to "secret"). Not drift — but recorded so a partial comparison is never presented as a full one. |
+
+`extra` counts toward the drift verdict **only when the target prunes**:
+prune means Janus owns the destination namespace, so an unmanaged key is
+real drift. With `--prune=false` the destination is shared by design, so
+extras are reported informationally and the pass still reads `clean`.
+
+### Statuses
+
+`clean` · `drift` · `error` (the pass could not complete) ·
+`unsupported` (the provider has no read capability at all).
+
+### Scheduling
+
+Verification is **off by default**: reading values back from an external
+system is a deliberate act, so an operator opts in.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `JANUS_SYNC_VERIFY_TICK` | `0` (off) | Go duration between drift-verifier passes, e.g. `15m`. `0` disables the verifier — manual verification still works. |
+
+Per target, `PATCH /v1/sync/targets/{id}/verify-schedule` sets `enabled`
+(default true) and `interval_seconds` (default `3600`, min 60, max 30 days).
+A target with no schedule row yet is treated as enabled and due now, so
+turning the verifier on covers pre-existing targets with no backfill.
+
+### API
+
+```
+POST   /v1/sync/targets/{id}/verify            # run a pass now, return the report
+GET    /v1/sync/targets/{id}/verify-runs       # history, cursor-paginated
+PATCH  /v1/sync/targets/{id}/verify-schedule   # {"enabled":bool,"interval_seconds":int}
+```
+
+All three require `sync:manage` — the same permission as every other sync
+action; drift verification reads the destination the target already writes,
+so it needs no new permission. Target `GET`/`list` responses carry a
+`verify` block with the schedule, last status, drift count, and the
+provider's declared capability.
+
+### Reporting
+
+* **Operations console** — each sync row gains a *Drift* column and a
+  *Drift* tray with "Verify now", the per-class key-name breakdown, and the
+  verification history. The section header shows an instance-wide drifted-key
+  tally.
+* **Audit** — every pass writes a `sync.verify` event under a `system`
+  actor. `Detail` carries `status=… capability=… values_compared=… checked=…
+  missing=… modified=… extra=… unreadable=…` — counts only.
+* **Notifications** — a pass that finds drift (or fails) is classified as the
+  `sync.drift` event kind and fans out to any subscribed webhook/Slack/SMTP
+  channel through the usual audit-tailing dispatcher. Because the source is
+  the audit log, the notification cannot carry a value.
+* **Health** — `/v1/sys/status` reports a `sync_verify` scheduler alongside
+  `sync`, so you can see whether the verifier is enabled and when it last
+  ticked.
+
+History is capped at the 100 most recent verification runs per target.
+
 ## Cross-project references refused (security)
 
 A config synced to an external store is resolved with a

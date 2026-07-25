@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/secretsync"
+	"github.com/steveokay/janus-secrets/internal/store"
 )
 
 type syncCredsReq struct {
@@ -102,6 +103,10 @@ type syncView struct {
 	LastSyncedAt    *string     `json:"last_synced_at,omitempty"`
 	ManagedKeys     []string    `json:"managed_keys"`
 	CreatedAt       string      `json:"created_at"`
+	// Verify is the drift-detection schedule + last-pass summary (roadmap 7.4).
+	// Value-free: booleans, counts, timestamps, and the provider's declared read
+	// capability. Omitted only when the sync engine is absent.
+	Verify *syncVerifyStateDTO `json:"verify,omitempty"`
 }
 
 func toSyncView(v secretsync.TargetView) syncView {
@@ -197,9 +202,23 @@ func (s *Server) handleSyncList(w http.ResponseWriter, r *http.Request) {
 		s.writeSyncErr(w, err)
 		return
 	}
+	// Batch-load drift-verification state for the whole project (one query);
+	// targets with no materialized row fall back to the engine defaults.
+	states, err := s.sync.VerifyStatesByProject(r.Context(), projectID)
+	if err != nil {
+		s.writeSyncErr(w, err)
+		return
+	}
 	out := make([]syncView, 0, len(vs))
 	for _, v := range vs {
-		out = append(out, toSyncView(v))
+		sv := toSyncView(v)
+		st, ok := states[v.ID]
+		if !ok {
+			st = store.DefaultVerifyState(v.ID)
+		}
+		dto := toVerifyStateDTO(st, string(s.sync.ProviderCapability(v.Provider)))
+		sv.Verify = &dto
+		out = append(out, sv)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"targets": out})
 }
@@ -225,7 +244,12 @@ func (s *Server) handleSyncGet(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthzError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toSyncView(v))
+	out := toSyncView(v)
+	if st, err := s.sync.GetVerifyState(r.Context(), v.ID); err == nil {
+		dto := toVerifyStateDTO(st, string(s.sync.ProviderCapability(v.Provider)))
+		out.Verify = &dto
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleSyncUpdate(w http.ResponseWriter, r *http.Request) {
