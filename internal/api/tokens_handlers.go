@@ -32,7 +32,11 @@ func (s *Server) handleTokenMint(w http.ResponseWriter, r *http.Request) {
 	res, err := s.resolveScopeResource(r.Context(), req.Scope.Kind, req.Scope.ID)
 	switch {
 	case errors.Is(err, errBadScopeKind):
-		writeError(w, http.StatusBadRequest, CodeValidation, "invalid scope kind")
+		// Name the accepted values: service tokens are deliberately limited to a
+		// config or environment (never project/instance), and a bare "invalid"
+		// leaves callers guessing at that rule.
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			`scope kind must be "config" or "environment"`)
 		return
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "scope target not found")
