@@ -265,6 +265,12 @@ script a post-deploy check.
 
 ## 5. Running the image
 
+> Deploying on Kubernetes, Docker Swarm, Nomad, Argo CD, or bare-metal
+> systemd rather than plain Compose? Jump to
+> [§10 Deployment modes](#10-deployment-modes) for per-target manifests and
+> the Helm chart — then come back here for the config/unseal/monitoring
+> reference each mode links into.
+
 Pull a tagged release:
 
 ```sh
@@ -443,3 +449,446 @@ scrapers then present that value as `Authorization: Bearer <token>` (with the
 token unset, `/metrics` returns `404`). The admin **health panel** in Settings,
 backed by `GET /v1/sys/status`, surfaces DB latency, scheduler tick ages, and
 failed-run counts. See the [observability guide](observability.md).
+
+## 10. Deployment modes
+
+Everything above is orchestrator-agnostic — TLS, the `JANUS_*` config
+reference (§3), unseal (§4), and the probe endpoints (§9) apply no matter how
+you run the container. This section is the how-to for each concrete target:
+Docker/Compose, Kubernetes (raw manifests **and** the Helm chart), Docker
+Swarm, GitOps (Argo CD / Flux), and the short cases (Nomad, bare-host
+systemd).
+
+Three facts shape every one of them:
+
+- **Janus boots sealed** (§4). Nothing serves secrets until the master key is
+  supplied. Where a human can't run `janus unseal` after each restart —
+  Kubernetes, Nomad, autoscaled hosts — use **cloud-KMS auto-unseal** so each
+  process self-unseals on boot.
+- **Single node by design** (§1). Run exactly one `janus server` process
+  against one Postgres. A second concurrent process double-runs the in-process
+  schedulers (rotation / sync / dynamic leases); every mode below pins to one
+  instance and a stop-old-then-start-new rollout.
+- **Migrations run on boot** (§8). Pin an exact image tag; never float
+  `:latest`, or a routine restart can silently migrate the schema.
+
+Postgres is **bring-your-own** in all modes — a managed instance (RDS, Cloud
+SQL, Azure Database) is strongly preferred. The bundled/inline Postgres shown
+in some snippets below is an evaluation convenience, never a production store.
+
+### 10.1 Docker (single container + Compose)
+
+The baseline. A tagged container, a `JANUS_DATABASE_URL`, a `JANUS_SEAL_TYPE`,
+and a reverse proxy in front. The production-shaped Compose stack (app +
+Postgres + healthcheck) is already in [§5](#5-running-the-image); the
+[Docker guide](docker.md) covers running the server container and feeding app
+containers their secrets in depth — this section doesn't duplicate it. In
+short:
+
+```sh
+docker pull ghcr.io/steveokay/janus:v0.1.0
+docker run --rm -p 127.0.0.1:8200:8200 \
+  -e JANUS_DATABASE_URL='postgres://janus:…@db:5432/janus?sslmode=require' \
+  -e JANUS_SEAL_TYPE=shamir \
+  ghcr.io/steveokay/janus:v0.1.0 server
+```
+
+Then port-forward/`curl` the container and run the one-time `janus init` +
+`janus unseal` (or let KMS auto-unseal). Bind the published port to loopback
+and let your reverse proxy ([§2](#2-tls-termination)) terminate TLS.
+
+### 10.2 Kubernetes
+
+Janus runs cleanly on Kubernetes, but three gotchas trip people up — get them
+right and the rest is ordinary:
+
+1. **It boots sealed → use KMS auto-unseal.** A `shamir` deployment leaves
+   every fresh pod sealed and `NotReady` until a human runs `janus unseal`
+   after *each* restart — painful when the scheduler reschedules a pod at 3am.
+   Set `JANUS_SEAL_TYPE` to `awskms` / `gcpkms` / `azurekv` and grant the pod's
+   ServiceAccount access to the key (IRSA / GKE Workload Identity / Azure AD
+   Workload Identity) so the pod self-unseals on boot. Shamir on k8s is
+   supported but is a deliberate manual-ceremony choice.
+2. **Single node → `replicas: 1` + `strategy: Recreate`.** Two replicas
+   double-run the schedulers. `Recreate` (not `RollingUpdate`) guarantees the
+   old pod is gone before the new one starts, so you never have two at once.
+   Expect a brief `503`/`NotReady` window on every rollout — that's the
+   single-node upgrade model from [§8](#8-upgrades).
+3. **Liveness ≠ readiness.** Liveness is
+   [`GET /v1/sys/live`](#9-monitoring) — always `200`, sealed-safe; **never**
+   gate liveness on unseal or a sealed pod will be killed in a loop and never
+   reach the point where you can unseal it. Readiness is `GET /v1/sys/ready` —
+   `200` only when the DB is reachable **and** the instance is initialized
+   **and** unsealed, so traffic is held back until Janus can actually serve
+   secrets. Both probes are unauthenticated and must be `httpGet` (the
+   distroless image has no shell for an `exec` probe). An optional
+   `startupProbe` on `/v1/sys/live` gives a slow database time before liveness
+   starts counting.
+
+Bake in the hardened `securityContext` that matches the distroless nonroot
+image (uid/gid **65532**, no shell): `runAsNonRoot`, `runAsUser/Group: 65532`,
+`readOnlyRootFilesystem: true` (Janus writes nothing to disk unless you use
+in-binary ACME — terminate TLS at the ingress instead),
+`allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`,
+`seccompProfile.type: RuntimeDefault`.
+
+Verify the image before you roll it out (§5, [`SECURITY.md`](../../SECURITY.md)):
+
+```sh
+gh attestation verify oci://ghcr.io/steveokay/janus:v0.1.0 --repo steveokay/janus-secrets
+```
+
+#### (a) Raw `kubectl apply` manifests
+
+Provide the DSN via a Secret and keep the seal env on the Deployment. This
+example uses AWS KMS auto-unseal via IRSA (annotate the ServiceAccount with
+your role ARN); for GCP/Azure swap the seal env per [§4](#4-unseal-in-production).
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: janus-db
+  namespace: janus
+type: Opaque
+stringData:
+  # Use a managed Postgres 16+ and sslmode=require or stronger.
+  JANUS_DATABASE_URL: postgres://janus:REPLACE@db.internal:5432/janus?sslmode=require
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: janus
+  namespace: janus
+  annotations:
+    # AWS IRSA — grant this role kms:Decrypt (+ kms:Encrypt for init) on the key.
+    eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/janus-kms
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: janus
+  namespace: janus
+spec:
+  replicas: 1                 # single-node by design — do not raise
+  strategy:
+    type: Recreate           # never run two Janus pods at once
+  selector:
+    matchLabels: { app: janus }
+  template:
+    metadata:
+      labels: { app: janus }
+    spec:
+      serviceAccountName: janus
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: janus
+          image: ghcr.io/steveokay/janus:v0.1.0   # pin; never :latest
+          args: ["server"]
+          ports:
+            - { name: http, containerPort: 8200 }
+          env:
+            - { name: JANUS_SEAL_TYPE,      value: awskms }
+            - { name: JANUS_AWS_KMS_KEY_ARN, value: arn:aws:kms:us-east-1:111122223333:key/abcd-… }
+            - { name: AWS_REGION,           value: us-east-1 }
+            - { name: JANUS_LOG_FORMAT,     value: json }
+          envFrom:
+            - secretRef: { name: janus-db }        # supplies JANUS_DATABASE_URL
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+            seccompProfile: { type: RuntimeDefault }
+          livenessProbe:                            # sealed-safe; never gate on unseal
+            httpGet: { path: /v1/sys/live, port: http }
+            periodSeconds: 10
+          readinessProbe:                           # 200 only when initialized + unsealed
+            httpGet: { path: /v1/sys/ready, port: http }
+            periodSeconds: 10
+          startupProbe:                             # give the DB time on first boot
+            httpGet: { path: /v1/sys/live, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: "1",  memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: janus
+  namespace: janus
+spec:
+  selector: { app: janus }
+  ports:
+    - { name: http, port: 8200, targetPort: http }
+```
+
+```sh
+kubectl create namespace janus
+kubectl apply -f janus.yaml
+```
+
+Add an `Ingress` (terminating TLS at the ingress controller) or an
+`ExternalName`/`LoadBalancer` Service to expose it; the pod itself stays plain
+HTTP on `:8200`.
+
+#### (b) `helm install` (the bundled chart)
+
+The repo ships a chart at
+[`deploy/helm/janus`](../../deploy/helm/janus) that encodes all of the above —
+`replicas: 1` + `Recreate`, the hardened `securityContext`, the correct
+liveness/readiness/startup probes, per-provider seal wiring, and a
+ServiceAccount you annotate for cloud identity. See
+[`deploy/README.md`](../../deploy/README.md) for the full values reference.
+
+AWS KMS auto-unseal, referencing an existing DSN Secret (the preferred path —
+keeps the Postgres password out of Helm values):
+
+```sh
+kubectl create secret generic janus-db -n janus \
+  --from-literal=JANUS_DATABASE_URL='postgres://janus:…@db.internal:5432/janus?sslmode=require'
+
+helm install janus deploy/helm/janus -n janus --create-namespace \
+  --set seal.type=awskms \
+  --set seal.awskms.keyArn=arn:aws:kms:us-east-1:111122223333:key/abcd-… \
+  --set seal.awskms.region=us-east-1 \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=arn:aws:iam::111122223333:role/janus-kms \
+  --set database.existingSecret=janus-db \
+  --set image.tag=0.1.0
+```
+
+GCP KMS and Azure Key Vault swap the seal block:
+
+```sh
+# GKE Workload Identity
+helm install janus deploy/helm/janus -n janus --create-namespace \
+  --set seal.type=gcpkms \
+  --set seal.gcpkms.key='projects/P/locations/L/keyRings/R/cryptoKeys/K' \
+  --set serviceAccount.annotations."iam\.gke\.io/gcp-service-account"='janus@P.iam.gserviceaccount.com' \
+  --set database.existingSecret=janus-db
+
+# Azure AD Workload Identity (also needs the pod label — set podLabels)
+helm install janus deploy/helm/janus -n janus --create-namespace \
+  --set seal.type=azurekv \
+  --set seal.azurekv.vaultUrl='https://myvault.vault.azure.net/' \
+  --set seal.azurekv.keyName=janus-master \
+  --set serviceAccount.annotations."azure\.workload\.identity/client-id"=<client-id> \
+  --set podLabels."azure\.workload\.identity/use"=true \
+  --set database.existingSecret=janus-db
+```
+
+For a quick kick-the-tyres cluster with no external database, the chart can
+stand up an **evaluation-only** single-replica Postgres
+(`--set postgresql.enabled=true`) — never use it in production.
+
+#### One-time `janus init` (both paths)
+
+After the first deploy, initialize the empty database exactly once. Even with
+KMS auto-unseal you init once — it returns the first-admin password (and, for
+Shamir, the unseal shares / recovery material) **once**, so capture them
+securely:
+
+```sh
+kubectl -n janus port-forward svc/janus 8200:8200 &
+export JANUS_ADDR=http://127.0.0.1:8200
+janus init                 # or: curl -XPOST $JANUS_ADDR/v1/sys/init
+janus seal-status          # awskms/gcpkms/azurekv → sealed:false automatically
+```
+
+With `JANUS_SEAL_TYPE=shamir`, run `janus unseal` once per share until the
+threshold is met — and repeat after **every** pod restart. The pod stays
+`NotReady` (readiness → `/v1/sys/ready`) the whole time it's sealed; that's
+expected.
+
+### 10.3 Docker Swarm
+
+Swarm mirrors the Compose stack with a `deploy:` block pinning one replica and
+a restart policy. Feed the DSN via a Swarm **secret** (mounted as a file), and
+point `JANUS_DATABASE_URL` at it.
+
+> **No in-image healthcheck on Swarm.** The distroless release image has no
+> shell, `curl`, or `wget`, so a `HEALTHCHECK`/`test:` line can't run inside
+> the container. Either **omit** the healthcheck (shown below) and rely on an
+> external monitor hitting `/v1/sys/ready`, or run the check from outside the
+> container. Don't copy the Compose `wget` healthcheck from [§5](#5-running-the-image)
+> — that snippet targets a shell-bearing image, not the distroless release.
+
+`janus-stack.yml`:
+
+```yaml
+services:
+  janus:
+    image: ghcr.io/steveokay/janus:v0.1.0   # pin; never :latest
+    command: server
+    environment:
+      JANUS_SEAL_TYPE: awskms
+      JANUS_AWS_KMS_KEY_ARN: arn:aws:kms:us-east-1:111122223333:key/abcd-…
+      AWS_REGION: us-east-1
+      JANUS_LOG_FORMAT: json
+      # Read the DSN from the mounted Swarm secret file.
+      JANUS_DATABASE_URL_FILE: /run/secrets/janus_db_url
+    secrets:
+      - janus_db_url
+    ports:
+      - target: 8200
+        published: 8200
+        mode: host
+    deploy:
+      replicas: 1                    # single-node by design
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        order: stop-first            # never run two Janus tasks at once
+    # No healthcheck: distroless has no shell — monitor /v1/sys/ready externally.
+
+secrets:
+  janus_db_url:
+    external: true                   # docker secret create janus_db_url ./dsn.txt
+```
+
+> `JANUS_DATABASE_URL_FILE` is the conventional `_FILE` indirection for
+> secret files; if your build reads only `JANUS_DATABASE_URL` directly, inline
+> the DSN via a secret-backed env instead, or export it in an entrypoint
+> wrapper. Confirm against your image's env handling.
+
+```sh
+printf 'postgres://janus:…@db:5432/janus?sslmode=require' | docker secret create janus_db_url -
+docker stack deploy -c janus-stack.yml janus
+```
+
+Then `janus init` / `janus unseal` against the published port as in §10.2.
+
+### 10.4 GitOps (Argo CD / Flux)
+
+Point a GitOps controller at the Helm chart and it reconciles the Deployment,
+Service, Secret, and ServiceAccount for you. **`janus init` and (for Shamir)
+`janus unseal` are one-time, out-of-band steps GitOps does not manage** — the
+controller brings the pod up sealed and it stays `NotReady` until an operator
+runs the init/unseal ceremony once (KMS auto-unseal then handles every
+subsequent restart on its own).
+
+**Argo CD `Application`** (chart sourced from this repo):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: janus
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/steveokay/janus-secrets
+    targetRevision: v0.1.0            # pin a released tag
+    path: deploy/helm/janus
+    helm:
+      values: |
+        image:
+          tag: "0.1.0"
+        seal:
+          type: awskms
+          awskms:
+            keyArn: arn:aws:kms:us-east-1:111122223333:key/abcd-…
+            region: us-east-1
+        serviceAccount:
+          annotations:
+            eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/janus-kms
+        database:
+          existingSecret: janus-db     # created out-of-band, not by Argo
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: janus
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+```
+
+**Flux** users express the same thing with a `HelmRelease` pointing at a
+`GitRepository` (or a packaged chart in a `HelmRepository`), with
+`spec.values` carrying the same seal/database/serviceAccount blocks. Keep the
+DSN Secret out of Git (SOPS/sealed-secrets, or create it manually) and
+reference it via `database.existingSecret`.
+
+### 10.5 Brief: Nomad and bare host / systemd
+
+**HashiCorp Nomad** — a single-instance service job. Pin `count = 1`, run the
+tagged image, and wire the seal env; register a Consul health check against
+`/v1/sys/ready` (Nomad can HTTP-check without a shell in the container):
+
+```hcl
+job "janus" {
+  group "server" {
+    count = 1                          # single-node by design
+    task "janus" {
+      driver = "docker"
+      config {
+        image = "ghcr.io/steveokay/janus:v0.1.0"   # pin; never :latest
+        args  = ["server"]
+        ports = ["http"]
+      }
+      env {
+        JANUS_DATABASE_URL   = "postgres://janus:…@db:5432/janus?sslmode=require"
+        JANUS_SEAL_TYPE      = "awskms"
+        JANUS_AWS_KMS_KEY_ARN = "arn:aws:kms:us-east-1:111122223333:key/abcd-…"
+        AWS_REGION           = "us-east-1"
+        JANUS_LOG_FORMAT     = "json"
+      }
+      service {
+        port = "http"
+        check { type = "http", path = "/v1/sys/ready", interval = "10s", timeout = "3s" }
+      }
+    }
+    network { port "http" { to = 8200 } }
+  }
+}
+```
+
+**Bare host / systemd** — run the single binary directly (download the release
+archive for your platform, or `go build ./cmd/janus`). Put config in an
+`EnvironmentFile` and run as an unprivileged user:
+
+```ini
+# /etc/systemd/system/janus.service
+[Unit]
+Description=Janus secrets manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=janus
+Group=janus
+EnvironmentFile=/etc/janus/janus.env     # JANUS_DATABASE_URL, JANUS_SEAL_TYPE, …
+ExecStart=/usr/local/bin/janus server
+Restart=on-failure
+# Hardening (matches the container's posture)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# If using in-binary ACME, allow its cache dir to be writable:
+# ReadWritePaths=/var/lib/janus/acme
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now janus
+janus init && janus unseal          # one-time (Shamir); KMS auto-unseals on start
+```
+
+With Shamir, remember the manual unseal after every restart; on a bare host
+that means an operator (or your own automation feeding shares) after each boot
+— another reason to prefer KMS auto-unseal wherever a human isn't in the loop.

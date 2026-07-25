@@ -93,7 +93,11 @@ Task-oriented walkthroughs for the common workflows:
   `JANUS_TLS_*` static-cert/ACME listener **or** a reverse proxy), the full
   `JANUS_*` configuration reference (DB pool, shutdown grace, all engine
   ticks), unseal in production (Shamir vs. AWS/GCP/Azure KMS auto-unseal),
-  running the released image, sizing, backups, upgrades, and monitoring.
+  running the released image, sizing, backups, upgrades, and monitoring —
+  plus [**§10 Deployment modes**](guides/production-deployment.md#10-deployment-modes):
+  per-target manifests for Docker/Compose, Kubernetes (raw `kubectl` **and**
+  the [Helm chart](../deploy/helm/janus)), Docker Swarm, Argo CD/Flux GitOps,
+  Nomad, and bare-host systemd.
 
 ## System functionality
 

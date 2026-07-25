@@ -42,7 +42,10 @@ audit), and AWS KMS (encrypt-as-a-service with key versioning).
 > [Docker](docs/guides/docker.md),
 > [Kubernetes](docs/guides/kubernetes.md), and
 > [production deployment](docs/guides/production-deployment.md) (TLS
-> termination, configuration, unseal, sizing, backups, and upgrades).
+> termination, configuration, unseal, sizing, backups, and upgrades) —
+> including [**deployment modes**](docs/guides/production-deployment.md#10-deployment-modes)
+> (Docker/Compose, Kubernetes, Swarm, Argo CD/Flux, Nomad, systemd) and the
+> [Helm chart](deploy/helm/janus).
 > The subsystem **references** cover
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
 > [data model & versioning](docs/data-model.md),
