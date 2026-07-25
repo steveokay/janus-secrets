@@ -143,7 +143,10 @@ func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "old password and a new password of at least 12 characters are required")
 		return
 	}
-	if err := s.auth.ChangePassword(r.Context(), p.ID, []byte(req.Old), []byte(req.New)); err != nil {
+	// Carry client metadata so the freshly-minted rotation session is
+	// recognizable in the session-management surface, exactly like login.
+	newCookie, err := s.auth.ChangePassword(withSessionMeta(r), p.ID, []byte(req.Old), []byte(req.New))
+	if err != nil {
 		s.writeAuthError(w, err)
 		return
 	}
@@ -151,6 +154,10 @@ func (s *Server) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
+	// The password change revoked every OTHER session (invalidating any stolen
+	// cookie) and minted a fresh one for the caller — set it so this browser
+	// stays logged in.
+	http.SetCookie(w, sessionCookie(r, newCookie, 24*time.Hour))
 	w.WriteHeader(http.StatusNoContent)
 }
 

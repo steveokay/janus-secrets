@@ -308,7 +308,9 @@ func (s *Service) federationVerifierFor(ctx context.Context) (*fedVerifier, erro
 	if s.fedCache != nil && s.fedCache.issuer == c.Issuer && s.fedCache.audience == c.Audience {
 		return s.fedCache, nil
 	}
-	provider, err := oidc.NewProvider(ctx, c.Issuer)
+	// Discovery + the lazily-built JWKS RemoteKeySet both use the client carried
+	// on this context, so the SSRF-hardened client covers both fetches (M-4/I-4).
+	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, s.oidcHTTP), c.Issuer)
 	if err != nil {
 		return nil, err
 	}

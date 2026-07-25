@@ -172,10 +172,10 @@ original (exhausted) roadmap; sections 6–9 are the post-1.0 roadmap added
 
 | Feature | Why | Effort |
 |---|---|---|
-| `SECURITY.md` — vulnerability disclosure policy (contact, scope, response SLO, safe-harbor) | A secrets manager without a disclosure policy is a red flag to any serious adopter. | S |
-| Signed releases — cosign keyless + SBOM (syft) + SLSA provenance in goreleaser (binaries + GHCR image) | "Verify what you run" is table stakes for a security product; releases are unsigned today. | S–M |
-| Dependabot/renovate — automated dependency update PRs (Go, npm, actions) | The x/text vuln bump was done by hand once already. | S |
-| Threat-model document — what Janus defends against and explicitly what it does not | The crypto docs describe mechanisms; a written adversary model builds credibility and scopes security work. | S |
+| ~~`SECURITY.md` — vulnerability disclosure policy~~ **SHIPPED 2026-07-25** — GitHub private vulnerability reporting as the primary channel (email fallback), response-target table, supported-versions, in/out-of-scope tied to the threat model, safe-harbor, and a "verify what you run" pointer. | ~~S~~ |
+| ~~Signed releases — cosign keyless + SBOM (syft) + SLSA provenance~~ **SHIPPED 2026-07-25** — goreleaser gains Syft SBOMs (archives), Cosign **keyless** signature over `checksums.txt`, and Cosign signing of the multi-arch GHCR manifests by digest; the release workflow adds `attestations: write`, installs Cosign+Syft, and emits **SLSA build-provenance** (`actions/attest-build-provenance`) for binaries/archives **and** the image (by resolved digest) plus an image-SBOM attestation. Validated by `goreleaser check`; end-to-end exercise needs a real `v*` tag. | ~~S–M~~ |
+| ~~Dependabot — automated dependency update PRs (Go, npm, actions)~~ **SHIPPED 2026-07-25** — `.github/dependabot.yml`: weekly grouped PRs across all 3 Go modules (root/`sdk/go`/`terraform-provider-janus`), both npm packages (`web`/`sdk/ts`), the Python SDK, and GitHub Actions. | ~~S~~ |
+| ~~Threat-model document — what Janus defends against and explicitly what it does not~~ **SHIPPED 2026-07-25** — `docs/threat-model.md`: trust boundaries, assets, a 7-actor adversary table, defended properties→mechanisms, explicit **non-defenses** (host/DBA/owner/multi-tenancy/DoS), operator responsibilities, and crypto assumptions. `SECURITY.md` scope references it. | ~~S~~ |
 
 ### Product depth (post-1.0)
 
@@ -222,6 +222,43 @@ account/credential the maintainer must supply, so they are tracked separately._
       double-commit); added **GitLab sync project-id validation** (request-URL
       injection guard); protected pending edit requests from **KEK-version
       retirement** during project-KEK rotation. gosec 0, full suite green.
+- [x] ~~**Post-1.0 white-box audit remediation**~~ **DONE 2026-07-24** (branch
+      `hardening/security-audit-fixes`, pending merge; findings kept in the
+      local-only internal audit tracker, not published) — a 5-agent white-box
+      audit of the whole system found **0 CRITICAL**. The single **HIGH** (H-1,
+      promotion-request four-eyes) was re-examined and is **not** an exploitable
+      bypass — `secret:promote` is only granted by the developer role, which also
+      grants `secret:write`, and requester ≠ approver is enforced, so the approval
+      is always a write-authorized two-party action; the invariant is documented
+      at `promotion_request_handlers.go` rather than "fixed" with unreachable code.
+      Fixed:
+      - **M-1** — `memberPut` delegation cap now uses `BoundRole`, not
+        `EffectiveRole`, so a break-glass-elevated user can no longer mint a
+        **durable** binding at the elevated role that outlives the grant.
+      - **M-2** — TOTP codes are no longer replayable: the last consumed step is
+        persisted per user (`user_totp.last_step`, migration 000038) and any code
+        at a step `<=` it is rejected.
+      - **M-3** — a password change now `RevokeOtherSessions` + rotates the
+        caller's own session cookie (stolen cookies die immediately).
+      - **M-4 / L-2** — systemic SSRF closed with one shared `internal/nethard`
+        hardened dialer: `net.Dialer.Control` re-checks the **resolved** IP on
+        every dial (defeats DNS-rebinding), blocking link-local/cloud-metadata
+        (169.254/fe80::/fd00:ec2::254) unconditionally + optional private-range
+        block (`JANUS_OUTBOUND_BLOCK_PRIVATE`); `CheckRedirect` caps hops + scheme;
+        bounded per-dial timeouts. Applied to **every** operator-config outbound
+        caller — rotation (webhook/oauth/notify + Postgres/MySQL/Redis dials),
+        notification (webhook/Slack/SMTP), sync (k8s/gitlab/cloudflare/vercel/
+        netlify), and **OIDC discovery/JWKS** via `oidc.ClientContext` (I-4).
+        Default policy permits loopback/RFC1918/ULA since self-hosted targets are
+        legitimate.
+      - **L-1** — uniform `X-Content-Type-Options`/framing/CSP middleware on all
+        `/v1/` responses. **L-5** — `.dockerignore` added.
+      - **L-3** (cross-IP account-lockout DoS), **L-4** (dev-compose password /
+        `sslmode`), **L-6** (rotation writes bypass `require_approval`) — accepted
+        tradeoffs, now explicitly documented.
+
+      gosec 0; `internal/crypto` still 100%. INFO I-1/I-2/I-3 remain accepted
+      defense-in-depth notes.
 - [ ] **Publish the TypeScript SDK to npm** (`janus-client`, `sdk/ts/`) — needs
       an npm account + automation token. Not covered by the existing release
       workflow (binaries + GHCR only); add an npm-publish CI job (on an
@@ -243,8 +280,9 @@ account/credential the maintainer must supply, so they are tracked separately._
 (see Release & distribution). The post-1.0 roadmap is the four new sections
 above. Suggested first batch — **"Trust & Longevity"**, all parallel-friendly:
 
-1. **Trust & supply chain sweep** — `SECURITY.md` + threat model + dependabot +
-   cosign/SBOM in goreleaser (one agent, mostly docs/config).
+1. ~~**Trust & supply chain sweep**~~ **DONE 2026-07-25** — `SECURITY.md` +
+   `docs/threat-model.md` + `.github/dependabot.yml` + cosign/SBOM/SLSA-provenance
+   in goreleaser & the release workflow.
 2. ~~**`janus run --watch` + `janus render`**~~ **DONE 2026-07-25 (PR #152).**
 3. ~~**Audit chain checkpointing + retention**~~ **DONE 2026-07-25 (PR #153).**
 4. ~~**Playwright smoke suite**~~ **DONE 2026-07-25 (PR #151).**

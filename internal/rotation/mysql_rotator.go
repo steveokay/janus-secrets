@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -88,15 +87,23 @@ func (mysqlRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, secre
 	}
 	defer db.Close()
 
-	pingCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// Bound the connect attempt so a black-holed internal IP cannot hang the
+	// scheduler goroutine (finding L-2). The go-sql-driver does not expose a
+	// per-connection custom dialer without a global mysql.RegisterDialContext
+	// (which would leak process-wide state), so the SSRF/timeout guarantee here
+	// is (a) the DSN-level dial `timeout` set in mysqlDSN and (b) this bounded
+	// context on the connect (Ping) and the statement exec.
+	pingCtx, cancel := context.WithTimeout(ctx, dbDialTimeout)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
 		return fmt.Errorf("%w: admin connect failed", ErrApplyFailed)
 	}
 
+	execCtx, cancelExec := context.WithTimeout(ctx, dbDialTimeout)
+	defer cancelExec()
 	// The password is bound as a parameter, so no escaping of the value is
 	// needed; the account identifier is validated + quoted above.
-	if _, err := db.ExecContext(ctx, alterUserStmt(account), newValue); err != nil {
+	if _, err := db.ExecContext(execCtx, alterUserStmt(account), newValue); err != nil {
 		return fmt.Errorf("%w: alter user failed", ErrApplyFailed)
 	}
 	return nil
@@ -128,6 +135,7 @@ func mysqlDSN(cfg PolicyConfig) (string, error) {
 	c.User = cfg.MySQLAdminUser
 	c.Passwd = cfg.MySQLAdminPassword
 	c.DBName = cfg.MySQLDBName
+	c.Timeout = dbDialTimeout // bounded dial for the discrete DSN form
 	switch strings.ToLower(cfg.MySQLTLS) {
 	case "", "false", "off":
 		// leave default (no TLS)

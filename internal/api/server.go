@@ -275,6 +275,9 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
+	// Hardening headers on the JSON API surface (/v1/* + /metrics). Path-gated so
+	// it never clobbers the embedded SPA's own HTML CSP (served via NotFound).
+	r.Use(securityHeaders)
 	r.Use(s.instrument)
 	r.Use(RequireUnsealed(kr))
 	if cfg.HTTPMaxBodyBytes > 0 {
@@ -584,6 +587,10 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Get("/export", s.handleAuditExport)
 				r.Get("/events", s.handleAuditEvents)
 				r.Get("/histogram", s.handleAuditHistogram)
+				// Signed checkpoints + retention prune (owner-only integrity ops).
+				r.Get("/checkpoint", s.handleAuditCheckpointGet)
+				r.Post("/checkpoint", s.handleAuditCheckpointCreate)
+				r.Post("/prune", s.handleAuditPrune)
 			})
 		}
 		if s.notification != nil {

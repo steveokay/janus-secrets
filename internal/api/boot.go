@@ -185,7 +185,13 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// wire the grant store from the start.
 	authorizer := authz.New(store.NewRoleBindingRepo(st)).
 		WithGrants(store.NewBreakGlassRepo(st))
-	auditRec := audit.New(store.NewAuditRepo(st))
+	// The audit Recorder gets signed-checkpoint support: the checkpoint store
+	// (anchors + prune) plus a MAC-key provider derived (domain-separated) from
+	// the token-HMAC key that only exists post-unseal. A sealed server returns
+	// crypto.ErrSealed from the provider, so checkpoint ops naturally require an
+	// unsealed keyring — matching every other secret-touching operation.
+	auditRec := audit.New(store.NewAuditRepo(st)).
+		WithCheckpoints(store.NewAuditCheckpointRepo(st), authSvc.CheckpointMACKey)
 	rotationSvc := rotation.New(kr, st, svc, auditRec, logger)
 	syncSvc := secretsync.New(kr, st, svc, auditRec, logger)
 	dynamicSvc := dynamic.New(kr, st, auditRec, logger)

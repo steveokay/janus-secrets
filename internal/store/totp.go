@@ -15,6 +15,10 @@ type UserTOTP struct {
 	WrappedSecret []byte
 	ActivatedAt   *time.Time
 	CreatedAt     time.Time
+	// LastStep is the last TOTP time-step counter consumed by a successful
+	// login, or nil if none. Used to reject replay of a code within its
+	// validity window (RFC 6238 §5.2).
+	LastStep *int64
 }
 
 // TOTPRepo persists TOTP secrets and single-use recovery codes.
@@ -39,9 +43,9 @@ func (r *TOTPRepo) Upsert(ctx context.Context, userID string, wrappedSecret []by
 func (r *TOTPRepo) GetTOTP(ctx context.Context, userID string) (*UserTOTP, error) {
 	var t UserTOTP
 	err := r.s.pool.QueryRow(ctx,
-		`SELECT user_id::text, wrapped_secret, activated_at, created_at
+		`SELECT user_id::text, wrapped_secret, activated_at, created_at, last_step
 		   FROM user_totp WHERE user_id = $1::uuid`, userID).
-		Scan(&t.UserID, &t.WrappedSecret, &t.ActivatedAt, &t.CreatedAt)
+		Scan(&t.UserID, &t.WrappedSecret, &t.ActivatedAt, &t.CreatedAt, &t.LastStep)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -54,6 +58,26 @@ func (r *TOTPRepo) Activate(ctx context.Context, userID string) error {
 	return r.s.execAffectingOne(ctx,
 		`UPDATE user_totp SET activated_at = now()
 		  WHERE user_id = $1::uuid AND activated_at IS NULL`, userID)
+}
+
+// ConsumeTOTPStep atomically advances a user's last consumed TOTP time-step to
+// newStep, succeeding (returning true) only if newStep is strictly greater than
+// the currently stored step (or none is stored yet). This is a compare-and-swap:
+// two concurrent logins presenting the same code both compute the same newStep,
+// but only the first UPDATE affects a row — the second sees last_step >= newStep
+// and matches nothing, so it is rejected as a replay. A missing/unactivated row
+// affects zero rows and returns false.
+func (r *TOTPRepo) ConsumeTOTPStep(ctx context.Context, userID string, newStep int64) (bool, error) {
+	tag, err := r.s.pool.Exec(ctx,
+		`UPDATE user_totp SET last_step = $2
+		  WHERE user_id = $1::uuid
+		    AND activated_at IS NOT NULL
+		    AND (last_step IS NULL OR last_step < $2)`,
+		userID, newStep)
+	if err != nil {
+		return false, mapError(err)
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // DeleteTOTP removes a user's TOTP factor and all of their recovery codes.

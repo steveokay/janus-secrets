@@ -72,17 +72,71 @@ func TestChangePassword(t *testing.T) {
 	}
 	p, _ := svc.VerifySession(ctx, cookie)
 
-	if err := svc.ChangePassword(ctx, p.ID, []byte("wrong old"), []byte("newpassword1")); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := svc.ChangePassword(ctx, p.ID, []byte("wrong old"), []byte("newpassword1")); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("wrong old pw: %v", err)
 	}
-	if err := svc.ChangePassword(ctx, p.ID, []byte(password), []byte("newpassword1")); err != nil {
+	newCookie, err := svc.ChangePassword(ctx, p.ID, []byte(password), []byte("newpassword1"))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if newCookie == "" || newCookie == cookie {
+		t.Fatalf("expected a fresh rotation cookie, got %q (old %q)", newCookie, cookie)
 	}
 	if _, err := svc.Login(ctx, email, []byte(password), ""); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("old password still valid: %v", err)
 	}
 	if _, err := svc.Login(ctx, email, []byte("newpassword1"), ""); err != nil {
 		t.Fatalf("new password rejected: %v", err)
+	}
+}
+
+// TestChangePasswordRotatesSessions proves the session-hardening half of M-3:
+// after a password change the caller's OLD session cookie is invalidated (a
+// stolen cookie cannot survive), while the fresh cookie returned by
+// ChangePassword works.
+func TestChangePasswordRotatesSessions(t *testing.T) {
+	svc, email, password := newTestService(t)
+	ctx := context.Background()
+
+	// Two independent sessions for the same user (e.g. two browsers).
+	oldCookie, err := svc.Login(ctx, email, []byte(password), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherCookie, err := svc.Login(ctx, email, []byte(password), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := svc.VerifySession(ctx, oldCookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newCookie, err := svc.ChangePassword(ctx, p.ID, []byte(password), []byte("newpassword1"))
+	if err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+
+	// The caller's previous cookie is now rejected.
+	if _, err := svc.VerifySession(ctx, oldCookie); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("old session cookie survived password change: %v", err)
+	}
+	// Every OTHER session is revoked too.
+	if _, err := svc.VerifySession(ctx, otherCookie); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("other session cookie survived password change: %v", err)
+	}
+	// The fresh cookie is valid and identifies the same user.
+	np, err := svc.VerifySession(ctx, newCookie)
+	if err != nil || np.ID != p.ID {
+		t.Fatalf("fresh cookie invalid: p=%+v err=%v", np, err)
+	}
+	// Exactly the one fresh session remains.
+	var n int
+	if err := resetPool.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1::uuid`, p.ID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("want exactly 1 remaining session, got %d", n)
 	}
 }
 

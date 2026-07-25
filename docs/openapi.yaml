@@ -368,6 +368,17 @@ components:
         ip: { type: string }
         prev_hash: { type: string }
         hash: { type: string }
+    AuditCheckpoint:
+      type: object
+      description: >
+        A signed anchor over the audit hash chain. Value-free: through_hash is a
+        chain hash and the MAC is over metadata + counts only.
+      properties:
+        through_seq: { type: integer, description: The audit seq this checkpoint anchors. }
+        through_hash: { type: string, description: Hex-encoded chained hash of the event at through_seq. }
+        event_count: { type: integer, description: Total events up to and including through_seq. }
+        created_at: { type: string, format: date-time }
+        mac_valid: { type: boolean, description: Whether the stored HMAC verifies under the current key. }
   parameters:
     Limit:
       name: limit
@@ -2534,7 +2545,11 @@ paths:
                   head_seq: { type: integer }
                   head_hash: { type: string, description: Hex-encoded chain head hash. }
                   broken_at_seq: { type: integer }
-                  reason: { type: string }
+                  reason: { type: string, description: "hash_mismatch | chain_break | checkpoint_mac_invalid" }
+                  from_checkpoint: { type: boolean, description: True when verification anchored on a signed checkpoint rather than walking from genesis. }
+                  checkpoint:
+                    description: The latest signed checkpoint, when one exists (else absent).
+                    $ref: '#/components/schemas/AuditCheckpoint'
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/audit/events:
     get:
@@ -2613,6 +2628,74 @@ paths:
                         error: { type: integer }
         "400": { description: Validation error (missing from/to, invalid bucket, or range too large for the bucket). }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/audit/checkpoint:
+    get:
+      tags: [audit]
+      summary: Latest signed audit checkpoint (owner-only)
+      description: >
+        Returns the highest-seq signed checkpoint over the hash chain (or null).
+        A checkpoint anchors a verified prefix so it may be pruned without
+        breaking verification. Owner-only (audit:manage).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkpoint:
+                    nullable: true
+                    $ref: '#/components/schemas/AuditCheckpoint'
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "503": { description: Sealed (checkpoint MAC key unavailable) or checkpointing not configured. }
+    post:
+      tags: [audit]
+      summary: Create a signed checkpoint at the current chain head (owner-only)
+      description: >
+        Captures the current chain head (seq, hash, event count) and stores an
+        HMAC-SHA256 checkpoint over those fields. The MAC key is derived
+        (domain-separated) from the master-key-wrapped token-HMAC key, so the
+        anchor cannot be forged from database access alone. Owner-only
+        (audit:manage). Self-audited.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checkpoint: { $ref: '#/components/schemas/AuditCheckpoint' }
+        "400": { description: No audit events to checkpoint. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: A checkpoint already anchors the current chain head. }
+        "503": { description: Sealed or checkpointing not configured. }
+  /v1/audit/prune:
+    post:
+      tags: [audit]
+      summary: Hard-delete the verified event prefix anchored by the latest checkpoint (owner-only)
+      description: >
+        Deletes audit events with seq <= the latest verified checkpoint's
+        through_seq. Fail-closed guards: a checkpoint must exist and its MAC must
+        verify; when audit shipping is configured, the prune point is clamped to
+        the durable ship high-water mark so un-shipped events are never removed;
+        checkpoint anchor rows are never deleted. Owner-only (audit:manage).
+        Self-audited (chained after the delete).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pruned_through: { type: integer, description: The seq up to and including which events were deleted. }
+                  deleted: { type: integer, description: Number of events hard-deleted. }
+        "400": { description: No checkpoint exists to prune to. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Checkpoint integrity check failed, or prune blocked by the ship high-water mark. }
+        "503": { description: Sealed or checkpointing not configured. }
 
   # ---------------------------------------------------------------------
   # metrics

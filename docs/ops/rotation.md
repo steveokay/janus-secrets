@@ -289,6 +289,23 @@ the `rotation:manage` permission, granted to the project **admin** and
 rotation attempt — scheduled or manual, success or failure — emits a
 `rotation.rotate` audit event.
 
+### `require_approval` does not gate rotation writes (by design)
+
+A config can be marked `require_approval` (four-eyes) so that **human** edits to
+its secrets go through the request→approve flow instead of committing directly.
+Rotation is different: when a rotation policy writes into a `require_approval`
+config, the new config version **commits directly** — it is *not* held for
+approval. This is intentional. A rotation write is not an ad-hoc human edit: the
+policy itself was admin-configured (creating/editing a policy already requires
+`rotation:manage`, granted only to admin/owner), the new value is
+machine-generated (or minted by the external system), and it must land
+immediately for the rotation to be meaningful — a credential the target system
+has already been switched to cannot sit in an approval queue. Every such write
+is still fully audited (`rotation.rotate`) and versioned like any other config
+version, so it remains reviewable after the fact. If you need a human gate on a
+value that changes, use manual `janus secrets set` on a `require_approval`
+config rather than an automated rotation policy.
+
 Secret values, admin DSNs, admin passwords, and HMAC keys never appear in logs,
 audit entries, `last_error`, or API responses — `GET`/`list` responses mask
 this configuration the same way secret values are masked elsewhere in the API.

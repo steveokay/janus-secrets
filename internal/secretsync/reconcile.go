@@ -52,7 +52,7 @@ func (s *Service) providerFor(name string) (Provider, error) {
 	case ProviderGitHub:
 		return githubProvider{hc: s.hc, baseURL: s.githubBaseURL}, nil
 	case ProviderK8s:
-		return k8sProvider{}, nil
+		return k8sProvider{policy: s.policy}, nil
 	case ProviderGitLab:
 		return gitlabProvider{hc: s.hc}, nil
 	case ProviderAWSSSM:

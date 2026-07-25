@@ -7,13 +7,31 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"net/http"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/crypto"
+	"github.com/steveokay/janus-secrets/internal/nethard"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
+
+// oidcHTTPTimeout bounds a single OIDC discovery / JWKS fetch. The issuer is
+// operator-configured (never a request body), but a black-holed internal host
+// must not hang a login goroutine indefinitely.
+const oidcHTTPTimeout = 15 * time.Second
+
+// newOIDCHTTPClient builds the SSRF-hardened HTTP client used for OIDC discovery
+// and JWKS. go-oidc reuses the client carried on the NewProvider context for the
+// lazily-built JWKS RemoteKeySet, so this single client guards both fetches
+// (finding M-4 / I-4). The default policy blocks only link-local / cloud-metadata
+// ranges and permits loopback / RFC1918 / ULA, since self-hosted OIDC issuers are
+// commonly on private networks; JANUS_OUTBOUND_BLOCK_PRIVATE tightens that.
+func newOIDCHTTPClient() *http.Client {
+	return nethard.SafeHTTPClient(oidcHTTPTimeout, nethard.PolicyFromEnv())
+}
 
 // transitKeys is the subset of *store.TransitRepo the token-minting path needs
 // to validate a transit scope's optional key restriction (fakeable in tests).
@@ -48,6 +66,10 @@ type Service struct {
 	oidcIdentities *store.OIDCIdentityRepo
 	oidcAuthReqs   *store.OIDCAuthRequestRepo
 
+	// oidcHTTP is the SSRF-hardened client for OIDC discovery + JWKS (both the
+	// human-login and CI-federation verifiers). Built once at construction.
+	oidcHTTP *http.Client
+
 	oidcMu    sync.Mutex
 	oidcCache *oidcVerifier
 
@@ -71,6 +93,8 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		transit:  store.NewTransitRepo(st),
 		totp:     store.NewTOTPRepo(st),
 		keyring:  kr,
+
+		oidcHTTP: newOIDCHTTPClient(),
 
 		oidcProviders:  store.NewOIDCProviderRepo(st),
 		oidcIdentities: store.NewOIDCIdentityRepo(st),
@@ -127,6 +151,21 @@ func (s *Service) hmacKey(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	return s.keyring.UnwrapAuthKey(ct)
+}
+
+// CheckpointMACKey returns the domain-separated audit-checkpoint MAC key derived
+// from the token-HMAC key: HMAC-SHA256(tokenHMACKey, "janus/audit-checkpoint/v1").
+// The token key is unwrapped and zeroized here; the caller owns zeroizing the
+// returned checkpoint key. Returns crypto.ErrSealed while sealed. Wired into the
+// audit Recorder so signed checkpoints can be created/verified without exposing
+// the raw token-HMAC key outside the auth service.
+func (s *Service) CheckpointMACKey(ctx context.Context) ([]byte, error) {
+	key, err := s.hmacKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer zeroize(key)
+	return audit.DeriveCheckpointKey(key), nil
 }
 
 // mac computes HMAC-SHA256(key, data).

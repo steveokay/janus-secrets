@@ -114,7 +114,22 @@ export interface ApiAuditEvent {
   prev_hash: string
   hash: string
 }
-export interface VerifyResult { valid: boolean; count: number; head_seq: number; head_hash?: string }
+export interface AuditCheckpoint {
+  through_seq: number
+  through_hash: string
+  event_count: number
+  created_at: string
+  mac_valid: boolean
+}
+export interface VerifyResult {
+  valid: boolean
+  count: number
+  head_seq: number
+  head_hash?: string
+  from_checkpoint?: boolean
+  checkpoint?: AuditCheckpoint | null
+}
+export interface PruneResult { pruned_through: number; deleted: number }
 export interface HistBucket { start: string; success: number; denied: number; error: number }
 export interface Reads24h {
   reads_24h: number
@@ -531,6 +546,11 @@ export const api = {
 
   // audit + metrics
   verifyAudit: () => get<VerifyResult>('/v1/audit/verify'),
+  // Signed checkpoints + retention (owner-only). getCheckpoint returns
+  // { checkpoint: null } when none exists.
+  getAuditCheckpoint: () => get<{ checkpoint: AuditCheckpoint | null }>('/v1/audit/checkpoint'),
+  createAuditCheckpoint: () => post<{ checkpoint: AuditCheckpoint }>('/v1/audit/checkpoint', {}),
+  pruneAudit: () => post<PruneResult>('/v1/audit/prune', {}),
   listAuditEvents: (params: Record<string, string | number>) => {
     const q = new URLSearchParams()
     for (const [k, v] of Object.entries(params)) if (v !== '' && v !== undefined) q.set(k, String(v))

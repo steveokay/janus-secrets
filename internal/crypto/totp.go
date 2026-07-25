@@ -69,13 +69,22 @@ func TOTPCodeAt(secret []byte, t time.Time) string {
 // ±skew window of time steps (skew=1 → ±30s tolerance for clock drift). The
 // comparison is constant-time and length-checked.
 func VerifyTOTP(secret []byte, code string, t time.Time, skew int) bool {
+	_, ok := VerifyTOTPStep(secret, code, t, skew)
+	return ok
+}
+
+// VerifyTOTPStep is VerifyTOTP but also returns the time-step counter T at which
+// the code matched (unix/period). Callers use the step to reject replay of a
+// code within its validity window: a step already consumed must not be accepted
+// a second time (RFC 6238 §5.2). When ok is false, step is 0 and carries no
+// meaning. The comparison is constant-time and length-checked; every window is
+// checked unconditionally (no early return) so which step matched is not leaked
+// via timing.
+func VerifyTOTPStep(secret []byte, code string, t time.Time, skew int) (step int64, ok bool) {
 	if len(code) != totpDigits {
-		return false
+		return 0, false
 	}
 	center := int64(t.Unix()) / int64(totpStep.Seconds())
-	var ok bool
-	// Check every window unconditionally (no early return) to avoid leaking
-	// which step matched via timing.
 	for i := -skew; i <= skew; i++ {
 		c := center + int64(i)
 		if c < 0 {
@@ -83,8 +92,9 @@ func VerifyTOTP(secret []byte, code string, t time.Time, skew int) bool {
 		}
 		want := hotp(secret, uint64(c))
 		if subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
+			step = c
 			ok = true
 		}
 	}
-	return ok
+	return step, ok
 }
