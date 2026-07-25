@@ -711,9 +711,17 @@ expected.
 
 ### 10.3 Docker Swarm
 
-Swarm mirrors the Compose stack with a `deploy:` block pinning one replica and
-a restart policy. Feed the DSN via a Swarm **secret** (mounted as a file), and
-point `JANUS_DATABASE_URL` at it.
+Swarm mirrors the Compose stack with a `deploy:` block pinning one replica and a
+stop-first update policy so two tasks never run at once.
+
+> **Janus reads plain environment variables — there is no `_FILE` indirection.**
+> The distroless release image also has no shell to run an entrypoint wrapper, so
+> Swarm's file-based `secrets:` (mounted at `/run/secrets/…`) cannot feed the DSN
+> to Janus. Provide `JANUS_DATABASE_URL` as an **environment value** (e.g. via a
+> deploy-time `.env` kept out of version control, interpolated by `docker stack
+> deploy`); note it is then visible through `docker service inspect`. If you
+> require file-based secret injection, front Janus with your own shell-bearing
+> wrapper image instead of the distroless release.
 
 > **No in-image healthcheck on Swarm.** The distroless release image has no
 > shell, `curl`, or `wget`, so a `HEALTHCHECK`/`test:` line can't run inside
@@ -734,10 +742,9 @@ services:
       JANUS_AWS_KMS_KEY_ARN: arn:aws:kms:us-east-1:111122223333:key/abcd-…
       AWS_REGION: us-east-1
       JANUS_LOG_FORMAT: json
-      # Read the DSN from the mounted Swarm secret file.
-      JANUS_DATABASE_URL_FILE: /run/secrets/janus_db_url
-    secrets:
-      - janus_db_url
+      # Janus reads the DSN from the env directly (no _FILE convention).
+      # ${JANUS_DATABASE_URL} is interpolated from your shell at deploy time.
+      JANUS_DATABASE_URL: ${JANUS_DATABASE_URL}
     ports:
       - target: 8200
         published: 8200
@@ -750,19 +757,11 @@ services:
       update_config:
         order: stop-first            # never run two Janus tasks at once
     # No healthcheck: distroless has no shell — monitor /v1/sys/ready externally.
-
-secrets:
-  janus_db_url:
-    external: true                   # docker secret create janus_db_url ./dsn.txt
 ```
 
-> `JANUS_DATABASE_URL_FILE` is the conventional `_FILE` indirection for
-> secret files; if your build reads only `JANUS_DATABASE_URL` directly, inline
-> the DSN via a secret-backed env instead, or export it in an entrypoint
-> wrapper. Confirm against your image's env handling.
-
 ```sh
-printf 'postgres://janus:…@db:5432/janus?sslmode=require' | docker secret create janus_db_url -
+# The DSN comes from your shell environment at deploy time (keep it out of VCS):
+export JANUS_DATABASE_URL='postgres://janus:…@db:5432/janus?sslmode=require'
 docker stack deploy -c janus-stack.yml janus
 ```
 
