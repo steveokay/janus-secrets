@@ -418,6 +418,39 @@ configured.**
   3. If neither is possible, keep a long-lived service token for that cluster —
      Janus will not accept an issuer it cannot verify against.
 
+> **Docker Desktop's built-in Kubernetes cannot be a federation issuer as
+> shipped** — verified against Docker Desktop k8s v1.36. Its API server runs with
+> `--service-account-issuer=https://kubernetes.default.svc.cluster.local`, a name
+> that resolves only inside the cluster, and **both** discovery endpoints return
+> `404` even to a cluster-admin:
+>
+> ```console
+> $ kubectl get --raw /.well-known/openid-configuration
+> Error from server (NotFound): the server could not find the requested resource
+> $ kubectl get --raw /openid/v1/jwks
+> Error from server (NotFound): the server could not find the requested resource
+> ```
+>
+> (The `system:service-account-issuer-discovery` ClusterRoleBinding exists, so
+> this is the API server not serving the endpoints — not an RBAC denial.) Docker
+> Desktop does not expose the API-server flags needed to change that, so use
+> option 2 above, a cluster you control (kind/k3d/minikube with
+> `--service-account-issuer` set to a reachable URL), or a managed cluster.
+>
+> The **token shape** it emits is nonetheless exactly what Janus expects, and is
+> pinned as a regression fixture from a real token in
+> `internal/auth/oidc_federation_k8s_real_test.go`:
+>
+> ```json
+> {"aud":["janus"],
+>  "iss":"https://kubernetes.default.svc.cluster.local",
+>  "kubernetes.io":{"namespace":"janus-test","serviceaccount":{"name":"api","uid":"…"}},
+>  "sub":"system:serviceaccount:janus-test:api"}
+> ```
+>
+> Note `aud` is a one-element **array** and the identity claims are nested under
+> a key that itself contains dots — both handled by the claim flattener.
+
 Add the issuer once it is reachable:
 
 ```sh
