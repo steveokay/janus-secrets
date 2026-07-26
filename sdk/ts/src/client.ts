@@ -1,5 +1,6 @@
-import { JanusNotFoundError, parseApiError } from "./errors.js";
+import { JanusNotFoundError, JanusRevokeError, parseApiError } from "./errors.js";
 import { Lease, type LeaseData } from "./dynamic.js";
+import type { AutoRenewOptions } from "./autorenew.js";
 
 /** The default cache TTL (30 seconds) when `cacheTtlMs` is not supplied. */
 export const DEFAULT_CACHE_TTL_MS = 30_000;
@@ -53,6 +54,19 @@ export interface RequestOptions {
   /** An {@link AbortSignal} to cancel the underlying HTTP request. */
   signal?: AbortSignal;
 }
+
+/**
+ * Options for {@link JanusClient.withDynamic}. Everything from
+ * {@link AutoRenewOptions} tunes the background renewal that runs for the
+ * duration of the callback.
+ */
+export interface WithDynamicOptions extends AutoRenewOptions {
+  /** Milliseconds allowed for the final revoke. Defaults to 30 000. */
+  revokeTimeoutMs?: number;
+}
+
+/** Default budget for the final revoke in {@link JanusClient.withDynamic}. */
+const DEFAULT_REVOKE_TIMEOUT_MS = 30_000;
 
 /**
  * A typed client for the Janus secrets manager's `/v1` REST API.
@@ -193,6 +207,115 @@ export class JanusClient {
     const path = `/v1/dynamic/roles/${encodeURIComponent(roleId)}/creds`;
     const data = await this.request<LeaseData>("POST", path, options);
     return new Lease(this, data);
+  }
+
+  /**
+   * Issue a dynamic credential lease, keep it renewed in the background for as
+   * long as `fn` runs, and revoke it on the way out — on success, on a thrown
+   * error, and on an early return. It is the recommended way to use dynamic
+   * credentials: no lease is left dangling and nothing has to remember to renew.
+   *
+   * @example
+   * ```ts
+   * const rows = await client.withDynamic(roleId, async (lease, signal) => {
+   *   const pool = new Pool({ user: lease.username, password: lease.password });
+   *   try {
+   *     return await query(pool, signal);
+   *   } finally {
+   *     await pool.end();
+   *   }
+   * });
+   * ```
+   *
+   * `fn` receives an {@link AbortSignal} that is aborted when auto-renew
+   * terminates — the lease hit its max TTL, was revoked out from under us, or
+   * the token lost access — so long-running work can wind down before the
+   * credentials stop working. Pass `onEvent` to see why.
+   *
+   * Error contract: the error `fn` throws is never replaced. If the final
+   * revoke also fails, that failure is reported to `onEvent` with reason
+   * `"revoke_failed"` and attached to the re-thrown error as a `revokeError`
+   * property; `fn`'s error is what propagates. If `fn` succeeded and only the
+   * revoke failed, a {@link JanusRevokeError} is thrown.
+   */
+  async withDynamic<T>(
+    roleId: string,
+    fn: (lease: Lease, signal: AbortSignal) => Promise<T> | T,
+    options: WithDynamicOptions = {},
+  ): Promise<T> {
+    if (typeof fn !== "function") {
+      throw new Error("janus: fn is required");
+    }
+    const lease = await this.issueDynamic(roleId, { signal: options.signal });
+
+    // From here the lease exists server-side, so every exit path must revoke it.
+    const renewer = lease.startAutoRenew(options);
+    const fnController = new AbortController();
+    void renewer.done.then(() => fnController.abort());
+
+    let result: T | undefined;
+    let failure: { error: unknown } | undefined;
+    try {
+      result = await fn(lease, fnController.signal);
+    } catch (error) {
+      failure = { error };
+    } finally {
+      fnController.abort();
+      await renewer.stop();
+    }
+
+    let revokeError: unknown;
+    try {
+      await this.revokeWithTimeout(lease, options.revokeTimeoutMs);
+    } catch (error) {
+      revokeError = error;
+    }
+
+    if (revokeError !== undefined) {
+      const wrapped = new JanusRevokeError(lease.id, revokeError);
+      if (failure) {
+        options.onEvent?.({
+          leaseId: lease.id,
+          renewed: false,
+          expiresAt: lease.expiresAt,
+          error: wrapped,
+          terminal: true,
+          reason: "revoke_failed",
+        });
+        // Surface the revoke failure without replacing the caller's error.
+        if (typeof failure.error === "object" && failure.error !== null) {
+          Object.defineProperty(failure.error, "revokeError", {
+            value: wrapped,
+            enumerable: false,
+            configurable: true,
+            writable: true,
+          });
+        }
+      } else {
+        throw wrapped;
+      }
+    }
+
+    if (failure) {
+      throw failure.error;
+    }
+    return result as T;
+  }
+
+  private async revokeWithTimeout(lease: Lease, timeoutMs?: number): Promise<void> {
+    const budget = timeoutMs && timeoutMs > 0 ? timeoutMs : DEFAULT_REVOKE_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), budget) as unknown as {
+      unref?: () => void;
+    };
+    if (typeof timer?.unref === "function") {
+      timer.unref();
+    }
+    try {
+      await lease.revoke({ signal: controller.signal });
+    } finally {
+      clearTimeout(timer as unknown as ReturnType<typeof setTimeout>);
+    }
   }
 
   private async fetchSecrets(

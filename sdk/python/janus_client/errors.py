@@ -54,6 +54,51 @@ class Sealed(JanusError):
     serve secret operations until unsealed."""
 
 
+class MaxTTLReached(Exception):
+    """Renewal is capped server-side.
+
+    The lease has reached its max TTL (``max_expires_at``) and cannot be
+    extended again — a terminal, expected end-of-life, not a client failure.
+    Acquire a new lease.
+    """
+
+    def __init__(self, lease_id: str) -> None:
+        self.lease_id = lease_id
+        super().__init__(
+            "janus: lease %s reached its server-side max TTL" % lease_id
+        )
+
+
+class LeaseExpired(Exception):
+    """The lease's expiry passed before any renew succeeded.
+
+    For example the server stayed unreachable for the whole TTL. The
+    credentials are dead.
+    """
+
+    def __init__(self, lease_id: str) -> None:
+        self.lease_id = lease_id
+        super().__init__(
+            "janus: lease %s expired before it could be renewed" % lease_id
+        )
+
+
+class RevokeFailed(Exception):
+    """Revoking a lease failed.
+
+    Raised by :meth:`janus_client.client.Client.dynamic_lease` only when the
+    ``with`` body itself succeeded. If the body raised, that exception
+    propagates unchanged and this one is reported to ``on_event`` and attached
+    to it as ``janus_revoke_error`` instead — the caller's exception is never
+    replaced.
+    """
+
+    def __init__(self, lease_id: str, cause: BaseException) -> None:
+        self.lease_id = lease_id
+        self.cause = cause
+        super().__init__("janus: revoking lease %s failed: %s" % (lease_id, cause))
+
+
 def error_for(status: int, code: str = "", message: str = "") -> JanusError:
     """Construct the most specific :class:`JanusError` subclass for a response.
 
@@ -78,5 +123,8 @@ __all__ = [
     "Forbidden",
     "NotFound",
     "Sealed",
+    "MaxTTLReached",
+    "LeaseExpired",
+    "RevokeFailed",
     "error_for",
 ]

@@ -17,9 +17,21 @@ export {
   type JanusClientOptions,
   type FetchLike,
   type RequestOptions,
+  type WithDynamicOptions,
 } from "./client.js";
 
-export { Lease, type LeaseData } from "./dynamic.js";
+export { Lease, type LeaseData, type ParsedLeaseView } from "./dynamic.js";
+
+export {
+  LeaseRenewer,
+  DEFAULT_RENEW_FRACTION,
+  DEFAULT_RENEW_JITTER,
+  DEFAULT_MIN_RENEW_INTERVAL_MS,
+  type AutoRenewOptions,
+  type RenewEvent,
+  type StopReason,
+  type TimerHandle,
+} from "./autorenew.js";
 
 export {
   JanusError,
@@ -27,6 +39,9 @@ export {
   JanusForbiddenError,
   JanusNotFoundError,
   JanusSealedError,
+  JanusMaxTtlReachedError,
+  JanusLeaseExpiredError,
+  JanusRevokeError,
   isUnauthorized,
   isForbidden,
   isNotFound,

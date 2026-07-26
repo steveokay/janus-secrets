@@ -22,15 +22,18 @@ Basic usage::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
 import urllib.parse
 import urllib.request
-from typing import Callable, Dict, Optional
+from datetime import datetime
+from typing import Callable, Dict, Iterator, Optional
 
 from ._transport import MAX_ERROR_BODY, Transport, UrllibTransport
-from .errors import JanusError, NotFound, error_for
+from .autorenew import STOP_REVOKE_FAILED, LeaseRenewer, RenewEvent
+from .errors import JanusError, NotFound, RevokeFailed, error_for
 from .lease import Lease
 
 # Default time-to-live (seconds) for cached config reads when no cache_ttl is
@@ -182,6 +185,109 @@ class Client:
         path = "/v1/dynamic/roles/%s/creds" % urllib.parse.quote(role_id, safe="")
         resp = self._do("POST", path)
         return Lease._from_response(self, resp if isinstance(resp, dict) else {})
+
+    @contextlib.contextmanager
+    def dynamic_lease(
+        self,
+        role_id: str,
+        auto_renew: bool = True,
+        fraction: Optional[float] = None,
+        jitter: Optional[float] = None,
+        min_interval: Optional[float] = None,
+        on_event: Optional[Callable[[RenewEvent], None]] = None,
+        clock: Optional[Callable[[], datetime]] = None,
+        sleeper: Optional[Callable[[float], bool]] = None,
+        rng: Optional[Callable[[], float]] = None,
+        stop_timeout: Optional[float] = None,
+    ) -> Iterator[Lease]:
+        """Issue a dynamic credential lease, keep it renewed for the duration of
+        the ``with`` block, and revoke it on the way out — on success, on an
+        exception, and on an early ``return`` or ``break``.
+
+        This is the recommended way to use dynamic credentials: no lease is left
+        dangling and nothing has to remember to renew::
+
+            with client.dynamic_lease(role_id) as lease:
+                conn = psycopg.connect(user=lease.username, password=lease.password)
+                ...
+
+        Auto-renew follows the policy documented on
+        :meth:`janus_client.lease.Lease.start_auto_renew` (renew at ~2/3 of the
+        remaining TTL, +/-10% jitter). Pass ``auto_renew=False`` to skip it and
+        renew by hand. Pass ``on_event`` to observe renewals and learn why they
+        stopped — for instance to wind the block down when the lease hits its
+        max TTL, since the credentials will stop working shortly after.
+
+        Error contract: the exception raised inside the ``with`` body is never
+        replaced. If the final revoke also fails, that failure is reported to
+        ``on_event`` with reason ``"revoke_failed"`` and attached to the
+        propagating exception as its ``janus_revoke_error`` attribute. If the
+        body succeeded and only the revoke failed,
+        :class:`~janus_client.errors.RevokeFailed` is raised.
+
+        There is no async variant: this SDK's transport is the blocking stdlib
+        ``urllib``, so an ``async with`` would only be a thread wrapper.
+        """
+        lease = self.issue_dynamic(role_id)
+        renewer: Optional[LeaseRenewer] = None
+        if auto_renew:
+            try:
+                renewer = lease.start_auto_renew(
+                    fraction=fraction,
+                    jitter=jitter,
+                    min_interval=min_interval,
+                    on_event=on_event,
+                    clock=clock,
+                    sleeper=sleeper,
+                    rng=rng,
+                )
+            except BaseException:
+                # The lease already exists server-side; do not leak it.
+                with contextlib.suppress(Exception):
+                    lease.revoke()
+                raise
+
+        try:
+            yield lease
+        except BaseException as body_exc:
+            revoke_exc = self._teardown_lease(lease, renewer, stop_timeout)
+            if revoke_exc is not None:
+                wrapped = RevokeFailed(lease.id, revoke_exc)
+                if on_event is not None:
+                    with contextlib.suppress(Exception):
+                        on_event(
+                            RenewEvent(
+                                lease.id,
+                                error=wrapped,
+                                terminal=True,
+                                reason=STOP_REVOKE_FAILED,
+                            )
+                        )
+                # Surface the revoke failure without replacing the caller's
+                # exception, which is what propagates.
+                with contextlib.suppress(Exception):
+                    setattr(body_exc, "janus_revoke_error", wrapped)
+            raise
+        else:
+            revoke_exc = self._teardown_lease(lease, renewer, stop_timeout)
+            if revoke_exc is not None:
+                raise RevokeFailed(lease.id, revoke_exc) from revoke_exc
+
+    @staticmethod
+    def _teardown_lease(
+        lease: Lease, renewer: Optional[LeaseRenewer], stop_timeout: Optional[float]
+    ) -> Optional[BaseException]:
+        """Stop the renewer and revoke the lease. Returns the revoke failure,
+        if any, instead of raising, so callers decide how to surface it.
+        """
+        if renewer is not None:
+            with contextlib.suppress(Exception):
+                renewer.stop(stop_timeout)
+        try:
+            lease.revoke()
+        except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+            return exc
+        return None
 
     # -- HTTP plumbing -----------------------------------------------------
 
