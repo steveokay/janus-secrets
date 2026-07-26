@@ -1,7 +1,11 @@
 <script lang="ts">
   import { registry } from '../lib/registry.svelte'
   import { api, errorMessage, type VersionMeta, type VersionDiff, type SecretChange, type KeyVersionMeta, type KeyReadInsight } from '../lib/api'
-  import { relTime, stampDate, isValidKey, isEnvVarKey, parseEnvOrProps, humanizeDuration, parseDurationToSeconds, type ImportedEntry } from '../lib/util'
+  import {
+    relTime, stampDate, isValidKey, isEnvVarKey, humanizeDuration, parseDurationToSeconds,
+    parseImport, importSource, IMPORT_SOURCES,
+    type ImportedEntry, type ImportFormat, type ImportParse,
+  } from '../lib/util'
   import { checkFormat, prettyJson } from '../lib/format'
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
@@ -48,6 +52,11 @@
   let showImport = $state(false)
   let importText = $state('')
   let importPicked = $state<Record<number, boolean>>({})
+  /* null = auto-detect; otherwise the operator's manual override */
+  let importOverride = $state<ImportFormat | null>(null)
+  /* which source card the wizard is showing guidance for */
+  let importSourcePick = $state<ImportFormat>('env')
+  let importCopied = $state('')
   let lockedKeys = $state<Set<string>>(new Set())
   // Advisory max-age policy: keys with an explicit per-key override, and the
   // config-level default (seconds, or null when unset). Never blocks anything.
@@ -666,9 +675,19 @@
     }
   }
 
-  /* ── bulk import (.env / .properties) ─────── */
+  /* ── bulk import wizard ────────────────────────────────────
+   *
+   * Paste-based on purpose. The browser never holds a Doppler / Vault / AWS
+   * credential and makes no outbound call — the operator exports with the tool
+   * they already trust and pastes the result here. Parsing is pure and local;
+   * nothing is written until Save commits one config version.
+   */
 
-  const importEntries = $derived.by((): ImportedEntry[] => (importText.trim() ? parseEnvOrProps(importText) : []))
+  const importParse = $derived.by((): ImportParse => parseImport(importText, importOverride))
+  const importEntries = $derived(importParse.entries)
+  /* The card whose guidance is on screen follows the detection until the
+     operator picks one by hand. */
+  const importGuide = $derived(importSource(importSourcePick))
 
   $effect(() => {
     // default selection: everything parseable
@@ -677,9 +696,51 @@
     importPicked = sel
   })
 
+  $effect(() => {
+    // follow auto-detection so the guidance card matches what was pasted
+    if (importOverride === null && importText.trim()) importSourcePick = importParse.format
+  })
+
   function importStatus(e: ImportedEntry): 'new' | 'overwrite' | 'invalid' {
     if (e.error) return 'invalid'
     return rows.some(r => !r.added && r.key === e.key) ? 'overwrite' : 'new'
+  }
+
+  function pickImportSource(f: ImportFormat) {
+    importSourcePick = f
+    // Choosing a source is also the manual format override, so a paste that
+    // auto-detects wrongly can always be forced.
+    importOverride = f
+  }
+
+  function resetImportFormat() {
+    importOverride = null
+    if (importText.trim()) importSourcePick = importParse.format
+  }
+
+  const importSelected = $derived(importEntries.filter(e => !e.error && importPicked[e.line]).length)
+  const importInvalid = $derived(importEntries.filter(e => e.error).length)
+  const importEncoded = $derived(importEntries.filter(e => !e.error && e.note?.includes('JSON-encoded')).length)
+
+  function setAllPicked(on: boolean) {
+    const sel: Record<number, boolean> = {}
+    for (const e of importEntries) sel[e.line] = on && !e.error
+    importPicked = sel
+  }
+
+  async function copyImportCommand(cmd: string) {
+    try {
+      await navigator.clipboard.writeText(cmd)
+      importCopied = cmd
+      setTimeout(() => { if (importCopied === cmd) importCopied = '' }, 1600)
+    } catch { /* clipboard blocked; the command is on screen to copy by hand */ }
+  }
+
+  function closeImport() {
+    showImport = false
+    importText = ''
+    importOverride = null
+    importCopied = ''
   }
 
   async function onImportFile(ev: Event) {
@@ -712,9 +773,9 @@
         added++
       }
     }
-    showImport = false
-    importText = ''
-    flashToast(`Imported ${added + updated} key${added + updated === 1 ? '' : 's'} into the draft (${added} new, ${updated} overwriting) — review, then save`)
+    const src = importSource(importParse.format).label
+    closeImport()
+    flashToast(`Staged ${added + updated} key${added + updated === 1 ? '' : 's'} from ${src} into the draft (${added} new, ${updated} overwriting) — review, then save`)
   }
 
   const mask = '•'.repeat(14)
@@ -869,7 +930,7 @@
         <button class="btn" class:has-override={configDefaultMaxAge != null} onclick={openConfigMaxAge}>
           {showConfigMaxAge ? 'Close max-age' : configDefaultMaxAge != null ? `Max-age · ${humanizeDuration(configDefaultMaxAge)}` : 'Max-age…'}
         </button>
-        <button class="btn" onclick={() => (showImport = !showImport)}>{showImport ? 'Close import' : 'Import…'}</button>
+        <button class="btn" onclick={() => (showImport ? closeImport() : (showImport = true))}>{showImport ? 'Close import' : 'Import…'}</button>
         <button class="btn" onclick={downloadEnv} disabled={!rows.some(r => !r.added)}>Download .env</button>
         <button class="btn" onclick={addRow}>+ Add secret</button>
       </div>
@@ -898,61 +959,132 @@
     {/if}
 
     {#if showImport}
-      <section class="sheet import-panel rise">
+      <section class="sheet import-panel rise" aria-label="Import wizard">
         <div class="section-head">
-          <h3>Bulk import</h3>
-          <span class="folio">.env or Java .properties — parsed locally, staged into the draft, committed on Save</span>
+          <h3>Import secrets</h3>
+          <span class="folio">parsed in your browser · staged into the draft · committed as one config version on Save</span>
         </div>
-        <div class="import-input">
-          <textarea
-            class="input mono"
-            rows="6"
-            spellcheck="false"
-            bind:value={importText}
-            placeholder={'# paste here, or choose a file\nDATABASE_URL=postgres://…\nexport API_TOKEN="tok_…"\napp.timeout: 30s'}
-          ></textarea>
-          <label class="btn btn-sm file-btn">
-            Choose file…
-            <input type="file" accept=".env,.properties,.txt,text/plain" onchange={onImportFile} hidden />
-          </label>
+
+        <!-- Step 1 — where the secrets are coming from -->
+        <div class="wiz-step">
+          <p class="wiz-label">1 · Source</p>
+          <div class="src-picker" role="group" aria-label="Import source">
+            {#each IMPORT_SOURCES as s (s.id)}
+              <button
+                class="btn btn-sm src-chip"
+                class:is-on={importSourcePick === s.id}
+                aria-pressed={importSourcePick === s.id}
+                onclick={() => pickImportSource(s.id)}
+              >{s.label}</button>
+            {/each}
+            {#if importOverride !== null}
+              <button class="btn btn-sm btn-ghost" onclick={resetImportFormat}>Auto-detect</button>
+            {/if}
+          </div>
+          <p class="folio src-blurb">{importGuide.blurb}</p>
+          {#if importGuide.command}
+            <p class="folio why-paste">
+              Janus never asks for your {importGuide.short} credentials and makes no call to {importGuide.short} —
+              you export with the tool you already trust, then paste the output here.
+            </p>
+            <div class="cmd-row">
+              <code class="mono cmd">{importGuide.command}</code>
+              <button class="btn btn-sm" onclick={() => copyImportCommand(importGuide.command!)}>
+                {importCopied === importGuide.command ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            {#if importGuide.altCommand}
+              <p class="folio alt-label">{importGuide.altLabel}</p>
+              <div class="cmd-row">
+                <code class="mono cmd">{importGuide.altCommand}</code>
+                <button class="btn btn-sm" onclick={() => copyImportCommand(importGuide.altCommand!)}>
+                  {importCopied === importGuide.altCommand ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            {/if}
+          {/if}
+        </div>
+
+        <!-- Step 2 — the paste itself -->
+        <div class="wiz-step">
+          <p class="wiz-label">2 · Paste the output</p>
+          <div class="import-input">
+            <textarea
+              class="input mono"
+              rows="6"
+              spellcheck="false"
+              aria-label="Paste the export to import"
+              bind:value={importText}
+              placeholder={'# paste here, or choose a file\nDATABASE_URL=postgres://…\nexport API_TOKEN="tok_…"\n\n# …or JSON from Doppler / Vault / AWS Secrets Manager'}
+            ></textarea>
+            <div class="paste-row">
+              <label class="btn btn-sm file-btn">
+                Choose file…
+                <input type="file" accept=".env,.properties,.txt,.json,text/plain,application/json" onchange={onImportFile} hidden />
+              </label>
+              {#if importText.trim()}
+                <span class="stamp flat fmt-chip {importParse.detected ? 'ok' : 'info'}">
+                  {importParse.detected ? 'Detected' : 'Forced'} · {importSource(importParse.format).label}
+                </span>
+                <button class="btn btn-sm btn-ghost" onclick={() => (importText = '')}>Clear</button>
+              {/if}
+            </div>
+          </div>
+          {#if importParse.problem}
+            <p class="import-problem">{importParse.problem} Pick the right source above to force a format.</p>
+          {/if}
+          {#if importParse.notice}
+            <p class="folio import-notice">{importParse.notice}</p>
+          {/if}
         </div>
 
         {#if importEntries.length}
-          <table class="ledger import-preview" aria-label="Import preview">
-            <thead>
-              <tr><th scope="col" style="width: 36px"></th><th scope="col">Key</th><th scope="col">Value</th><th scope="col" style="width: 120px">Action</th></tr>
-            </thead>
-            <tbody>
-              {#each importEntries as e (e.line)}
-                {@const st = importStatus(e)}
-                <tr class:invalid={st === 'invalid'}>
-                  <td>
-                    <input type="checkbox" checked={importPicked[e.line] ?? false} disabled={st === 'invalid'}
-                      onchange={(ev) => (importPicked[e.line] = (ev.currentTarget as HTMLInputElement).checked)} />
-                  </td>
-                  <td class="mono key">
-                    {e.key || '—'}
-                    {#if !e.error && !isEnvVarKey(e.key)}<span class="file-badge">file</span>{/if}
-                  </td>
-                  <td class="mono val-preview">{e.error ? '' : e.value.split('\n')[0].slice(0, 48) + (e.value.length > 48 || e.value.includes('\n') ? '…' : '')}</td>
-                  <td>
-                    {#if st === 'invalid'}<span class="state bad" title={e.error}>line {e.line}: {e.error}</span>
-                    {:else if st === 'overwrite'}<span class="chg mod mono">~ overwrite</span>
-                    {:else}<span class="chg add mono">+ new</span>{/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-          <div class="import-foot">
-            <span class="folio">
-              {importEntries.filter(e => !e.error && importPicked[e.line]).length} selected ·
-              {importEntries.filter(e => e.error).length} invalid skipped
-            </span>
-            <button class="btn btn-stamp" onclick={applyImport}
-              disabled={!importEntries.some(e => !e.error && importPicked[e.line])}>
-              Stage into draft
-            </button>
+          <!-- Step 3 — review, nothing written yet -->
+          <div class="wiz-step">
+            <div class="wiz-head">
+              <p class="wiz-label">3 · Review — {importSelected} of {importEntries.length} selected</p>
+              <div class="pick-actions">
+                <button class="btn btn-sm btn-ghost" onclick={() => setAllPicked(true)}>Select all</button>
+                <button class="btn btn-sm btn-ghost" onclick={() => setAllPicked(false)}>Select none</button>
+              </div>
+            </div>
+            <table class="ledger import-preview" aria-label="Import preview">
+              <thead>
+                <tr><th scope="col" style="width: 36px"></th><th scope="col">Key</th><th scope="col">Value</th><th scope="col" style="width: 150px">Action</th></tr>
+              </thead>
+              <tbody>
+                {#each importEntries as e (e.line)}
+                  {@const st = importStatus(e)}
+                  <tr class:invalid={st === 'invalid'}>
+                    <td>
+                      <input type="checkbox" checked={importPicked[e.line] ?? false} disabled={st === 'invalid'}
+                        aria-label={`Import ${e.key || 'entry'}`}
+                        onchange={(ev) => (importPicked[e.line] = (ev.currentTarget as HTMLInputElement).checked)} />
+                    </td>
+                    <td class="mono key">
+                      {e.key || '—'}
+                      {#if !e.error && !isEnvVarKey(e.key)}<span class="file-badge">file</span>{/if}
+                      {#if e.note}<span class="note-badge" title={e.note}>{e.note.includes('duplicate') ? 'dup' : 'json'}</span>{/if}
+                    </td>
+                    <td class="mono val-preview">{e.error ? '' : e.value.split('\n')[0].slice(0, 48) + (e.value.length > 48 || e.value.includes('\n') ? '…' : '')}</td>
+                    <td>
+                      {#if st === 'invalid'}<span class="state bad" title={e.error}>{e.where ?? `line ${e.line}`}: {e.error}</span>
+                      {:else if st === 'overwrite'}<span class="chg mod mono">~ overwrite</span>
+                      {:else}<span class="chg add mono">+ new</span>{/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+            <div class="import-foot">
+              <span class="folio">
+                {importSelected} selected · {importInvalid} rejected
+                {#if importEncoded > 0}· {importEncoded} non-string JSON value{importEncoded === 1 ? '' : 's'} kept as JSON text{/if}
+              </span>
+              <button class="btn btn-stamp" onclick={applyImport} disabled={importSelected === 0}>
+                Stage into draft
+              </button>
+            </div>
           </div>
         {/if}
       </section>
@@ -1344,17 +1476,91 @@
   .toolbar-actions { display: flex; gap: var(--s2); }
   .search { max-width: 300px; }
 
-  /* ── bulk import panel ──────────────────────── */
+  /* ── bulk import wizard ─────────────────────── */
   .import-panel { padding: var(--s4) var(--s5); margin-bottom: var(--s3); border-left: 4px solid var(--verdigris); }
   .import-panel .section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--s3); flex-wrap: wrap; }
-  .import-input { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
+
+  .wiz-step { padding-top: var(--s3); border-top: 1px solid var(--rule-faint); }
+  .wiz-step:first-of-type { border-top: 0; padding-top: 0; }
+  .wiz-step + .wiz-step { margin-top: var(--s4); }
+  .wiz-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+  .wiz-label {
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: var(--track-caps);
+    color: var(--ink-faint);
+    margin: 0 0 var(--s2);
+  }
+  .pick-actions { display: flex; gap: var(--s2); }
+
+  .src-picker { display: flex; flex-wrap: wrap; gap: var(--s2); }
+  .src-chip.is-on {
+    border-color: var(--verdigris);
+    color: var(--verdigris-deep);
+    background: var(--verdigris-wash);
+    font-weight: 650;
+  }
+  .src-blurb { margin: var(--s2) 0 0; }
+  /* a full sentence, so drop .folio's small-caps treatment but keep its voice */
+  .why-paste {
+    margin: var(--s1) 0 var(--s2);
+    max-width: 74ch;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+  .alt-label { margin: var(--s2) 0 var(--s1); }
+  .cmd-row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+  .cmd {
+    flex: 1 1 24rem;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: var(--text-xs);
+    color: var(--ink);
+    background: var(--paper-low);
+    border: 1px solid var(--rule-faint);
+    border-radius: var(--radius);
+    padding: 0.35rem 0.5rem;
+  }
+
+  .import-input { display: flex; flex-direction: column; gap: var(--s2); align-items: stretch; }
   .import-input textarea { resize: vertical; white-space: pre; }
-  .file-btn { position: relative; }
+  .paste-row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+  .file-btn { position: relative; flex: 0 0 auto; }
+  /* colour comes from the .stamp ok/info modifiers; just tighten the tracking */
+  .fmt-chip { letter-spacing: 0.1em; }
+  .import-problem {
+    margin: var(--s2) 0 0;
+    font-size: var(--text-sm);
+    color: var(--vermilion);
+    border-left: 3px solid var(--vermilion);
+    background: var(--vermilion-wash);
+    padding: var(--s2) var(--s3);
+  }
+  .import-notice { margin: var(--s2) 0 0; color: var(--ochre); }
+
   .import-preview { margin-top: var(--s3); }
   .import-preview tr.invalid td { background: var(--vermilion-wash); opacity: 0.75; }
+  .note-badge {
+    margin-left: 0.4rem;
+    font-size: 0.58rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--ochre);
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 0.02rem 0.3rem;
+    vertical-align: middle;
+    cursor: help;
+  }
   .val-preview { font-size: var(--text-xs); color: var(--ink-soft); }
   .state.bad { color: var(--vermilion); font-size: var(--text-xs); font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; }
-  .import-foot { display: flex; justify-content: space-between; align-items: center; margin-top: var(--s3); }
+  .import-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); margin-top: var(--s3); flex-wrap: wrap; }
 
   .table-wrap { overflow-x: auto; }
 

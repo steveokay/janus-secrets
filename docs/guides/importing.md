@@ -133,12 +133,76 @@ janus import aws-sm --aws-prefix prod/myapp/ \
 
 ---
 
+## From the web UI
+
+The web UI has an **import wizard** covering the same three sources, in the
+secret editor: open a config → **Import…**.
+
+It works differently from the CLI on purpose. **It is paste-based: you export
+from the source system yourself, then paste the result.** The wizard walks you
+through it:
+
+1. **Source** — pick `.env / .properties`, Doppler, Vault, or AWS Secrets
+   Manager. Janus shows you the **exact command to run** against that system,
+   with a copy button. That command is the credential-handling step, and it
+   happens on your machine, in a tool you already trust.
+2. **Paste the output** (or choose a file). The wizard **auto-detects** which of
+   the four shapes you pasted and shows what it recognised — `Detected ·
+   Doppler`. Picking a source by hand **forces** that format instead
+   (`Forced · Vault (KV v2)`); *Auto-detect* hands the decision back.
+3. **Review** — every key previews as `+ new` / `~ overwrite`, or is rejected
+   with a reason. Untick anything you don't want, then **Stage into draft**.
+
+Nothing is written until you press **Save as vN** — the whole import commits as
+**one immutable config version**, exactly like the CLI's batched save, so a bad
+import is one rollback away.
+
+### Why paste, and not "connect to Doppler"
+
+A "connect your Doppler account" button would be less typing. It would also
+mean Janus **receives your Doppler, Vault, and AWS credentials** — because a
+browser cannot call those APIs directly (CORS, and it would put third-party
+credentials in the page), so the request would have to be proxied through the
+Janus server.
+
+That would trade away the property stated at the top of this page: *Janus itself
+never stores the external credentials and gains no new server endpoints.* A
+self-hosted secrets manager that also accumulates credentials to **other**
+people's secret stores is a strictly bigger target than one that doesn't. We
+keep the property. The wizard adds **no endpoint**, holds **no external
+credential**, and makes **no outbound call** — every parser is a pure function
+running in your browser tab.
+
+If you want the fetch automated — in CI, or over a whole tree of configs — that
+is what `janus import` above is for. It runs on your machine, with your
+credentials, and never hands them to the server either.
+
+### What the wizard accepts
+
+| Source | Shape |
+| ------ | ----- |
+| `.env` / `.properties` | `KEY=value`, `export KEY=value`, `key: value`, comments, quotes, continuations |
+| Doppler | a flat JSON object — `{"KEY":"value", …}` |
+| Vault KV v2 | the full `{"data":{"data":{…},"metadata":{…}}}` envelope, a bare `{"data":{…}}`, or an already-unwrapped flat object |
+| AWS Secrets Manager | `get-secret-value` output (a `SecretString` that is itself JSON fans out to one key per field; any other string becomes one key named after the secret's trailing path segment) and `batch-get-secret-value` output (`SecretValues[]`) |
+
+**Non-string JSON values** (numbers, booleans, nulls, nested objects, arrays)
+are **kept as their JSON text** and flagged in the preview with a `json` badge
+and a count in the footer — the same rule the CLI applies, so a web import and a
+`janus import` land identical values. They are never silently coerced.
+
+**Rejected per key, with the reason shown:** keys that fail the server's key
+rule (letters, digits, `. _ -`, no slashes, ≤255), binary secrets
+(`SecretBinary`), and Secrets Manager entries that are a plain string with no
+`Name` to derive a key from. Rejected keys can't be selected and never carry
+their value forward.
+
 ## After importing
 
 The import lands as a single config version. Review it in the web UI (config
 version diff) or with `janus secrets list` / `janus secrets diff`, and roll back
-to the previous version if anything is wrong. For the web-UI `.env`/paste
-importer, see [import-export.md](import-export.md).
+to the previous version if anything is wrong. For the web-UI export side
+(`Download .env`), see [import-export.md](import-export.md).
 
 ---
 
