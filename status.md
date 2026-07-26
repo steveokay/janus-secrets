@@ -213,6 +213,17 @@ _The binary + container ship automatically on a `v*` tag (goreleaser → GitHub
 Release + GHCR). The language-package registries do **not** — each needs an
 account/credential the maintainer must supply, so they are tracked separately._
 
+- [x] ~~**v0.2.0 — the post-1.0 release**~~ **TAGGED 2026-07-26** — everything
+      built after v0.1.0 in one release: passkeys (incl. passwordless), Kubernetes
+      service-account federation over a multi-issuer trust set, sync drift
+      detection, value-version retention, audit checkpointing, the Grafana
+      dashboard, SDK lease auto-renew, the Terraform batch resource + env-scoped
+      tokens, the web import wizard, the mobile/tablet layout, and this week's
+      fixes (Trash destroy, the passkey-enrolment logout, expired-session
+      reporting). **Also repoints `ghcr.io/steveokay/janus:latest`**, which had
+      been hijacked by the `v0.1.1-rc1` prerelease: `latest` carries
+      `skip_push: auto`, so a stable tag reclaims it automatically — no manual
+      registry surgery, and the `-rc` regression cannot recur.
 - [x] ~~**v0.1.0 — first tagged release**~~ **SHIPPED 2026-07-24** — tag `v0.1.0`
       (`main 9490a7d`); goreleaser published the GitHub Release (6 multi-arch
       binaries + `checksums.txt`) and the multi-arch GHCR image
