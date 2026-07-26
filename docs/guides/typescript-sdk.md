@@ -84,6 +84,83 @@ If the token can issue [dynamic Postgres credentials](../openapi.yaml),
 memory only) with `renew()` / `revoke()` methods. `roleId` identifies a dynamic
 **role**, not a config.
 
+### `withDynamic` — the recommended way
+
+Managing a lease by hand means remembering to renew it *and* to revoke it on
+every exit path. `withDynamic` does both:
+
+```ts
+const rows = await client.withDynamic(roleId, async (lease, signal) => {
+  const pool = new Pool({ user: lease.username, password: lease.password });
+  try {
+    return await query(pool, signal); // auto-renew runs for as long as this does
+  } finally {
+    await pool.end();
+  }
+});
+```
+
+The lease is issued, kept renewed in the background, and revoked in a `finally`
+on the way out — on success, on a thrown error (async or synchronous), and on
+an early return. The `signal` handed to your callback is aborted when auto-renew
+terminates — max TTL reached, lease revoked out from under you, token lost
+access — so long-running work can wind down *before* the credentials stop
+working.
+
+### Background auto-renew
+
+Auto-renew is **opt-in**: nothing in the SDK schedules a timer unless you call
+`lease.startAutoRenew()` (or `withDynamic`, which calls it for you).
+
+```ts
+const renewer = lease.startAutoRenew({
+  onEvent: (e) => { /* never contains the password */ },
+  signal,           // optional: aborting it stops the loop
+});
+try {
+  // ... use the credentials ...
+} finally {
+  await renewer.stop(); // idempotent; resolves once the loop has exited
+}
+```
+
+**Renewal policy.** After each successful renew the loop waits **2/3 of the
+remaining TTL**, ± **10% jitter** (so a fleet doesn't stampede the server),
+floored at **1s**, then renews again. A failed-but-retryable attempt is retried
+at half that fraction, so retries converge on the expiry instead of hot-looping.
+Tune with `fraction`, `jitter`, and `minIntervalMs`. The default timer is
+`unref`'d, so an active renewer never keeps a Node process alive on its own.
+
+**Error-handling contract.** Nothing is swallowed. Every attempt is reported to
+`onEvent`, and the loop ends with exactly one terminal event whose `reason` and
+`error` are also readable from `renewer.reason` / `renewer.error` after
+`await renewer.done`:
+
+| Outcome | `reason` | `error` |
+| --- | --- | --- |
+| `stop()` called | `stopped` | `undefined` |
+| supplied `signal` aborted | `aborted` | `undefined` |
+| server won't extend further | `max_ttl` | `JanusMaxTtlReachedError` |
+| lease gone / not active (404, 409) | `lease_gone` | `JanusNotFoundError` / `JanusError` |
+| token rejected (401 / 403) | `unauthorized` / `forbidden` | `JanusError` |
+| other non-retryable 4xx | `rejected` | `JanusError` |
+| TTL ran out while retrying | `expired` | `JanusLeaseExpiredError` |
+
+Retryable failures — network errors, 5xx (including a sealed server), 408, 429 —
+are reported as **non-terminal** events with `error` set and retried while TTL
+headroom remains. Renewal is capped server-side at the role's max TTL, so the
+loop stops at that ceiling rather than retrying forever: treat `max_ttl` as
+"acquire a new lease".
+
+`RenewEvent` is value-free — it carries the lease ID and timings, never the
+password, and the SDK logs nothing on its own.
+
+**Revoke failures.** `withDynamic` never replaces your error. If your callback
+threw *and* the revoke failed, your error is re-thrown with the
+`JanusRevokeError` attached as a non-enumerable `revokeError` property and also
+reported to `onEvent` with reason `revoke_failed`. If only the revoke failed, a
+`JanusRevokeError` is thrown.
+
 ## Full reference
 
 See [`sdk/ts/README.md`](../../sdk/ts/README.md) for the complete API surface, a

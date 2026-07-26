@@ -64,6 +64,61 @@ export class JanusSealedError extends JanusError {
   }
 }
 
+/**
+ * Renewal is capped server-side: the lease has reached its max TTL and cannot
+ * be extended again. Terminal — acquire a new lease.
+ */
+export class JanusMaxTtlReachedError extends Error {
+  /** The lease that reached its ceiling. */
+  readonly leaseId: string;
+
+  constructor(leaseId: string) {
+    super(`janus: lease ${leaseId} reached its server-side max TTL`);
+    this.name = "JanusMaxTtlReachedError";
+    this.leaseId = leaseId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
+ * The lease's expiry passed before any renew succeeded (for example the server
+ * stayed unreachable for the whole TTL). The credentials are dead.
+ */
+export class JanusLeaseExpiredError extends Error {
+  /** The lease that expired. */
+  readonly leaseId: string;
+
+  constructor(leaseId: string) {
+    super(`janus: lease ${leaseId} expired before it could be renewed`);
+    this.name = "JanusLeaseExpiredError";
+    this.leaseId = leaseId;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
+ * Revoking a lease failed. Thrown by
+ * {@link import("./client.js").JanusClient.withDynamic} only when the caller's
+ * own function succeeded; if the caller's function threw, that error is
+ * re-thrown unchanged and this one is reported via `onEvent` and attached to
+ * the thrown error as `revokeError` instead — the caller's error is never
+ * replaced.
+ */
+export class JanusRevokeError extends Error {
+  /** The lease that could not be revoked. */
+  readonly leaseId: string;
+  /** The underlying failure (usually a {@link JanusError}). */
+  override readonly cause: unknown;
+
+  constructor(leaseId: string, cause: unknown) {
+    super(`janus: revoking lease ${leaseId} failed`);
+    this.name = "JanusRevokeError";
+    this.leaseId = leaseId;
+    this.cause = cause;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
 /** True if `err` is a {@link JanusUnauthorizedError} (401). */
 export function isUnauthorized(err: unknown): err is JanusUnauthorizedError {
   return err instanceof JanusUnauthorizedError;

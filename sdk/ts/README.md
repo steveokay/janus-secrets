@@ -53,6 +53,8 @@ const apiKey = await client.getSecret(configId, "API_KEY");
 | `refresh(configId?)` | Evict a config's cache; `refresh()` with no argument clears all. |
 | `issueDynamic(roleId, { signal? }?)` | Issue a dynamic DB credential `Lease`; the password is returned once. |
 | `lease.renew({ signal? }?)` / `lease.revoke({ signal? }?)` | Extend or immediately drop a dynamic lease. |
+| `withDynamic(roleId, fn, options?)` | Issue + auto-renew + guaranteed revoke around `fn`. |
+| `lease.startAutoRenew(options?)` | Opt-in background renewal; returns a `LeaseRenewer` you must `stop()`. |
 
 Every method returns a `Promise` and accepts an optional `AbortSignal`.
 
@@ -137,6 +139,61 @@ try {
 
 `roleId` identifies a dynamic **role** (authored via the admin API), not a
 config.
+
+### `withDynamic` (recommended)
+
+Issues a lease, keeps it renewed in the background for the duration of the
+callback, and revokes it in a `finally` on every exit path:
+
+```ts
+const rows = await client.withDynamic(roleId, async (lease, signal) => {
+  const pool = new Pool({ user: lease.username, password: lease.password });
+  try {
+    return await query(pool, signal);
+  } finally {
+    await pool.end();
+  }
+});
+```
+
+The `signal` is aborted when auto-renew terminates (max TTL, lease gone, token
+rejected), so work can wind down before the credentials die.
+
+If the final revoke fails, your callback's error is re-thrown with the
+`JanusRevokeError` attached as a `revokeError` property (and reported to
+`onEvent`) — your error is never replaced. If only the revoke failed, a
+`JanusRevokeError` is thrown.
+
+### Background auto-renew
+
+**Opt-in**: no timer is scheduled unless you ask for one.
+
+```ts
+const renewer = lease.startAutoRenew({
+  onEvent: (e) => { /* value-free: never the password */ },
+});
+try {
+  // ... use the credentials ...
+} finally {
+  await renewer.stop(); // idempotent; resolves once the loop has exited
+}
+```
+
+- **Policy:** renew at **2/3 of the remaining TTL**, ± **10% jitter**, floored
+  at **1s**. Retryable failures are re-attempted at half that fraction, so
+  retries converge on the expiry rather than hot-looping. Tune with `fraction`,
+  `jitter`, `minIntervalMs`. The default timer is `unref`'d, so a renewer never
+  keeps a Node process alive on its own.
+- **Terminal outcomes** (one final `RenewEvent`, plus `renewer.reason` /
+  `renewer.error` after `await renewer.done`): `stopped`, `aborted`, `max_ttl`
+  (`JanusMaxTtlReachedError` — renewal is capped server-side; acquire a new
+  lease), `lease_gone` (404/409), `unauthorized` (401), `forbidden` (403),
+  `rejected` (other 4xx), `expired` (`JanusLeaseExpiredError`).
+- **Retryable** (non-terminal events, loop continues): network errors, 5xx
+  including a sealed server, 408, 429.
+
+See [`docs/guides/typescript-sdk.md`](../../docs/guides/typescript-sdk.md) for
+the full contract.
 
 ## Development
 

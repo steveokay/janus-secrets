@@ -63,6 +63,9 @@ print("loaded", len(secrets), "secrets")
 | `refresh(config_id=None)` | Evict a config's cache (or `refresh()` / `refresh(None)` to clear all). |
 | `issue_dynamic(role_id) -> Lease` | Issue a dynamic DB credential lease; the password is returned once. |
 | `Lease.renew()` / `Lease.revoke()` | Extend or immediately drop a dynamic lease. |
+| `dynamic_lease(role_id, ...)` | Context manager: issue + auto-renew + guaranteed revoke around the block. |
+| `Lease.start_auto_renew(...)` | Opt-in background renewal; returns a `LeaseRenewer` you must `stop()`. |
+| `Lease.expiry()` / `Lease.max_expiry()` | Lock-protected `datetime` reads of the expiry while a renewer runs. |
 
 This mirrors the Go SDK's `NewClient`/`WithToken`/`WithCacheTTL`,
 `GetSecrets`/`GetSecret`/`Refresh`, and `IssueDynamic`/`Lease.Renew`/`Revoke`.
@@ -144,6 +147,57 @@ finally:
 # ... or, extend before expiry (capped at the role's max TTL):
 lease.renew()
 ```
+
+### `dynamic_lease` (recommended)
+
+A context manager that issues a lease, keeps it renewed on a background thread
+for the duration of the block, and revokes it on every exit path — success,
+exception, or early `return`:
+
+```python
+with client.dynamic_lease(role_id) as lease:
+    conn = psycopg.connect(user=lease.username, password=lease.password)
+    ...
+```
+
+Pass `auto_renew=False` to skip renewal. There is no `async with` variant: the
+transport is the blocking stdlib `urllib`.
+
+If the final revoke fails, the block's exception propagates with the
+`RevokeFailed` attached as `janus_revoke_error` (and reported to `on_event`) —
+your exception is never replaced. If only the revoke failed, `RevokeFailed` is
+raised.
+
+### Background auto-renew
+
+**Opt-in**: no thread starts unless you ask for one.
+
+```python
+renewer = lease.start_auto_renew(on_event=handler)  # events never carry the password
+try:
+    ...  # use the credentials
+finally:
+    renewer.stop()   # idempotent; joins the (daemon) thread
+```
+
+- **Policy:** renew at **2/3 of the remaining TTL**, ± **10% jitter**, floored
+  at **1s**. Retryable failures are re-attempted at half that fraction, so
+  retries converge on the expiry rather than hot-looping. Tune with `fraction`,
+  `jitter`, `min_interval`. A renew already in flight cannot be cancelled, so
+  `stop(timeout=...)` bounds the wait; the thread is a daemon.
+- **Terminal outcomes** (one final `RenewEvent`, plus `renewer.reason` /
+  `renewer.error` after `renewer.wait()`): `stopped`, `max_ttl`
+  (`MaxTTLReached` — renewal is capped server-side; acquire a new lease),
+  `lease_gone` (404/409), `unauthorized` (401), `forbidden` (403), `rejected`
+  (other 4xx), `expired` (`LeaseExpired`).
+- **Retryable** (non-terminal events, loop continues): network errors, 5xx
+  including a sealed server, 408, 429.
+- **Thread safety:** while a renewer runs, read the expiry with
+  `lease.expiry()` / `lease.max_expiry()` (aware `datetime`s, lock-protected)
+  rather than the raw `expires_at` string.
+
+See [`docs/guides/python-sdk.md`](../../docs/guides/python-sdk.md) for the full
+contract.
 
 ## Development
 

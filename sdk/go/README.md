@@ -82,6 +82,9 @@ A runnable example lives in [`example_test.go`](example_test.go)
 | `Refresh(configID)` | Evict a config's cache (or `Refresh("")` to clear all). |
 | `IssueDynamic(ctx, roleID)` | Issue a dynamic DB credential `*Lease`; the password is returned once. |
 | `Lease.Renew(ctx)` / `Lease.Revoke(ctx)` | Extend or immediately drop a dynamic lease. |
+| `RunWithDynamic(ctx, roleID, fn)` | Issue + auto-renew + guaranteed revoke around `fn` (also `RunWithDynamicOptions`). |
+| `Lease.StartAutoRenew(ctx, opts)` | Opt-in background renewal; returns a `*Renewer` you must `Stop()`. |
+| `Lease.Expiry()` / `Lease.MaxExpiry()` | Race-free reads of the lease's expiry while a renewer is running. |
 
 All methods take a `context.Context` and honour the underlying `http.Client`
 timeouts (default 30s; override with `WithHTTPClient`).
@@ -146,6 +149,59 @@ defer lease.Revoke(context.Background())
 // ... later, extend before expiry (capped at the role's max TTL):
 _ = lease.Renew(ctx)
 ```
+
+### `RunWithDynamic` (recommended)
+
+Issues a lease, keeps it renewed in the background for the duration of `fn`,
+and revokes it on every exit path — success, error return, or panic:
+
+```go
+err := client.RunWithDynamic(ctx, roleID, func(ctx context.Context, lease *janus.Lease) error {
+	db, err := sql.Open("pgx", dsn(lease.Username, lease.Password))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return serve(ctx, db)
+})
+```
+
+The `ctx` passed to `fn` is cancelled when auto-renew terminates (max TTL, lease
+gone, token rejected), so work can wind down before the credentials die. Use
+`RunWithDynamicOptions` to tune the policy or observe events.
+
+If the final revoke fails, the result is `errors.Join(fnErr, *RevokeError)` —
+your error is never masked.
+
+### Background auto-renew
+
+**Opt-in**: no goroutine starts unless you ask for one.
+
+```go
+renewer, err := lease.StartAutoRenew(ctx, &janus.AutoRenewOptions{
+	OnEvent: func(e janus.RenewEvent) { /* value-free: never the password */ },
+})
+if err != nil {
+	return err
+}
+defer renewer.Stop() // idempotent; blocks until the goroutine exits
+```
+
+- **Policy:** renew at **2/3 of the remaining TTL**, ± **10% jitter**, floored
+  at **1s**. Retryable failures are re-attempted at half that fraction, so
+  retries converge on the expiry rather than hot-looping. Tune with `Fraction`,
+  `Jitter`, `MinInterval`.
+- **Terminal outcomes** (one final `RenewEvent`, plus `renewer.Err()` /
+  `renewer.Reason()` after `<-renewer.Done()`): `stopped`, `context_done`,
+  `max_ttl` (`ErrMaxTTLReached` — renewal is capped server-side; acquire a new
+  lease), `lease_gone` (404/409), `unauthorized` (401), `forbidden` (403),
+  `rejected` (other 4xx), `expired` (`ErrLeaseExpired`).
+- **Retryable** (non-terminal events, loop continues): network errors, 5xx
+  including 503 `sealed`, 408, 429.
+- **Concurrency:** while a renewer runs, read the expiry with `lease.Expiry()` /
+  `lease.MaxExpiry()`, not the `ExpiresAt` field the renewer writes.
+
+See [`docs/guides/go-sdk.md`](../../docs/guides/go-sdk.md) for the full contract.
 
 ## License
 
