@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **The web UI works on a phone and a tablet.** The SPA previously had no shell
+  breakpoint at all: the 236px nav took most of a phone screen and the rest was
+  *clipped rather than scrolled*, so the page heading, the top bar and every
+  ledger column were cut off with no way to reach them. Below 1024px the nav is
+  now an off-canvas drawer (scrim, `Esc`, closes on navigation, and out of the
+  tab order while shut); 1024 keeps the sidebar for tablet landscape. Wide
+  ledgers scroll horizontally within their sheet rather than being cut off,
+  page headers wrap instead of squeezing the title to one word per line, and the
+  Audit result filter no longer pushes its `denied` segment off-screen where it
+  could not be reached at all. Desktop layout is unchanged — though it also
+  loses a stray horizontal scrollbar the dashboard ornament had been causing at
+  every width.
 - **Kubernetes service-account federation + multi-issuer trust.** The federation
   trust anchor is now a *set* of issuers (`/v1/sys/oidc/federation/issuers`), so a
   CI provider and a Kubernetes cluster can be trusted at the same time; every
@@ -117,6 +129,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   owner-only "create checkpoint" affordance is surfaced in the audit viewer.
 
 ### Fixed
+- **Destroying a config or environment from the Trash always failed.** Both
+  delete handlers resolved the authorization scope through a live-only read, but
+  everything reachable from the Trash is by definition already soft-deleted — so
+  the lookup returned `404` before the permission check ever ran, and the UI
+  reported "Action failed" even for an owner. The restore handlers had always
+  done this correctly; only the delete side was missed. Projects were unaffected,
+  which is why it presented as config-specific. Also fixes the parent chain:
+  soft-delete does not cascade, so a config whose *environment* was separately
+  deleted was listed in the Trash yet could be neither restored nor destroyed.
+  Authorization is unchanged in strength — only finding the row changed.
+- **A failed passkey enrolment silently signed the user out.** The 401
+  session-expiry handling keyed off the HTTP status alone, but enrolling a
+  passkey is done by an already-authenticated user and a ceremony that fails to
+  verify (wrong RP origin, a cancelled prompt, a cloned authenticator) answers
+  `401`. The client now reads the error *code*, which the server already
+  distinguishes, and treats only `session_expired` / `unauthenticated` as a lost
+  session.
+- **An expired session reported the wrong thing entirely.** Every request
+  returned `401` while the shell still looked signed in, so the failure surfaced
+  as a feature-level message ("Could not create the project.") that pointed
+  nowhere near the cause. The UI now returns to the login gate — except on a
+  wrong password, a failed passkey assertion, or the probe used to *test*
+  authentication.
+- **The secret editor's value field collapsed to a sliver.** The row's action
+  cluster is `nowrap` and has gained a button per feature, so under the table's
+  auto layout the value column absorbed the entire shortfall.
 - **Unmatched `/v1/` paths returned `200` + the SPA's `index.html`.** The SPA
   fallback answered every unmatched route, so a typo'd or removed endpoint
   replied with HTML — breaking the documented error envelope and making SDKs

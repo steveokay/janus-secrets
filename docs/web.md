@@ -182,6 +182,55 @@ else is explicit:
 
 `svelte-check` runs clean with **0 errors and 0 a11y warnings**.
 
+## Responsive layout
+
+Two breakpoints carry the shell; screens add their own as needed.
+
+- **1024px — the nav drawer.** Above it the ledger *cover* is a static 236px
+  sidebar. Below it the cover becomes an **off-canvas drawer** opened by a
+  hamburger in the folio bar: a scrim closes it, so does `Esc`, and so does
+  navigating. It carries `aria-expanded` / `aria-controls`, and while closed it
+  is `visibility: hidden` so it stays out of the tab order rather than becoming
+  an invisible keyboard trap. 1024 is chosen so tablet **landscape** keeps the
+  sidebar — a real working width — while portrait and phone get the drawer.
+  `trapFocus` takes an optional `enabled` argument for exactly this case: the
+  cover is *always mounted* and only *sometimes* modal, so trapping
+  unconditionally would hijack desktop keyboard navigation.
+- **720px — page headers.** `.page-head` (title left, actions right) is declared
+  identically in 14 screens; a single global rule in `base.css` lets it wrap.
+  Without it the action cluster keeps its intrinsic width and the *title*
+  absorbs the entire shortfall, breaking a heading one word per line.
+
+### `min-width: 0` is the load-bearing rule
+
+Flex and grid items default to `min-width: auto` — *never narrower than my
+content*. The shell's `.desk` is `overflow: hidden`, so a wide ledger widened
+the grid track and the overflow silently **clipped** it: nothing scrolled,
+nothing overflowed the document, the UI was simply cut off. Ten screens already
+declared `.table-wrap { overflow-x: auto }` whose scroll had never once
+engaged, because the track never had to shrink.
+
+So `.desk`, `.page`, `.table-wrap` and multi-column screen grids all set
+`min-width: 0`. **Wrap a wide table in `.table-wrap`** and it scrolls
+horizontally within its sheet. A ledger genuinely cannot be squeezed onto a
+phone — it has many `nowrap` columns, and stacking rows into cards throws away
+the column alignment that makes a ledger legible — so it scrolls instead.
+
+### Checking a layout change
+
+```sh
+cd web && node tests/e2e/shots.mjs ./shots     # against a running stack
+```
+
+Screenshots every screen at phone / tablet / laptop in **both themes** and
+reports horizontal overflow. It measures the `.page` **content area**, not just
+the document — because `.desk` clips, `document.scrollWidth` reports a clean
+page while the UI is unusable, which is exactly how the missing breakpoints went
+unnoticed. It is read-only (it logs in and navigates, never writes), reads its
+credentials from a git-excluded file at runtime, and is not matched by
+Playwright's `testMatch`, so CI does not run it. **Look at the PNGs** — a clean
+overflow number alone is not evidence the page reads well.
+
 ## Development
 
 ```sh

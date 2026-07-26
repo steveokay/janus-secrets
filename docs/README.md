@@ -188,7 +188,17 @@ Running Janus and connecting it to the outside world:
 - [OpenAPI spec](openapi.yaml) — machine-readable REST API definition for
   all `/v1/` routes; feed it to your favorite OpenAPI viewer/codegen tool.
 
-## Design specs & plans
+## Design specs & plans — a historical archive
+
+> **These are point-in-time records, not current documentation.** Each file is
+> dated and describes a milestone as it was designed and built; unlike the rest
+> of `docs/`, they are **deliberately not updated** when later work changes the
+> system. Several are superseded outright — the `nocturne-*` and earlier UI
+> documents describe a **React** SPA that no longer exists (it was replaced by
+> the Svelte "Atrium" rewrite; see [web.md](web.md) for what actually ships).
+>
+> Read them for *why* a decision was made. For how the system behaves **now**,
+> use the guides and references above.
 
 - [`superpowers/specs/`](superpowers/specs/) — per-milestone design documents.
 - [`superpowers/plans/`](superpowers/plans/) — per-milestone implementation
@@ -196,8 +206,10 @@ Running Janus and connecting it to the outside world:
 
 ## Status
 
-All three build phases (Core, Transit + UI, Rotation + dynamic) have shipped.
-See [`../status.md`](../status.md) for the open-items tracker (backend/ops
-gaps + the forward product roadmap).
+All three build phases (Core, Transit + UI, Rotation + dynamic) have shipped,
+and as of **2026-07-26** so has every item on the post-1.0 roadmap. What remains
+open is three package-registry publishes, each blocked on a maintainer
+credential rather than on code.
 
-Forward-looking feature proposals also live in [roadmap.md](roadmap.md).
+See [`../status.md`](../status.md) for the tracker and
+[roadmap.md](roadmap.md), which mirrors it one-to-one.

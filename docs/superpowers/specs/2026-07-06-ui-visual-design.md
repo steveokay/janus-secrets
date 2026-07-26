@@ -8,7 +8,7 @@
 - **Status:** APPROVED 2026-07-06 (mockup reviewed and accepted by Steve).
 - **Canonical mockup:** [`docs/design/ui-mockup.html`](../../design/ui-mockup.html) — open it in a browser. When any question of "what should this look like?" arises, the mockup wins over prose.
 - **Scope:** visual/theme layer for the React SPA (`web/`). It does not change routes, data flow, API usage, or the security invariants (masked-by-default, audited reveals, ephemeral plaintext).
-- **Tracker:** [`fe-improvements.md`](../../../fe-improvements.md) holds the punch-list; this spec is the visual authority those slices implement.
+- **Tracker:** `fe-improvements.md` holds the punch-list; this spec is the visual authority those slices implement.
 
 ## Direction (one paragraph)
 

@@ -41,8 +41,14 @@ for the full environment-variable reference.
 Run the full suite locally before opening a PR:
 
 ```sh
-make test           # go test -race ./...  +  web tests (npm run test -- --run)
+make test           # root module + the nested modules + web tests
 ```
+
+`make test` covers **every** module, not just the root one: `go test ./...` does
+not descend into a directory that has its own `go.mod`, so `sdk/go` and
+`terraform-provider-janus` need their own runs (as do the TypeScript and Python
+SDKs). `make test-modules` runs just those four if you only touched an SDK or
+the provider.
 
 Your change must pass **every** gate in
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). All of these are
@@ -52,6 +58,13 @@ treated as build failures — a red gate blocks merge:
 - **Tests** — `go test -race ./...` is green. Integration tests need Docker
   (they skip cleanly when it's absent, but CI has it). Web: `npm run check`
   (svelte-check + tsc) and `npm run build` succeed.
+- **The nested modules** — `go-module (sdk/go)` and
+  `go-module (terraform-provider-janus)` build, vet and test each own-`go.mod`
+  module separately, because the root `./...` never reaches them. `sdk-ts`
+  typechecks and tests the TypeScript SDK; `sdk-python` runs the Python SDK on
+  **both 3.9 and 3.13** — 3.9 is the floor `requires-python` advertises, and
+  testing only a modern interpreter would let a 3.10-only construct through and
+  quietly break the compatibility the package promises.
 - **`internal/crypto` 100% coverage** — the crypto package requires **100.0%**
   statement coverage, including nonce-reuse and tamper (modified-ciphertext)
   cases. CI fails the build on anything less.
