@@ -52,6 +52,73 @@ jobs:
       - name: build bundle
         run: npm run build
 
+  # `go test ./...` in the `test` job above covers the ROOT module only — the
+  # `./...` pattern does not descend into nested modules. sdk/go and
+  # terraform-provider-janus each have their own go.mod, so until this job
+  # existed they were never built, vetted or tested by CI, and Dependabot
+  # (which watches all three gomod directories) could land a bump in either
+  # with nothing verifying it.
+  go-modules:
+    name: go-module (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [sdk/go, terraform-provider-janus]
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  sdk-ts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/ts
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: sdk/ts/package-lock.json
+      - run: npm ci
+      - name: typecheck (tsc --noEmit)
+        run: npm run typecheck
+      - name: unit tests
+        run: npm test
+
+  sdk-python:
+    name: sdk-python (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the supported range: '3.9' is the FLOOR that
+        # `requires-python = ">=3.9"` advertises — testing only on a modern
+        # interpreter would let a 3.10-only construct through and quietly break
+        # the compatibility the package promises — and '3.13' catches removals
+        # and deprecations coming the other way. The SDK is stdlib-only, so
+        # there is nothing to install and both runs are cheap.
+        python-version: ['3.9', '3.13']
+    defaults:
+      run:
+        working-directory: sdk/python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m unittest discover -s tests -t . -v
+
   goreleaser-check:
     runs-on: ubuntu-latest
     steps:
