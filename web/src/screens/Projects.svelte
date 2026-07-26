@@ -114,6 +114,15 @@
   .head-actions { display: flex; gap: var(--s3); align-items: center; }
   .search { width: 240px; }
 
+  @media (max-width: 720px) {
+    /* Heading + (search | New project) cannot share a row on a phone: the
+       search alone is 240px fixed. Let the head wrap and the search take the
+       leftover width instead of forcing the row past the viewport. */
+    .page-head { flex-wrap: wrap; align-items: flex-start; gap: var(--s3); }
+    .head-actions { width: 100%; flex-wrap: wrap; }
+    .search { width: auto; flex: 1 1 12rem; min-width: 0; }
+  }
+
   .create {
     display: flex;
     align-items: flex-end;

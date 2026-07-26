@@ -185,6 +185,19 @@ janus run -- your-app       # secrets injected as env vars`
 
   .ob-status { align-self: center; flex: none; }
 
+  @media (max-width: 640px) {
+    /* The action is `flex: none`, so on a narrow row the description absorbed
+       every pixel of the shortfall and wrapped to two words per line. Let the
+       row wrap instead: the action drops onto its own line, indented to line up
+       under the text rather than under the step marker. */
+    .ob-steps > li { flex-wrap: wrap; }
+    .ob-body { flex: 1 1 11rem; }
+    .ob-status {
+      align-self: flex-start;
+      margin-left: calc(22px + var(--s3));
+    }
+  }
+
   .ob-run { gap: var(--s2); }
   .ob-cmd { position: relative; margin-top: var(--s1); }
   .ob-cmd pre {

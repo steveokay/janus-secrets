@@ -9,8 +9,30 @@
   import JanusMark from '../components/JanusMark.svelte'
   import CommandPalette from '../components/CommandPalette.svelte'
   import ShortcutsHelp from '../components/ShortcutsHelp.svelte'
+  import { trapFocus } from '../lib/a11y'
 
   let { children }: { children: Snippet } = $props()
+
+  /* ── narrow-viewport nav drawer ───────────────────────────────
+     Below --bp-shell the cover can't sit beside the desk (236px of a 390px
+     phone is most of the screen), so it becomes an off-canvas drawer. Desktop
+     is untouched: the drawer state is simply ignored above the breakpoint,
+     where the cover is statically positioned by the same CSS. */
+  let navOpen = $state(false)
+
+  // Close on navigation — otherwise tapping a tab leaves the drawer covering
+  // the page it just opened.
+  $effect(() => {
+    router.path
+    navOpen = false
+  })
+
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && navOpen) {
+      e.stopPropagation()
+      navOpen = false
+    }
+  }
 
   const sections: Array<{ title: string; items: Array<{ code: string; label: string; href: string }> }> = [
     {
@@ -79,11 +101,23 @@
   }
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 <CommandPalette />
 <ShortcutsHelp />
 
-<div class="shell">
-  <aside class="cover">
+<div class="shell" class:nav-open={navOpen}>
+  <!-- Scrim sits under the drawer and above the desk. Only rendered while open
+       so it can never swallow clicks on desktop. -->
+  {#if navOpen}
+    <button
+      class="nav-scrim"
+      aria-label="Close navigation"
+      onclick={() => (navOpen = false)}
+    ></button>
+  {/if}
+
+  <aside class="cover" class:open={navOpen} use:trapFocus={navOpen}>
     <a class="wordmark" href="/">
       <JanusMark size={40} stroke="var(--cover-fg)" />
       <div>
@@ -92,7 +126,7 @@
       </div>
     </a>
 
-    <nav>
+    <nav id="shell-nav">
       {#each sections as sec}
         <div class="nav-section">
           <span class="nav-title">{sec.title}</span>
@@ -122,14 +156,31 @@
 
   <div class="desk">
     <header class="folio-bar">
-      <span class="folio">Janus · self-hosted · single-tenant · <kbd class="key">ctrl</kbd><kbd class="key">K</kbd> to search · <kbd class="key">?</kbd> shortcuts</span>
+      <button
+        class="nav-toggle"
+        aria-label={navOpen ? 'Close navigation' : 'Open navigation'}
+        aria-expanded={navOpen}
+        aria-controls="shell-nav"
+        onclick={() => (navOpen = !navOpen)}
+      >
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          {#if navOpen}
+            <path d="M4 4 L14 14 M14 4 L4 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          {:else}
+            <path d="M2.5 4.5h13M2.5 9h13M2.5 13.5h13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          {/if}
+        </svg>
+      </button>
+      <!-- Keyboard hints are desktop-only guidance; hidden on touch widths
+           rather than allowed to wrap into a six-line block. -->
+      <span class="folio folio-hint">Janus · self-hosted · single-tenant · <kbd class="key">ctrl</kbd><kbd class="key">K</kbd> to search · <kbd class="key">?</kbd> shortcuts</span>
       <div class="folio-right">
         {#if registry.verify?.valid}
-          <span class="chain-ok" title="Audit hash chain verified">
+          <span class="chain-ok" title="Audit hash chain verified" aria-label="Audit hash chain verified">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
               <path d="M2.5 6.5 L5 9 L9.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
-            Chain verified
+            <span class="chain-ok-label">Chain verified</span>
           </span>
           <span class="folio-sep" aria-hidden="true">·</span>
         {/if}
@@ -156,7 +207,16 @@
     display: grid;
     grid-template-columns: 236px 1fr;
     height: 100vh;
+    /* dvh tracks the collapsing mobile URL bar; vh above is the fallback for
+       engines without it. Without this the footer sits under the browser
+       chrome and the page grows a phantom scroll. */
+    height: 100dvh;
   }
+
+  /* Drawer affordances: inert (display:none) above the breakpoint so they can
+     never intercept a desktop click. */
+  .nav-toggle { display: none; }
+  .nav-scrim { display: none; }
 
   /* ── ledger cover (sidebar) ─────────────────── */
   .cover {
@@ -289,6 +349,13 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* THE fix for clipped content. As a grid item the desk defaults to
+       `min-width: auto` — "never narrower than my content" — so a wide ledger
+       widened the track and `overflow: hidden` above then silently CLIPPED it.
+       Nothing scrolled and nothing overflowed the document; the UI was just
+       cut off. Allowing the track to shrink is what lets the existing
+       `.table-wrap { overflow-x: auto }` inside actually engage. */
+    min-width: 0;
   }
 
   .folio-bar {
@@ -365,5 +432,102 @@
     flex: 1;
     overflow-y: auto;
     padding: var(--s6) var(--s6) var(--s8);
+    /* The desk is a grid track, so its children may demand their intrinsic
+       width and blow the track out. This lets the column actually shrink, which
+       is what makes the in-page scroll containers (.scroll-x) take effect
+       instead of the whole desk widening. */
+    min-width: 0;
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     Narrow viewports — the cover becomes an off-canvas drawer.
+
+     1024px keeps the sidebar for tablet LANDSCAPE (a real working width) and
+     drops it for portrait/phone, where 236px of static chrome is most of the
+     screen. Everything above this line is untouched by the rules below.
+     ───────────────────────────────────────────────────────────── */
+  @media (max-width: 1024px) {
+    .shell {
+      /* One column: the desk gets the whole viewport and the cover is lifted
+         out of flow into the drawer below. */
+      grid-template-columns: 1fr;
+    }
+
+    .nav-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      /* 40px: comfortably over the 24px minimum touch target, and it is the
+         first control on the page so it must be easy to hit. */
+      width: 40px;
+      height: 40px;
+      margin-right: var(--s2);
+      flex: none;
+      background: transparent;
+      border: 1px solid var(--rule-strong);
+      border-radius: var(--radius);
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .nav-toggle:hover { background: var(--paper-low); }
+
+    .cover {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: min(280px, 82vw);
+      z-index: 61;
+      padding-left: var(--s4);
+      transform: translateX(-100%);
+      transition: transform var(--t-med) var(--ease-out);
+      box-shadow: none;
+      /* Keep it out of the tab order (and off screen readers) while closed —
+         a visually hidden drawer that is still focusable is a keyboard trap of
+         its own. */
+      visibility: hidden;
+    }
+    .cover.open {
+      transform: none;
+      visibility: visible;
+      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+    }
+
+    .nav-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      border: 0;
+      padding: 0;
+      background: rgba(0, 0, 0, 0.45);
+      cursor: pointer;
+    }
+
+    /* Give the content back the width the sidebar was taking. */
+    .page { padding: var(--s5) var(--s4) var(--s7); }
+    .folio-bar { padding: 0.5rem var(--s4); }
+  }
+
+  /* The keyboard hints are desktop guidance and the single longest string in
+     the bar; drop them before anything useful has to wrap. */
+  @media (max-width: 1180px) {
+    .folio-hint { display: none; }
+  }
+
+  @media (max-width: 560px) {
+    /* Below this the name pushes the bar over; the initials disc still
+       identifies the signed-in user and stays a full tap target. */
+    .user-name { display: none; }
+    /* Tick alone; the accessible name on .chain-ok still carries the meaning
+       for assistive tech, and the tooltip for a curious pointer. */
+    .chain-ok-label { display: none; }
+    .page { padding: var(--s4) var(--s3) var(--s7); }
+  }
+
+  /* The drawer slides; honour a reduced-motion preference by snapping it. The
+     global rule in base.css already neutralises durations, but transform
+     transitions on a fixed panel are the most motion-sensitive thing here, so
+     be explicit. */
+  @media (prefers-reduced-motion: reduce) {
+    .cover { transition: none; }
   }
 </style>

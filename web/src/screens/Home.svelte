@@ -206,6 +206,14 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: var(--s5);
+    /* The rosette below is positioned `right: -40px` to bleed off the edge like
+       a printed ornament, and that bleed put a horizontal scrollbar on the
+       Overview at EVERY width — desktop included. `clip` (not `hidden`) is the
+       tool here: it stops the horizontal escape while leaving overflow-y
+       `visible`, so the ornament's upward bleed (`top: -34px`) still shows.
+       Clipping at .page instead would also work, but would hide any FUTURE wide
+       element from view with no scrollbar to reveal it. */
+    overflow-x: clip;
   }
   .masthead h1 { margin: var(--s2) 0 var(--s3); font-size: var(--text-3xl); }
   .masthead h1 em { font-style: italic; font-weight: 480; }
@@ -252,6 +260,10 @@
     gap: var(--s6);
     align-items: start;
   }
+  /* Grid items default to `min-width: auto` — "never narrower than my content"
+     — so a long unbroken string (a config path, a token name) widened the
+     column past the viewport instead of wrapping or scrolling within it. */
+  .columns > * { min-width: 0; }
 
   .section-head {
     display: flex;
@@ -360,5 +372,21 @@
     .columns { grid-template-columns: 1fr; }
     .stat-strip { grid-template-columns: repeat(2, 1fr); row-gap: var(--s4); }
     .proj-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 640px) {
+    /* The masthead is a two-up (greeting | chain stamp); side by side there is
+       no room for either, so stack them. */
+    .masthead { flex-direction: column; gap: var(--s3); }
+    .masthead-stamp { padding: 0; align-self: flex-start; }
+    /* The rosette is decoration that deliberately bleeds outside its box
+       (top:-34px right:-40px). Once the masthead stacks, that bleed lands
+       off-viewport and is the last thing generating horizontal scroll on a
+       phone — and it is purely ornamental, so drop it rather than reflow it. */
+    .masthead-rosette { display: none; }
+    /* The display face is sized for a broadsheet; at 390px "Good evening,"
+       alone overruns the line. */
+    .masthead h1 { font-size: var(--text-2xl); }
+    .stat-strip { grid-template-columns: 1fr 1fr; }
   }
 </style>
