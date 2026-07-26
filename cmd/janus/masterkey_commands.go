@@ -109,12 +109,17 @@ func newMasterKeyCmd() *cobra.Command {
 			// Prefer shares supplied via --share; otherwise prompt on stdin for
 			// the required count, one line per share.
 			if len(shares) == 0 {
+				// ONE reader for the whole quorum. Building it per share worked on
+				// a TTY but silently broke a pipe or heredoc: bufio reads ahead, so
+				// the first read swallowed the remaining shares into a buffer that
+				// was then discarded, and share 2 hit EOF.
+				nextShare := newShareReader(cmd)
 				for i := 0; i < initOut.Required; i++ {
 					fmt.Fprintf(cmd.ErrOrStderr(), "Enter share %d of %d:\n", i+1, initOut.Required)
-					// readShare suppresses terminal echo on a TTY (and falls back
+					// The reader suppresses terminal echo on a TTY (and falls back
 					// to a plain line read when piped), so shares are not echoed
 					// or left in scrollback.
-					share, rerr := readShare(cmd)
+					share, rerr := nextShare()
 					if share != "" {
 						shares = append(shares, share)
 					}

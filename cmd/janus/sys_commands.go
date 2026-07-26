@@ -152,24 +152,42 @@ func newUnsealCmd() *cobra.Command {
 	return cmd
 }
 
-// readShare reads a share from the command's stdin: echo-off prompt on a TTY,
-// plain line read when piped.
-func readShare(cmd *cobra.Command) (string, error) {
-	if f, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		fmt.Fprint(cmd.ErrOrStderr(), "Share: ")
-		b, err := term.ReadPassword(int(f.Fd()))
-		fmt.Fprintln(cmd.ErrOrStderr())
-		if err != nil {
+// newShareReader returns a function that reads one share per call from the
+// command's stdin: echo-off prompt on a TTY, plain line read when piped.
+//
+// A caller reading MORE THAN ONE share must reuse a single reader, which is why
+// this exists. bufio reads ahead: a reader constructed per share consumes the
+// first line AND buffers everything after it, then discards the lot when it goes
+// out of scope, so the next read sees EOF. `janus unseal` takes exactly one
+// share per invocation and never hit this; `janus master-key rekey` loops for
+// the quorum, and silently could not be driven from a pipe or a heredoc.
+func newShareReader(cmd *cobra.Command) func() (string, error) {
+	var piped *bufio.Reader
+	return func() (string, error) {
+		if f, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+			fmt.Fprint(cmd.ErrOrStderr(), "Share: ")
+			b, err := term.ReadPassword(int(f.Fd()))
+			fmt.Fprintln(cmd.ErrOrStderr())
+			if err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(string(b)), nil
+		}
+		if piped == nil {
+			piped = bufio.NewReader(cmd.InOrStdin())
+		}
+		line, err := piped.ReadString('\n')
+		if err != nil && line == "" {
 			return "", err
 		}
-		return strings.TrimSpace(string(b)), nil
+		return strings.TrimSpace(line), nil
 	}
-	r := bufio.NewReader(cmd.InOrStdin())
-	line, err := r.ReadString('\n')
-	if err != nil && line == "" {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
+}
+
+// readShare reads a single share. Callers that read several must build one
+// reader with newShareReader and call it repeatedly — see the note there.
+func readShare(cmd *cobra.Command) (string, error) {
+	return newShareReader(cmd)()
 }
 
 func newSealStatusCmd() *cobra.Command {

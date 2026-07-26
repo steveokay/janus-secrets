@@ -111,10 +111,11 @@ Log in with the bootstrap admin credential that `janus init` printed. The
 `make dev-up` path prints it too — `scripts/dev-unseal.sh` echoes the
 initial-admin block from the `init` it runs for you.
 
-Either way it is shown **once**: if you lose it before logging in, the recovery
-is to start over from an empty database (`docker compose down -v`), or to reset
-the password out of band — see the seal lifecycle in
-[operations.md](../operations.md).
+Either way it is shown **once**. Losing it is *not* fatal and does not mean
+starting over: from a shell on the server host, `janus admin reset-password
+--email <addr>` mints a new one after you present the instance's unseal shares
+(or its cloud KMS key). See
+[disaster-recovery.md](./disaster-recovery.md).
 
 `janus login` prompts for the password and stores a session cookie in
 `auth.json` (mode `0600`):
