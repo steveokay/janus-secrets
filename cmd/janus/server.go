@@ -39,17 +39,56 @@ func newServerCmd() *cobra.Command {
 }
 
 func runServer(ctx context.Context) error {
+	logger := buildLogger()
+	bc, err := buildBootConfig(logger)
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv, st, err := api.Boot(ctx, bc)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	logger.Info("janus server listening",
+		"addr", firstNonEmpty(os.Getenv("JANUS_LISTEN_ADDR"), ":8200"),
+		"seal_type", firstNonEmpty(os.Getenv("JANUS_SEAL_TYPE"), "(from storage)"),
+		"serving", tlsMode(bc.TLS))
+	return srv.ListenAndServe(ctx)
+}
+
+// errNoDatabaseURL is the sentinel returned by buildBootConfig when the one
+// strictly-required server variable is missing. `janus doctor` matches on it so
+// it can report the missing DSN once (as its own check) instead of twice.
+var errNoDatabaseURL = errors.New("JANUS_DATABASE_URL is not set")
+
+// buildBootConfig translates the whole JANUS_* server environment into an
+// api.BootConfig, applying the production defaults and failing on any value the
+// server refuses to start with.
+//
+// It is deliberately separate from runServer so that `janus doctor` can parse
+// the environment EXACTLY the way the server does — a preflight that
+// re-implemented these rules would drift from them, which is the failure mode
+// the command exists to prevent. It performs no I/O beyond reading the
+// environment, so it is safe to call from a diagnostic.
+//
+// logger is used only for the advisory knobs that warn-and-default rather than
+// fail; pass a discarding logger to parse quietly.
+func buildBootConfig(logger *slog.Logger) (api.BootConfig, error) {
 	dsn := os.Getenv("JANUS_DATABASE_URL")
 	if dsn == "" {
-		return errors.New("JANUS_DATABASE_URL is not set")
+		return api.BootConfig{}, errNoDatabaseURL
 	}
-	logger := buildLogger()
 
 	idle := 30 * time.Minute // production default; 0 disables
 	if v := os.Getenv("JANUS_SESSION_IDLE_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_SESSION_IDLE_TIMEOUT %q: use a Go duration like 30m, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_SESSION_IDLE_TIMEOUT %q: use a Go duration like 30m, or 0 to disable", v)
 		}
 		idle = d
 	}
@@ -58,7 +97,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_ROTATION_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_ROTATION_TICK %q: use a Go duration like 60s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_ROTATION_TICK %q: use a Go duration like 60s, or 0 to disable", v)
 		}
 		rotationTick = d
 	}
@@ -67,7 +106,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_SYNC_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_SYNC_TICK %q: use a Go duration like 60s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_SYNC_TICK %q: use a Go duration like 60s, or 0 to disable", v)
 		}
 		syncTick = d
 	}
@@ -79,7 +118,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_SYNC_VERIFY_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_SYNC_VERIFY_TICK %q: use a Go duration like 15m, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_SYNC_VERIFY_TICK %q: use a Go duration like 15m, or 0 to disable", v)
 		}
 		syncVerifyTick = d
 	}
@@ -88,7 +127,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_DYNAMIC_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_DYNAMIC_TICK %q: use a Go duration like 60s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_DYNAMIC_TICK %q: use a Go duration like 60s, or 0 to disable", v)
 		}
 		dynamicTick = d
 	}
@@ -97,7 +136,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_NOTIFY_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_NOTIFY_TICK %q: use a Go duration like 30s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_NOTIFY_TICK %q: use a Go duration like 30s, or 0 to disable", v)
 		}
 		notifyTick = d
 	}
@@ -106,20 +145,20 @@ func runServer(ctx context.Context) error {
 	// unset bucket disables the engine). See docs/guides/backup-and-restore.md.
 	backupSchedule, err := parseBackupSchedule(version.Version)
 	if err != nil {
-		return err
+		return api.BootConfig{}, err
 	}
 	// Audit-log SIEM shipper. Destination comes from JANUS_AUDIT_SHIP_* (parsed +
 	// validated here so a typo is a fatal startup error, not a silent drop). The
 	// tick defaults on (production) but a zero tick or mode=off disables it.
 	auditShipCfg, err := auditship.ConfigFromEnv()
 	if err != nil {
-		return err
+		return api.BootConfig{}, err
 	}
 	auditShipTick := 30 * time.Second // production default; 0 disables
 	if v := os.Getenv("JANUS_AUDIT_SHIP_TICK"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_AUDIT_SHIP_TICK %q: use a Go duration like 30s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_AUDIT_SHIP_TICK %q: use a Go duration like 30s, or 0 to disable", v)
 		}
 		auditShipTick = d
 	}
@@ -134,7 +173,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_AUDIT_RETAIN_MIN_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			return fmt.Errorf("invalid JANUS_AUDIT_RETAIN_MIN_DAYS %q: use a non-negative integer number of days, or leave unset to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_AUDIT_RETAIN_MIN_DAYS %q: use a non-negative integer number of days, or leave unset to disable", v)
 		}
 		auditRetainMinDays = n
 	}
@@ -142,7 +181,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_AUDIT_RETAIN_MIN_EVENTS"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 0 {
-			return fmt.Errorf("invalid JANUS_AUDIT_RETAIN_MIN_EVENTS %q: use a non-negative integer event count, or leave unset to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_AUDIT_RETAIN_MIN_EVENTS %q: use a non-negative integer event count, or leave unset to disable", v)
 		}
 		auditRetainMinEvents = n
 	}
@@ -151,7 +190,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_HTTP_READ_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_HTTP_READ_TIMEOUT %q: use a Go duration like 30s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_HTTP_READ_TIMEOUT %q: use a Go duration like 30s, or 0 to disable", v)
 		}
 		httpRead = d
 	}
@@ -159,7 +198,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_HTTP_IDLE_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_HTTP_IDLE_TIMEOUT %q: use a Go duration like 2m, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_HTTP_IDLE_TIMEOUT %q: use a Go duration like 2m, or 0 to disable", v)
 		}
 		httpIdle = d
 	}
@@ -167,7 +206,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_HTTP_WRITE_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			return fmt.Errorf("invalid JANUS_HTTP_WRITE_TIMEOUT %q: use a Go duration like 60s, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_HTTP_WRITE_TIMEOUT %q: use a Go duration like 60s, or 0 to disable", v)
 		}
 		httpWrite = d
 	}
@@ -175,7 +214,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_HTTP_MAX_BODY_BYTES"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 0 {
-			return fmt.Errorf("invalid JANUS_HTTP_MAX_BODY_BYTES %q: use a non-negative byte count, or 0 to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_HTTP_MAX_BODY_BYTES %q: use a non-negative byte count, or 0 to disable", v)
 		}
 		httpMaxBody = n
 	}
@@ -184,7 +223,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_SHUTDOWN_GRACE"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
-			return fmt.Errorf("invalid JANUS_SHUTDOWN_GRACE %q: use a positive Go duration like 10s", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_SHUTDOWN_GRACE %q: use a positive Go duration like 10s", v)
 		}
 		shutdownGrace = d
 	}
@@ -193,7 +232,7 @@ func runServer(ctx context.Context) error {
 	// default in place. Invalid values fail boot with a clear error.
 	pool, err := parsePoolConfig()
 	if err != nil {
-		return err
+		return api.BootConfig{}, err
 	}
 
 	// Progressive account-lockout policy. Absent/unparseable values fall back to
@@ -256,7 +295,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_SECRET_RETAIN_MIN_VERSIONS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			return fmt.Errorf("invalid JANUS_SECRET_RETAIN_MIN_VERSIONS %q: use a non-negative integer version count, or leave unset to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_SECRET_RETAIN_MIN_VERSIONS %q: use a non-negative integer version count, or leave unset to disable", v)
 		}
 		secretRetainMinVersions = n
 	}
@@ -264,7 +303,7 @@ func runServer(ctx context.Context) error {
 	if v := os.Getenv("JANUS_SECRET_RETAIN_MIN_DAYS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			return fmt.Errorf("invalid JANUS_SECRET_RETAIN_MIN_DAYS %q: use a non-negative integer number of days, or leave unset to disable", v)
+			return api.BootConfig{}, fmt.Errorf("invalid JANUS_SECRET_RETAIN_MIN_DAYS %q: use a non-negative integer number of days, or leave unset to disable", v)
 		}
 		secretRetainMinDays = n
 	}
@@ -307,7 +346,7 @@ func runServer(ctx context.Context) error {
 	// startup error.
 	tlsCfg, err := buildTLSConfig()
 	if err != nil {
-		return err
+		return api.BootConfig{}, err
 	}
 
 	bc := api.BootConfig{
@@ -328,41 +367,27 @@ func runServer(ctx context.Context) error {
 		AuditRetainMinDays:   auditRetainMinDays,   // 0 → no day-based floor
 		AuditRetainMinEvents: auditRetainMinEvents, // 0 → no count-based floor
 
-		Version:            version.Version,
-		HTTPReadTimeout:    httpRead,
-		HTTPWriteTimeout:   httpWrite,
-		HTTPIdleTimeout:    httpIdle,
-		HTTPMaxBodyBytes:   httpMaxBody,
-		Lockout:            lockout,
-		WebAuthn:           webauthnCfg,                      // zero value → passkeys disabled
-		MetricsToken:       os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
-		BreakGlassMaxTTL:   breakGlassMaxTTL,                 // 0 → default 1h
-		UnusedSecretDays:   unusedSecretDays,                 // 0 → default 90 days
+		Version:          version.Version,
+		HTTPReadTimeout:  httpRead,
+		HTTPWriteTimeout: httpWrite,
+		HTTPIdleTimeout:  httpIdle,
+		HTTPMaxBodyBytes: httpMaxBody,
+		Lockout:          lockout,
+		WebAuthn:         webauthnCfg,                      // zero value → passkeys disabled
+		MetricsToken:     os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
+		BreakGlassMaxTTL: breakGlassMaxTTL,                 // 0 → default 1h
+		UnusedSecretDays: unusedSecretDays,                 // 0 → default 90 days
 
 		SecretRetainMinVersions: secretRetainMinVersions, // 0 → no version-count floor
 		SecretRetainMinDays:     secretRetainMinDays,     // 0 → no age floor
 
-		TLS:                tlsCfg,
-		Pool:               pool,
-		HTTPShutdownGrace:  shutdownGrace,
+		TLS:               tlsCfg,
+		Pool:              pool,
+		HTTPShutdownGrace: shutdownGrace,
 
 		NewKMSClient: newKMSClient,
 	}
-
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	srv, st, err := api.Boot(ctx, bc)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-
-	logger.Info("janus server listening",
-		"addr", firstNonEmpty(os.Getenv("JANUS_LISTEN_ADDR"), ":8200"),
-		"seal_type", firstNonEmpty(os.Getenv("JANUS_SEAL_TYPE"), "(from storage)"),
-		"serving", tlsMode(tlsCfg))
-	return srv.ListenAndServe(ctx)
+	return bc, nil
 }
 
 func firstNonEmpty(a, b string) string {
@@ -620,7 +645,24 @@ func tlsMode(cfg api.TLSConfig) string {
 // default text). Invalid values warn (to stderr, via the default handler) and
 // fall back to the defaults — a bad knob never fails boot.
 func buildLogger() *slog.Logger {
-	level := slog.LevelInfo
+	level, format, problems := parseLogEnv()
+	for _, p := range problems {
+		slog.Default().Warn(p)
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if format == "json" {
+		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
+}
+
+// parseLogEnv resolves JANUS_LOG_LEVEL / JANUS_LOG_FORMAT into the effective
+// level and handler format, plus a human-readable problem per invalid value.
+// Neither knob can fail boot: an unrecognised value falls back to the default
+// and is reported. Split out of buildLogger so `janus doctor` can report the
+// same fallbacks without emitting a log line or duplicating the value sets.
+func parseLogEnv() (level slog.Level, format string, problems []string) {
+	level = slog.LevelInfo
 	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("JANUS_LOG_LEVEL"))); v {
 	case "", "info":
 	case "debug":
@@ -630,19 +672,18 @@ func buildLogger() *slog.Logger {
 	case "error":
 		level = slog.LevelError
 	default:
-		slog.Default().Warn("invalid JANUS_LOG_LEVEL; using default", "value", v, "default", "info")
+		problems = append(problems, fmt.Sprintf(
+			"invalid JANUS_LOG_LEVEL %q; using default \"info\" (valid: debug, info, warn, error)", v))
 	}
 
-	opts := &slog.HandlerOptions{Level: level}
-	var handler slog.Handler
+	format = "text"
 	switch v := strings.ToLower(strings.TrimSpace(os.Getenv("JANUS_LOG_FORMAT"))); v {
 	case "", "text":
-		handler = slog.NewTextHandler(os.Stderr, opts)
 	case "json":
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		format = "json"
 	default:
-		slog.Default().Warn("invalid JANUS_LOG_FORMAT; using default", "value", v, "default", "text")
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		problems = append(problems, fmt.Sprintf(
+			"invalid JANUS_LOG_FORMAT %q; using default \"text\" (valid: text, json)", v))
 	}
-	return slog.New(handler)
+	return level, format, problems
 }

@@ -23,6 +23,7 @@ func newRootCmd() *cobra.Command {
 	root.SetErr(os.Stderr)
 	root.AddCommand(
 		newServerCmd(),
+		newDoctorCmd(),
 		newMigrateCmd(),
 		newInitCmd(),
 		newUnsealCmd(),
