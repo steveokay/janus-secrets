@@ -1,6 +1,6 @@
 /* Gate state backed by the real /v1 API: init → unseal → login → ready. */
 
-import { api, type SealStatus, type Me, type InitResult } from './api'
+import { api, setUnauthenticatedHandler, type SealStatus, type Me, type InitResult } from './api'
 
 export type Phase = 'loading' | 'unreachable' | 'uninitialized' | 'sealed' | 'login' | 'ready'
 
@@ -93,4 +93,18 @@ export const session = {
   async refresh() {
     await this.bootstrap()
   },
+
+  /** Drops to the login gate after the API layer sees a 401 on a normal
+      request. Kept separate from logout(): there is no live session left to
+      revoke, so calling the logout endpoint would just 401 again. */
+  expire() {
+    if (phase !== 'ready') return // already gated; nothing to do
+    me = null
+    phase = 'login'
+  },
 }
+
+/* Wire the API layer's 401 hook to the gate. Without this an expired session
+   left the shell rendered and every action failed with a feature-level error
+   that never mentioned authentication. */
+setUnauthenticatedHandler(() => session.expire())

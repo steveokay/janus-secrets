@@ -1622,7 +1622,21 @@
   tr.deleted td { background: var(--vermilion-wash); }
   tr.deleted td:first-child { box-shadow: inset 3px 0 0 var(--vermilion); }
 
+  /* The action set grew with the feature set — reveal/mask, history, lock,
+     max-age, owner, reads, delete. With `white-space: nowrap` this cell
+     demanded its full single-line width from the table's auto layout, and the
+     value column absorbed every bit of the shortfall until the editor
+     collapsed to an unusable sliver. Let the actions wrap onto a second line
+     instead: the row gets taller, nothing is hidden behind an overflow menu
+     (which would cost discoverability and break existing selectors), and the
+     value keeps a usable width. Pairs with the .val-cell floor below. */
   .row-actions { text-align: right; white-space: nowrap; }
+  /* Guarantee the value editor a usable width regardless of how many actions
+     the row carries. Auto table layout honours min-width, so this is what
+     actually stops the collapse; it degrades to the cell's natural width on
+     genuinely narrow viewports rather than forcing a horizontal scrollbar. */
+  .val-cell { min-width: min(22rem, 40vw); }
+  .val-editrow textarea { min-width: 0; }
   .del-btn:hover { color: var(--vermilion); }
   .empty { text-align: center; padding: var(--s6) !important; }
 
