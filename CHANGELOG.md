@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.0] - 2026-07-26
+
 ### Added
 - **The web UI works on a phone and a tablet.** The SPA previously had no shell
   breakpoint at all: the 236px nav took most of a phone screen and the rest was
@@ -291,5 +295,6 @@ security hardening that followed. (Nothing was tagged before this; everything on
   injection guard), and protected pending edit requests from **KEK-version
   retirement** during project-KEK rotation.
 
-[Unreleased]: https://github.com/steveokay/janus-secrets/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/steveokay/janus-secrets/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/steveokay/janus-secrets/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/steveokay/janus-secrets/releases/tag/v0.1.0
