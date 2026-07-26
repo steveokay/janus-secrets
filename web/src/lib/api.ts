@@ -1,6 +1,38 @@
 /* Thin typed fetch client for the Janus /v1 API. Same-origin, cookie session.
    Errors parse the server's {error:{code,message}} envelope. */
 
+/* Session-expiry hook.
+
+   A 401 on a normal request means the cookie is gone or no longer valid —
+   the session expired, was revoked, a password change invalidated it, or the
+   server's database was replaced underneath us. Without this the SPA kept
+   rendering a logged-in shell and every action failed with a feature-level
+   message ("Could not create the project."), pointing nowhere near the cause.
+   session.svelte.ts registers a handler that drops to the login gate.
+
+   Paths where a 401 is a LOCAL failure, not an expired session, must not fire
+   it: a wrong password, a failed passkey assertion, and the me() probe that
+   resolveAuthed() uses to *test* whether we are authenticated (firing there
+   would also recurse, since the handler re-runs that probe). */
+const authAttemptPaths = [
+  '/v1/auth/login',
+  '/v1/auth/me',
+  '/v1/auth/webauthn/login/', // identified + discoverable begin/finish
+]
+
+let onUnauthenticated: (() => void) | null = null
+
+/** Registers the session-expiry handler. Called once by session.svelte.ts. */
+export function setUnauthenticatedHandler(fn: () => void): void {
+  onUnauthenticated = fn
+}
+
+function noteStatus(status: number, path: string): void {
+  if (status !== 401) return
+  if (authAttemptPaths.some(p => path.startsWith(p))) return
+  onUnauthenticated?.()
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -19,6 +51,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  noteStatus(res.status, path)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   const data = text ? JSON.parse(text) : undefined
@@ -44,6 +77,7 @@ async function requestRaw<T>(
     headers: { 'Content-Type': 'application/json', ...headers },
     body,
   })
+  noteStatus(res.status, path)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   const data = text ? JSON.parse(text) : undefined
