@@ -1,0 +1,42 @@
+# ============================================================================
+# ISOLATED E2E STACK — an override for the repo-root docker-compose.yml.
+#
+# The suite runs the first-run init ceremony, deletes and destroys material,
+# mints and revokes credentials, and elevates roles. It must NEVER be pointed
+# at an instance anyone cares about. The dev stack on :8210 is exactly such an
+# instance — this override moves the server to :8231, keeps Postgres unpublished,
+# and (because it is brought up under its own compose PROJECT name) gets its own
+# volume, so `down -v` throws away only this stack's data.
+#
+# Bring it up from the REPO ROOT — relative paths (the build context) resolve
+# against the first -f file's directory:
+#
+#   docker compose -p janus-e2e \
+#     -f docker-compose.yml -f web/tests/e2e/docker-compose.e2e.yml \
+#     up -d --build
+#
+# ...and tear it down, volume and all, when you are done:
+#
+#   docker compose -p janus-e2e \
+#     -f docker-compose.yml -f web/tests/e2e/docker-compose.e2e.yml down -v
+#
+# `!override` replaces the base file's `ports` list outright rather than
+# appending to it — without it Compose would merge and try to bind :8210 too,
+# colliding with the dev stack.
+#
+# JANUS_WEBAUTHN_ORIGINS must match the port actually served. A mismatch fails
+# the passkey ceremonies in smoke.spec.ts with a browser-side origin error that
+# reads exactly like an application bug.
+# ============================================================================
+services:
+  postgres:
+    # Nothing outside the compose network needs the database; leaving :5433
+    # published would collide with the dev stack.
+    ports: !override []
+
+  janus:
+    environment:
+      JANUS_WEBAUTHN_ORIGINS: http://localhost:8231
+      JANUS_WEBAUTHN_RP_NAME: Janus (e2e)
+    ports: !override
+      - "127.0.0.1:8231:8200"

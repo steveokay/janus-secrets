@@ -1,4 +1,5 @@
 import { test, expect, type CDPSession, type Page } from '@playwright/test'
+import { saveOwnerCredentials } from './helpers/janus'
 
 /**
  * Flagship end-to-end smoke suite for Janus.
@@ -91,6 +92,11 @@ test.describe.serial('Janus flagship smoke', () => {
     adminPassword = (await page.getByTestId('init-admin-password').innerText()).trim()
     expect(adminPassword.length).toBeGreaterThan(0)
     await expect(page.getByTestId('init-admin-email')).toHaveText(ADMIN_EMAIL)
+
+    // Hand the one-time credentials on. This screen is the only place they ever
+    // exist; the flow specs under tests/e2e/flows/ run after this ceremony and
+    // cannot re-init the server to make their own. See helpers/janus.ts.
+    saveOwnerCredentials({ email: ADMIN_EMAIL, password: adminPassword })
 
     // Acknowledge and proceed to the unseal gate.
     await page.getByRole('checkbox').check()
@@ -214,7 +220,12 @@ test.describe.serial('Janus flagship smoke', () => {
     await expect(revealRow.first()).toBeVisible()
 
     // The chain-verified badge should be present (the ledger is intact).
-    await expect(page.getByText(/Chain verified/i)).toBeVisible()
+    // Match the LEDGER's stamp specifically, by its event count: the shell's
+    // folio bar carries a bare "Chain verified" chip of its own, rendered as
+    // soon as the registry's own verify call lands. A bare /Chain verified/i
+    // matches both once that race resolves the other way, and Playwright's
+    // strict mode fails the assertion.
+    await expect(page.getByText(/Chain verified · [\d,]+ events/i)).toBeVisible()
   })
 
   // ---------------------------------------------------------------------------

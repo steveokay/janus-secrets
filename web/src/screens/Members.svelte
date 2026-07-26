@@ -176,7 +176,7 @@
         <div class="minted">
           <span class="stamp ok flat">Created — password shown exactly once</span>
           <code class="mono once">{invited.email}</code>
-          <code class="mono once pw">{invited.password}</code>
+          <code class="mono once pw" data-testid="invited-password">{invited.password}</code>
           <button class="btn btn-sm" onclick={() => navigator.clipboard.writeText(invited!.password)}>Copy password</button>
           <button class="btn btn-sm btn-ghost" onclick={() => { inviting = false; invited = null }}>Done</button>
         </div>
@@ -196,7 +196,7 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 80ms">
-    <table class="ledger" aria-label="Members and their roles">
+    <table class="ledger" aria-label="Members and their roles" data-testid="members-table">
       <thead>
         <tr>
           <th scope="col">Member</th>
