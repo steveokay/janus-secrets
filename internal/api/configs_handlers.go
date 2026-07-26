@@ -163,7 +163,17 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfigDelete(w http.ResponseWriter, r *http.Request) {
-	res, cid, err := s.configResource(r)
+	// Resolve deleted-inclusively, like restore does. `destroy=true` is reached
+	// from Trash, where the config is ALREADY soft-deleted — and a soft-deleted
+	// row is invisible to the live-only lookup behind configResource, so this
+	// 404'd before the authorization check ever ran. (Soft-delete of a live
+	// config lands here too and is unaffected: the row is simply found either
+	// way.) Authorization is unchanged in strength — the same authz.ConfigDelete
+	// on the same project→env→config scope still gates the call; only finding
+	// the row changed. It now matches handleTrashList, which authorizes exactly
+	// this way to decide whether to show the row at all.
+	cid := chi.URLParam(r, "cid")
+	res, err := s.resolveConfigScopeIncludingDeleted(r.Context(), cid)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -224,15 +234,21 @@ func (s *Server) handleConfigRestore(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveConfigScopeIncludingDeleted builds the project→env→config resource for
-// a config that may be soft-deleted (needed to authorize restore). It reads the
-// config row deleted-inclusively, then reuses the live environment→project
-// chain. Returns store.ErrNotFound if the config row does not exist at all.
+// a config that may be soft-deleted (needed to authorize restore and destroy).
+// Returns store.ErrNotFound if the config row does not exist at all.
+//
+// The PARENT is read deleted-inclusively too. Soft-delete does not cascade, so
+// a config and its environment are deleted independently and an environment can
+// be in the trash while its configs are not (or both can be). Resolving the
+// parent live-only would 404 that combination — leaving a config that
+// handleTrashList happily lists (it uses GetIncludingDeleted for exactly this
+// reason) but which could then be neither restored nor destroyed.
 func (s *Server) resolveConfigScopeIncludingDeleted(ctx context.Context, cid string) (authz.Resource, error) {
 	c, err := store.NewConfigRepo(s.st).GetIncludingDeleted(ctx, cid)
 	if err != nil {
 		return authz.Resource{}, err
 	}
-	env, err := store.NewEnvironmentRepo(s.st).Get(ctx, c.EnvironmentID)
+	env, err := store.NewEnvironmentRepo(s.st).GetIncludingDeleted(ctx, c.EnvironmentID)
 	if err != nil {
 		return authz.Resource{}, err
 	}
