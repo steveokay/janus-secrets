@@ -193,6 +193,15 @@
   .toolbar { display: flex; justify-content: space-between; gap: var(--s3); margin: var(--s5) 0 var(--s3); }
   .search { max-width: 340px; }
 
+  @media (max-width: 720px) {
+    /* The search is 340px and the result filter is a 3-segment control; side by
+       side on a phone the filter was pushed off the edge and its last segment
+       became unreachable. Wrap, and let the search take the row it needs. */
+    .toolbar { flex-wrap: wrap; }
+    .search { max-width: none; flex: 1 1 100%; }
+    .seg { flex-wrap: wrap; }
+  }
+
   .seg { display: flex; border: 1px solid var(--rule-strong); border-radius: var(--radius); overflow: hidden; }
   .seg-btn {
     font-family: var(--font-ui);

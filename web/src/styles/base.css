@@ -249,6 +249,48 @@ table.ledger tbody tr { transition: background var(--t-fast); }
 table.ledger tbody tr:hover { background: var(--row-hover); }
 table.ledger .num { font-family: var(--font-mono); font-size: var(--text-sm); }
 
+/*
+ * `.table-wrap` — the wrapper that lets a wide ledger scroll sideways instead
+ * of forcing the page wide. Most screens already declare `overflow-x: auto` on
+ * this class in their own scoped styles; this makes it the shared default so a
+ * new table gets the behaviour by naming the wrapper, and adds the two
+ * properties the per-screen copies were missing.
+ *
+ * `min-width: 0` is the load-bearing one. A flex/grid item defaults to
+ * `min-width: auto`, i.e. "never shrink below my content", so the track simply
+ * widened to the table's intrinsic width and the overflow never engaged. The
+ * shell's .desk/.page set it for the same reason.
+ *
+ * A ledger genuinely cannot be squeezed onto a phone — it has many nowrap
+ * columns, and shrinking to fit yields one-character-per-line cells while
+ * stacking rows into cards throws away the column alignment that makes a ledger
+ * legible. Scrolling keeps every column at its real width.
+ */
+.table-wrap {
+  overflow-x: auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ── Narrow-viewport shared layout ───────────── */
+
+/*
+ * `.page-head` (title on the left, actions on the right) is declared
+ * identically in 14 screens. None of them set `flex-wrap`, so this global rule
+ * reaches all of them — a scoped `.page-head.svelte-xyz` rule would otherwise
+ * outrank a bare `.page-head`, but only for the properties it actually
+ * declares.
+ *
+ * Without wrapping, the action cluster keeps its intrinsic width and the title
+ * absorbs the entire shortfall, so a heading like "Audit ledger" breaks one
+ * word per line beside a narrow column of buttons.
+ */
+@media (max-width: 720px) {
+  .page-head { flex-wrap: wrap; }
+  /* Long resource names/paths in a heading must be allowed to shrink. */
+  .page-head > * { min-width: 0; }
+}
+
 /* ── Keyboard key ────────────────────────────── */
 
 kbd.key {

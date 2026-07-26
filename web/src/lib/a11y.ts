@@ -25,10 +25,16 @@ function focusable(node: HTMLElement): HTMLElement[] {
   )
 }
 
-export function trapFocus(node: HTMLElement) {
+// `enabled` lets a caller attach the trap to an element that is ALWAYS mounted
+// and only sometimes modal — the shell's nav cover, which is a static sidebar on
+// desktop and an off-canvas drawer below the breakpoint. Omit it (the modal
+// case, where the node is conditionally rendered) and the trap is always on.
+export function trapFocus(node: HTMLElement, enabled: boolean | undefined = true) {
+  let on = enabled !== false
   const restore = document.activeElement as HTMLElement | null
 
   function focusFirst() {
+    if (!on) return
     const els = focusable(node)
     // Prefer an element the component already focused (e.g. an input via
     // bind:this + .focus()); otherwise move to the first focusable, or the
@@ -38,7 +44,7 @@ export function trapFocus(node: HTMLElement) {
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key !== 'Tab') return
+    if (!on || e.key !== 'Tab') return
     const els = focusable(node)
     if (els.length === 0) {
       // Nothing tabbable — keep focus on the container.
@@ -65,10 +71,31 @@ export function trapFocus(node: HTMLElement) {
 
   // Defer the initial focus so components that focus their own input on open
   // (via setTimeout) win the race; if none does, we land on the first control.
-  const raf = requestAnimationFrame(focusFirst)
+  let raf = requestAnimationFrame(focusFirst)
   node.addEventListener('keydown', onKeydown)
 
+  // Focus to restore when the trap is switched OFF (as opposed to unmounted) —
+  // captured at the moment it switches on, since the always-mounted case has no
+  // meaningful "before" at construction time.
+  let restoreOnDisable: HTMLElement | null = null
+
   return {
+    update(next: boolean | undefined) {
+      const want = next !== false
+      if (want === on) return
+      on = want
+      if (on) {
+        restoreOnDisable = document.activeElement as HTMLElement | null
+        cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(focusFirst)
+      } else {
+        cancelAnimationFrame(raf)
+        if (restoreOnDisable && node.contains(document.activeElement)) {
+          restoreOnDisable.focus?.()
+        }
+        restoreOnDisable = null
+      }
+    },
     destroy() {
       cancelAnimationFrame(raf)
       node.removeEventListener('keydown', onKeydown)
