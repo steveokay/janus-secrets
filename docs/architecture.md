@@ -119,23 +119,19 @@ destroy. See
 [operations.md](operations.md) for how the server boots, seals, and unseals
 around all of this.
 
-## Build phases
+## How it got here
 
-All three phases in `../CLAUDE.md` are complete:
+Janus was built in three passes, which is why the packages layer the way they
+do. The **core** came first — envelope encryption and unseal, the Postgres store
+with two-level versioning, the encryption-orchestration service, then auth,
+RBAC, the audit log, the REST API and the CLI with `run`. The **transit engine
+and the web UI** followed, along with OIDC login and CI federation; the SPA was
+originally React ("Nocturne") and was rewritten in Svelte 5 ("Atrium") in
+PR #95 — see [web.md](web.md). Last came the three **automation engines**:
+scheduled rotation, one-way sync, and dynamic Postgres credentials with a lease
+manager.
 
-> **Phase 1 — Core:** crypto + unseal ✅ → store + migrations + versioning ✅ →
-> CRUD service + encryption orchestration ✅ → server bootstrap (sys API +
-> `janus` CLI) ✅ → auth ✅ → RBAC ✅ → audit ✅ → REST API ✅ → CLI with `run` ✅.
->
-> **Phase 2 — Transit + UI:** transit engine ✅ → SPA ✅ (originally React/
-> Nocturne, rewritten to Svelte 5/Atrium in PR #95, 2026-07-19 — see
-> [web.md](web.md)) → OIDC login + CI federation ✅ → usage metrics ✅.
->
-> **Phase 3 — Rotation + dynamic:** static rotation (Postgres + webhook) ✅ →
-> sync integrations (GitHub Actions + Kubernetes) ✅ → dynamic Postgres
-> credentials + lease manager ✅.
-
-Since the original three phases, further depth work has shipped on top: config
+Depth work has shipped on top of that foundation: config
 inheritance + secret references (`internal/resolve`), per-project KEK rotation
 and master-key rotation, trash/restore, per-key value history, typed secrets,
 an env-to-env promotion pipeline with a four-eyes approval workflow, cursor

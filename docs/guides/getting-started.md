@@ -107,10 +107,16 @@ and the full production ceremony are covered in
 
 ## 3. First login
 
-Log in with the bootstrap admin credential that `janus init` printed (for a
-`make dev-up` instance, re-run `janus init` output is not re-shown — see the
-seal lifecycle in [operations.md](../operations.md) for recovering the initial
-admin). `janus login` prompts for the password and stores a session cookie in
+Log in with the bootstrap admin credential that `janus init` printed. The
+`make dev-up` path prints it too — `scripts/dev-unseal.sh` echoes the
+initial-admin block from the `init` it runs for you.
+
+Either way it is shown **once**: if you lose it before logging in, the recovery
+is to start over from an empty database (`docker compose down -v`), or to reset
+the password out of band — see the seal lifecycle in
+[operations.md](../operations.md).
+
+`janus login` prompts for the password and stores a session cookie in
 `auth.json` (mode `0600`):
 
 ```sh
