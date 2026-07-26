@@ -38,12 +38,24 @@ const CONFIG_NAME = 'default'
 const SECRET_KEY = 'API_TOKEN'
 const SECRET_VALUE = `s3cr3t-${stamp}`
 
+// A Doppler-shaped export for the paste-based import wizard: `doppler secrets
+// download --no-file --format json` emits exactly this — a flat JSON object.
+// PORT is deliberately a number, to prove non-string leaves are handled
+// explicitly rather than silently coerced.
+const IMPORT_KEYS = ['IMPORTED_DB_URL', 'IMPORTED_API_KEY', 'IMPORTED_PORT'] as const
+const DOPPLER_BLOB = JSON.stringify({
+  IMPORTED_DB_URL: `postgres://db.example.invalid:5432/app-${stamp}`,
+  IMPORTED_API_KEY: `dp-${stamp}`,
+  IMPORTED_PORT: 8080,
+})
+
 test.describe.serial('Janus flagship smoke', () => {
   let page: Page
   let shares: string[] = []
   let adminPassword = ''
   let cdp: CDPSession
   let authenticatorId = ''
+  let editorUrl = ''
 
   test.beforeAll(async ({ browser }) => {
     page = await browser.newPage()
@@ -157,6 +169,7 @@ test.describe.serial('Janus flagship smoke', () => {
     await cfgCard.click()
 
     await expect(page.getByRole('heading', { name: new RegExp(CONFIG_NAME, 'i') })).toBeVisible()
+    editorUrl = page.url()
   })
 
   test('save a secret as a config version', async () => {
@@ -203,6 +216,81 @@ test.describe.serial('Janus flagship smoke', () => {
     // The chain-verified badge should be present (the ledger is intact).
     await expect(page.getByText(/Chain verified/i)).toBeVisible()
   })
+
+  // ---------------------------------------------------------------------------
+  // The paste-based import wizard.
+  //
+  // The web importer is paste-based on purpose: it never holds a Doppler /
+  // Vault / AWS credential and makes no outbound call of its own. This step
+  // exercises the whole path — pick the source, read the command Janus tells
+  // you to run, paste that command's output, watch it be auto-detected and
+  // previewed, stage it, and commit the lot as ONE new config version.
+  // ---------------------------------------------------------------------------
+  test('the import wizard stages a Doppler export as one config version', async () => {
+    await page.goto(editorUrl)
+    await expect(page.getByRole('heading', { name: new RegExp(CONFIG_NAME, 'i') })).toBeVisible()
+
+    // The version we are about to supersede, read off the folio chip ("FOL. vN").
+    const before = Number(/v(\d+)/.exec(await page.locator('.ver-chip').innerText())![1])
+    expect(before).toBeGreaterThan(0)
+
+    await page.getByRole('button', { name: /^Import…$/ }).click()
+    const panel = page.locator('section.import-panel')
+    await expect(panel).toBeVisible()
+
+    // Step 1 — the Doppler source card shows the exact export command to run.
+    await panel.getByRole('button', { name: /^Doppler$/ }).click()
+    await expect(panel.locator('code.cmd').first()).toContainText(
+      'doppler secrets download --no-file --format json',
+    )
+    // Back to auto-detect so the paste has to be recognised on its own.
+    await panel.getByRole('button', { name: /^Auto-detect$/ }).click()
+
+    // Step 2 — paste the export. Nothing leaves the browser.
+    await page.getByLabel(/Paste the export to import/i).fill(DOPPLER_BLOB)
+    await expect(panel.locator('.fmt-chip')).toContainText(/Detected · Doppler/i)
+
+    // Step 3 — every key previews as new, and the number leaf is called out as
+    // deliberately JSON-encoded rather than silently stringified.
+    for (const k of IMPORT_KEYS) {
+      await expect(panel.locator('table.import-preview tbody tr', { hasText: k })).toBeVisible()
+    }
+    await expect(panel.locator('.import-foot')).toContainText(
+      new RegExp(`${IMPORT_KEYS.length} selected`),
+    )
+    await expect(panel.locator('.import-foot')).toContainText(/1 non-string JSON value kept as JSON text/i)
+
+    // Deselecting is honoured, then re-selected so all three land.
+    const dropRow = panel.locator('table.import-preview tbody tr', { hasText: IMPORT_KEYS[2] })
+    await dropRow.getByRole('checkbox').uncheck()
+    await expect(panel.locator('.import-foot')).toContainText(
+      new RegExp(`${IMPORT_KEYS.length - 1} selected`),
+    )
+    await dropRow.getByRole('checkbox').check()
+
+    await panel.getByRole('button', { name: /Stage into draft/i }).click()
+
+    // Staged, not written: the panel closes and the keys are dirty draft rows.
+    await expect(panel).toBeHidden()
+    await expect(page.getByTestId('reveal-toast')).toContainText(/Staged 3 keys from Doppler/i)
+    for (const k of IMPORT_KEYS) {
+      await expect(page.locator('table.ledger tbody tr', { hasText: k })).toBeVisible()
+    }
+
+    // Commit — the whole import is ONE new config version.
+    const save = page.getByTestId('save-secrets')
+    await expect(save).toBeEnabled()
+    await save.click()
+    await expect(page.getByText(new RegExp(`Committed — v${before + 1}\\b`, 'i'))).toBeVisible()
+
+    // Reload from the server: the keys really landed, at the new version.
+    await page.goto(editorUrl)
+    await expect(page.locator('.ver-chip')).toHaveText(new RegExp(`v${before + 1}\\b`))
+    for (const k of IMPORT_KEYS) {
+      await expect(page.locator('table.ledger tbody tr', { hasText: k })).toBeVisible()
+    }
+  })
+
   // ---------------------------------------------------------------------------
   // Passkeys (WebAuthn).
   //
