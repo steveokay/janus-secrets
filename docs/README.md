@@ -63,6 +63,13 @@ Task-oriented walkthroughs for the common workflows:
   restore-rehearsal command.
 - [Trash & recovery](guides/trash-and-recovery.md) — soft delete, restore,
   and permanent destroy.
+- [Disaster recovery](guides/disaster-recovery.md) — `janus admin
+  reset-password`, the local-console path back in when the last owner is locked
+  out: the ceremony under each seal type, what happens to sessions and MFA,
+  what is audited, and honestly what it cannot recover.
+- [Troubleshooting](guides/troubleshooting.md) — `janus doctor` and a
+  symptom → cause table for the misconfigurations that look like product bugs
+  (starting with passkey origins that do not match how the server is reached).
 - [Notifications](guides/notifications.md) — webhook / Slack alerting on
   rotation & sync failures, denials, and pending approvals.
 - [Injecting secrets into your app](guides/injecting-secrets.md) — `janus run`

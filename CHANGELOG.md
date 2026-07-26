@@ -6,7 +6,51 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **`janus admin reset-password` — a way back in when the last owner is locked
+  out.** There was previously no recovery path at all: the documented remedy was
+  to start over from an empty database, i.e. destroy every secret you own, while
+  the data sat there intact and decryptable. The new command runs on the server
+  host and talks straight to Postgres — deliberately **not** reachable over
+  HTTP — and requires the instance's seal material first (the Shamir quorum,
+  prompted with echo off, or the configured cloud KMS key). Argon2id hashing
+  does not need that key; requiring it is an authority control that keeps the
+  ceremony identical to unseal and stops incidental database access becoming an
+  owner takeover. Sessions are revoked *before* the credential is replaced, so a
+  partial failure leaves everyone logged out with the old password still
+  working; a failed audit append rolls the credential back, preserving the rule
+  that no credential change survives unaudited. TOTP is **not** cleared unless
+  `--clear-mfa` is passed, which is audited separately. See
+  [docs/guides/disaster-recovery.md](docs/guides/disaster-recovery.md).
+- **`janus doctor` — 18 preflight checks for configuration that parses fine and
+  is still wrong.** Prints `PASS`/`WARN`/`FAIL` per check with the concrete fix;
+  `--strict` fails on warnings, `--offline` skips anything needing the network,
+  `--json` for machines. It reads the environment through the *same* parse the
+  server uses at boot, so it cannot drift. The headline checks are unrecognised
+  `JANUS_*` variables (a typo is silently ignored today, and a misspelled name
+  never errors) and whether the configured passkey origins actually describe how
+  this server is reached — a mismatch fails the ceremony with no server-side
+  error and reads exactly like an application bug. Secrets are scrubbed from all
+  output, including third-party error text. See
+  [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md).
+
+### Fixed
+- **`janus master-key rekey` could not be driven from a pipe or heredoc.** The
+  share reader built a fresh `bufio.Reader` per share; bufio reads ahead, so the
+  first read consumed one line and buffered the rest, then discarded them with
+  the reader — the second share hit EOF. `janus unseal` takes one share per
+  invocation and never hit it, which is why a master-key rotation ceremony was
+  broken for scripted input.
+
+### Tests
+- **Browser coverage for the destructive and security screens.** The existing
+  E2E suite covered the happy path; everything it missed was either irreversible
+  or a security control — which is exactly where the Trash destroy bug lived. 26
+  new tests across Trash (soft-delete → restore → destroy for config,
+  environment and project), service tokens (shown once, usable as a real bearer
+  credential, revocation withdraws access), members and scope confinement,
+  four-eyes approvals (self-approval *and* self-rejection refused), and
+  break-glass elevation. Verified to fail against the pre-fix handlers.
 
 ## [0.2.0] - 2026-07-26
 
