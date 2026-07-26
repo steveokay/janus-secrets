@@ -80,7 +80,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | ~~**JSON/PEM awareness** for file-type secrets — pretty-print, validate, syntax hint in the value editor~~ **SHIPPED 2026-07-23** — format badge + client-side well-formedness check while editing (JSON parse errors, PEM label/base64 faults), one-click Pretty-print for valid JSON; advisory, never blocks a save. | ~~S~~ |
 | ~~**Shortcuts help modal** (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` help modal + `g`-chord navigation to every screen; suppressed while typing / in dialogs. | ~~S~~ |
 | ~~**Accessibility pass** — focus traps in modals, ARIA on tables/stamps, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action on all modals, `<th scope>`/`aria-label` on all tables, hardened `prefers-reduced-motion`; svelte-check 0 errors / 0 warnings. | ~~M~~ |
-| **Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
+| ~~**Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals)~~ **SHIPPED 2026-07-26 (PR #192)** — the SPA had **no shell breakpoint at all**: on a 390px phone the 236px cover took 60% of the screen and the remainder was **clipped, not scrolled** (`.desk` is `overflow: hidden`), so headline, folio bar and every ledger column were cut off with no way to reach them. The load-bearing fix is one line — `.desk { min-width: 0 }`. A grid item defaults to `min-width: auto` ("never narrower than my content"), and **ten screens already declared `.table-wrap { overflow-x: auto }`** whose scroll simply never engaged because the track never had to shrink. Below 1024px the cover becomes an off-canvas drawer (scrim, Escape, close-on-navigate, `aria-expanded`/`-controls`, `visibility: hidden` while closed so it is not a keyboard trap); 1024px keeps the sidebar for tablet **landscape**. `trapFocus` gained an optional `enabled` param because the cover is always mounted and only sometimes modal. One global `.page-head { flex-wrap: wrap }` fixes all **14** screens that declare it identically. Caught en route: the Audit result filter's `denied` segment was pushed off-screen and **unreachable** on a phone, and the Overview rosette's `right: -40px` bleed had been putting a horizontal scrollbar on **every width, desktop included**. Ships `web/tests/e2e/shots.mjs`, a read-only harness that screenshots every screen at phone/tablet/laptop in both themes and measures the **content area** — measuring only the document reported everything green, which is exactly how this shipped unnoticed. | ~~M~~ |
 
 _Sections 6–9 added 2026-07-24 after the v0.1.0 release — the post-1.0 roadmap
 from a full-system review (verified gaps, not speculation)._
@@ -189,17 +189,19 @@ detection (7.4, PR #175), passkeys (7.5, PR #176) and discoverable login
 PR #180), fuzzing (9.2), SDK depth (PR #183), the Terraform batch resource +
 env-scoped tokens (PR #186), and the web import wizard (PR #187).
 
-**Exactly four items remain open**, and only one of them is engineering work:
+The mobile/tablet layout (5.6) shipped 2026-07-26 (PR #192) — the last open
+**build** item. **Everything still open is blocked on a maintainer credential,
+not on code:**
 
 | # | Item | Blocked on |
 |---|---|---|
-| 1 | Publish the TypeScript SDK to npm | **Maintainer credential** — npm account + automation token |
-| 2 | Publish the Python SDK to PyPI | **Maintainer credential** — PyPI project + Trusted Publishing |
-| 3 | Publish the Terraform provider to the Registry | **Maintainer credential** — GPG signing key + Registry account |
-| 4 | Mobile/tablet layout for read-mostly screens (5.6) | Nothing — the only open build item (**M**) |
+| 1 | Publish the TypeScript SDK to npm | npm account + automation token |
+| 2 | Publish the Python SDK to PyPI | PyPI project + Trusted Publishing |
+| 3 | Publish the Terraform provider to the Registry | GPG signing key + Registry account |
 
-Item 4 is therefore the next buildable thing. Items 1–3 are each a short CI job
-once the credential exists; everything they would publish is already written,
-tested, and — as of 2026-07-26 — covered by CI (`go-modules`, `sdk-ts`,
-`sdk-python` jobs; before that, `go test ./...` never descended into the nested
-modules and five of Dependabot's seven watched directories had no test run).
+Each is a short CI job once the credential exists; everything they would publish
+is already written, tested, and — as of 2026-07-26 — covered by CI (`go-modules`,
+`sdk-ts`, `sdk-python` jobs; before that, `go test ./...` never descended into
+the nested modules and five of Dependabot's seven watched directories had no
+test run). **There is no outstanding engineering work on the roadmap** — further
+items should come from real usage, not be invented to keep the list populated.

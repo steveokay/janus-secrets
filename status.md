@@ -166,7 +166,7 @@ original (exhausted) roadmap; sections 6–9 are the post-1.0 roadmap added
 | ~~JSON/PEM awareness for file-type secrets — pretty-print, validate, syntax hint~~ **SHIPPED 2026-07-23** — client-side format sniff (content first, declared `type` as fallback) on the value being edited: JSON/PEM badge, well-formedness check (JSON parse error, PEM label/base64 faults) surfaced inline, one-click Pretty-print for valid JSON. Advisory only — never blocks a save; nothing leaves the browser. | ~~S~~ |
 | ~~Shortcuts help modal (`?`) + `g`-prefixed nav chords~~ **SHIPPED 2026-07-23** — `?` opens a shortcuts modal (palette action too); `g` + letter jumps to any screen (`g p` Projects, `g a` Audit, …). Chords are suppressed while typing, with modifiers, or while a dialog is open; a pending-chord hint shows after `g`. | ~~S~~ |
 | ~~Accessibility pass — focus traps in modals, ARIA on tables, reduced-motion audit~~ **SHIPPED 2026-07-24** — reusable `trapFocus` action (focus-in + `Tab` cycle + restore-on-close) on all 3 modal overlays with `role="dialog"`/`aria-modal`; `aria-label` + `<th scope="col">` across all 22 ledger tables; `ProjectBoard` drop columns `role="group"`; hardened `prefers-reduced-motion` rule. svelte-check now **0 errors / 0 warnings** (was 7). | ~~M~~ |
-| Mobile/tablet layout for read-mostly screens (dashboard, audit, approvals) | Approving a promotion from a phone is a real workflow. | M |
+| ~~**Mobile/tablet layout** for read-mostly screens (dashboard, audit, approvals)~~ **SHIPPED 2026-07-26 (PR #192)** — the SPA had **no shell breakpoint at all**: on a 390px phone the 236px cover took 60% of the screen and the remainder was **clipped, not scrolled** (`.desk` is `overflow: hidden`), so headline, folio bar and every ledger column were cut off with no way to reach them. The load-bearing fix is one line — `.desk { min-width: 0 }`. A grid item defaults to `min-width: auto` ("never narrower than my content"), and **ten screens already declared `.table-wrap { overflow-x: auto }`** whose scroll simply never engaged because the track never had to shrink. Below 1024px the cover becomes an off-canvas drawer (scrim, Escape, close-on-navigate, `aria-expanded`/`-controls`, `visibility: hidden` while closed so it is not a keyboard trap); 1024px keeps the sidebar for tablet **landscape**. `trapFocus` gained an optional `enabled` param because the cover is always mounted and only sometimes modal. One global `.page-head { flex-wrap: wrap }` fixes all **14** screens that declare it identically. Caught en route: the Audit result filter's `denied` segment was pushed off-screen and **unreachable** on a phone, and the Overview rosette's `right: -40px` bleed had been putting a horizontal scrollbar on **every width, desktop included**. Ships `web/tests/e2e/shots.mjs`, a read-only harness that screenshots every screen at phone/tablet/laptop in both themes and measures the **content area** — measuring only the document reported everything green, which is exactly how this shipped unnoticed. | ~~M~~ |
 
 ### Trust & supply chain
 
@@ -293,18 +293,25 @@ value-version retention (#181), Grafana (#180), fuzzing, SDK depth (#183), the
 Terraform batch resource + env-scoped tokens (#186), and the web import wizard
 (#187).
 
-**Exactly four items remain open**, and three of them are not engineering work:
+The mobile/tablet layout (5.6) shipped 2026-07-26 (PR #192), which was the last
+open **build** item. **Every remaining item is blocked on a maintainer
+credential, not on code:**
 
 | # | Item | Blocked on |
 |---|---|---|
-| 1 | Publish the TypeScript SDK to npm | **Maintainer credential** — npm account + automation token |
-| 2 | Publish the Python SDK to PyPI | **Maintainer credential** — PyPI project + Trusted Publishing |
-| 3 | Publish the Terraform provider to the Registry | **Maintainer credential** — GPG signing key + Registry account |
-| 4 | Mobile/tablet layout for read-mostly screens | Nothing — this is the only open build item (**M**) |
+| 1 | Publish the TypeScript SDK to npm | npm account + automation token |
+| 2 | Publish the Python SDK to PyPI | PyPI project + Trusted Publishing |
+| 3 | Publish the Terraform provider to the Registry | GPG signing key + Registry account |
 
-So the next piece of buildable work is item 4. Items 1–3 are each a short CI job
-once the credential exists; the code they publish is written, tested and (as of
-2026-07-26) covered by CI.
+Each is a short CI job once the credential exists; everything they would publish
+is written, tested and — as of 2026-07-26 — covered by CI. **There is no
+outstanding engineering work on the roadmap.** New items should be added from
+real usage rather than invented to fill the list.
+
+Unrelated to the roadmap, one operational chore is also waiting on the
+maintainer: `gh auth refresh -h github.com -s write:packages`, so
+`ghcr.io/steveokay/janus:latest` can be repointed off the `v0.1.1-rc1` digest
+and the rc artifacts deleted.
 
 Both parked decisions are **resolved** (OIDC/TOTP scope, engine audit
 fail-closed policy), and the small backend/ops list at the top is fully struck
