@@ -97,38 +97,83 @@ func waClientData(t *testing.T, ceremony, challenge, origin string) []byte {
 
 func (a *testAuthenticator) attestation(t *testing.T, challenge, origin string) string {
 	t.Helper()
+	return a.attestationWith(t, challenge, origin, nil)
+}
+
+// attestationWith optionally reports the credProps extension result (whether a
+// client-side DISCOVERABLE credential was created). nil omits the extension
+// entirely, which is what an older client does and must record as "unknown".
+func (a *testAuthenticator) attestationWith(t *testing.T, challenge, origin string, rk *bool) string {
+	t.Helper()
 	cd := waClientData(t, "webauthn.create", challenge, origin)
 	ad := a.authData(t, 0x01|0x04, a.signCount, true)
 	att, err := webauthncbor.Marshal(map[string]any{"fmt": "none", "attStmt": map[string]any{}, "authData": ad})
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := json.Marshal(map[string]any{
+	cred := map[string]any{
 		"id": waB64(a.credID), "rawId": waB64(a.credID), "type": "public-key",
 		"response": map[string]any{"clientDataJSON": waB64(cd), "attestationObject": waB64(att)},
-	})
+	}
+	if rk != nil {
+		cred["clientExtensionResults"] = map[string]any{"credProps": map[string]any{"rk": *rk}}
+	}
+	body, err := json.Marshal(cred)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(body)
 }
 
+// waAssertOpts lets a test bend one knob of an otherwise-valid assertion, so
+// each rejection can be attributed to exactly one cause.
+type waAssertOpts struct {
+	// handle is the userHandle the authenticator reports. nil omits it (what the
+	// identified flow does); the discoverable flow REQUIRES one, and setting it
+	// to another account's handle is the credential-substitution attack.
+	handle []byte
+	// rawID overrides the credential id presented. nil uses this authenticator's.
+	rawID []byte
+	// flags overrides the authenticator-data flags. 0 means UP|UV.
+	flags byte
+	// replayCount reuses the current signature counter instead of advancing it.
+	replayCount bool
+}
+
 func (a *testAuthenticator) assertion(t *testing.T, challenge, origin string) string {
 	t.Helper()
+	return a.assertionWith(t, challenge, origin, waAssertOpts{})
+}
+
+func (a *testAuthenticator) assertionWith(t *testing.T, challenge, origin string, o waAssertOpts) string {
+	t.Helper()
 	cd := waClientData(t, "webauthn.get", challenge, origin)
-	a.signCount++
-	ad := a.authData(t, 0x01|0x04, a.signCount, false)
+	if !o.replayCount {
+		a.signCount++
+	}
+	flags := o.flags
+	if flags == 0 {
+		flags = 0x01 | 0x04 // user present + user verified
+	}
+	ad := a.authData(t, flags, a.signCount, false)
 	sum := sha256.Sum256(cd)
 	digest := sha256.Sum256(append(append([]byte{}, ad...), sum[:]...))
 	sig, err := ecdsa.SignASN1(rand.Reader, a.key, digest[:])
 	if err != nil {
 		t.Fatal(err)
 	}
+	id := o.rawID
+	if id == nil {
+		id = a.credID
+	}
+	resp := map[string]any{
+		"clientDataJSON": waB64(cd), "authenticatorData": waB64(ad), "signature": waB64(sig),
+	}
+	if o.handle != nil {
+		resp["userHandle"] = waB64(o.handle)
+	}
 	body, err := json.Marshal(map[string]any{
-		"id": waB64(a.credID), "rawId": waB64(a.credID), "type": "public-key",
-		"response": map[string]any{
-			"clientDataJSON": waB64(cd), "authenticatorData": waB64(ad), "signature": waB64(sig),
-		},
+		"id": waB64(id), "rawId": waB64(id), "type": "public-key", "response": resp,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +219,7 @@ type waCredential struct {
 	ID           string  `json:"id"`
 	Nickname     string  `json:"nickname"`
 	CredentialID string  `json:"credential_id"`
+	Discoverable *bool   `json:"discoverable"`
 	LastUsedAt   *string `json:"last_used_at"`
 }
 
@@ -186,6 +232,13 @@ type waList struct {
 // registerPasskey drives register/begin → register/finish over HTTP.
 func registerPasskey(t *testing.T, ts *httptest.Server, cookie, nickname string) (*testAuthenticator, waCredential) {
 	t.Helper()
+	return registerPasskeyRK(t, ts, cookie, nickname, nil)
+}
+
+// registerPasskeyRK is registerPasskey with control over the credProps.rk
+// extension result the client reports (nil = not reported at all).
+func registerPasskeyRK(t *testing.T, ts *httptest.Server, cookie, nickname string, rk *bool) (*testAuthenticator, waCredential) {
+	t.Helper()
 	var opts map[string]any
 	if code := doAuthed(t, "POST", ts.URL+"/v1/auth/webauthn/register/begin", cookie, "", "", &opts); code != 200 {
 		t.Fatalf("register/begin: %d", code)
@@ -197,7 +250,7 @@ func registerPasskey(t *testing.T, ts *httptest.Server, cookie, nickname string)
 	a := newTestAuthenticator(t)
 
 	req, err := http.NewRequest("POST", ts.URL+"/v1/auth/webauthn/register/finish",
-		strings.NewReader(a.attestation(t, challenge, waOrigin)))
+		strings.NewReader(a.attestationWith(t, challenge, waOrigin, rk)))
 	if err != nil {
 		t.Fatal(err)
 	}

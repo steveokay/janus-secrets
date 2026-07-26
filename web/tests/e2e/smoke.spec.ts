@@ -221,7 +221,32 @@ test.describe.serial('Janus flagship smoke', () => {
   // dev compose stack sets them); when it is not, the UI hides the passkey
   // controls and these tests fail with a clear message rather than silently
   // passing.
+  //
+  // A note on `automaticPresenceSimulation`. The login screen also starts a
+  // CONDITIONAL (autofill) ceremony in the background. A real browser never
+  // completes one without the user picking a passkey from the autofill list —
+  // but the virtual authenticator approves every presence check instantly, so
+  // with simulation left on it would win every race and no explicit button
+  // would ever be exercised. So presence simulation is switched OFF while the
+  // login screen is up, leaving the background ceremony pending exactly as it
+  // would be in front of a real user, and switched on only to answer the
+  // ceremony a click has just started.
   // ---------------------------------------------------------------------------
+
+  /** Simulates (or withholds) the user's touch on the virtual authenticator. */
+  async function setPresence(enabled: boolean) {
+    await cdp.send('WebAuthn.setAutomaticPresenceSimulation', { authenticatorId, enabled })
+  }
+
+  /** Clicks a button that starts a passkey ceremony, then answers the prompt. */
+  async function clickAndApprove(button: ReturnType<Page['getByRole']>) {
+    await button.click()
+    await setPresence(true)
+    // Leave the authenticator inert again so the next login screen's background
+    // conditional ceremony cannot resolve itself.
+    await expect(page.locator('nav').getByRole('link', { name: 'Projects' })).toBeVisible()
+    await setPresence(false)
+  }
 
   test('register a passkey via the real browser ceremony', async () => {
     cdp = await page.context().newCDPSession(page)
@@ -261,7 +286,24 @@ test.describe.serial('Janus flagship smoke', () => {
       credentials.length,
       'the virtual authenticator holds no credential — the ceremony did not complete',
     ).toBe(1)
-    expect(credentials[0].isResidentCredential ?? false).toBeDefined()
+    // Janus enrols with residentKey:"required", so the credential MUST be
+    // discoverable — that is the whole precondition for passwordless sign-in.
+    expect(
+      credentials[0].isResidentCredential,
+      'the credential is not resident — residentKey:"required" did not take effect',
+    ).toBe(true)
+
+    // ...and the UI says so, from the server's own credProps record, so a user
+    // is never left guessing why the passwordless button ignores their passkey.
+    const row = page.locator('table.sessions tbody tr', { hasText: 'E2E virtual key' })
+    await expect(
+      row.getByText(/^Yes$/),
+      'Settings does not report the passkey as usable passwordlessly',
+    ).toBeVisible()
+
+    // From here on the login screen is in play, so the authenticator goes inert
+    // (see the note above) and each ceremony is approved explicitly.
+    await setPresence(false)
   })
 
   test('sign in with the passkey after signing out', async () => {
@@ -278,11 +320,41 @@ test.describe.serial('Janus flagship smoke', () => {
       passkeyBtn,
       'the passkey sign-in button is absent — the server reported passkeys unavailable',
     ).toBeVisible()
-    await passkeyBtn.click()
-
     // A successful assertion lands us in the shell with no password typed.
-    const projectsNav = page.locator('nav').getByRole('link', { name: 'Projects' })
-    await expect(projectsNav).toBeVisible()
+    await clickAndApprove(passkeyBtn)
+  })
+
+  // The passwordless (client-side discoverable) ceremony: NOTHING is typed —
+  // no address, no password, no code. The browser finds the resident credential
+  // on its own and the server resolves the account from it.
+  //
+  // This is the step Go tests genuinely cannot stand in for: a discoverable
+  // ceremony only works if Chrome itself can locate a resident credential for
+  // this RP with an empty allowCredentials list. A software authenticator in Go
+  // is always handed the credential id by the test.
+  test('sign in passwordlessly with no address typed', async () => {
+    await page.goto('/')
+    await page.locator('button.user-chip').click()
+    await expect(page.locator('#email')).toBeVisible()
+
+    // The address field must be left completely untouched.
+    await expect(page.locator('#email')).toHaveValue('')
+
+    const passwordlessBtn = page.getByRole('button', { name: /no address needed/i })
+    await expect(
+      passwordlessBtn,
+      'the passwordless sign-in button is absent — the server reported passkeys unavailable',
+    ).toBeVisible()
+    // It must NOT be gated on the address field, unlike the identified button.
+    await expect(passwordlessBtn).toBeEnabled()
+    await clickAndApprove(passwordlessBtn)
+
+    // The session really is the same owner account — the server resolved it
+    // from the credential alone, with nothing supplied by the page.
+    await expect(
+      page.locator('button.user-chip'),
+      'the passwordless session resolved to the wrong account',
+    ).toContainText(ADMIN_EMAIL)
   })
 
   test('the passkey login is recorded in the audit ledger', async () => {

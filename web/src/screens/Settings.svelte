@@ -847,12 +847,25 @@
           {:else}
             <table class="sessions">
               <thead>
-                <tr><th>Device</th><th>Registered</th><th>Last used</th><th class="act"></th></tr>
+                <tr><th>Device</th><th>Passwordless</th><th>Registered</th><th>Last used</th><th class="act"></th></tr>
               </thead>
               <tbody>
                 {#each passkeys.credentials as c (c.id)}
                   <tr>
                     <td><span class="dev">{c.nickname}</span></td>
+                    <td>
+                      <!-- Three states, never two: yes / no / we do not know.
+                           Claiming "yes" for a passkey we never confirmed would
+                           leave the user guessing why the button fails. -->
+                      {#if c.discoverable === true}
+                        <span class="pill pill-info">Yes</span>
+                      {:else if c.discoverable === false}
+                        <span class="pill pill-neutral">Address needed</span>
+                      {:else}
+                        <span class="pill pill-neutral"
+                          title="Registered before Janus recorded this, and not yet used for a passwordless sign-in.">Unknown</span>
+                      {/if}
+                    </td>
                     <td><span class="when">{relTime(c.created_at)}</span></td>
                     <td><span class="when">{c.last_used_at ? relTime(c.last_used_at) : 'never'}</span></td>
                     <td class="act">
@@ -871,6 +884,12 @@
               {passkeyBusy ? 'Waiting for your device…' : 'Register a passkey'}
             </button>
           </div>
+          <p class="folio">
+            <b>Passwordless</b> means the sign-in page can use this passkey with no address typed
+            first. New passkeys are always registered this way. Older ones may not be — they show
+            as <i>Unknown</i> until one passwordless sign-in proves it, and until then use
+            <i>A passkey</i> on the sign-in page, which asks for your address.
+          </p>
           <p class="folio">
             Removing your last passkey never locks you out: your passphrase — and your two-factor
             code, where enabled — keeps working.

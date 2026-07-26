@@ -20,6 +20,21 @@ backed by Postgres). Nothing is stubbed — every step hits the real `/v1` API.
 8. **Audit event** — navigates to the ledger and confirms a `secret.reveal`
    event for the key exists, and that the hash chain verifies.
 
+It then covers the passkey (WebAuthn) path using Chrome's CDP **virtual
+authenticator**, which is the only way to exercise the browser half of the
+ceremony:
+
+9. **Register a passkey** — the real `navigator.credentials.create()` ceremony;
+   asserts the created credential is *resident* (Janus enrols with
+   `residentKey: "required"`) and that Settings reports it as usable
+   passwordlessly.
+10. **Sign in with the passkey** — signs out, types the address, and asserts.
+11. **Sign in passwordlessly** — signs out and clicks *A passkey — no address
+    needed* with the address field left empty. Chrome locates the resident
+    credential itself; the server resolves the account from the credential id
+    alone. This is the step Go tests cannot stand in for.
+12. **Audit event** — confirms the passkey login reached the ledger.
+
 > **The server must be freshly initialized.** The init ceremony runs exactly once
 > per server lifetime. Always run against a clean stack.
 

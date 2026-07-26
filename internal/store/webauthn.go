@@ -18,8 +18,14 @@ type WebAuthnCredential struct {
 	Credential []byte
 	SignCount  int64
 	Nickname   string
-	CreatedAt  time.Time
-	LastUsedAt *time.Time
+	// Discoverable records whether the authenticator stored this credential as
+	// a client-side discoverable (resident) key, as reported by the client's
+	// `credProps` extension at registration. nil means UNKNOWN — either the
+	// client did not report it, or the credential predates the column. Advisory
+	// display metadata; never an authorization input.
+	Discoverable *bool
+	CreatedAt    time.Time
+	LastUsedAt   *time.Time
 }
 
 // WebAuthnChallenge is a pending ceremony. Challenge is the base64url challenge
@@ -85,15 +91,16 @@ func (r *WebAuthnRepo) DeleteExpiredChallenges(ctx context.Context) error {
 
 // InsertCredential registers a passkey. A duplicate credential id (the same
 // authenticator credential registered twice, possibly to a different account) or
-// a duplicate nickname for the user maps to ErrAlreadyExists.
-func (r *WebAuthnRepo) InsertCredential(ctx context.Context, userID, rpID string, credentialID, credential []byte, signCount int64, nickname string) (*WebAuthnCredential, error) {
+// a duplicate nickname for the user maps to ErrAlreadyExists. discoverable may
+// be nil when the client did not report the credProps extension.
+func (r *WebAuthnRepo) InsertCredential(ctx context.Context, userID, rpID string, credentialID, credential []byte, signCount int64, nickname string, discoverable *bool) (*WebAuthnCredential, error) {
 	var c WebAuthnCredential
 	err := r.s.pool.QueryRow(ctx,
-		`INSERT INTO webauthn_credentials (user_id, rp_id, credential_id, credential, sign_count, nickname)
-		 VALUES ($1::uuid, $2, $3, $4, $5, $6)
-		 RETURNING id::text, user_id::text, rp_id, credential_id, credential, sign_count, nickname, created_at, last_used_at`,
-		userID, rpID, credentialID, credential, signCount, nickname).
-		Scan(&c.ID, &c.UserID, &c.RPID, &c.CredentialID, &c.Credential, &c.SignCount, &c.Nickname, &c.CreatedAt, &c.LastUsedAt)
+		`INSERT INTO webauthn_credentials (user_id, rp_id, credential_id, credential, sign_count, nickname, discoverable)
+		 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+		 RETURNING id::text, user_id::text, rp_id, credential_id, credential, sign_count, nickname, discoverable, created_at, last_used_at`,
+		userID, rpID, credentialID, credential, signCount, nickname, discoverable).
+		Scan(&c.ID, &c.UserID, &c.RPID, &c.CredentialID, &c.Credential, &c.SignCount, &c.Nickname, &c.Discoverable, &c.CreatedAt, &c.LastUsedAt)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -105,7 +112,7 @@ func (r *WebAuthnRepo) InsertCredential(ctx context.Context, userID, rpID string
 // usable for the current relying party and must not be offered in allowCredentials.
 func (r *WebAuthnRepo) ListCredentials(ctx context.Context, userID, rpID string) ([]WebAuthnCredential, error) {
 	rows, err := r.s.pool.Query(ctx,
-		`SELECT id::text, user_id::text, rp_id, credential_id, credential, sign_count, nickname, created_at, last_used_at
+		`SELECT id::text, user_id::text, rp_id, credential_id, credential, sign_count, nickname, discoverable, created_at, last_used_at
 		   FROM webauthn_credentials
 		  WHERE user_id = $1::uuid AND rp_id = $2
 		  ORDER BY created_at, id`, userID, rpID)
@@ -117,7 +124,7 @@ func (r *WebAuthnRepo) ListCredentials(ctx context.Context, userID, rpID string)
 	for rows.Next() {
 		var c WebAuthnCredential
 		if err := rows.Scan(&c.ID, &c.UserID, &c.RPID, &c.CredentialID, &c.Credential,
-			&c.SignCount, &c.Nickname, &c.CreatedAt, &c.LastUsedAt); err != nil {
+			&c.SignCount, &c.Nickname, &c.Discoverable, &c.CreatedAt, &c.LastUsedAt); err != nil {
 			return nil, mapError(err)
 		}
 		out = append(out, c)
@@ -136,13 +143,18 @@ func (r *WebAuthnRepo) CountCredentials(ctx context.Context, userID, rpID string
 
 // GetCredentialByCredentialID looks a passkey up by its raw authenticator
 // credential id (globally unique). ErrNotFound when unknown.
+//
+// This is the identity anchor of the DISCOVERABLE (passwordless) login flow: the
+// account is whatever this row says owns the credential, never whatever the
+// client's assertion claims. Callers must additionally check that the user
+// handle presented in the assertion matches the handle derived from UserID.
 func (r *WebAuthnRepo) GetCredentialByCredentialID(ctx context.Context, credentialID []byte) (*WebAuthnCredential, error) {
 	var c WebAuthnCredential
 	err := r.s.pool.QueryRow(ctx,
-		`SELECT id::text, user_id::text, rp_id, credential_id, credential, sign_count, nickname, created_at, last_used_at
+		`SELECT id::text, user_id::text, rp_id, credential_id, credential, sign_count, nickname, discoverable, created_at, last_used_at
 		   FROM webauthn_credentials WHERE credential_id = $1`, credentialID).
 		Scan(&c.ID, &c.UserID, &c.RPID, &c.CredentialID, &c.Credential,
-			&c.SignCount, &c.Nickname, &c.CreatedAt, &c.LastUsedAt)
+			&c.SignCount, &c.Nickname, &c.Discoverable, &c.CreatedAt, &c.LastUsedAt)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -173,6 +185,21 @@ func (r *WebAuthnRepo) RecordAssertion(ctx context.Context, id string, credentia
 		return false, mapError(err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// MarkDiscoverable records that a credential is client-side discoverable. It is
+// called after a SUCCESSFUL passwordless assertion, which is direct proof that
+// the authenticator holds the credential as a resident key — better evidence
+// than the credProps hint collected at registration, and the only way to learn
+// it for credentials enrolled before that hint was requested.
+//
+// It only ever moves nil/false → true, never the other way: a credential that
+// has demonstrably worked passwordlessly cannot be un-demonstrated.
+func (r *WebAuthnRepo) MarkDiscoverable(ctx context.Context, id string) error {
+	_, err := r.s.pool.Exec(ctx,
+		`UPDATE webauthn_credentials SET discoverable = true
+		  WHERE id = $1::uuid AND discoverable IS DISTINCT FROM true`, id)
+	return mapError(err)
 }
 
 // RenameCredential sets a passkey's nickname, scoped to its owner so renaming

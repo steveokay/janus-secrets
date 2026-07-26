@@ -16,6 +16,22 @@ export function passkeysSupported(): boolean {
     !!navigator.credentials
 }
 
+/* Conditional mediation ("passkey autofill"): the browser may offer a
+   discoverable passkey inside the sign-in field instead of a modal. Not every
+   engine implements it, so it is feature-detected and degraded to the explicit
+   button rather than assumed. */
+export async function conditionalMediationAvailable(): Promise<boolean> {
+  if (!passkeysSupported()) return false
+  const c = window.PublicKeyCredential as unknown as
+    { isConditionalMediationAvailable?: () => Promise<boolean> }
+  if (typeof c.isConditionalMediationAvailable !== 'function') return false
+  try {
+    return await c.isConditionalMediationAvailable()
+  } catch {
+    return false
+  }
+}
+
 /** The user dismissed or cancelled the platform prompt — not an error to shout about. */
 export class PasskeyAbortError extends Error {
   constructor(message = 'Passkey prompt was dismissed.') {
@@ -56,6 +72,10 @@ type JsonCreationOptions = {
   excludeCredentials?: JsonDescriptor[]
   authenticatorSelection?: Record<string, unknown>
   attestation?: string
+  /* Janus requests `credProps`, which is how the server learns whether the
+     authenticator really stored a discoverable credential. It must be forwarded
+     verbatim — dropping it silently loses that answer. */
+  extensions?: Record<string, unknown>
 }
 type JsonRequestOptions = {
   challenge: string
@@ -90,6 +110,7 @@ export async function createCredential(options: unknown): Promise<string> {
     ...(o.excludeCredentials ? { excludeCredentials: toDescriptors(o.excludeCredentials) } : {}),
     ...(o.authenticatorSelection ? { authenticatorSelection: o.authenticatorSelection as AuthenticatorSelectionCriteria } : {}),
     ...(o.attestation ? { attestation: o.attestation as AttestationConveyancePreference } : {}),
+    ...(o.extensions ? { extensions: o.extensions as AuthenticationExtensionsClientInputs } : {}),
   }
   const cred = (await navigator.credentials.create({ publicKey })) as PublicKeyCredential | null
   if (!cred) throw new PasskeyAbortError()
@@ -102,11 +123,25 @@ export async function createCredential(options: unknown): Promise<string> {
       clientDataJSON: bytesToB64url(r.clientDataJSON),
       attestationObject: bytesToB64url(r.attestationObject),
     },
+    /* credProps tells the server whether the authenticator really stored a
+       DISCOVERABLE credential, which is what decides if this passkey can be
+       used for passwordless sign-in. Advisory display metadata — the server
+       treats it as a hint, never as an authorization input. */
+    clientExtensionResults: cred.getClientExtensionResults(),
   })
 }
 
+/** Options for a get() ceremony beyond the server-supplied request options. */
+export interface AssertionOptions {
+  /* 'conditional' asks the browser to surface a passkey through autofill on a
+     field marked autocomplete="… webauthn", instead of showing a modal. The
+     call then sits pending until the user picks one — so it must be abortable. */
+  mediation?: CredentialMediationRequirement
+  signal?: AbortSignal
+}
+
 /** Runs navigator.credentials.get() and returns the JSON body to POST back. */
-export async function getAssertion(options: unknown): Promise<string> {
+export async function getAssertion(options: unknown, extra: AssertionOptions = {}): Promise<string> {
   const o = options as JsonRequestOptions
   const publicKey: PublicKeyCredentialRequestOptions = {
     challenge: b64urlToBytes(o.challenge),
@@ -115,7 +150,11 @@ export async function getAssertion(options: unknown): Promise<string> {
     ...(o.allowCredentials ? { allowCredentials: toDescriptors(o.allowCredentials) } : {}),
     ...(o.userVerification ? { userVerification: o.userVerification as UserVerificationRequirement } : {}),
   }
-  const cred = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null
+  const cred = (await navigator.credentials.get({
+    publicKey,
+    ...(extra.mediation ? { mediation: extra.mediation } : {}),
+    ...(extra.signal ? { signal: extra.signal } : {}),
+  })) as PublicKeyCredential | null
   if (!cred) throw new PasskeyAbortError()
   const r = cred.response as AuthenticatorAssertionResponse
   return JSON.stringify({
@@ -126,6 +165,10 @@ export async function getAssertion(options: unknown): Promise<string> {
       clientDataJSON: bytesToB64url(r.clientDataJSON),
       authenticatorData: bytesToB64url(r.authenticatorData),
       signature: bytesToB64url(r.signature),
+      /* The userHandle is what a PASSWORDLESS ceremony uses to name the
+         account. The server never trusts it on its own: it resolves the account
+         from the credential id in its own store and only cross-checks this
+         against it. */
       ...(r.userHandle ? { userHandle: bytesToB64url(r.userHandle) } : {}),
     },
   })

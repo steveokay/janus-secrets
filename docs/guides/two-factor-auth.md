@@ -5,8 +5,9 @@ Janus offers two ways to strengthen a human login:
 - **TOTP** — a rotating 6-digit code layered on top of your password. Covered
   first, below.
 - **Passkeys (WebAuthn)** — a hardware- or platform-backed credential that
-  replaces the password *and* the code in a single step. See
-  [Passkeys (WebAuthn)](#passkeys-webauthn) at the end of this guide.
+  replaces the password *and* the code in a single step, with or without typing
+  your address. See [Passkeys (WebAuthn)](#passkeys-webauthn) at the end of this
+  guide.
 
 The two are independent: you can enable either, both, or neither. Passkeys are
 off until an operator configures the Relying Party (`JANUS_WEBAUTHN_RP_ID` /
@@ -260,6 +261,25 @@ You can register several passkeys — a laptop, a phone, a backup security key �
 each with its own name. Registering the *same* authenticator twice is refused;
 your device will usually tell you it already has a passkey for this account.
 
+#### Discoverable credentials are required
+
+Janus sets `residentKey: required` on enrolment, so every new passkey is a
+**client-side discoverable credential** — one your device can offer with no
+address typed first. That is what makes [passwordless
+sign-in](#passwordless-sign-in-no-address-needed) work.
+
+This is a deliberate trade. `preferred` (what Janus used before) lets an
+authenticator quietly store a *non*-discoverable credential, and the user then
+finds the passwordless button inexplicably ignores their passkey. Requiring it
+makes the trade-off loud instead: an authenticator that cannot store a resident
+key — typically a hardware security key whose slots are full — refuses enrolment
+with a visible error. Your password path is untouched either way.
+
+Janus also asks the browser for the `credProps` extension, which reports whether
+a discoverable credential was actually created, and records the answer so
+**Settings → Passkeys** can show it per device (see
+[Managing passkeys](#managing-passkeys)).
+
 #### What gets stored
 
 Only **public** material: the credential id, the COSE public key, attestation
@@ -268,11 +288,69 @@ secret-equivalent value, so — unlike the TOTP secret — nothing here is wrapp
 under the master key, and master-key rotation has nothing to re-wrap. The
 private key never leaves your authenticator.
 
-### Signing in with a passkey
+### Passwordless sign-in (no address needed)
+
+On the login screen, choose **A passkey — no address needed**. You type nothing:
+the browser offers whichever passkey it holds for this site, your device verifies
+you, and you are signed in.
+
+Where the browser supports it, the same thing happens through **autofill**: click
+into the address field and your passkey is offered inline alongside saved
+addresses ("conditional mediation"). This runs silently — if the browser doesn't
+support it, or you ignore it, the explicit buttons behave exactly as before.
+
+#### How the account is determined, and why that is safe
+
+The [email-identified flow](#signing-in-with-a-passkey-email-identified) takes
+the account from the **challenge**, so a challenge minted for one account can
+never be spent on another. A passwordless ceremony cannot work that way — at the
+start there *is* no account — so identity necessarily comes from the assertion.
+
+That inversion is only safe because the assertion is never believed on its own:
+
+1. The presented **credential id** is looked up in Janus's own store. An id it
+   never issued resolves to nothing and the ceremony ends.
+2. The account is whatever **that stored row** says owns the credential. The
+   `userHandle` the browser sends is *not* used to select the account.
+3. The presented `userHandle` must **equal** the handle derived from that owner's
+   account id. A credential belonging to one user, presented with another user's
+   handle, is rejected outright — credential substitution cannot authenticate.
+4. The signature is verified against **that stored credential's public key**, and
+   the asserted credential must be present in that account's own credential set.
+
+Everything the identified path enforces still holds: the challenge is single-use
+and expiring, `userVerification: required` is re-asserted from the authenticator
+flags, a signature counter that fails to advance is fatal, origin and RP ID are
+verified, disabled accounts are refused, and lockout is honoured (revealed only
+after a valid assertion).
+
+The two ceremonies use **separate challenge pools**, so a challenge minted for
+one can never be finished as the other.
+
+> **Enumeration gets better here, not worse.** No address is sent at begin, so
+> there is nothing to probe: the begin response is identical for every caller
+> apart from the random challenge, and carries no credential list at all. Every
+> possible failure at finish — unknown credential, mismatched handle, bad
+> signature, replayed challenge, disabled account — returns the *same* 401, so
+> "no such passkey" and "wrong signature" cannot be told apart.
+
+#### When passwordless does not work
+
+The passwordless button needs a **discoverable** credential on the device. A
+passkey enrolled before Janus started requiring one may not be discoverable, in
+which case the browser reports it has nothing to offer. Check **Settings →
+Passkeys**, which shows this per device, and use the address-identified button
+(or re-enrol) in the meantime.
+
+### Signing in with a passkey (email-identified)
 
 On the login screen, type your email and choose **A passkey**. Your device
 prompts; on success you are signed in. There is no password step and no
 two-factor code step.
+
+This path still exists because it works with passkeys whose discoverability is
+unknown or absent, and because on a shared device it lets you say up front which
+account you mean.
 
 The login-begin endpoint answers **identically** whether the address is a real
 account with passkeys, a real account without them, a disabled account, or a
@@ -286,16 +364,18 @@ more** registered passkeys is distinguishable by the length of the returned
 credential list — never by existence, and never in the common one-passkey case.
 The per-IP rate limit bounds how far that can be sampled.
 
-> Passkeys are currently **email-identified**: you type your address, then the
-> browser picks the matching credential. Fully username-less (discoverable /
-> conditional-UI) sign-in is not implemented yet, though credentials are enrolled
-> as discoverable where the authenticator supports it, so adding it later will
-> not require re-enrolment.
-
 ### Managing passkeys
 
-**Settings → Passkeys** lists every registered device with when it was added and
-when it was last used, and lets you **Rename** or **Remove** each one.
+**Settings → Passkeys** lists every registered device with when it was added,
+when it was last used, and whether it can be used **passwordlessly**:
+
+| Passwordless | Meaning |
+| --- | --- |
+| **Yes** | The device confirmed a discoverable credential at registration, or has since completed a passwordless sign-in. **A passkey — no address needed** will work. |
+| **Address needed** | The client explicitly reported it did *not* store a discoverable credential. Use the address-identified button, or re-enrol. |
+| **Unknown** | Registered before Janus recorded this, and not yet used passwordlessly. It may or may not work; one successful passwordless sign-in promotes it to **Yes**. |
+
+You can **Rename** or **Remove** each one.
 
 **Removing your last passkey cannot lock you out.** A passkey is an additional
 way in, never a replacement for the password: your passphrase — and your TOTP
@@ -338,8 +418,11 @@ with it as follows:
 ### API reference
 
 Management routes require a **user session** (service tokens are rejected). All
-passkey routes are rate-limited per client IP. Ceremony payloads are the standard
-WebAuthn JSON structures.
+passkey routes share a per-client-IP rate limit of **60/min sustained, burst 24**
+— note that a single visit to the login screen spends two of those (the status
+probe plus the background conditional-mediation challenge), and the limit is
+per IP, so a large office behind one NAT shares it. Ceremony payloads are the
+standard WebAuthn JSON structures.
 
 | Method & path | Auth | Purpose |
 | --- | --- | --- |
@@ -351,6 +434,11 @@ WebAuthn JSON structures.
 | `DELETE /v1/auth/webauthn/credentials/{id}` | session | Remove a passkey. |
 | `POST /v1/auth/webauthn/login/begin` | none | Body `{ email }`; issue an assertion challenge. |
 | `POST /v1/auth/webauthn/login/finish` | none | Verify the assertion and set the session cookie. |
+| `POST /v1/auth/webauthn/login/discoverable/begin` | none | Optional body `{ conditional }`; issue a **passwordless** challenge bound to no account. |
+| `POST /v1/auth/webauthn/login/discoverable/finish` | none | Verify a passwordless assertion and set the session cookie. |
+
+`GET /v1/auth/webauthn` returns a `discoverable` field per credential: `true`,
+`false`, or `null` for unknown.
 
 ### Security notes
 
@@ -358,8 +446,12 @@ WebAuthn JSON structures.
   account.** A finish claims the challenge with an atomic delete, so a replay —
   or two concurrent finishes of the same challenge — cannot both succeed. A
   registration challenge additionally has to belong to the session that started
-  it; a login challenge determines which account the assertion is spent on, so a
-  challenge minted for one account can never be redeemed for another.
+  it; an *email-identified* login challenge determines which account the
+  assertion is spent on, so a challenge minted for one account can never be
+  redeemed for another. A **passwordless** challenge is bound to no account by
+  design, and lives in its own pool so it cannot be crossed with either of the
+  other two — there, the binding is done by the credential lookup instead (see
+  [How the account is determined](#how-the-account-is-determined-and-why-that-is-safe)).
 - **Origin and RP ID are verified on both ceremonies**, against the
   operator-configured values.
 - **The signature counter is enforced.** Every assertion must carry a counter
@@ -376,7 +468,9 @@ WebAuthn JSON structures.
   recording the credential id (a public handle) and the outcome — never key
   material. A rejected assertion is audited as a denied login; a counter
   regression is recorded distinctly so a cloned authenticator is visible in the
-  trail.
+  trail. Every passkey login also records which ceremony it was
+  (`ceremony=identified` or `ceremony=discoverable`), so a passwordless sign-in
+  is visible as such in the ledger.
 - **The SPA loads no external script.** WebAuthn is a native browser API, so the
   strict `'self'` CSP is untouched.
 - **Third-party crypto.** Passkeys use `github.com/go-webauthn/webauthn` for COSE

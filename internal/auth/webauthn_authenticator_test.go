@@ -154,8 +154,15 @@ func (a *virtAuthenticator) assertionResponse(t *testing.T, opts virtOpts) []byt
 	if err != nil {
 		t.Fatalf("sign assertion: %v", err)
 	}
+	// The credential id presented may be overridden, so a test can express the
+	// credential-substitution attack (a credential id belonging to one account
+	// paired with another account's user handle).
+	id := opts.rawID
+	if id == nil {
+		id = a.credID
+	}
 	body, err := json.Marshal(map[string]any{
-		"id": b64u(a.credID), "rawId": b64u(a.credID), "type": "public-key",
+		"id": b64u(id), "rawId": b64u(id), "type": "public-key",
 		"response": map[string]any{
 			"clientDataJSON":    b64u(cd),
 			"authenticatorData": b64u(ad),
@@ -178,6 +185,9 @@ type virtOpts struct {
 	flags      byte
 	userHandle []byte
 	signCount  *uint32
+	// rawID overrides the credential id presented (nil = the authenticator's
+	// own). Only the discoverable-login tests need it.
+	rawID []byte
 }
 
 // challengeFrom pulls the challenge out of a serialized
