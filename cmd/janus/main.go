@@ -49,6 +49,7 @@ func newRootCmd() *cobra.Command {
 		newImportCmd(),
 		newNotificationsCmd(),
 		newBreakGlassCmd(),
+		newAdminCmd(),
 		newVersionCmd(),
 		newWhoamiCmd(),
 		newSessionCmd(),
