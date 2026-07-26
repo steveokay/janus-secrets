@@ -167,7 +167,13 @@ func (s *Server) handleEnvDelete(w http.ResponseWriter, r *http.Request) {
 	if destroy {
 		detail = "destroy"
 	}
-	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	// Deleted-inclusive, like handleEnvRestore: `destroy=true` is reached from
+	// Trash where the environment is ALREADY soft-deleted, and a soft-deleted
+	// row is invisible to the live-only resolveScopeResource — so this 404'd
+	// before authorization ever ran. Soft-deleting a live environment lands here
+	// too and is unaffected. Authorization is unchanged in strength: the same
+	// authz.EnvDelete on the same project→env scope still gates the call.
+	res, err := s.resolveEnvScopeIncludingDeleted(r.Context(), eid)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
