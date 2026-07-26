@@ -24,8 +24,8 @@ audit log, and encryption-as-a-service with key versioning.
 >   operations console; **OIDC** human login **and** OIDC-federated CI machine
 >   identity; and the usage-metrics ("Reads 24h") dashboard.
 > - **Phase 3 — Rotation + dynamic:** scheduled static rotation (six rotators),
->   sync integrations (eight providers), and dynamic Postgres credentials with a
->   lease manager.
+>   sync integrations (eight providers, with drift detection reading the
+>   destination back), and dynamic Postgres credentials with a lease manager.
 >
 > Janus is usable end-to-end: `docker compose up`, create a project in the UI or
 > CLI, set secrets, and `janus run` injects them into your process. What remains
@@ -44,8 +44,11 @@ audit log, and encryption-as-a-service with key versioning.
 > [production deployment](docs/guides/production-deployment.md) (TLS
 > termination, configuration, unseal, sizing, backups, and upgrades) —
 > including [**deployment modes**](docs/guides/production-deployment.md#10-deployment-modes)
-> (Docker/Compose, Kubernetes, Swarm, Argo CD/Flux, Nomad, systemd) and the
-> [Helm chart](deploy/helm/janus).
+> (Docker/Compose, Kubernetes, Swarm, Argo CD/Flux, Nomad, systemd), the
+> [Helm chart](deploy/helm/janus), and the
+> [Grafana dashboard + alert rules](deploy/grafana). For signing in, see
+> [passkeys](docs/guides/passkeys.md) and
+> [two-factor authentication](docs/guides/two-factor-auth.md).
 > The subsystem **references** cover
 > [architecture](docs/architecture.md), [cryptography](docs/crypto.md), the
 > [data model & versioning](docs/data-model.md),
@@ -105,10 +108,11 @@ re-seals a running server and now **requires the `sys:seal` permission**.
 Several authentication methods ship today. For humans: **email + password**
 (Argon2id, opaque Postgres-backed sessions via an HTTP-only cookie) with an
 optional **TOTP second factor** (RFC 6238 + single-use recovery codes;
-`401 totp_required` gate) and **OIDC** login (see below). For machines: **scoped
-service tokens** (`janus_svc_…`, shown once at creation, only their HMAC is
-stored, with optional **per-token CIDR IP allowlists**) and **OIDC-federated CI
-identity** (see below). A single `Principal{Kind,ID,Name}` is the seam that
+`401 totp_required` gate), **WebAuthn passkeys**, and **OIDC** login (see below).
+For machines: **scoped service tokens** (`janus_svc_…`, shown once at creation,
+only their HMAC is stored, with optional **per-token CIDR IP allowlists**) and
+**OIDC-federated workload identity** (see below). A single
+`Principal{Kind,ID,Name}` is the seam that
 authorization, audit, and federation build on. The initial admin is created
 during the init ceremony (one-time password shown once). The password path is
 further hardened by **progressive per-account lockout** (`JANUS_LOCKOUT_*`,
@@ -116,6 +120,23 @@ admin unlock) and **session management** (`GET/DELETE /v1/auth/sessions` —
 list/revoke, with a password change revoking every other session). For
 emergencies, **break-glass** grants time-boxed, loud-audited role elevation on a
 scope you already hold — see [docs/guides/break-glass.md](docs/guides/break-glass.md).
+
+**Passkeys (WebAuthn)** are an alternative front door rather than a second
+factor: Janus requires user verification on every ceremony, so a passkey already
+proves possession of the device *and* the PIN/biometric that unlocks it, and a
+passkey login is not additionally gated by TOTP. Two ceremonies ship, in separate
+challenge pools — **email-identified**, and **passwordless/discoverable** where
+you type nothing and the account is resolved from the presented credential id in
+Janus's own store (the assertion's `userHandle` is only cross-checked against
+that owner, never used to select the account). Enrolment sets
+`residentKey: required` so new passkeys always work passwordlessly, and records
+the `credProps` hint so Settings can report per-credential discoverability. Only
+public credential material is stored, challenges are single-use and expiring, the
+signature counter is enforced, and both login-begin endpoints answer identically
+for real, absent, and disabled accounts. Passkeys are **off** until an operator
+sets `JANUS_WEBAUTHN_RP_ID` / `JANUS_WEBAUTHN_ORIGINS` (validated at boot, never
+derived from the request `Host`), and removing your last passkey can never lock
+you out — see [docs/guides/passkeys.md](docs/guides/passkeys.md).
 
 Authorization is **deny-by-default RBAC**. Four roles — viewer ⊂ developer ⊂
 admin ⊂ owner — bind to a user at **instance**, **project**, or **environment**
@@ -151,10 +172,17 @@ domain-separated HMAC-SHA256 over the head's `through_seq‖through_hash‖event
 keyed off a key derived from (but separate from) the token-HMAC key — and
 `verify` then validates the latest checkpoint's MAC and walks *forward* from it
 (a forged checkpoint fails as `checkpoint_mac_invalid`, never falling back to a
-genesis walk). `POST /v1/audit/prune` (`audit:manage`) hard-deletes the verified
-prefix anchored by a checkpoint; it is **fail-closed** (no checkpoint or a bad
-MAC refuses) and **clamped to the audit-ship high-water mark** so nothing is
-pruned before it has been shipped, and checkpoint anchor rows are never deleted.
+genesis walk; `event_count` stays a lifetime total across prunes). Both
+checkpoint and prune first **verify the chain** — signing or deleting across a
+tampered head would launder a detectable compromise into an undetectable one.
+`POST /v1/audit/prune` (`audit:manage`) hard-deletes the verified
+prefix anchored by a checkpoint; it is **fail-closed** (no checkpoint, a bad
+MAC, or an unverifiable chain refuses) and clamped by two ceilings — the
+**audit-ship high-water mark**, bound to shipping *history* rather than to
+whether the shipper is currently wired in, so nothing is pruned before it has
+been shipped; and an optional **minimum-retention floor**
+(`JANUS_AUDIT_RETAIN_MIN_DAYS` / `JANUS_AUDIT_RETAIN_MIN_EVENTS`, both off by
+default). Checkpoint anchor rows are never deleted.
 The engine (`internal/audit`) is pure and HTTP-free.
 
 ### Transit (encryption as a service)
@@ -179,11 +207,20 @@ high-frequency data-plane ops are not. See [docs/transit.md](docs/transit.md).
 Beyond passwords and service tokens, Janus supports **OIDC** for humans
 (Authorization Code + PKCE + state + nonce against a generic provider, tested
 against GitHub and Google; the client secret is master-key-wrapped and login is
-CSRF-hardened with a browser-bound state cookie) and **OIDC-federated machine
-identity** for CI: a GitHub Actions workflow exchanges its OIDC JWT for a
-short-lived, scoped `janus_svc_` token via `POST /v1/auth/oidc/federate`, gated
-by admin-authored structured-claim trust bindings (repository required,
-exactly-one match, TTL ≤ 1h) — no long-lived secret in the CI system. Both are
+CSRF-hardened with a browser-bound state cookie) and **OIDC-federated workload
+identity**: a GitHub Actions workflow — or a **Kubernetes pod, using its
+projected service-account token** — exchanges its OIDC JWT for a short-lived,
+scoped `janus_svc_` token via `POST /v1/auth/oidc/federate`, gated by
+admin-authored structured-claim trust bindings (provider-aware required claim,
+exactly-one match, TTL ≤ 1h) — no long-lived secret in the CI system or the
+cluster. The trust anchor is a **set** of issuers
+(`/v1/sys/oidc/federation/issuers`), so a CI provider and a Kubernetes cluster
+can be trusted at once: every binding is pinned to one issuer and the verifier is
+chosen by the token's own `iss`, so a token from one issuer can never satisfy a
+binding written for another. Nested claims are matched by dotted path
+(`kubernetes.io.serviceaccount.name`), and presets for `github`, `gitlab`,
+`buildkite`, `circleci`, and `kubernetes` force each binding to pin a meaningful
+identity. Both are
 admin-configured under `/v1/sys/oidc*`. See [docs/oidc.md](docs/oidc.md) and
 [docs/ci-federation.md](docs/ci-federation.md).
 
@@ -195,10 +232,13 @@ banknote-engraving / archival-ledger aesthetic with hand-written CSS tokens
 **embedded in the `janus` binary** via `go:embed`, served same-origin by the Go
 server (no Node in production). It covers in-browser Shamir unseal and login, the
 project → environment → config tree, the flagship **secret editor** (masked list
-with origin badges, audited per-key/bulk reveal, a client-side dirty buffer, and
-batched "Save as vN"), config version diff, the audit viewer with chain-verify
+with origin badges, audited per-key/bulk reveal, a client-side dirty buffer,
+batched "Save as vN", and a paste-based **import wizard** that recognises
+`.env` / Java `.properties` plus Doppler, Vault KV v2, and AWS Secrets Manager
+export output — no server endpoint, no third-party credential, no outbound call),
+config version diff, the audit viewer with chain-verify
 badge, export, and an owner-only **create-checkpoint** affordance, token/member
-management, the transit key console, a usage
+management, passkey enrolment and TOTP in Settings, the transit key console, a usage
 dashboard ("Reads 24h") with a **first-run onboarding checklist** (create project
 → add secrets → mint token → `janus run`, self-checking and dismissible), and an
 **operations console** over the three Phase-3
@@ -221,7 +261,16 @@ Three engines extend Janus past static storage:
   a config's resolved secrets to **eight providers**: `github` (NaCl sealed-box),
   `k8s` (server-side apply, verified TLS), `gitlab`, `aws_ssm`, `cloudflare`,
   `aws_secrets`, `vercel`, and `netlify` — with keyed-HMAC change detection and a
-  project-scoped resolver that blocks cross-project exfiltration.
+  project-scoped resolver that blocks cross-project exfiltration. **Drift
+  detection** closes the loop: a verification pass reads the destination back and
+  reports missing / modified / extra / unreadable keys. Six providers can compare
+  **values**; `github` and `cloudflare` are write-only at their APIs and so
+  report **names only** — a clean result there means the key names line up, not
+  that the values match, and the API, audit event, and UI all say so. The
+  comparison itself is value-free (remote values are HMACed under the existing
+  sync-fingerprint subkey and compared in constant time, never persisted or
+  logged). The verifier is **off by default** (`JANUS_SYNC_VERIFY_TICK`) because
+  it reads values back out of external systems; manual verification always works.
 - **Dynamic Postgres credentials** (`internal/dynamic`) — on-demand,
   config-scoped dynamic roles from admin-authored creation/revocation SQL
   templates, with a lease manager (TTL, monotonic renewal capped at max-TTL,
@@ -266,6 +315,17 @@ plaintext. Configs can **inherit** from a base config in the same environment
 time, transitively, with cycle detection and strict per-target authorization.
 See [docs/references.md](docs/references.md).
 
+Version history grows forever unless you prune it. **Value-version retention**
+makes that explicit and audited: pruning happens at *config-version*
+granularity — the unit of diff and rollback — so every retained version stays
+fully restorable, and only then are unreferenced value rows garbage-collected.
+It is gated by the owner-only `secret:prune` action (the one operation in Janus
+that destroys secret history irreversibly), and an instance-wide floor
+(`JANUS_SECRET_RETAIN_MIN_VERSIONS` / `JANUS_SECRET_RETAIN_MIN_DAYS`, both off by
+default) plus an optional per-config override can only ever retain *more*.
+`janus secrets retention get|set|clear` and `janus secrets prune --dry-run`
+drive it from the CLI.
+
 ## CLI
 
 The same `janus` binary is the client. A typical developer flow:
@@ -296,15 +356,19 @@ credential/address/binding precedence rules, the `.janus.yaml` format, and the
 - **Crypto:** Go stdlib `crypto/*` and `golang.org/x/crypto` only, plus cloud KMS
   auto-unseal (AWS KMS, GCP KMS, Azure Key Vault — used as a service, not a crypto
   library) and a vendored copy of HashiCorp Vault's Shamir implementation
-  (MPL-2.0). No third-party crypto primitives.
+  (MPL-2.0). No third-party crypto primitives. Two recorded exceptions, both for
+  standards work that should not be hand-rolled: JOSE/JWKS verification for OIDC,
+  and COSE/attestation parsing for passkeys (`github.com/go-webauthn/webauthn`).
+  The envelope, transit, and unseal crypto remain stdlib + `x/crypto`.
 - **Storage:** PostgreSQL 16+ via `pgx`, migrations with `golang-migrate`.
 - **HTTP:** `net/http` with `chi`, REST + JSON under `/v1/` (sys, auth, OIDC,
   token, user, membership, audit, metrics, transit, and the secret routes —
   projects/environments/configs, `configs/{cid}/secrets`
-  masked-list/reveal/write/delete, and `versions` list/diff/rollback — plus the
-  Phase-3 `rotation`/`sync`/`dynamic` engines — all live).
+  masked-list/reveal/write/delete, and `versions` list/diff/rollback/retention/
+  prune — plus the Phase-3 `rotation`/`sync`/`dynamic` engines — all live).
 - **AuthN/Z:** Argon2id passwords, HMAC-SHA256 token hashing, opaque sessions,
-  OIDC (Auth Code + PKCE) human login and OIDC-federated CI identity, and a pure
+  TOTP, WebAuthn passkeys, OIDC (Auth Code + PKCE) human login and
+  OIDC-federated workload identity over a multi-issuer trust set, and a pure
   deny-by-default RBAC engine.
 - **CLI:** `cobra` (server/ops: `janus server/init/unseal/seal-status/seal/
   migrate`; secrets: `janus login/logout/setup/secrets/run`; Phase-3:
@@ -325,19 +389,21 @@ internal/crypto/shamir/  vendored HashiCorp Shamir (MPL-2.0)
 internal/store/      Postgres repositories, migrations, versioning           ← implemented
 internal/secrets/    encryption orchestration + secrets CRUD                 ← implemented
 internal/resolve/    config inheritance + secret-reference resolution        ← implemented
-internal/api/        HTTP server + all /v1 routes (sys/auth/oidc/token/user/  ← implemented
-                     member/audit/metrics/secret/version/transit/rotation/
-                     sync/dynamic)
-internal/auth/       passwords, sessions, service tokens, OIDC + federation   ← implemented
+internal/api/        HTTP server + all /v1 routes (sys/auth [incl. totp +     ← implemented
+                     webauthn]/oidc/token/user/member/audit/metrics/secret/
+                     version [+ retention]/transit/rotation/sync/dynamic)
+internal/auth/       passwords, sessions, service tokens, TOTP, WebAuthn      ← implemented
+                     passkeys, OIDC login + multi-issuer federation
 internal/authz/      RBAC engine (roles, scopes, enforcement)                ← implemented
 internal/audit/      hash-chained audit log                                  ← implemented
 internal/transit/    transit engine (encrypt/decrypt/sign/verify, versioning) ← implemented
 internal/rotation/   scheduled static rotation (6 rotators)                  ← implemented
 internal/secretsync/ one-way sync to 8 providers (github/k8s/gitlab/…)       ← implemented
+                     + drift detection (read-back verify, value-free)
 internal/dynamic/    dynamic Postgres credentials + lease manager            ← implemented
 internal/nethard/    SSRF-hardened outbound dialer/HTTP client               ← implemented
 internal/web/        //go:embed dist + SPA handler (CSP, deep-link fallback) ← implemented
-migrations/          SQL migrations (000001–000039)
+migrations/          SQL migrations (000001–000044)
 web/                 Svelte SPA (Vite + TS, hand-written CSS)                ← implemented
 docs/                subsystem docs, design specs, implementation plans
 ```
@@ -402,7 +468,11 @@ floor.
   (169.254/fe80::/`fd00:ec2::254`, optional private-range block via
   `JANUS_OUTBOUND_BLOCK_PRIVATE`), and caps redirect hops/scheme — applied to
   every operator-configured outbound caller (rotation, sync, notifications, and
-  OIDC discovery/JWKS).
+  OIDC discovery/JWKS). Because a proxy would leave the dialer seeing only the
+  *proxy's* address, `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` are **ignored by
+  default** on those clients; `JANUS_OUTBOUND_ALLOW_PROXY` re-enables them for
+  proxy-only egress, logs a startup warning, and falls back to a partial
+  URL-time host check.
 - **Verify what you run.** Releases are **cosign keyless-signed** (over
   `checksums.txt` and the multi-arch GHCR image by digest) with **syft SBOMs**
   and **SLSA build-provenance** attestations (verify with `cosign verify-blob`
@@ -431,8 +501,8 @@ usage metrics ✅ (sub-project D — "Reads 24h"). **Phase 2 complete.**
 
 **Phase 3 — Rotation + dynamic:** scheduled static rotation (Postgres +
 webhook, since expanded to six rotators) ✅; sync integrations (GitHub Actions,
-Kubernetes, since expanded to eight providers) ✅; dynamic Postgres credentials
-with a lease manager ✅. **Phase 3 complete.**
+Kubernetes, since expanded to eight providers plus drift detection) ✅; dynamic
+Postgres credentials with a lease manager ✅. **Phase 3 complete.**
 
 All three build phases have shipped. Remaining work is polish and further
 feature depth — see the live [state & roadmap](docs/roadmap.md) and the

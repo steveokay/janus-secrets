@@ -19,9 +19,10 @@ Task-oriented walkthroughs for the common workflows:
 - [Using the web UI](guides/using-the-web-ui.md) — the in-browser first-run
   ceremony (init → unseal → login), themes, the command palette, the in-tray,
   and a map of where every task lives.
-- [Importing & exporting](guides/import-export.md) — bulk import from `.env`
-  / Java `.properties` with preview and per-key selection; the audited
-  **Download .env** export; filename-style "file" keys.
+- [Importing & exporting](guides/import-export.md) — the paste-based import
+  wizard (`.env` / Java `.properties`, plus Doppler, Vault KV v2, and AWS
+  Secrets Manager export output) with format detection, preview, and per-key
+  selection; the audited **Download .env** export; filename-style "file" keys.
 - [Inbound importers](guides/importing.md) — one-shot `janus import
   doppler|vault|aws-sm`: pull secrets from Doppler, Vault KV, or AWS Secrets
   Manager into a Janus project/config, with a value-free `--dry-run`.
@@ -38,12 +39,18 @@ Task-oriented walkthroughs for the common workflows:
   roles at instance / project / environment scope, with the guardrails.
 - [Break-glass access](guides/break-glass.md) — guarded, time-boxed emergency
   role elevation: the guard rules, TTL, and the loud audit + notification trail.
-- [SSO & CI federation](guides/sso-and-federation.md) — configuring OIDC
-  login and GitHub Actions trust bindings from the Integrations page.
+- [SSO & workload federation](guides/sso-and-federation.md) — configuring OIDC
+  login and CI / Kubernetes service-account trust bindings from the Integrations
+  page, over a multi-issuer trust set.
+- [Passkeys (WebAuthn)](guides/passkeys.md) — enabling passkeys on the server
+  (`JANUS_WEBAUTHN_RP_ID` / `_ORIGINS`), enrolling a device, the
+  email-identified and **passwordless/discoverable** sign-in ceremonies,
+  managing credentials, and how passkeys interact with TOTP and lockout.
 - [Two-factor authentication](guides/two-factor-auth.md) — enabling TOTP for
   password logins, signing in with a code, recovery codes, and disabling.
 - [Observability](guides/observability.md) — the Prometheus `/metrics`
-  endpoint, the Settings health panel, and log level/format env vars.
+  endpoint, the Settings health panel, log level/format env vars, and the
+  ready-made [Grafana dashboard + alert rules](../deploy/grafana).
 - [Audit shipping](guides/audit-shipping.md) — stream the audit log as JSONL
   to a webhook or syslog for SIEM ingestion, with a durable high-water mark
   (at-least-once, no gaps).
@@ -69,18 +76,22 @@ Task-oriented walkthroughs for the common workflows:
   tokens via `POST /v1/tokens` or the web UI, the scoping model, per-token IP
   allowlists + new-IP notes, last-used tracking, and using them from apps/CI.
 - [Go client SDK](guides/go-sdk.md) — the standalone `sdk/go/` module: a typed
-  client with an in-process TTL cache and dynamic-lease renewal, for apps that
-  read secrets natively instead of hand-rolling HTTP.
+  client with an in-process TTL cache, **background dynamic-lease auto-renew**,
+  and the `RunWithDynamic` helper, for apps that read secrets natively instead
+  of hand-rolling HTTP.
 - [TypeScript client SDK](guides/typescript-sdk.md) — the standalone `sdk/ts/`
   npm package (`janus-client`): a typed, zero-dependency client mirroring the
-  Go SDK (in-memory TTL cache, typed errors, dynamic-lease renewal) for Node
-  18+ and modern runtimes.
+  Go SDK (in-memory TTL cache, typed errors, `LeaseRenewer` auto-renew and the
+  `withDynamic` helper) for Node 18+ and modern runtimes.
 - [Python client SDK](guides/python-sdk.md) — the standalone `sdk/python/`
   package (`janus_client`), stdlib-only, mirroring the Go SDK: typed reads, an
-  in-memory TTL cache, typed exceptions, and dynamic-credential leases.
+  in-memory TTL cache, typed exceptions, and `LeaseRenewer` dynamic-credential
+  auto-renew.
 - [Terraform provider](guides/terraform.md) — manage Janus projects,
-  environments, configs, secrets, and service tokens declaratively with
-  `terraform-provider-janus`, including the secrets-in-state caveat.
+  environments, configs, secrets (singly or as a `janus_secrets` batch that
+  commits one config version per apply), and config- / environment-scoped
+  service tokens declaratively with `terraform-provider-janus`, including the
+  secrets-in-state caveat.
 - [GitHub Actions integration](guides/github-actions.md) — pushing secrets
   into Actions (sync) vs. pulling them keyless via OIDC federation, and when
   to use which.
@@ -111,8 +122,9 @@ Task-oriented walkthroughs for the common workflows:
   (host/DBA/owner compromise, multi-tenancy, DoS). The [`SECURITY.md`](../SECURITY.md)
   disclosure policy references it. **Implemented.**
 - [Data model & versioning](data-model.md) — the project → environment → config
-  → secret hierarchy and the two-level (config-version + per-key) versioning
-  scheme. **Implemented.**
+  → secret hierarchy, the two-level (config-version + per-key) versioning
+  scheme, and **value-version retention** (owner-only `secret:prune`, retention
+  floors, config-version-granular pruning). **Implemented.**
 - [References & inheritance](references.md) — config inheritance (child-wins
   merge) and secret references (`${projects.…}` / `${KEY}`), resolved at read
   time with cycle detection and strict per-target authorization. **Implemented.**
@@ -156,12 +168,20 @@ Running Janus and connecting it to the outside world:
 - [Sync integrations](ops/sync.md) — one-way replication of a config's resolved
   secrets to **eight providers** (GitHub Actions, Kubernetes `Secret`s, GitLab
   CI, Cloudflare Workers, Vercel, Netlify, AWS SSM, AWS Secrets Manager):
-  prune/full-mirror, change detection, and credential masking. **Implemented.**
+  prune/full-mirror, change detection, credential masking, and
+  [drift detection](ops/sync.md#drift-detection) — a value-free read-back
+  comparison (six providers compare values; GitHub and Cloudflare are
+  write-only and report names only), off by default. **Implemented.**
 - [Kubernetes integration](guides/kubernetes.md) — the end-to-end k8s how-to
   (cluster RBAC, consuming the Secret, refreshing pods) built on the sync
   reference.
 - [Dynamic Postgres credentials](ops/dynamic.md) — short-lived
   database roles with a TTL/renewal/revocation lease manager. **Implemented.**
+- [Deployment artifacts (`deploy/`)](../deploy/README.md) — the
+  [Helm chart](../deploy/helm/janus) for Kubernetes and the
+  [Grafana dashboard + Prometheus alert rules](../deploy/grafana)
+  (`janus-overview.json` + `alerts.yaml`, built only from metrics the server
+  actually exports).
 
 ## API reference
 
