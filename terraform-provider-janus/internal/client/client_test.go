@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -300,5 +301,99 @@ func TestNotFoundDrift(t *testing.T) {
 	_, err := c.GetProject(context.Background(), "p-1")
 	if !IsNotFound(err) {
 		t.Fatalf("expected IsNotFound, got %v", err)
+	}
+}
+
+func TestBatchWriteSecretsSendsOneRequestWithAllChanges(t *testing.T) {
+	var calls int
+	var body map[string]any
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != http.MethodPut || r.URL.Path != "/v1/configs/cfg-1/secrets" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeJSON(t, w, http.StatusOK, ConfigVersion{Version: 12, ID: "cv-12", CreatedAt: "2026-07-26T00:00:00Z"})
+	}))
+
+	cv, err := c.BatchWriteSecrets(context.Background(), "cfg-1", "batch", []SecretChange{
+		{Key: "A", Value: "placeholder-a"},
+		{Key: "B", Delete: true},
+	})
+	if err != nil {
+		t.Fatalf("BatchWriteSecrets: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1 (the whole point is one config version)", calls)
+	}
+	if cv.Version != 12 {
+		t.Errorf("version = %d", cv.Version)
+	}
+	if body["message"] != "batch" {
+		t.Errorf("message = %v", body["message"])
+	}
+	changes, _ := body["changes"].([]any)
+	if len(changes) != 2 {
+		t.Fatalf("changes = %v", changes)
+	}
+	first, _ := changes[0].(map[string]any)
+	if first["key"] != "A" || first["value"] != "placeholder-a" {
+		t.Errorf("changes[0] = %v", first)
+	}
+	second, _ := changes[1].(map[string]any)
+	if second["delete"] != true {
+		t.Errorf("changes[1] = %v", second)
+	}
+	if _, ok := second["value"]; ok {
+		t.Errorf("a tombstone must not carry a value: %v", second)
+	}
+}
+
+func TestBatchWriteSecretsRejectsEmptyChangeSet(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("no request should be made for an empty change set")
+	}))
+	if _, err := c.BatchWriteSecrets(context.Background(), "cfg-1", "", nil); err == nil {
+		t.Fatal("expected an error for an empty change set")
+	}
+}
+
+// A protected (four-eyes) config answers 202 Accepted: the write was FILED, not
+// committed. That must not look like success.
+func TestWritesSurfaceApprovalRequired(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusAccepted, map[string]any{"edit_request_id": "er-1", "status": "pending"})
+	}))
+	_, err := c.BatchWriteSecrets(context.Background(), "cfg-1", "m", []SecretChange{{Key: "A", Value: "placeholder"}})
+	if !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("BatchWriteSecrets err = %v, want ErrApprovalRequired", err)
+	}
+	if err := c.SetSecret(context.Background(), "cfg-1", "A", "placeholder"); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("SetSecret err = %v, want ErrApprovalRequired", err)
+	}
+}
+
+func TestListSecretsMaskedIsValueFree(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/configs/cfg-1/secrets" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		if r.URL.Query().Get("reveal") != "" {
+			t.Error("the masked list must never ask for reveal=true")
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{"secrets": map[string]any{
+			"A": map[string]any{"value_version": 3, "origin": "own", "type": "string"},
+			"B": map[string]any{"value_version": 1, "origin": "inherited", "type": "string"},
+		}})
+	}))
+	metas, err := c.ListSecretsMasked(context.Background(), "cfg-1")
+	if err != nil {
+		t.Fatalf("ListSecretsMasked: %v", err)
+	}
+	if metas["A"].ValueVersion != 3 || !metas["A"].Owned() {
+		t.Errorf("A = %+v", metas["A"])
+	}
+	if metas["B"].Owned() {
+		t.Error("an inherited key is not owned by this config")
 	}
 }

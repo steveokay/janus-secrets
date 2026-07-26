@@ -83,21 +83,37 @@ type errorEnvelope struct {
 	} `json:"error"`
 }
 
+// ErrApprovalRequired is returned when a write targets a PROTECTED config
+// (four-eyes / require_approval). Janus answers 202 Accepted and files the
+// changes as a pending edit request instead of committing them, so Terraform
+// must NOT record the write as applied — the desired state is not live yet.
+var ErrApprovalRequired = errors.New(
+	"janus: config requires approval (four-eyes): the write was filed as a pending edit request and was NOT committed; " +
+		"approve it in Janus, or manage this config outside Terraform")
+
 // do performs an HTTP request, adds the bearer token, decodes a JSON success
 // body into out (if non-nil), and maps error responses to *APIError.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
+	_, err := c.doStatus(ctx, method, path, body, out)
+	return err
+}
+
+// doStatus is do, additionally reporting the HTTP status of a successful (2xx)
+// response. Callers use it to distinguish 200 "committed" from 202 "queued for
+// approval", which are both 2xx but mean very different things.
+func (c *Client) doStatus(ctx context.Context, method, path string, body, out any) (int, error) {
 	var reqBody io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("janus: marshal request: %w", err)
+			return 0, fmt.Errorf("janus: marshal request: %w", err)
 		}
 		reqBody = bytes.NewReader(buf)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
 	if err != nil {
-		return fmt.Errorf("janus: build request: %w", err)
+		return 0, fmt.Errorf("janus: build request: %w", err)
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -109,20 +125,20 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("janus: request failed: %w", err)
+		return 0, fmt.Errorf("janus: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return parseAPIError(resp)
+		return resp.StatusCode, parseAPIError(resp)
 	}
 
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("janus: decode response: %w", err)
+			return resp.StatusCode, fmt.Errorf("janus: decode response: %w", err)
 		}
 	}
-	return nil
+	return resp.StatusCode, nil
 }
 
 func parseAPIError(resp *http.Response) error {

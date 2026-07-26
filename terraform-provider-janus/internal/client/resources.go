@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -149,7 +150,55 @@ func (c *Client) DeleteConfig(ctx context.Context, configID string, destroy bool
 func (c *Client) SetSecret(ctx context.Context, configID, key, value string) error {
 	body := map[string]string{"value": value}
 	path := fmt.Sprintf("/v1/configs/%s/secrets/%s", url.PathEscape(configID), url.PathEscape(key))
-	return c.do(ctx, http.MethodPut, path, body, nil)
+	status, err := c.doStatus(ctx, http.MethodPut, path, body, nil)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusAccepted {
+		return ErrApprovalRequired
+	}
+	return nil
+}
+
+// BatchWriteSecrets applies every change in ONE request, which Janus commits as
+// exactly ONE immutable config version (PUT /v1/configs/{cid}/secrets). This is
+// the whole point of the batch path: N keys, one version, one audit event.
+//
+// The server rejects an empty change set ("at least one change is required"),
+// so callers must skip the call when there is nothing to do.
+func (c *Client) BatchWriteSecrets(ctx context.Context, configID, message string, changes []SecretChange) (*ConfigVersion, error) {
+	if len(changes) == 0 {
+		return nil, errors.New("janus: batch write needs at least one change")
+	}
+	body := map[string]any{"message": message, "changes": changes}
+	path := fmt.Sprintf("/v1/configs/%s/secrets", url.PathEscape(configID))
+	var out ConfigVersion
+	status, err := c.doStatus(ctx, http.MethodPut, path, body, &out)
+	if err != nil {
+		return nil, err
+	}
+	if status == http.StatusAccepted {
+		// 202: protected config — filed as a pending edit request, NOT committed.
+		return nil, ErrApprovalRequired
+	}
+	return &out, nil
+}
+
+// ListSecretsMasked returns the value-free masked list for a config: key →
+// {value_version, origin, type}. No plaintext crosses the wire and the read is
+// NOT audited as a reveal (it is metadata only).
+func (c *Client) ListSecretsMasked(ctx context.Context, configID string) (map[string]SecretMeta, error) {
+	var out struct {
+		Secrets map[string]SecretMeta `json:"secrets"`
+	}
+	path := fmt.Sprintf("/v1/configs/%s/secrets", url.PathEscape(configID))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Secrets == nil {
+		out.Secrets = map[string]SecretMeta{}
+	}
+	return out.Secrets, nil
 }
 
 // GetSecret reveals a single secret's raw stored value (audited server-side).

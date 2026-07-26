@@ -46,14 +46,15 @@ func TestProviderRegistersAllResourcesAndDataSources(t *testing.T) {
 	p := New("test")().(*janusProvider)
 
 	resources := p.Resources(context.Background())
-	if len(resources) != 5 {
-		t.Fatalf("want 5 resources, got %d", len(resources))
+	if len(resources) != 6 {
+		t.Fatalf("want 6 resources, got %d", len(resources))
 	}
 	wantResTypes := map[string]bool{
 		"janus_project":       false,
 		"janus_environment":   false,
 		"janus_config":        false,
 		"janus_secret":        false,
+		"janus_secrets":       false,
 		"janus_service_token": false,
 	}
 	for _, f := range resources {
@@ -111,6 +112,17 @@ func TestSensitiveAttributes(t *testing.T) {
 	var sResp resource.SchemaResponse
 	NewSecretResource().Schema(context.Background(), resource.SchemaRequest{}, &sResp)
 	assertResAttrSensitive(t, sResp.Schema, "value")
+
+	// janus_secrets.secrets (the whole map is sensitive)
+	var bResp resource.SchemaResponse
+	NewSecretsResource().Schema(context.Background(), resource.SchemaRequest{}, &bResp)
+	if attr, ok := bResp.Schema.Attributes["secrets"].(resschema.MapAttribute); !ok || !attr.Sensitive {
+		t.Error("janus_secrets.secrets must be Sensitive")
+	}
+	// ...but the value-free drift ledger must NOT be, so operators can read it.
+	if attr, ok := bResp.Schema.Attributes["value_versions"].(resschema.MapAttribute); !ok || attr.Sensitive {
+		t.Error("janus_secrets.value_versions must be non-sensitive (it is value-free)")
+	}
 
 	// janus_service_token.token
 	var tResp resource.SchemaResponse
