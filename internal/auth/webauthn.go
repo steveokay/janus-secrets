@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -28,6 +29,12 @@ const (
 	// pools so a registration challenge can never be finished as a login.
 	webauthnPurposeRegister = "register"
 	webauthnPurposeLogin    = "login"
+	// webauthnPurposeLoginDiscoverable is a THIRD, separate pool for passwordless
+	// (client-side discoverable) login. It must not share the identified-login
+	// pool: an identified challenge is bound to exactly one account, a
+	// discoverable one is bound to none, so letting either be finished as the
+	// other would be a way to opt out of that binding.
+	webauthnPurposeLoginDiscoverable = "login_discoverable"
 	// webauthnMaxNickname bounds the user-supplied credential label.
 	webauthnMaxNickname = 64
 	// webauthnMaxCredentials caps passkeys per user (bounded storage; a user with
@@ -91,10 +98,23 @@ func (s *Service) SetWebAuthnConfig(cfg WebAuthnConfig) error {
 		// RP ID hash, origin, and flags are verified regardless.
 		AttestationPreference: protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
-			// Discoverable where the authenticator can afford it, so a future
-			// username-less flow needs no re-enrollment. Not required: hardware
-			// keys have limited resident-key slots.
-			ResidentKey: protocol.ResidentKeyRequirementPreferred,
+			// REQUIRED, not preferred. Janus offers passwordless sign-in, which
+			// only works with a client-side DISCOVERABLE credential; "preferred"
+			// lets an authenticator quietly store a non-discoverable one, leaving
+			// the user with a passkey that inexplicably fails the passwordless
+			// button. Requiring it makes the trade-off loud instead: an
+			// authenticator that cannot store a resident key (a security key with
+			// no free slots) refuses enrollment with a visible error, and the
+			// user's password path is untouched either way.
+			//
+			// Credentials enrolled BEFORE this change ran under "preferred" and
+			// may or may not be discoverable; their recorded discoverability is
+			// UNKNOWN and the UI says so rather than guessing.
+			ResidentKey: protocol.ResidentKeyRequirementRequired,
+			// The WebAuthn L1 spelling of the same requirement, for clients that
+			// predate `residentKey`. The library does not derive it from the
+			// config, so set it explicitly and keep the two consistent.
+			RequireResidentKey: protocol.ResidentKeyRequired(),
 			// User verification is REQUIRED, not preferred: a Janus passkey login
 			// is single-step (it does not additionally prompt for TOTP), so the
 			// credential must itself be two factors — possession of the
@@ -120,9 +140,13 @@ func (s *Service) WebAuthnRPID() string { return s.waCfg.RPID }
 // carries no key material — only the credential id (an opaque public handle,
 // base64url-encoded for display), the nickname, and usage timestamps.
 type WebAuthnCredentialInfo struct {
-	ID           string     `json:"id"`
-	Nickname     string     `json:"nickname"`
-	CredentialID string     `json:"credential_id"`
+	ID           string `json:"id"`
+	Nickname     string `json:"nickname"`
+	CredentialID string `json:"credential_id"`
+	// Discoverable reports whether this passkey can sign in with no email typed
+	// first. null means UNKNOWN (enrolled before Janus asked, and never yet used
+	// passwordlessly) — the UI must say "unknown" rather than promise either way.
+	Discoverable *bool      `json:"discoverable"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
 }
@@ -132,6 +156,7 @@ func credentialInfo(c store.WebAuthnCredential) WebAuthnCredentialInfo {
 		ID:           c.ID,
 		Nickname:     c.Nickname,
 		CredentialID: base64.RawURLEncoding.EncodeToString(c.CredentialID),
+		Discoverable: c.Discoverable,
 		CreatedAt:    c.CreatedAt,
 		LastUsedAt:   c.LastUsedAt,
 	}
@@ -199,7 +224,13 @@ func (s *Service) BeginWebAuthnRegistration(ctx context.Context, userID, email s
 	// Exclude what is already registered so an authenticator refuses to enroll
 	// twice rather than producing a duplicate the store would reject.
 	exclude := webauthn.Credentials(u.creds).CredentialDescriptors()
-	creation, session, err := s.wa.BeginRegistration(u, webauthn.WithExclusions(exclude))
+	creation, session, err := s.wa.BeginRegistration(u,
+		webauthn.WithExclusions(exclude),
+		// credProps asks the client to report whether it actually stored a
+		// DISCOVERABLE credential. Purely informational (it is a client-supplied
+		// hint, not attested), and used only to tell the user whether this passkey
+		// will work for passwordless sign-in.
+		webauthn.WithExtensions(protocol.AuthenticationExtensions{"credProps": true}))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrWebAuthnState, err)
 	}
@@ -261,7 +292,8 @@ func (s *Service) FinishWebAuthnRegistration(ctx context.Context, userID, email,
 		name = "Passkey"
 	}
 	name = uniqueNickname(name, rows)
-	saved, err := s.webauthn.InsertCredential(ctx, userID, s.waCfg.RPID, cred.ID, raw, int64(cred.Authenticator.SignCount), name)
+	saved, err := s.webauthn.InsertCredential(ctx, userID, s.waCfg.RPID, cred.ID, raw,
+		int64(cred.Authenticator.SignCount), name, credPropsResidentKey(parsed.ClientExtensionResults))
 	if err != nil {
 		if errors.Is(err, store.ErrAlreadyExists) {
 			return nil, fmt.Errorf("%w: this authenticator is already registered", ErrWebAuthnState)
@@ -443,6 +475,229 @@ func (s *Service) BeginWebAuthnLogin(ctx context.Context, email string) (json.Ra
 		return nil, err
 	}
 	return json.Marshal(assertion.Response)
+}
+
+// credPropsResidentKey extracts the client's `credProps.rk` hint — whether the
+// authenticator stored a client-side DISCOVERABLE credential. It returns nil
+// when the client did not report the extension (older browsers, and every
+// credential enrolled before Janus started asking), which the UI renders as
+// "unknown".
+//
+// This is a CLIENT-SUPPLIED hint and is deliberately not trusted for anything
+// but display: a lying client would only mislabel its own passkey. Actual
+// discoverability is proved later, by a passwordless assertion succeeding.
+func credPropsResidentKey(ext protocol.AuthenticationExtensionsClientOutputs) *bool {
+	raw, ok := ext["credProps"]
+	if !ok {
+		return nil
+	}
+	props, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	rk, ok := props["rk"].(bool)
+	if !ok {
+		return nil
+	}
+	return &rk
+}
+
+// BeginWebAuthnDiscoverableLogin issues a PASSWORDLESS assertion challenge: one
+// bound to the ceremony, not to any account. No email is supplied and none is
+// implied, so — unlike the identified flow — there is nothing here to probe and
+// no decoy is needed. This endpoint is the same for every caller.
+//
+// conditional selects "conditional mediation" (browser autofill): the browser
+// may silently offer a passkey inside the sign-in field instead of showing a
+// modal. The mediation requirement is a CLIENT-side directive and changes
+// nothing the server verifies — the challenge, the RP ID, the user-verification
+// requirement, and every check in the finish step are identical either way.
+func (s *Service) BeginWebAuthnDiscoverableLogin(ctx context.Context, conditional bool) (json.RawMessage, error) {
+	if s.wa == nil {
+		return nil, ErrWebAuthnNotConfigured
+	}
+	mediation := protocol.MediationDefault
+	if conditional {
+		mediation = protocol.MediationConditional
+	}
+	assertion, session, err := s.wa.BeginDiscoverableMediatedLogin(mediation)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrWebAuthnState, err)
+	}
+	// Stored with a NULL user, which is exactly what a discoverable ceremony is:
+	// the account is not known until the assertion arrives.
+	if err := s.storeChallenge(ctx, webauthnPurposeLoginDiscoverable, nil, session); err != nil {
+		return nil, err
+	}
+	return json.Marshal(assertion.Response)
+}
+
+// FinishWebAuthnDiscoverableLogin verifies a passwordless assertion and, on
+// success, mints a session cookie.
+//
+// # How identity is established, and why it is safe
+//
+// The identified flow (FinishWebAuthnLogin) takes the account from the
+// CHALLENGE and never from the client. A discoverable ceremony cannot do that:
+// at begin time there IS no account, so identity necessarily comes from the
+// assertion. That is safe only because the assertion is never believed on its
+// own — every step below is a server-side lookup or a signature check:
+//
+//  1. The credential is looked up in OUR store by its raw credential id
+//     (globally unique, enforced by a UNIQUE index). An id we never issued
+//     resolves to nothing and the ceremony ends.
+//  2. The account is whatever THAT ROW says owns the credential. The client's
+//     userHandle is never used to select the account.
+//  3. The presented userHandle must equal the handle derived from that owner's
+//     id (constant-time). So a credential belonging to A, presented with B's
+//     userHandle, is rejected — credential substitution cannot authenticate.
+//     The library re-checks this independently in validateLogin step 2.
+//  4. The signature is verified against THAT STORED CREDENTIAL's public key,
+//     because the User handed to the library carries exactly the owner's own
+//     credential set, and we additionally require the asserted id to be present
+//     in it.
+//
+// Everything the identified path enforces still holds: the challenge is
+// single-use and expiring (claimed by DELETE ... RETURNING), user verification
+// is required and re-asserted from the flags, a signature counter that fails to
+// advance is fatal, the origin and RP ID are verified by the library, disabled
+// accounts are refused, and lockout is honoured — but revealed only after a
+// valid assertion.
+//
+// Every failure — unknown credential, wrong user handle, bad signature, replayed
+// challenge, disabled account — returns the SAME ErrInvalidCredentials, so this
+// endpoint is not an oracle for which passkeys or accounts exist.
+func (s *Service) FinishWebAuthnDiscoverableLogin(ctx context.Context, body io.Reader) (cookie, userID, email, credential string, err error) {
+	if s.wa == nil {
+		return "", "", "", "", ErrWebAuthnNotConfigured
+	}
+	parsed, err := protocol.ParseCredentialRequestResponseBody(body)
+	if err != nil {
+		return "", "", "", "", ErrInvalidCredentials
+	}
+	chal, session, err := s.claimChallenge(ctx, webauthnPurposeLoginDiscoverable,
+		parsed.Response.CollectedClientData.Challenge, nil)
+	if err != nil {
+		return "", "", "", "", ErrInvalidCredentials
+	}
+	// A discoverable challenge is minted with no user. One carrying a user would
+	// mean the pools had been crossed; refuse rather than reason about it.
+	if chal.UserID != nil {
+		return "", "", "", "", ErrInvalidCredentials
+	}
+
+	// Resolved by the handler below and read back after validation.
+	var (
+		owner *store.User
+		rows  []store.WebAuthnCredential
+	)
+	handler := func(rawID, handle []byte) (webauthn.User, error) {
+		// (1) The credential must be one WE issued.
+		row, lErr := s.webauthn.GetCredentialByCredentialID(ctx, rawID)
+		if lErr != nil {
+			return nil, ErrInvalidCredentials
+		}
+		// A credential registered under a different Relying Party ID is not usable
+		// here — the same rule ListCredentials applies.
+		if row.RPID != s.waCfg.RPID {
+			return nil, ErrInvalidCredentials
+		}
+		// (2) The account is the credential's STORED owner.
+		u, uErr := s.users.Get(ctx, row.UserID)
+		if uErr != nil || u.DisabledAt != nil {
+			return nil, ErrInvalidCredentials
+		}
+		// (3) The presented user handle must be that owner's handle. Compared in
+		// constant time; both sides are public, but the habit is cheap.
+		want, hErr := userHandle(u.ID)
+		if hErr != nil {
+			return nil, ErrInvalidCredentials
+		}
+		if subtle.ConstantTimeCompare(want, handle) != 1 {
+			return nil, ErrInvalidCredentials
+		}
+		// (4) Hand the library the owner's own credential set, and require the
+		// asserted id to actually be in it — so the signature can only ever be
+		// checked against a public key we hold FOR THIS ACCOUNT.
+		wu, ownerRows, wErr := s.loadWebAuthnUser(ctx, u.ID, u.Email)
+		if wErr != nil {
+			return nil, ErrInvalidCredentials
+		}
+		found := false
+		for i := range ownerRows {
+			if bytes.Equal(ownerRows[i].CredentialID, rawID) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, ErrInvalidCredentials
+		}
+		owner, rows = u, ownerRows
+		return wu, nil
+	}
+
+	// ValidateDiscoverableLogin re-verifies, independently of the handler: that
+	// the session really was discoverable (no session user id), that the
+	// userHandle equals the returned User's WebAuthnID, that the asserted
+	// credential is in that User's credential list, and then the signature over
+	// authenticatorData||clientDataHash, the challenge, the ORIGIN, the RP ID
+	// hash, and the user-presence / user-verification flags.
+	cred, err := s.wa.ValidateDiscoverableLogin(handler, *session, parsed)
+	if err != nil || owner == nil {
+		return "", "", "", "", ErrInvalidCredentials
+	}
+	// Signature-counter regression: a counter that did not advance means a cloned
+	// authenticator or a replay. Fatal, not advisory.
+	if cred.Authenticator.CloneWarning {
+		return "", "", "", "", ErrWebAuthnCloned
+	}
+	if !cred.Flags.UserVerified {
+		return "", "", "", "", ErrInvalidCredentials
+	}
+	var row *store.WebAuthnCredential
+	for i := range rows {
+		if bytes.Equal(rows[i].CredentialID, cred.ID) {
+			row = &rows[i]
+			break
+		}
+	}
+	if row == nil {
+		return "", "", "", "", ErrInvalidCredentials
+	}
+	updated, err := json.Marshal(cred)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	// Authoritative counter check: a strictly-increasing compare-and-swap in the
+	// database, which closes the concurrent-replay race an in-memory comparison
+	// cannot.
+	advanced, err := s.webauthn.RecordAssertion(ctx, row.ID, updated, int64(cred.Authenticator.SignCount))
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if !advanced {
+		return "", "", "", "", ErrWebAuthnCloned
+	}
+	// This assertion IS proof the credential is client-side discoverable — the
+	// browser found it with no allowCredentials list. Record that, so a passkey
+	// enrolled before Janus asked stops showing as "unknown". Best-effort: the
+	// login has already succeeded and this is display metadata.
+	_ = s.webauthn.MarkDiscoverable(ctx, row.ID)
+
+	if s.lockout.Enabled && owner.LockedUntil != nil {
+		if remaining := time.Until(*owner.LockedUntil); remaining > 0 {
+			return "", "", "", "", &AccountLockedError{RetryAfter: remaining}
+		}
+	}
+	if s.lockout.Enabled {
+		_ = s.users.ResetLoginFailures(ctx, owner.ID) // best-effort
+	}
+	c, err := s.createSession(ctx, owner.ID)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	return c, owner.ID, owner.Email, row.Nickname, nil
 }
 
 // decoy is a synthetic user handle + credential list used to make an

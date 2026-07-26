@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -174,9 +176,64 @@ func (s *Server) handleWebAuthnLoginBegin(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, json.RawMessage(opts))
 }
 
+type webauthnDiscoverableBeginReq struct {
+	// Conditional requests browser autofill ("conditional mediation") instead of
+	// a modal prompt. A client-side directive only: it changes nothing the server
+	// verifies at finish time.
+	Conditional bool `json:"conditional"`
+}
+
+// handleWebAuthnDiscoverableLoginBegin issues a PASSWORDLESS assertion
+// challenge. It takes no email and is byte-for-byte the same for every caller,
+// so — unlike the identified begin — there is nothing here to probe at all.
+func (s *Server) handleWebAuthnDiscoverableLoginBegin(w http.ResponseWriter, r *http.Request) {
+	var req webauthnDiscoverableBeginReq
+	// An absent or unparseable body simply means "not conditional"; there is no
+	// user input to validate on this route.
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	opts, err := s.auth.BeginWebAuthnDiscoverableLogin(r.Context(), req.Conditional)
+	if err != nil {
+		s.writeWebAuthnError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, json.RawMessage(opts))
+}
+
+// handleWebAuthnDiscoverableLoginFinish verifies a passwordless assertion and
+// mints the session cookie. The account is resolved from the credential id in
+// OUR store — never from the client's claimed user handle, which is only ever
+// cross-checked against it. See auth.FinishWebAuthnDiscoverableLogin.
+func (s *Server) handleWebAuthnDiscoverableLoginFinish(w http.ResponseWriter, r *http.Request) {
+	s.finishPasskeyLogin(w, r, ceremonyDiscoverable, s.auth.FinishWebAuthnDiscoverableLogin)
+}
+
 // handleWebAuthnLoginFinish verifies an assertion and mints the session cookie.
 func (s *Server) handleWebAuthnLoginFinish(w http.ResponseWriter, r *http.Request) {
-	cookie, userID, email, credential, err := s.auth.FinishWebAuthnLogin(withSessionMeta(r), r.Body)
+	s.finishPasskeyLogin(w, r, ceremonyIdentified, s.auth.FinishWebAuthnLogin)
+}
+
+// passkeyFinisher is the shared shape of the identified and discoverable finish
+// steps: consume the assertion body, return the session cookie plus the
+// value-free identifiers the audit record needs.
+type passkeyFinisher func(ctx context.Context, body io.Reader) (cookie, userID, email, credential string, err error)
+
+// Which passkey ceremony an audit event came from. Recorded on every passkey
+// login, success or denied, so an operator reading the ledger can tell a
+// passwordless sign-in from an address-identified one. Both are value-free
+// labels.
+const (
+	ceremonyIdentified   = "identified"
+	ceremonyDiscoverable = "discoverable"
+)
+
+// finishPasskeyLogin is the common response/audit half of both passkey login
+// ceremonies. Keeping it in one place is deliberate: the lockout disclosure
+// rule, the clone-warning audit code, and the cookie must not drift apart
+// between the two flows.
+func (s *Server) finishPasskeyLogin(w http.ResponseWriter, r *http.Request, ceremony string, finish passkeyFinisher) {
+	cookie, userID, email, credential, err := finish(withSessionMeta(r), r.Body)
 	if err != nil {
 		// A locked account is revealed only to a caller who just produced a valid
 		// assertion — the same rule the password path applies to the
@@ -186,7 +243,7 @@ func (s *Server) handleWebAuthnLoginFinish(w http.ResponseWriter, r *http.Reques
 			if secs < 1 {
 				secs = 1
 			}
-			_ = s.recordActor(r, audit.Actor{Kind: "anonymous"}, "auth.lockout", "", "denied", CodeAccountLocked, "webauthn")
+			_ = s.recordActor(r, audit.Actor{Kind: "anonymous"}, "auth.lockout", "", "denied", CodeAccountLocked, "webauthn "+ceremony)
 			w.Header().Set("Retry-After", strconv.Itoa(secs))
 			writeError(w, http.StatusTooManyRequests, CodeAccountLocked,
 				"account temporarily locked due to repeated failed logins; try again later")
@@ -198,12 +255,12 @@ func (s *Server) handleWebAuthnLoginFinish(w http.ResponseWriter, r *http.Reques
 			// advance means a cloned authenticator or a replayed assertion.
 			code = "webauthn_cloned"
 		}
-		_ = s.recordActor(r, audit.Actor{Kind: "anonymous"}, "webauthn.login", "", "denied", code, "")
+		_ = s.recordActor(r, audit.Actor{Kind: "anonymous"}, "webauthn.login", "", "denied", code, "ceremony="+ceremony)
 		s.writeWebAuthnError(w, err)
 		return
 	}
 	if err := s.recordActor(r, audit.Actor{Kind: string(auth.KindUser), ID: userID, Name: email},
-		"webauthn.login", "", "success", "", "credential="+credential); err != nil {
+		"webauthn.login", "", "success", "", "ceremony="+ceremony+" credential="+credential); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}

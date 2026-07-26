@@ -1,7 +1,10 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
   import { api, errorMessage, ApiError, type OIDCLoginStatus } from '../lib/api'
-  import { passkeysSupported, getAssertion, passkeyMessage } from '../lib/webauthn'
+  import {
+    passkeysSupported, getAssertion, passkeyMessage,
+    conditionalMediationAvailable, PasskeyAbortError,
+  } from '../lib/webauthn'
   import JanusMark from '../components/JanusMark.svelte'
   import Guilloche from '../components/Guilloche.svelte'
 
@@ -16,13 +19,65 @@
      this browser exposes the WebAuthn API. */
   let passkeys = $state(false)
   let passkeyBusy = $state(false)
+  /* the passwordless (discoverable) ceremony, which needs no address at all */
+  let passwordlessBusy = $state(false)
+
+  /* Conditional UI ("passkey autofill"): a ceremony started silently in the
+     background that the browser may surface inside the address field. It sits
+     pending until the user picks a passkey, so it is aborted on teardown and
+     whenever an explicit ceremony takes over — two concurrent get() calls are
+     not allowed. */
+  let autofill: AbortController | null = null
+  /* The status probe is async, so the screen can be gone by the time it answers
+     — never start a ceremony nobody is looking at. */
+  let gone = false
 
   $effect(() => {
     api.oidcLoginStatus().then(s => (oidc = s)).catch(() => (oidc = null))
     api.webauthnStatus()
-      .then(s => (passkeys = s.enabled && passkeysSupported()))
+      .then(s => {
+        passkeys = s.enabled && passkeysSupported()
+        if (passkeys && !gone) void startAutofill()
+      })
       .catch(() => (passkeys = false))
+    return () => {
+      gone = true
+      cancelAutofill()
+    }
   })
+
+  function cancelAutofill() {
+    autofill?.abort()
+    autofill = null
+  }
+
+  /* Fire-and-forget, and started at most once per visit: the explicit buttons
+     abort it and do not revive it, so there is never a stray ceremony left
+     pending behind a screen the user has moved on from.
+
+     Every failure here is silent by design — conditional mediation is an
+     unrequested convenience, and an error banner for something the user never
+     asked for would be noise. The explicit buttons stay either way. */
+  async function startAutofill() {
+    if (!(await conditionalMediationAvailable()) || gone) return
+    cancelAutofill()
+    const ctl = new AbortController()
+    autofill = ctl
+    try {
+      const options = await api.webauthnDiscoverableBegin(true)
+      const assertion = await getAssertion(options, {
+        mediation: 'conditional',
+        signal: ctl.signal,
+      })
+      if (ctl.signal.aborted) return
+      await api.webauthnDiscoverableFinish(assertion)
+      await session.refresh()
+    } catch {
+      /* aborted, dismissed, or unsupported — leave the form as it was */
+    } finally {
+      if (autofill === ctl) autofill = null
+    }
+  }
 
   /* A passkey sign-in is complete on its own: Janus requires user verification
      on every ceremony, so no second factor is collected here. */
@@ -33,6 +88,7 @@
       error = 'Enter your registrar address first.'
       return
     }
+    cancelAutofill()
     passkeyBusy = true
     try {
       const options = await api.webauthnLoginBegin(who)
@@ -47,6 +103,32 @@
       }
     } finally {
       passkeyBusy = false
+    }
+  }
+
+  /* Passwordless: no address is typed and none is sent. The browser offers
+     whichever discoverable passkey it holds for this site, and the server
+     resolves the account from that credential — never from anything the page
+     supplies. */
+  async function passwordlessSignIn() {
+    error = ''
+    cancelAutofill()
+    passwordlessBusy = true
+    try {
+      const options = await api.webauthnDiscoverableBegin(false)
+      const assertion = await getAssertion(options)
+      await api.webauthnDiscoverableFinish(assertion)
+      await session.refresh()
+    } catch (err) {
+      if (err instanceof PasskeyAbortError) {
+        error = ''
+      } else if (err instanceof ApiError) {
+        error = errorMessage(err, 'That passkey was not accepted.')
+      } else {
+        error = passkeyMessage(err, 'No passkey on this device could sign you in.')
+      }
+    } finally {
+      passwordlessBusy = false
     }
   }
 
@@ -88,8 +170,11 @@
     <form class="col" onsubmit={submit}>
       <div class="field">
         <label class="label" for="email">Registrar</label>
+        <!-- "username webauthn" is what lets the browser surface a discoverable
+             passkey through autofill on this field (conditional mediation). -->
         <input id="email" class="field-ruled" type="email" bind:value={email}
-          placeholder="you@company.dev" autocomplete="username" />
+          placeholder="you@company.dev"
+          autocomplete={passkeys ? 'username webauthn' : 'username'} />
       </div>
       <div class="field">
         <label class="label" for="pw">Passphrase</label>
@@ -118,8 +203,14 @@
         <div class="divider"><span class="folio">or continue with</span></div>
       {/if}
       {#if passkeys}
+        <!-- Passwordless first: it needs nothing typed, so it is the shorter
+             path whenever the device holds a discoverable passkey. -->
+        <button class="btn alt-btn" type="button" onclick={passwordlessSignIn}
+          disabled={passwordlessBusy || passkeyBusy || busy}>
+          {passwordlessBusy ? 'Waiting for your device…' : 'A passkey — no address needed'}
+        </button>
         <button class="btn alt-btn" type="button" onclick={passkeySignIn}
-          disabled={passkeyBusy || busy || !email.trim()}>
+          disabled={passkeyBusy || passwordlessBusy || busy || !email.trim()}>
           {passkeyBusy ? 'Waiting for your device…' : 'A passkey'}
         </button>
         <span class="folio passkey-hint">Your device will ask for its PIN, fingerprint, or face.</span>

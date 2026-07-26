@@ -1,4 +1,4 @@
-package store
+﻿package store
 
 import (
 	"context"
@@ -39,6 +39,12 @@ func TestWebAuthnRepo_ChallengeIsSingleUseAndExpires(t *testing.T) {
 		{"expired challenge", "chal-expired", "register", &uid, time.Now().Add(-time.Second), "register", false},
 		{"purpose mismatch", "chal-purpose", "register", &uid, time.Now().Add(time.Minute), "login", false},
 		{"decoy challenge with no user", "chal-decoy", "login", nil, time.Now().Add(time.Minute), "login", true},
+		// The passwordless pool: always user-less, and it must not be reachable
+		// from the identified pool in either direction.
+		{"discoverable challenge", "chal-disc", "login_discoverable", nil, time.Now().Add(time.Minute), "login_discoverable", true},
+		{"expired discoverable challenge", "chal-disc-old", "login_discoverable", nil, time.Now().Add(-time.Second), "login_discoverable", false},
+		{"discoverable claimed as identified", "chal-disc-x", "login_discoverable", nil, time.Now().Add(time.Minute), "login", false},
+		{"identified claimed as discoverable", "chal-id-x", "login", &uid, time.Now().Add(time.Minute), "login_discoverable", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,27 +140,58 @@ func TestWebAuthnRepo_CredentialCRUDAndScoping(t *testing.T) {
 	uid := mkWebAuthnUser(t, s, "wa-crud@example.com")
 	other := mkWebAuthnUser(t, s, "wa-other@example.com")
 
-	cred, err := repo.InsertCredential(ctx, uid, "example.com", []byte("cred-1"), []byte(`{"id":"x"}`), 3, "Laptop")
+	cred, err := repo.InsertCredential(ctx, uid, "example.com", []byte("cred-1"), []byte(`{"id":"x"}`), 3, "Laptop", nil)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	if cred.SignCount != 3 || cred.LastUsedAt != nil {
 		t.Fatalf("fresh credential = %+v", cred)
 	}
+	// Discoverability is UNKNOWN when the client did not report credProps — not
+	// false. The UI must be able to tell "we know it is device-bound" apart from
+	// "we never found out".
+	if cred.Discoverable != nil {
+		t.Fatalf("unreported discoverability = %v, want nil (unknown)", *cred.Discoverable)
+	}
+	// A successful passwordless assertion is proof of discoverability and
+	// promotes unknown → true; it is idempotent and never moves back.
+	if err := repo.MarkDiscoverable(ctx, cred.ID); err != nil {
+		t.Fatalf("mark discoverable: %v", err)
+	}
+	if err := repo.MarkDiscoverable(ctx, cred.ID); err != nil {
+		t.Fatalf("mark discoverable (repeat): %v", err)
+	}
+	if got, err := repo.GetCredentialByCredentialID(ctx, []byte("cred-1")); err != nil ||
+		got.Discoverable == nil || !*got.Discoverable {
+		t.Fatalf("after MarkDiscoverable: %v (%+v)", err, got)
+	}
 
-	// A credential id is globally unique — the same authenticator cannot be
+	// A credential id is globally unique â€” the same authenticator cannot be
 	// registered twice, not even to a different account.
-	if _, err := repo.InsertCredential(ctx, other, "example.com", []byte("cred-1"), []byte(`{}`), 0, "Stolen"); !errors.Is(err, ErrAlreadyExists) {
+	if _, err := repo.InsertCredential(ctx, other, "example.com", []byte("cred-1"), []byte(`{}`), 0, "Stolen", nil); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("duplicate credential id: want ErrAlreadyExists, got %v", err)
 	}
 	// Nicknames are unique per user, case-insensitively.
-	if _, err := repo.InsertCredential(ctx, uid, "example.com", []byte("cred-2"), []byte(`{}`), 0, "laptop"); !errors.Is(err, ErrAlreadyExists) {
+	if _, err := repo.InsertCredential(ctx, uid, "example.com", []byte("cred-2"), []byte(`{}`), 0, "laptop", nil); !errors.Is(err, ErrAlreadyExists) {
 		t.Fatalf("duplicate nickname: want ErrAlreadyExists, got %v", err)
 	}
 
 	// Listing is scoped to the RP ID: a credential registered under a different
 	// relying party is not usable and must not be offered.
-	if _, err := repo.InsertCredential(ctx, uid, "other.example.com", []byte("cred-3"), []byte(`{}`), 0, "Elsewhere"); err != nil {
+	if _, err := repo.InsertCredential(ctx, uid, "other.example.com", []byte("cred-3"), []byte(`{}`), 0, "Elsewhere", nil); err != nil {
+		t.Fatal(err)
+	}
+	// An explicitly-reported credProps.rk survives the round trip in both
+	// directions, distinctly from nil.
+	no := false
+	bound, err := repo.InsertCredential(ctx, uid, "example.com", []byte("cred-4"), []byte(`{}`), 0, "Device bound", &no)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.Discoverable == nil || *bound.Discoverable {
+		t.Fatalf("credProps.rk=false round trip = %+v", bound.Discoverable)
+	}
+	if err := repo.DeleteCredential(ctx, bound.ID, uid); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := repo.ListCredentials(ctx, uid, "example.com")
@@ -200,11 +237,11 @@ func TestWebAuthnRepo_RecordAssertionEnforcesCounter(t *testing.T) {
 	repo := NewWebAuthnRepo(s)
 	uid := mkWebAuthnUser(t, s, "wa-counter@example.com")
 
-	counting, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-count"), []byte(`{}`), 5, "counting")
+	counting, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-count"), []byte(`{}`), 5, "counting", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	zeroing, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-zero"), []byte(`{}`), 0, "counterless")
+	zeroing, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-zero"), []byte(`{}`), 0, "counterless", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +285,7 @@ func TestWebAuthnRepo_RecordAssertionEnforcesCounter(t *testing.T) {
 	}
 }
 
-// Two concurrent assertions carrying the SAME counter cannot both succeed —
+// Two concurrent assertions carrying the SAME counter cannot both succeed â€”
 // the in-database compare-and-swap is what closes the replay race.
 func TestWebAuthnRepo_ConcurrentAssertionRace(t *testing.T) {
 	s := requireStore(t)
@@ -257,7 +294,7 @@ func TestWebAuthnRepo_ConcurrentAssertionRace(t *testing.T) {
 	repo := NewWebAuthnRepo(s)
 	uid := mkWebAuthnUser(t, s, "wa-arace@example.com")
 
-	cred, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-race"), []byte(`{}`), 1, "race")
+	cred, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-race"), []byte(`{}`), 1, "race", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +330,7 @@ func TestWebAuthnRepo_CascadesWithUser(t *testing.T) {
 	repo := NewWebAuthnRepo(s)
 	uid := mkWebAuthnUser(t, s, "wa-cascade@example.com")
 
-	if _, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-cascade"), []byte(`{}`), 0, "gone soon"); err != nil {
+	if _, err := repo.InsertCredential(ctx, uid, "example.com", []byte("c-cascade"), []byte(`{}`), 0, "gone soon", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.InsertChallenge(ctx, "chal-cascade", "login", &uid, []byte(`{}`), time.Now().Add(time.Minute)); err != nil {

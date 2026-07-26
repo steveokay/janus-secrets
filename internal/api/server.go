@@ -367,7 +367,14 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		// looser budget is safe here: a WebAuthn assertion is a signature over a
 		// server-chosen challenge and cannot be guessed, so this limiter exists
 		// to bound resource abuse, not credential brute-forcing.
-		passkeyLimiter := newIPRateLimiter(30.0/60.0, 12) // 30/min sustained, burst 12
+		// Doubled from 30/min burst 12 when passwordless login landed: a single
+		// visit to the login screen now costs TWO calls on this limiter (the
+		// status probe, plus the background conditional-mediation challenge), and
+		// it is keyed per IP — so a whole office behind one NAT shares the budget.
+		// What it still bounds — enumeration sampling on the email-identified
+		// begin, and the rate of challenge-row insertion — stays the same order of
+		// magnitude.
+		passkeyLimiter := newIPRateLimiter(60.0/60.0, 24) // 60/min sustained, burst 24
 		r.Route("/v1/auth", func(r chi.Router) {
 			r.With(loginLimiter.middleware).Post("/login", s.handleLogin)
 			r.With(loginLimiter.middleware).Get("/oidc/status", s.handleOIDCStatus)
@@ -381,6 +388,12 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.With(passkeyLimiter.middleware).Get("/webauthn/status", s.handleWebAuthnStatus)
 			r.With(passkeyLimiter.middleware).Post("/webauthn/login/begin", s.handleWebAuthnLoginBegin)
 			r.With(passkeyLimiter.middleware).Post("/webauthn/login/finish", s.handleWebAuthnLoginFinish)
+			// Passwordless (client-side discoverable) sign-in: no email at begin,
+			// so identity comes from the assertion's credential id — resolved in
+			// our own store, with the claimed user handle only cross-checked
+			// against it. Same rate limiter as the identified ceremony.
+			r.With(passkeyLimiter.middleware).Post("/webauthn/login/discoverable/begin", s.handleWebAuthnDiscoverableLoginBegin)
+			r.With(passkeyLimiter.middleware).Post("/webauthn/login/discoverable/finish", s.handleWebAuthnDiscoverableLoginFinish)
 			// ── end WebAuthn (pre-auth) ────────────────────────────────────
 			r.Group(func(r chi.Router) {
 				r.Use(RequireAuth(s.auth, s))

@@ -319,6 +319,10 @@ export interface PasskeyCredential {
   id: string
   nickname: string
   credential_id: string
+  /* whether this passkey can sign in with no address typed first.
+     null = UNKNOWN (enrolled before Janus recorded it, and never yet used
+     passwordlessly) — the UI must say so rather than promise either way. */
+  discoverable: boolean | null
   created_at: string
   last_used_at?: string | null
 }
@@ -798,6 +802,14 @@ export const api = {
   webauthnLoginBegin: (email: string) => post<unknown>('/v1/auth/webauthn/login/begin', { email }),
   webauthnLoginFinish: (body: string) =>
     requestRaw<{ user: { id: string; email: string } }>('POST', '/v1/auth/webauthn/login/finish', body),
+  /* passwordless (discoverable) sign-in — no address is sent, so this begin
+     carries nothing to probe. `conditional` asks for browser autofill rather
+     than a modal prompt; it is a client-side directive only. */
+  webauthnDiscoverableBegin: (conditional = false) =>
+    post<unknown>('/v1/auth/webauthn/login/discoverable/begin', { conditional }),
+  webauthnDiscoverableFinish: (body: string) =>
+    requestRaw<{ user: { id: string; email: string } }>(
+      'POST', '/v1/auth/webauthn/login/discoverable/finish', body),
   /* ── end passkeys ─────────────────────────────────────────────────────── */
 
   // notifications (alerting channels)

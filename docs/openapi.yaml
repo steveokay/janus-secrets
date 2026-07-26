@@ -2723,6 +2723,14 @@ paths:
                         id: { type: string, format: uuid }
                         nickname: { type: string }
                         credential_id: { type: string, description: "base64url authenticator credential id (a public handle)" }
+                        discoverable:
+                          type: boolean
+                          nullable: true
+                          description: >-
+                            Whether this passkey can sign in with no email supplied first
+                            (a client-side discoverable / resident credential). `null` means
+                            UNKNOWN — registered before Janus recorded it and not yet used
+                            passwordlessly. Advisory display metadata; never an authorization input.
                         created_at: { type: string, format: date-time }
                         last_used_at: { type: string, format: date-time, nullable: true }
         "401": { $ref: '#/components/responses/Unauthorized' }
@@ -2734,7 +2742,10 @@ paths:
         Issues a single-use, expiring registration challenge bound to the
         caller's session and returns the PublicKeyCredentialCreationOptions
         payload for `navigator.credentials.create()`. User verification is
-        required, so an enrolled credential is two factors on its own.
+        required, so an enrolled credential is two factors on its own, and
+        `residentKey` is **required** so the credential can also be used for
+        passwordless sign-in. The `credProps` extension is requested so the
+        server can report per-credential whether that succeeded.
       responses:
         "200":
           description: PublicKeyCredentialCreationOptions (public ceremony parameters).
@@ -2875,6 +2886,77 @@ paths:
                       id: { type: string, format: uuid }
                       email: { type: string }
         "401": { description: "Invalid credentials (a bad, replayed, or cloned assertion are indistinguishable)." }
+        "409": { description: Passkeys are not configured. }
+        "429": { description: "Rate limited, or the account is locked (`account_locked`, revealed only after a valid assertion)." }
+  /v1/auth/webauthn/login/discoverable/begin:
+    post:
+      tags: [auth]
+      summary: Begin a passwordless (discoverable) passkey login
+      description: >-
+        Issues an assertion challenge bound to the CEREMONY, not to any account:
+        no email is supplied and none is implied, so `allowCredentials` is empty
+        and the response is byte-identical for every caller apart from the
+        challenge. There is nothing here to probe. The optional `conditional`
+        flag asks for browser autofill ("conditional mediation") instead of a
+        modal prompt — a client-side directive that changes nothing the server
+        verifies.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conditional: { type: boolean, default: false }
+      responses:
+        "200":
+          description: PublicKeyCredentialRequestOptions with no allowCredentials.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "409": { description: "Passkeys are not configured (`webauthn_not_configured`)." }
+        "429": { description: Rate limited. }
+  /v1/auth/webauthn/login/discoverable/finish:
+    post:
+      tags: [auth]
+      summary: Finish a passwordless (discoverable) passkey login
+      description: >-
+        Body is the raw PublicKeyCredential JSON from `navigator.credentials.get()`,
+        including the authenticator's `userHandle`.
+
+        Identity is NOT taken from that user handle. The server looks the
+        presented credential id up in its own store, takes the account to be the
+        credential's stored owner, requires the presented user handle to equal
+        that owner's handle (rejecting any mismatch — so a credential belonging
+        to one account cannot be paired with another account's handle), and then
+        verifies the signature against that stored credential's public key.
+
+        Everything the identified flow enforces still applies: single-use
+        expiring challenge (from a separate pool, so the two ceremonies cannot
+        be crossed), `userVerification: required` re-asserted from the
+        authenticator flags, a signature counter that must advance, origin and
+        RP-ID validation, and disabled accounts refused. Every failure — unknown
+        credential, mismatched handle, bad signature, replay — returns the same
+        401, so this is not an enumeration oracle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Signed in; session cookie set.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string, format: uuid }
+                      email: { type: string }
+        "401": { description: "Invalid credentials — every rejection is reported identically." }
         "409": { description: Passkeys are not configured. }
         "429": { description: "Rate limited, or the account is locked (`account_locked`, revealed only after a valid assertion)." }
   /v1/auth/oidc/status:
