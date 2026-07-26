@@ -10,8 +10,9 @@ and it talks to Janus over the `/v1` HTTP API with a scoped
 `janus_svc_`/admin token.
 
 > **Read this first — secrets live in Terraform state.** Terraform persists
-> every managed attribute in its state file, including `janus_secret.value`
-> and the once-only `janus_service_token.token`. Even though the provider
+> every managed attribute in its state file, including `janus_secret.value`,
+> every value in the `janus_secrets.secrets` map, and the once-only
+> `janus_service_token.token`. Even though the provider
 > marks these `Sensitive` (so they never print in plan output), they are
 > still written to state. **Use a sensitive/remote state backend** (encrypted
 > S3 + lock table, Terraform Cloud, etc.) and tightly restrict who can read
@@ -105,6 +106,113 @@ output "ci_token" {
 }
 ```
 
+## Writing many keys as one config version — `janus_secrets`
+
+`janus_secret` manages **one** key, and each write creates its own immutable
+config version. Seeding twenty keys that way produces twenty versions, which
+makes the version history and the diff view useless for the change you actually
+made.
+
+`janus_secrets` manages a **map** of keys for one config and sends every add,
+change and removal in a single request to `PUT /v1/configs/{id}/secrets` — so
+the whole apply lands as **one config version**, exactly like hitting "Save as
+vN" in the web editor.
+
+```hcl
+resource "janus_secrets" "prod" {
+  config_id = janus_config.prod_root.id
+  message   = "seed prod from terraform" # becomes the config version message
+
+  secrets = {
+    DATABASE_URL = var.database_url
+    STRIPE_KEY   = var.stripe_key
+    FEATURE_FLAG = "on"
+  }
+}
+
+output "prod_config_version" {
+  value = janus_secrets.prod.config_version # the version this apply created
+}
+```
+
+Delete a key by removing it from the map: the next apply **tombstones** it (a
+soft delete — the value stays recoverable from an earlier config version) in the
+*same* batch as any other change, so an apply that adds two keys and drops one is
+still one version. Destroying the resource tombstones every key it manages, also
+in one batch. Keys that are not in the map are never touched.
+
+### Drift detection is metadata-only
+
+The masked list endpoint is **value-free** — that is the point of it — so this
+resource *cannot* compare the stored plaintext with your configuration. Instead
+it records each key's server-side `value_version` (Janus bumps that counter on
+every write to a key) in the non-sensitive `value_versions` attribute. On
+refresh:
+
+| Observation                                        | What Terraform does                     |
+| -------------------------------------------------- | --------------------------------------- |
+| `value_version` moved since the last apply          | Key dropped from state → plan rewrites it |
+| Key missing, or now only *inherited* from a base config | Key dropped from state → plan re-adds it |
+| `value_version` unchanged                           | Assumed still in sync                    |
+
+So it reliably tells you **that** a key was written outside Terraform, and
+reasserts your configuration. It cannot tell you **what** the out-of-band value
+was, and it cannot notice a value that never matched state in the first place
+(e.g. immediately after `terraform import janus_secrets.prod <config_uuid>`,
+where `secrets` starts empty and the first apply rewrites every key). Detecting
+value drift properly would mean an audited whole-config `secret.reveal` on every
+`terraform plan`; that trade-off is deliberately not taken.
+
+Because the whole `secrets` map is `Sensitive`, plan output masks values *and*
+key names. Use the value-free `value_versions` output to see which keys the
+resource tracks.
+
+### Don't manage one key with both resources
+
+`janus_secret` and `janus_secrets` can share a config, but **not a key** — two
+owners would fight on every apply. `janus_secrets` fails loudly instead of
+clobbering: before adopting a key it checks the masked list, and if that key
+already exists in the config it errors and writes nothing, naming the clashing
+keys. (A key that merely *inherits* from a base config is fair game — writing it
+is a legitimate override.) Keep the key sets disjoint, or move the key under one
+resource and `terraform state rm` the other.
+
+If the target config is **protected** (four-eyes approval), Janus answers `202
+Accepted` and files the batch as a pending edit request rather than committing
+it. The provider surfaces that as an error, because Terraform must never record
+a write that is not live.
+
+## Environment-scoped service tokens
+
+Janus scopes service tokens to a **config** or a whole **environment** — never a
+project and never instance-wide. `scope_kind` picks which, and `scope` is the
+corresponding UUID:
+
+```hcl
+# Default: config-scoped (scope_kind = "config" is implied).
+resource "janus_service_token" "ci_deploy" {
+  name   = "ci-deploy"
+  scope  = janus_config.prod_root.id
+  access = "read"
+}
+
+# Every config in the prod environment.
+resource "janus_service_token" "prod_reader" {
+  name       = "prod-reader"
+  scope_kind = "environment"
+  scope      = janus_environment.prod.id
+  access     = "read"
+}
+```
+
+An invalid kind (say `project`) fails at `terraform plan` — the provider
+validates the enum locally, so you don't burn an API round-trip on a `400`. The
+minted token remains a **sensitive computed** attribute available exactly once;
+it is persisted in state and cannot be re-read from Janus afterwards.
+
+Upgrading from a provider build without `scope_kind`: existing tokens refresh
+their kind from the server, so they are not planned for replacement.
+
 A full runnable version (with variables, data sources, and outputs) lives in
 [`terraform-provider-janus/examples/main.tf`](../../terraform-provider-janus/examples/main.tf).
 
@@ -116,7 +224,8 @@ A full runnable version (with variables, data sources, and outputs) lives in
 | resource    | `janus_environment`      | `name` renamable; `slug`/`project_id` immutable.             |
 | resource    | `janus_config`           | Optional `inherits_from`; all attributes immutable.          |
 | resource    | `janus_secret`           | `value` **Sensitive**; a write creates one config version.   |
-| resource    | `janus_service_token`    | `token` **Sensitive computed**, shown once at create.        |
+| resource    | `janus_secrets`          | Map of keys, **Sensitive**; the whole batch is one config version. |
+| resource    | `janus_service_token`    | `token` **Sensitive computed**, shown once at create; `config`- or `environment`-scoped. |
 | data source | `janus_secret`           | Reads a value (**Sensitive**, audited `secret.reveal`).      |
 | data source | `janus_config`           | Reads config metadata (no values).                           |
 
@@ -128,7 +237,8 @@ provider's [README](../../terraform-provider-janus/README.md).
 - A `janus_secret` write goes through `PUT /v1/configs/{cid}/secrets/{key}`,
   which creates a new **immutable config version** — so each apply that
   changes a value bumps the version, exactly as the [data model](../data-model.md)
-  describes.
+  describes. A `janus_secrets` apply goes through the batch route
+  `PUT /v1/configs/{cid}/secrets` instead, so N keys share **one** version.
 - Reading a secret (the `janus_secret` data source, or a resource `Read`) hits
   the audited reveal endpoint, so it is recorded as a `secret.reveal`
   [audit event](../architecture.md).
@@ -151,10 +261,10 @@ go test ./...
 
 ## Limitations / roadmap
 
-- Service tokens are **config-scoped** today (`kind=config`);
-  environment-scoped tokens are a planned follow-up.
-- Each `janus_secret` is its own config version; a future batch resource could
-  group multiple keys into one version.
+- `janus_secrets` detects drift from **metadata only** (`value_version`), never
+  from stored plaintext — see the drift section above.
+- The mint API accepts `ttl_seconds` and `ip_allowlist`; `janus_service_token`
+  does not expose them yet.
 - Registry publication and generated docs (`tfplugindocs`) are pending.
 
 See also: [Service tokens](service-tokens.md), [Managing secrets](managing-secrets.md),
