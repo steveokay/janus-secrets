@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // stubState records what the scripted sys API received on the wire.
@@ -354,5 +356,40 @@ func TestUnsealResetFlag(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("reset endpoint not called: %v", st.paths)
+	}
+}
+
+// A caller reading a quorum from a pipe must get every share, not just the
+// first. bufio reads ahead, so a reader built per share consumed line 1 and
+// buffered the rest, then threw them away with the reader — `janus master-key
+// rekey` loops for the quorum and could not be driven from a pipe or heredoc.
+// `janus unseal` takes one share per invocation, which is why this hid.
+func TestShareReaderReadsEveryPipedShare(t *testing.T) {
+	want := []string{"share-one", "share-two", "share-three"}
+
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader(strings.Join(want, "\n") + "\n"))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	next := newShareReader(cmd)
+	for i, w := range want {
+		got, err := next()
+		if err != nil {
+			t.Fatalf("share %d: %v", i+1, err)
+		}
+		if got != w {
+			t.Fatalf("share %d = %q, want %q", i+1, got, w)
+		}
+	}
+
+	// The single-share helper must still work for `janus unseal`.
+	one := &cobra.Command{}
+	one.SetIn(strings.NewReader("only-share\n"))
+	one.SetOut(io.Discard)
+	one.SetErr(io.Discard)
+	got, err := readShare(one)
+	if err != nil || got != "only-share" {
+		t.Fatalf("readShare = %q, %v; want \"only-share\", nil", got, err)
 	}
 }
