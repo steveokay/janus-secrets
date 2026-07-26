@@ -74,9 +74,12 @@ bug fixes without tests will be asked to add them.
   never raw tokens). Use **constant-time** comparison for all token/MAC checks.
 - **Standard library `crypto/*` + `golang.org/x/crypto` ONLY.** Never
   implement crypto primitives yourself, and never add a third-party crypto
-  library. The sole approved exception is the OIDC/JOSE stack
-  (`github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2`,
-  `github.com/go-jose/go-jose/v4`) for JWT/JWKS verification — see CLAUDE.md.
+  library. There are exactly **two** approved exceptions, both recorded in
+  CLAUDE.md: the OIDC/JOSE stack (`github.com/coreos/go-oidc/v3`,
+  `golang.org/x/oauth2`, `github.com/go-jose/go-jose/v4`) for JWT/JWKS
+  verification, and `github.com/go-webauthn/webauthn` for passkey COSE-key
+  parsing and attestation/assertion verification. The envelope, transit, and
+  unseal crypto remain stdlib + `x/crypto`.
 - When in doubt on a security decision, **stop and ask** rather than guessing.
 
 ## Database migrations
@@ -85,7 +88,14 @@ bug fixes without tests will be asked to add them.
   `NNNNNN_name.up.sql` + `NNNNNN_name.down.sql` pairs, applied with
   `golang-migrate`. Every `up` needs a matching `down`.
 - Numbers are **zero-padded, six digits, strictly increasing**. The latest is
-  `000030`; **the next migration number is `000031`.**
+  `000044`; **the next migration number is `000045`.** (Check `migrations/`
+  rather than trusting this line — it is the one thing here that goes stale
+  every time a migration lands.)
+- A `CHECK` constraint that enumerates values the Go code also enumerates (sync
+  providers, rotator types, notification channels) is guarded by
+  `internal/api/schema_enums_test.go`, which introspects the live constraint and
+  fails if the two ever diverge. Widen the constraint in the same migration that
+  adds the value.
 - SQL is executed only via **parameterized queries** in Go code — never
   string-concatenate user input into SQL. Validate all inputs at the API
   boundary.

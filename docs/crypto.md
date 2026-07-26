@@ -135,7 +135,11 @@ is constant-time (defense-in-depth; the constant is public).
 ### Shamir (interactive, k-of-n)
 
 The master key is split with Shamir's Secret Sharing (default **3-of-5**,
-configurable) using a vendored copy of HashiCorp Vault's implementation.
+configurable) using a vendored copy of HashiCorp Vault's implementation in
+`internal/crypto/shamir/`, which is licensed under **MPL-2.0** (see that
+directory's `LICENSE`; the original per-file headers are retained) and is
+distributed alongside the Apache-2.0 remainder of Janus — see
+[`NOTICE`](../NOTICE).
 
 ```go
 u := NewShamirUnsealer(store, shares, threshold)

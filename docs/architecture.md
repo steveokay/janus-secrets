@@ -15,10 +15,12 @@ those below it and is testable in isolation.
 │  cmd/janus (single binary: server + secrets CLI)         │
 ├──────────────────────────────────────────────────────────┤
 │  internal/api    HTTP handlers, middleware, routes     ✅ │
-│                  (sys + auth + token + user + member +    │
+│                  (sys + auth [password/TOTP/passkey/OIDC] │
+│                   + token + user + member +               │
 │                   project/env/config/secret + versions +  │
-│                   trash + transit + rotation + sync +      │
-│                   dynamic + promote + audit + metrics)    │
+│                   retention + trash + transit + rotation + │
+│                   sync [+ drift verify] + dynamic +        │
+│                   promote + audit + metrics)              │
 ├──────────────────────────────────────────────────────────┤
 │  internal/auth ✅  internal/authz ✅  internal/audit ✅    │
 │  internal/resolve ✅ (inheritance + references)            │
@@ -55,22 +57,22 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 |---------|---------|-------|
 | `internal/crypto` | AES-256-GCM envelope encryption, key hierarchy, in-memory keyring, Shamir + cloud-KMS unseal (AWS KMS, GCP KMS, Azure Key Vault) | ✅ implemented |
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
-| `internal/store` | Postgres repositories, migrations, seal-config store, two-level versioning, trash, idempotency | ✅ implemented |
-| `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops, key validation | ✅ implemented |
+| `internal/store` | Postgres repositories, migrations (`000001`–`000044`, embedded and auto-applied at boot), seal-config store, two-level versioning, trash, idempotency | ✅ implemented |
+| `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops, key validation, value-version **retention policy + config-version-granular prune** | ✅ implemented |
 | `internal/resolve` | Read-time config inheritance + secret-reference resolution (pure, composes over `internal/secrets`) | ✅ implemented |
 | `internal/masterkeys` | Master-key rotation: KMS single-call rotate, Shamir interactive rekey ceremony, re-wraps all master-wrapped material in one tx | ✅ implemented |
 | `internal/projectkeys` | Per-project KEK rotation + resumable DEK rewrap sweep, version-aware reads | ✅ implemented |
 | `internal/promote` | Env-to-env secret promotion pipeline: locked keys, per-key selection, four-eyes approval workflow (`promotion_requests`) | ✅ implemented |
 | `internal/transit` | Named-key encrypt/decrypt/sign/verify/rewrap-as-a-service, key versioning, `min_decryption_version` | ✅ implemented |
 | `internal/rotation` | Scheduled static secret rotation (six rotators: `postgres`, `webhook`, `mysql`, `redis`, `oauth`, `aws_iam`), run history | ✅ implemented |
-| `internal/secretsync` | One-way sync of resolved secrets to eight providers (`github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, `vercel`, `netlify`), run history | ✅ implemented |
+| `internal/secretsync` | One-way sync of resolved secrets to eight providers (`github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, `vercel`, `netlify`), run history, and **drift detection** — an optional per-provider read-back capability (`values` / `names_only` / `none`) compared value-free via keyed HMAC, with its own scheduler and run history | ✅ implemented |
 | `internal/dynamic` | Dynamic Postgres credentials: lease manager, TTL/renewal/revocation, crash-safe issue, orphan sweep | ✅ implemented |
-| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `/v1/trash`, `.../members`, `/v1/projects` (+ KEK rotate/rewrap, pipeline, locked-keys, promote) + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete/history, `/v1/configs/{cid}/versions` list/diff/rollback, `/v1/transit/*`, `/v1/rotation/*`, `/v1/sync/*`, `/v1/dynamic/*`, `/v1/audit/*` (verify/export/events/histogram + owner-only checkpoint/prune), `/v1/metrics/reads-24h` (+ token-gated Prometheus `/metrics`), cursor pagination + `Idempotency-Key` middleware, sealed-state + auth + authz middleware, `Boot` composition | ✅ implemented |
-| `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, OIDC login + CI federation, `Principal` | ✅ implemented |
+| `internal/api` | HTTP server: chi router, `/v1/sys/*` seal lifecycle, `/v1/auth/*`, `/v1/tokens`, `/v1/users`, `/v1/trash`, `.../members`, `/v1/projects` (+ KEK rotate/rewrap, pipeline, locked-keys, promote) + env/config CRUD + lifecycle, `/v1/configs/{cid}/secrets` masked-list/reveal/write/delete/history, `/v1/configs/{cid}/versions` list/diff/rollback + `versions/retention` and owner-only `versions/prune`, `/v1/auth/webauthn/*` (status, register begin/finish, credential rename/delete, and both login ceremonies), `/v1/sys/oidc/federation/issuers`, `/v1/transit/*`, `/v1/rotation/*`, `/v1/sync/*` (+ `targets/{id}/verify`, `verify-runs`, `verify-schedule`), `/v1/dynamic/*`, `/v1/audit/*` (verify/export/events/histogram + owner-only checkpoint/prune), `/v1/metrics/reads-24h` (+ token-gated Prometheus `/metrics`), cursor pagination + `Idempotency-Key` middleware, sealed-state + auth + authz middleware, a JSON error envelope for every unmatched `/v1` path (the SPA fallback only serves non-API routes), `Boot` composition | ✅ implemented |
+| `internal/auth` | Argon2id passwords, opaque Postgres sessions, scoped service tokens, TOTP + recovery codes, **WebAuthn passkeys** (`webauthn.go`, `webauthn_config.go` — enrolment plus the email-identified and discoverable/passwordless ceremonies, RP config validated at boot), OIDC login + workload federation over a multi-issuer trust set (`oidc_federation.go`, `oidc_federation_claims.go` — dotted-path nested-claim matching, per-provider presets), `Principal` | ✅ implemented |
 | `internal/authz` | Pure deny-by-default RBAC engine (viewer/developer/admin/owner; instance/project/env scopes; `Can`, `EffectiveRole`, grant/revoke) | ✅ implemented |
 | `internal/audit` | Hash-chained append-only audit log: canonical SHA-256 chain, advisory-lock append, `Verify`, filtered export, bucketed histogram, and signed hash-chain **checkpointing + retention prune** (domain-separated HMAC checkpoint MAC, verify-from-checkpoint, fail-closed prune clamped to the audit-ship high-water mark); fail-closed per-handler recording for internal mutations (the engine action endpoints are a deliberate best-effort exception — see [operations.md](operations.md#audit-log)) | ✅ implemented |
 | `web/` | Svelte 5 (runes) + TypeScript + Vite SPA (Atrium design, hand-written CSS tokens), embedded via `go:embed` | ✅ implemented |
-| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) + secrets/control-plane CLI (`login`, `setup`, `run` [+`--watch`], `render`, `secrets …`, `project`/`env`/`config`/`token` CRUD, `promote`, `pipeline`, `master-key`, `dynamic`, `sync`, `rotation`, `import`, `break-glass`, `backup`, `restore`, `whoami`, `completion`) | ✅ implemented |
+| `cmd/janus` | Single binary: server + operator CLI (`server`, `init`, `unseal`, `seal-status`, `seal`, `migrate`) + secrets/control-plane CLI (`login`, `setup`, `run` [+`--watch`], `render`, `secrets …`, `project`/`env`/`config`/`token` CRUD, `promote`, `pipeline`, `master-key`, `dynamic`, `sync` [+ `verify`/`verify-schedule`], `rotation`, `import`, `break-glass`, `backup`, `restore`, `whoami`, `completion`; `secrets retention`/`secrets prune` for value-version retention) | ✅ implemented |
 
 ## Sealed vs. unsealed
 
@@ -137,7 +139,11 @@ Since the original three phases, further depth work has shipped on top: config
 inheritance + secret references (`internal/resolve`), per-project KEK rotation
 and master-key rotation, trash/restore, per-key value history, typed secrets,
 an env-to-env promotion pipeline with a four-eyes approval workflow, cursor
-pagination, an `Idempotency-Key` middleware, and an audit event histogram. See
+pagination, an `Idempotency-Key` middleware, an audit event histogram, signed
+audit checkpointing with retention prune, WebAuthn passkeys (including a
+passwordless/discoverable ceremony), multi-issuer workload federation with
+Kubernetes service-account support, sync drift detection, and explicit
+value-version retention. See
 `../status.md` for what remains open and git/PR history for the full detail.
 HA/Raft, PKI/CA, SSH signing, HSM, multi-tenancy, and FIPS claims remain
 explicit non-goals.
