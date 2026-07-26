@@ -1,10 +1,12 @@
-.PHONY: dev dev-up test lint build migrate cover web-deps web-build web-test
+.PHONY: dev dev-up test test-modules lint build migrate cover web-deps web-build web-test
 
 web-deps:
 	cd web && npm ci
 
+# `-- --run` was Vitest's watch-mode escape hatch; the suite is plain
+# `node --test` now and the flag is inert.
 web-test:
-	cd web && npm run test -- --run
+	cd web && npm test
 
 # Build the SPA and stage it where go:embed picks it up.
 web-build:
@@ -13,9 +15,21 @@ web-build:
 	mkdir -p internal/web/dist
 	cp -r web/dist/. internal/web/dist/
 
-test:
+test: test-modules
 	go test -race ./...
-	cd web && npm run test -- --run
+	cd web && npm test
+
+# The nested modules. `go test ./...` above covers the ROOT module only — the
+# `./...` pattern does not descend into a directory with its own go.mod — so
+# without this `make test` was green while sdk/go and terraform-provider-janus
+# went entirely unrun. CI checks all of them (see the go-modules / sdk-ts /
+# sdk-python jobs); keep this in step with those so a local run means what a
+# contributor thinks it means.
+test-modules:
+	cd sdk/go && go test -race ./...
+	cd terraform-provider-janus && go test -race ./...
+	cd sdk/ts && npm test
+	cd sdk/python && python -m unittest discover -s tests -t . -q
 
 lint:
 	go vet ./...

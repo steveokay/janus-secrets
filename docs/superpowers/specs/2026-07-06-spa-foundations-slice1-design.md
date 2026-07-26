@@ -22,7 +22,7 @@
   [`docs/design/ui-mockup.html`](../../design/ui-mockup.html). Where look & feel is
   in question, the mockup/spec win; this doc only covers *how* Slice 1 realizes
   them. CLAUDE.md's "Web UI visual system (locked)" rules bind every task here.
-- **Tracker:** [`fe-improvements.md`](../../../fe-improvements.md) (§0 foundations,
+- **Tracker:** `fe-improvements.md` (§0 foundations,
   §1 shell, parts of §2 empty states, §4 kit).
 
 ## Goal
