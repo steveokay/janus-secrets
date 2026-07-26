@@ -163,7 +163,7 @@
         <div class="minted">
           <span class="stamp ok flat">Minted — shown exactly once</span>
           <p class="folio">Copy it now; Janus keeps only the HMAC.</p>
-          <code class="token-once mono">{minted.token}</code>
+          <code class="token-once mono" data-testid="minted-token">{minted.token}</code>
           <button class="btn btn-sm" onclick={() => navigator.clipboard.writeText(minted!.token)}>Copy</button>
           <button class="btn btn-sm btn-ghost" onclick={() => { minting = false; minted = null }}>Done</button>
         </div>
@@ -217,7 +217,7 @@
   {#if error}<p class="error rise">{error}</p>{/if}
 
   <div class="sheet table-wrap rise" style="animation-delay: 60ms">
-    <table class="ledger" aria-label="Service tokens">
+    <table class="ledger" aria-label="Service tokens" data-testid="tokens-table">
       <thead>
         <tr>
           <th scope="col">Token</th>

@@ -250,7 +250,7 @@
       <span class="folio">four-eyes edits to configs marked protected · values are never shown — key names only</span>
     </div>
     <div class="sheet table-wrap">
-      <table class="ledger" aria-label="Promotion request history">
+      <table class="ledger" aria-label="Promotion request history" data-testid="edit-requests-table">
         <thead>
           <tr>
             <th scope="col">Config</th>

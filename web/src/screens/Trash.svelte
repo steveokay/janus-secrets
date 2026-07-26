@@ -61,7 +61,7 @@
       <p class="folio">Office · soft-deleted material — restorable until destroyed</p>
       <h1>Trash</h1>
     </div>
-    {#if note}<span class="pill pill-info">{note}</span>{/if}
+    {#if note}<span class="pill pill-info" data-testid="trash-note">{note}</span>{/if}
   </header>
   <hr class="ledger-rule" />
 
@@ -78,7 +78,7 @@
       <section class="op-section rise">
         <div class="section-head"><h3>Projects</h3></div>
         <div class="sheet table-wrap">
-          <table class="ledger" aria-label="Deleted projects">
+          <table class="ledger" aria-label="Deleted projects" data-testid="trash-projects">
             <tbody>
               {#each trash.projects as p (p.id)}
                 <tr>
@@ -101,7 +101,7 @@
       <section class="op-section rise" style="animation-delay: 60ms">
         <div class="section-head"><h3>Environments</h3></div>
         <div class="sheet table-wrap">
-          <table class="ledger" aria-label="Deleted environments">
+          <table class="ledger" aria-label="Deleted environments" data-testid="trash-environments">
             <tbody>
               {#each trash.environments as e (e.id)}
                 <tr>
@@ -124,7 +124,7 @@
       <section class="op-section rise" style="animation-delay: 120ms">
         <div class="section-head"><h3>Configs</h3></div>
         <div class="sheet table-wrap">
-          <table class="ledger" aria-label="Deleted configs">
+          <table class="ledger" aria-label="Deleted configs" data-testid="trash-configs">
             <tbody>
               {#each trash.configs as c (c.id)}
                 <tr>

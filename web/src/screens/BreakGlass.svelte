@@ -132,7 +132,7 @@
     </p>
   </header>
 
-  {#if note}<div class="banner ok" role="status">{note}</div>{/if}
+  {#if note}<div class="banner ok" role="status" data-testid="bg-banner">{note}</div>{/if}
   {#if error}<div class="banner err" role="alert">{error}</div>{/if}
 
   <section class="plate loud">
@@ -141,7 +141,7 @@
       <div class="row">
         <label>
           <span>Scope</span>
-          <select bind:value={scope}>
+          <select bind:value={scope} data-testid="bg-scope">
             <option value="instance">Instance</option>
             <option value="project">Project</option>
             <option value="environment">Environment</option>
@@ -150,7 +150,7 @@
         {#if scope === 'project' || scope === 'environment'}
           <label>
             <span>Project</span>
-            <select bind:value={pid}>
+            <select bind:value={pid} data-testid="bg-project">
               {#each registry.projects as p}<option value={p.id}>{p.name}</option>{/each}
             </select>
           </label>
@@ -158,7 +158,7 @@
         {#if scope === 'environment'}
           <label>
             <span>Environment</span>
-            <select bind:value={eid}>
+            <select bind:value={eid} data-testid="bg-environment">
               {#each envOptions as env}<option value={env.id}>{env.name}</option>{/each}
             </select>
           </label>
@@ -168,23 +168,23 @@
       <div class="row">
         <label>
           <span>Elevate to</span>
-          <select bind:value={role}>
+          <select bind:value={role} data-testid="bg-role">
             {#each ROLES as r}<option value={r}>{r}</option>{/each}
           </select>
         </label>
         <label>
           <span>Duration (TTL)</span>
-          <input bind:value={ttl} placeholder="30m" spellcheck="false" />
+          <input bind:value={ttl} placeholder="30m" spellcheck="false" data-testid="bg-ttl" />
         </label>
       </div>
 
       <label class="full">
         <span>Reason (required)</span>
-        <textarea bind:value={reason} rows="2" maxlength="1000"
+        <textarea bind:value={reason} rows="2" maxlength="1000" data-testid="bg-reason"
           placeholder="Why is emergency access needed? This is recorded, non-secret."></textarea>
       </label>
 
-      {#if formError}<p class="form-err" role="alert">{formError}</p>{/if}
+      {#if formError}<p class="form-err" role="alert" data-testid="bg-form-error">{formError}</p>{/if}
 
       <div class="actions">
         <button type="submit" class="btn btn-stamp" disabled={activating}>
@@ -201,7 +201,7 @@
     {:else if grants.length === 0}
       <p class="muted">No active break-glass grants.</p>
     {:else}
-      <table class="ledger" aria-label="Active break-glass grants">
+      <table class="ledger" aria-label="Active break-glass grants" data-testid="bg-grants">
         <thead>
           <tr><th scope="col">Scope</th><th scope="col">Role</th><th scope="col">Reason</th><th scope="col">Expires in</th><th scope="col"></th></tr>
         </thead>
