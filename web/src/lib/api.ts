@@ -20,6 +20,27 @@ const authAttemptPaths = [
   '/v1/auth/webauthn/login/', // identified + discoverable begin/finish
 ]
 
+/* Not every 401 means "you are not signed in".
+
+   The server uses a DIFFERENT code for a failed ceremony than for a missing or
+   expired session, and only the latter should drop the shell to the login gate:
+
+     session_expired  / unauthenticated      → the session really is gone
+     webauthn_verification / invalid_credentials → the CALLER IS STILL SIGNED IN;
+                                               the passkey attempt didn't verify
+
+   Passkey ENROLMENT (`/v1/auth/webauthn/register/*`) is the case that made this
+   necessary — it is performed by an authenticated user, and a ceremony that
+   fails (wrong RP origin, a cancelled prompt, a cloned authenticator) returns
+   `401 webauthn_verification`. Keying off the status alone silently signed the
+   user out mid-enrolment instead of showing them the error.
+
+   This is an ALLOWLIST rather than a blacklist of ceremony codes so that any
+   future 401 defaults to leaving the session alone — the safe direction, since
+   a spurious logout destroys work while a missed one is corrected by the next
+   ordinary request. */
+const sessionGoneCodes = new Set(['session_expired', 'unauthenticated'])
+
 let onUnauthenticated: (() => void) | null = null
 
 /** Registers the session-expiry handler. Called once by session.svelte.ts. */
@@ -27,19 +48,26 @@ export function setUnauthenticatedHandler(fn: () => void): void {
   onUnauthenticated = fn
 }
 
-function noteStatus(status: number, path: string): void {
+function noteUnauthorized(status: number, path: string, code: string | undefined): void {
   if (status !== 401) return
   if (authAttemptPaths.some(p => path.startsWith(p))) return
+  if (!code || !sessionGoneCodes.has(code)) return
   onUnauthenticated?.()
 }
 
 export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
+  // Declared as explicit fields rather than TypeScript parameter properties:
+  // the unit tests run under Node's strip-only TS mode (`node --test` with no
+  // bundler or transform), which rejects parameter properties outright — so
+  // that syntax alone made this whole module unimportable from a test.
+  // Behaviour and call signature are unchanged.
+  readonly status: number
+  readonly code: string
+
+  constructor(status: number, code: string, message: string) {
     super(message)
+    this.status = status
+    this.code = code
     this.name = 'ApiError'
   }
 }
@@ -51,12 +79,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
-  noteStatus(res.status, path)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   const data = text ? JSON.parse(text) : undefined
   if (!res.ok) {
     const e = (data as { error?: { code?: string; message?: string } } | undefined)?.error
+    // After parsing: the discriminating code lives in the error envelope.
+    noteUnauthorized(res.status, path, e?.code)
     throw new ApiError(res.status, e?.code ?? 'error', e?.message ?? res.statusText)
   }
   return data as T
@@ -77,12 +106,12 @@ async function requestRaw<T>(
     headers: { 'Content-Type': 'application/json', ...headers },
     body,
   })
-  noteStatus(res.status, path)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   const data = text ? JSON.parse(text) : undefined
   if (!res.ok) {
     const e = (data as { error?: { code?: string; message?: string } } | undefined)?.error
+    noteUnauthorized(res.status, path, e?.code)
     throw new ApiError(res.status, e?.code ?? 'error', e?.message ?? res.statusText)
   }
   return data as T
