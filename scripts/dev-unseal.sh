@@ -20,8 +20,14 @@ if ! echo "$status" | grep -q "initialized: true"; then
   echo "initializing dev seal (1-of-1)..."
   mkdir -p .dev
   umask 177
-  "$JANUS" init --shares 1 --threshold 1 --address "$ADDR" \
-    | grep -oE '\b[0-9a-f]{32,}\b' | head -1 > "$SHARE_FILE"
+
+  # Capture the WHOLE init output, don't pipe it straight into grep. `janus
+  # init` prints the one-time initial-admin credential alongside the share, and
+  # it is never shown again — piping discarded it, so `make dev-up` left you
+  # with an unsealed server you could not log in to.
+  init_out="$("$JANUS" init --shares 1 --threshold 1 --address "$ADDR")"
+
+  printf '%s\n' "$init_out" | grep -oE '\b[0-9a-f]{32,}\b' | head -1 > "$SHARE_FILE"
   # Guard against a format drift in the CLI output leaving a truncated or
   # empty share file behind: a 1-of-1 share is exactly 64 hex chars.
   share="$(cat "$SHARE_FILE")"
@@ -31,6 +37,15 @@ if ! echo "$status" | grep -q "initialized: true"; then
     exit 1
   fi
   echo "dev share saved to $SHARE_FILE (dev only — this is the master key)"
+
+  # Re-print the admin block verbatim. Shown once, by design.
+  admin_block="$(printf '%s\n' "$init_out" | sed -n '/Initial admin credential/,$p')"
+  if [ -n "$admin_block" ]; then
+    printf '\n%s\n' "$admin_block"
+  else
+    echo "note: could not find the admin credential in 'janus init' output;" >&2
+    echo "      re-run with a fresh database if you need it." >&2
+  fi
 fi
 
 # Unseal is idempotent: if already unsealed the server just reports the state.
