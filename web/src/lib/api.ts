@@ -273,6 +273,9 @@ export interface ApiGroupBinding {
   group_name?: string
   group_kind?: GroupKind
   scope_level: 'instance' | 'project' | 'environment'
+  /** Scope key, so a grant can be named rather than shown as a bare level. */
+  project_id?: string
+  environment_id?: string
   role: GroupRole
   created_at: string
 }

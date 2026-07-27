@@ -301,12 +301,17 @@ func (s *Server) recordGroupSync(r *http.Request, p auth.Principal, outcome *aut
 // ---- group role bindings (scope-side) ----
 
 type groupBindingView struct {
-	GroupID    string `json:"group_id"`
-	GroupName  string `json:"group_name,omitempty"`
-	GroupKind  string `json:"group_kind,omitempty"`
-	ScopeLevel string `json:"scope_level"`
-	Role       string `json:"role"`
-	CreatedAt  string `json:"created_at"`
+	GroupID   string `json:"group_id"`
+	GroupName string `json:"group_name,omitempty"`
+	GroupKind string `json:"group_kind,omitempty"`
+	// ScopeLevel plus the scope key. The ids are carried so the group detail
+	// view can name WHICH project or environment a grant reaches — without them
+	// a group bound on three projects renders as three identical rows.
+	ScopeLevel    string  `json:"scope_level"`
+	ProjectID     *string `json:"project_id,omitempty"`
+	EnvironmentID *string `json:"environment_id,omitempty"`
+	Role          string  `json:"role"`
+	CreatedAt     string  `json:"created_at"`
 }
 
 func toGroupBindingViews(bs []*store.GroupRoleBinding) []groupBindingView {
@@ -314,7 +319,8 @@ func toGroupBindingViews(bs []*store.GroupRoleBinding) []groupBindingView {
 	for _, b := range bs {
 		out = append(out, groupBindingView{
 			GroupID: b.GroupID, GroupName: b.GroupName, GroupKind: b.GroupKind,
-			ScopeLevel: b.ScopeLevel, Role: b.Role,
+			ScopeLevel: b.ScopeLevel, ProjectID: b.ProjectID, EnvironmentID: b.EnvironmentID,
+			Role:      b.Role,
 			CreatedAt: b.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}

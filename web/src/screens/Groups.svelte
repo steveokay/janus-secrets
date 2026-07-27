@@ -134,16 +134,19 @@
     users.filter(u => !u.disabled && !members.some(m => m.user_id === u.id)),
   )
 
+  /** Name the scope a grant reaches. The registry resolves ids the caller can
+   *  see; a project they cannot see falls back to the bare level rather than
+   *  leaking a name they have no access to. */
   function scopeLabel(b: ApiGroupBinding): string {
     if (b.scope_level === 'instance') return 'instance'
-    // The binding carries ids; the registry resolves them to names when the
-    // caller can see the project, and falls back to the raw level otherwise.
-    for (const p of registry.projects) {
-      for (const e of p.environments ?? []) {
-        if (b.scope_level === 'environment') return `${p.name} / ${e.slug}`
-      }
+    if (b.scope_level === 'project') {
+      return registry.findProject(b.project_id ?? '')?.name ?? 'a project'
     }
-    return b.scope_level
+    for (const p of registry.projects) {
+      const env = (p.environments ?? []).find(e => e.id === b.environment_id)
+      if (env) return `${p.name} / ${env.slug}`
+    }
+    return 'an environment'
   }
 </script>
 

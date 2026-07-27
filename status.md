@@ -346,7 +346,8 @@ missing is everything that makes that manageable for more than a handful of
 people.
 
 **Recommended order (decided 2026-07-27).** These are not independent — the
-first one is what makes the other two worth doing:
+first one is what makes the other two worth doing. **(1) shipped 2026-07-27**;
+(2) and (3) remain:
 
 1. **Groups.** Everything else is downstream. It is the only item that fixes
    binding sprawl, makes offboarding a single action in the IdP, and makes
@@ -363,19 +364,77 @@ granularity is a larger design conversation, and the union/no-deny edge is
 better handled by defaulting prod configs to `require_approval` than by new
 authorization machinery.
 
-- [ ] **(1) Group-based role bindings, driven by the IdP.** Bindings are per-user
-      only, so an admin repeats the same grant for every person on every project
-      and offboarding is a hunt for individual rows. Map an OIDC **group claim**
-      to role bindings instead, so membership is managed where it belongs — in
-      Okta / Entra / Google — and revoking someone there revokes it here.
-      **Note: Janus speaks OIDC, not SAML.** All three IdPs emit groups over
-      OIDC, so this reaches the same outcome without taking on a SAML
-      implementation, which would be a large new protocol surface for no extra
-      capability. Needs: a group→role mapping table scoped like a binding
-      (instance/project/environment), claim extraction at login, and a decision
-      about precedence — the safe answer is that group bindings union with
-      direct ones exactly as multiple direct bindings already do, so the engine
-      keeps its single rule.
+- [x] ~~**(1) Group-based role bindings, driven by the IdP.**~~ **SHIPPED
+      2026-07-27** — migration 000045 (`groups`, `group_members`,
+      `group_role_bindings`, plus `oidc_providers.groups_claim`). A binding may
+      target a **group** instead of a user.
+
+      **Two kinds, never both.** `oidc` groups carry a `claim_value` and their
+      membership is a snapshot refreshed from the IdP's group claim at each
+      login — an admin can never hand-add a member. `local` groups have an
+      explicit admin-managed list, which is what an instance without an IdP
+      uses and what covers password logins. The distinction is enforced in the
+      schema, not by a handler: `group_members` carries a denormalised
+      `group_kind` and a composite FK to `groups(id, kind)`, so a hand-added
+      member of an IdP-fed group is **unrepresentable**. That is what lets us
+      state and hold *access granted via an IdP group is fully described by the
+      IdP* — an access review run against Entra is therefore complete for those
+      bindings. A hybrid group was considered and rejected on three edge cases:
+      cross-authority collision (an identity team creating a same-named group
+      injects members into a locally-bound one), incident-born permanent grants
+      (an IdP outage tempts a local add that then outlives the incident
+      forever, because a login sync only clears rows it owns — break-glass
+      already covers temporary access, TTL-clamped and expiring), and the
+      review returning a clean result that is not true. Group names are unique
+      across kinds, and `name` is separate from `claim_value` because Entra
+      emits GUIDs.
+
+      **The engine stayed pure.** Group bindings arrive through an optional
+      second source, `WithGroups`, mirroring `WithGrants`, as ordinary
+      `store.RoleBinding` values stamped with `ViaGroupID`. `userAllows`,
+      `bindingApplies`, `BoundRole` and `EffectiveRole` gained **no new
+      concepts** — they see one longer slice, so group bindings union with
+      direct ones exactly as two direct bindings do, with no precedence tier.
+      It fails **closed**: a group-store error denies rather than silently
+      resolving against direct bindings alone.
+
+      **A group binding can never be owner** (`CHECK` + a 400 at the API).
+      Owner rotates the master key, prunes the audit chain and hard-destroys
+      secret history — the destroy-the-evidence tier — and group-deriving it
+      would hand that to whoever administers the IdP, who can add themselves
+      silently and whose membership list Janus cannot authoritatively
+      enumerate. A consequence worth naming: every instance owner therefore
+      stays a direct binding, so `CountInstanceOwners` and the never-lock-out
+      guard needed **no change at all**, and an IdP outage can never strand the
+      instance without an owner. Group-derived roles *do* count toward
+      `BoundRole`, since a group binding is durable — M-1 is untouched because
+      break-glass still arrives via `GrantStore`, never a binding source.
+
+      **Two authorities, deliberately separate.** The catalog (which groups
+      exist, who is in a local one, the claim mapping) is instance-scoped
+      `group:manage`; *binding* a group at a scope is `member:manage` at that
+      scope under the identical `BoundRole` delegation cap `memberPut` applies
+      — without it, groups would be a way around M-1. So a project admin can
+      grant a group access to their project but cannot put themselves into a
+      group bound elsewhere, and therefore cannot reach another project.
+
+      **The claim resolver distinguishes "no groups" from "cannot tell".** An
+      absent claim clears the snapshot (fails closed — access is lost, never
+      gained). But Entra replaces `groups` with a `_claim_names` Graph pointer
+      once a user exceeds ~200 groups, and reading *that* as empty would clear
+      every membership and look exactly like a legitimate removal from all of
+      them — so it is treated as **unknown**, the snapshot is retained, and a
+      `group.sync` event records `status=overage`. Non-string elements, an
+      ambiguous dotted path (a literal `a.b` claim *and* a nested `{"a":{"b"}}`,
+      the same fail-closed rule CI federation uses), and >512 values all reject
+      rather than partially parse. A delimited string is never split. Sync
+      failure fails the login: completing one against a snapshot we just failed
+      to update is precisely the silent-stale case groups exist to remove.
+
+      Ships `/groups` (catalog + local membership + where a group reaches), a
+      Groups section on Members, `janus group` (10 subcommands, owner refused
+      locally), 16 OpenAPI paths, and a [guide](docs/guides/groups.md). The e2e
+      suite was verified to fail against an engine without `WithGroups`.
 - [ ] **(2) Delegated project creation — today self-service forces org-wide
       visibility.** `handleProjectCreate` authorizes against `authz.Instance()`,
       so the only way to let a team create its own projects is to grant
@@ -397,10 +456,13 @@ authorization machinery.
       be applied in the query, not after paging, or cursors will skip.
 - [ ] **Offboarding has no single answer to "what can this person reach?"**
       Bindings are individual rows across instance, project and environment
-      scopes, so removing someone means finding every one of them. With groups
-      (above) most of this disappears, but a per-user "effective access" view and
+      scopes, so removing someone means finding every one of them. Groups
+      (shipped) remove most of it — for an IdP-fed group, offboarding is a
+      single action in Okta/Entra — but a per-user "effective access" view and
       a revoke-all action are what make an offboarding checkable rather than
-      hopeful.
+      hopeful. The pieces now exist: `GroupRepo.ListForUser` answers "which
+      groups?" and derived bindings carry `ViaGroupID`, so a view can say *why*
+      each grant applies.
 - [ ] **Permissions are not exposed to the UI, so nothing can be gated.** `Me`
       is `{kind, id, name}` and the nav is a static list, so a user without
       access still sees Transit, Operations, Members and Settings and discovers
@@ -426,6 +488,51 @@ authorization machinery.
       config. Reveals are audited per key and unused keys are flagged, so the
       posture is **detection, not prevention** — defensible for a single-tenant
       self-hosted tool, but it should be a decision rather than an accident.
+
+**Open — raised by building groups (2026-07-27):**
+
+_These came out of the groups build itself, not from a roadmap. Each is a real
+gap; none is a security hole._
+
+- [ ] **The RBAC matrix does not show groups.** The Members matrix still plots
+      users × scopes, so a user whose access comes entirely from a group reads
+      as having none, and "who can write prod?" — the question the matrix
+      exists to answer — is now answerable only by cross-referencing the Groups
+      screen by hand. This was in the design and did not ship with the rest;
+      it is the largest loose end. Wants group rows in the matrix, or a
+      resolved view that folds group-derived access into each user's row and
+      labels it with its origin (`ViaGroupID` is already on every derived
+      binding, so the data is there).
+- [ ] **An OIDC group's member list only covers users who have signed in.**
+      Membership is a login-time snapshot, so a person who has been in the IdP
+      group for months but has never logged into Janus is invisible in
+      `/groups`. Nothing is mis-granted — they get the access on first sign-in —
+      but "who is in this group?" reads as a complete answer when it is a
+      partial one. The UI says so in prose; it should say so structurally
+      (e.g. mark the count as "seen at sign-in"), and the offboarding view
+      below has the same caveat.
+- [ ] **Entra group overage leaves membership stale without bound.** Past ~200
+      groups Entra sends a `_claim_names` Graph pointer instead of the claim.
+      Janus correctly treats that as *unknown* and keeps the last snapshot
+      rather than clearing it (clearing would look exactly like a legitimate
+      removal from every group), and it audits `group.sync` with
+      `status=overage`. But the retained snapshot then never expires, which is
+      the one place this design keeps stale membership with no time bound. The
+      honest fixes are a Graph fetch for the overage case (a new outbound
+      dependency and a new credential) or a configurable maximum snapshot age
+      after which group-derived access stops applying. Documented as a known
+      limitation in the [groups guide](docs/guides/groups.md) for now.
+- [ ] **The Groups nav item is visible to accounts that cannot use it.** The
+      catalog needs instance `group:manage`, but the nav is static, so a
+      non-admin sees Groups and learns it is not theirs by collecting a 403.
+      Same root cause as the `/v1/auth/me` permissions item above — groups just
+      added one more place it shows.
+- [ ] **No group support in the Terraform provider or the SDKs.** A team that
+      manages Janus as code can create projects, configs, secrets and tokens
+      but must click to create a group and bind it — which is exactly the
+      surface an org adopting groups would want declarative. Wants
+      `janus_group`, `janus_group_member` and `janus_group_binding` resources,
+      mirroring the API's two-authority split.
 
 **Open — found by the new E2E coverage, not yet fixed:**
 

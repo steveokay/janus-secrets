@@ -512,6 +512,8 @@ components:
         group_name: { type: string }
         group_kind: { type: string, enum: [oidc, local] }
         scope_level: { type: string, enum: [instance, project, environment] }
+        project_id: { type: string, format: uuid }
+        environment_id: { type: string, format: uuid }
         role: { type: string, enum: [viewer, developer, admin] }
         created_at: { type: string, format: date-time }
     GroupBindingRequest:

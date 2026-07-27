@@ -212,7 +212,7 @@ approvals table. Detail and reasoning in [`../status.md`](../status.md).
 
 ## RBAC at organisation scale
 
-Raised 2026-07-27, tracked but **not started**. The target shape is an
+Raised 2026-07-27. **Item 1 (groups) shipped 2026-07-27**; items 2 and 3 remain. The target shape is an
 organisation with many product teams, each owning some projects and unable to
 see each other's secrets, with instance owner/admin seeing everything.
 
@@ -224,11 +224,34 @@ today — it is the gap between *correct* and *usable by an org*.
 
 **Do these three, in this order:**
 
-1. **Group-based role bindings from OIDC group claims.** Everything else is
-   downstream. Bindings are per-user only today, so membership is maintained by
-   hand and offboarding is a hunt. (Janus speaks OIDC, not SAML; Okta, Entra and
-   Google all emit groups over OIDC, which reaches the same outcome without
-   taking on a second protocol.)
+1. ~~**Group-based role bindings from OIDC group claims.**~~ **SHIPPED
+   2026-07-27** — migration 000045. A binding may target a **group** instead of
+   a user, so "Team Payments owns these projects" is one row per project rather
+   than one per person per project. Two kinds, never both: `oidc` (membership
+   is a snapshot refreshed from the IdP's group claim at each login, and an
+   admin can never hand-add a member) and `local` (an explicit list, for
+   instances with no IdP and for password logins). Keeping them distinct is
+   what lets us state and hold *access granted via an IdP group is fully
+   described by the IdP* — a hybrid group would make an access review against
+   Entra return a clean result that is not true, and would turn an IdP outage
+   into a permanent invisible grant, since a login sync only ever clears rows
+   it owns. The engine gained `WithGroups`, mirroring `WithGrants`: group
+   bindings arrive as ordinary `RoleBinding`s (stamped `ViaGroupID`), so
+   `userAllows`/`bindingApplies`/`BoundRole` gained **no new concepts** and the
+   union rule stayed single — and it fails closed, since a group-store error
+   denies rather than resolving on direct bindings alone. A group binding tops
+   out at **admin**: owner rotates the master key, prunes the audit chain and
+   destroys secret history, so it stays a deliberate direct binding — which
+   also means `CountInstanceOwners` needed no change and an IdP outage can
+   never strand the instance. Two separate authorities: the catalog is
+   instance-scoped `group:manage`, while *binding* a group is `member:manage`
+   at that scope under the same `BoundRole` cap as `memberPut` (without it,
+   groups would be a way around M-1). The claim resolver distinguishes "in no
+   groups" (clear the snapshot) from "this token cannot tell us" — Entra swaps
+   the claim for a Graph pointer past ~200 groups, and reading that as empty
+   would clear every membership and look exactly like a legitimate removal from
+   all of them. `/groups` screen, a Groups section on Members, `janus group`,
+   and a [guide](guides/groups.md).
 2. **Delegated project creation.** `handleProjectCreate` authorizes against the
    *instance* scope, so letting a team create its own projects means granting
    instance admin — which reveals every project in the organisation. Self-serve
@@ -237,6 +260,16 @@ today — it is the gap between *correct* and *usable by an org*.
 3. **Scoped audit read.** Every audit endpoint authorizes against the instance
    scope, so a team lead reviewing their own project must be handed every event
    in the organisation — and audit rows carry resource paths and key names.
+
+**Raised by building groups (2026-07-27), tracked in `status.md`:** the RBAC
+matrix still plots users only, so group-derived access is invisible in the
+"who can write prod?" view (the largest loose end); an OIDC group's member list
+covers only users who have signed in, since membership is a login snapshot;
+Entra's ~200-group overage leaves a retained snapshot stale with no time bound
+(the one place this design keeps stale membership unbounded — the alternatives
+are a Graph fetch or a maximum snapshot age); the static nav shows Groups to
+accounts that cannot use it (same root cause as the `/v1/auth/me` permissions
+item); and neither the Terraform provider nor the SDKs can manage groups.
 
 Also tracked, lower priority: exposing effective permissions to the UI so the
 nav can gate instead of collecting 403s; the fact that a binding can never
