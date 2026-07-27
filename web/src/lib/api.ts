@@ -757,6 +757,11 @@ export const api = {
   deleteEnvironment: (pid: string, eid: string) => del<void>(`/v1/projects/${pid}/environments/${eid}`),
   restoreEnvironment: (pid: string, eid: string) => post<ApiEnvironment>(`/v1/projects/${pid}/environments/${eid}/restore`, {}),
   destroyEnvironment: (pid: string, eid: string) => del<void>(`/v1/projects/${pid}/environments/${eid}?destroy=true`),
+  /** The authoritative config record, including `require_approval`.
+      The registry store caches this, but a cache is only correct once it has
+      hydrated — read it from here when the answer must be right on first paint
+      (see SecretEditor's protected-config state). */
+  getConfig: (cid: string) => get<ApiConfig>(`/v1/configs/${cid}`),
   deleteConfig: (cid: string) => del<void>(`/v1/configs/${cid}`),
   restoreConfig: (cid: string) => post<ApiConfig>(`/v1/configs/${cid}/restore`, {}),
   destroyConfig: (cid: string) => del<void>(`/v1/configs/${cid}?destroy=true`),

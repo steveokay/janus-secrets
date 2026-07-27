@@ -35,6 +35,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md).
 
 ### Fixed
+- **A deep link to a protected config showed it as unprotected.** The secret
+  editor read the four-eyes `require_approval` flag from the registry cache
+  without waiting for hydration — and a deep link is a cold load, so the lookup
+  returned nothing and quietly defaulted to "unprotected". The config rendered
+  with no banner, no pending-review panel, and a Save button reading "Save as
+  vN", telling the operator their edit would commit when the server would in
+  fact file it for approval. The server was never wrong and nothing was
+  exploitable, but the UI misreported a security control, and did so more often
+  the larger the instance grew (hydration is three round-trips deep). The flag
+  now comes from the server, falling back to the cache only if that read fails.
 - **`janus master-key rekey` could not be driven from a pipe or heredoc.** The
   share reader built a fresh `bufio.Reader` per share; bufio reads ahead, so the
   first read consumed one line and buffered the rest, then discarded them with

@@ -199,10 +199,13 @@ and security screens (PR #199) — 26 tests over Trash, tokens, members,
 four-eyes approvals and break-glass; and a fix for `janus master-key rekey`
 being unable to read a piped quorum (PR #198).
 
-**Open, found by that new E2E coverage:** the secret editor loses the protected
-(four-eyes) flag on a deep link and renders a protected config as unprotected
-(the server-side control still holds, but the operator is misled — the
-highest-value of these); the login screen throttles password logins because the
+**Found by that new E2E coverage.** The first is fixed: the secret editor read
+the protected (four-eyes) flag from the registry cache without waiting for
+hydration, so a deep link — a cold load — rendered a protected config as
+unprotected, down to a Save button reading "Save as vN". The server-side control
+always held, so nothing was exploitable; the UI misreported it. Fixed in PR #202
+by reading the flag from the server, and pinned by a cold-context deep-link E2E
+test. Still open: the login screen throttles password logins because the
 OIDC-status probe shares the password rate limiter; deleting a config redirects
 to `/projects` rather than the dossier; and a duplicate/wrong `aria-label` on the
 approvals table. Detail and reasoning in [`../status.md`](../status.md).

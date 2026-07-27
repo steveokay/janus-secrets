@@ -329,15 +329,19 @@ Shipped 2026-07-26/27:
 
 **Open — found by the new E2E coverage, not yet fixed:**
 
-- [ ] **The secret editor loses the protected (four-eyes) flag on a deep link.**
-      `require_approval` is read from the registry store once at load, without
-      waiting for hydration (three round-trips deep, so it always loses).
-      Deep-linking `/projects/:pid/configs/:cid` renders a **protected** config
-      as unprotected — no banner, no pending-review panel, and a Save button
-      reading "Save as vN". The server is unaffected and the control still holds
-      (the save returns a pending request), but the operator is told a security
-      control is off when it is on, and it worsens as the instance grows.
-      **Highest-value of these four.**
+- [x] ~~**The secret editor loses the protected (four-eyes) flag on a deep
+      link.**~~ **FIXED 2026-07-27 (PR #202)** — the flag was read from the
+      registry cache without waiting for hydration, and a deep link is a cold
+      load, so it defaulted to "unprotected": no banner, no review panel, and a
+      Save button reading "Save as vN" on a config where saving files an
+      approval request. The server was never wrong, so nothing was exploitable —
+      the UI misreported a security control. The client had no way to read a
+      config authoritatively at all (only `deleteConfig`), so `api.getConfig`
+      was added and the editor now reads the flag from the server, falling back
+      to the cache only when that read fails. Pinned by an E2E test that
+      deep-links with a cold browser context and asserts the banner, the toggle
+      and the Save button's own text; verified to fail against the cache read
+      while the dossier path still passes.
 - [ ] **The login screen throttles password logins.**
       `/v1/auth/oidc/status` sits behind the *password* rate limiter and fires on
       every render of the login gate, so three visits inside a minute can deny a

@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { createTree, ownerRequest, stamp, type Tree } from '../helpers/janus'
-import { COLLEAGUE_STATE } from '../helpers/paths'
+import { COLLEAGUE_STATE, OWNER_STATE } from '../helpers/paths'
 
 /**
  * Protected configs — four-eyes approval, and the refusal to self-approve.
@@ -24,14 +24,14 @@ import { COLLEAGUE_STATE } from '../helpers/paths'
  *     a missing permission;
  *   • somebody else can, and only then does a version appear.
  *
- * A note on navigation. The editor reads the protected flag out of the registry
- * store once, when it loads, and does not wait for the registry to hydrate. Deep
- * -linking straight to /projects/:pid/configs/:cid therefore loses the race and
- * renders the config as unprotected — no banner, and a Save button that still
- * says "Save as vN". (The SERVER is unaffected: the save still comes back as a
- * pending request, so the control holds. It is the operator who is misled.)
- * Every navigation below goes through the dossier so the registry is already
- * populated, which is also how a person reaches a config.
+ * A note on navigation. Most tests here reach the editor through the dossier,
+ * which is how a person gets to a config. One deliberately does NOT: the editor
+ * used to read the protected flag from the registry cache without waiting for
+ * hydration, so a deep link — a cold load — rendered a protected config as
+ * unprotected, with a Save button reading "Save as vN". The server was never
+ * wrong (the save still came back as a pending request), so the control held; it
+ * was the UI's report of that control that lied. The flag is now read from the
+ * server, and 'a deep link to a protected config renders as protected' pins it.
  */
 
 test.describe.serial('Protected configs and four-eyes approval', () => {
@@ -90,6 +90,50 @@ test.describe.serial('Protected configs and four-eyes approval', () => {
     await expect(page.getByRole('note')).toContainText(/Protected config/i)
     await expect(page.getByRole('note')).toContainText(/different.*reviewer must approve/i)
     await expect(page.getByRole('button', { name: '🛡 Protected' })).toBeVisible()
+  })
+
+  // The regression this file was originally written around. Deep-linking is a
+  // COLD load — the registry hydrates asynchronously and is several round-trips
+  // deep — so the editor used to read the protected flag out of an unpopulated
+  // cache and quietly default it to false. The config rendered with no banner,
+  // no review panel, and a Save button reading "Save as vN": the operator was
+  // told their edit would commit, when the server would file it for approval.
+  //
+  // The server was never wrong, so nothing was exploitable. What was broken was
+  // the UI's report of a security control — and it failed more often the bigger
+  // the instance got, because hydration took longer.
+  test('a deep link to a protected config renders as protected', async ({ browser }) => {
+    // A brand-new context, so nothing is warm: no registry, no in-memory state.
+    const cold = await browser.newContext({ storageState: OWNER_STATE })
+    const page = await cold.newPage()
+    try {
+      await page.goto(`/projects/${tree.projectId}/configs/${tree.configId}`)
+      await expect(page.getByRole('heading', { name: tree.configName })).toBeVisible()
+
+      await expect(page.getByRole('note'), 'no protected banner on a deep link').toContainText(/Protected config/i)
+      await expect(page.getByRole('button', { name: '🛡 Protected' })).toBeVisible()
+
+      // The save bar only exists once something is dirty, so stage a change to
+      // reach the assertion that matters: the button's own promise. This is the
+      // text an operator reads immediately before committing, and the thing the
+      // bug got wrong — it offered "Save as vN" on a config where saving files
+      // an approval request instead.
+      await page.getByRole('button', { name: '+ Add secret' }).click()
+      await page.getByTestId('new-key-input').fill('DEEP_LINK_PROBE')
+      await page.getByTestId('value-input').fill('never-saved')
+      await page.getByTestId('new-key-input').click() // blur the value out
+
+      const save = page.getByTestId('save-secrets')
+      await expect(save, 'the Save button offered a direct commit on a protected config')
+        .toHaveText(/Submit for approval/i)
+      await expect(save).not.toHaveText(/Save as v\d+/)
+      await expect(page.getByText(/protected — Save submits the changes for four-eyes approval/i)).toBeVisible()
+
+      // Leave nothing behind: the following tests assert on the version number.
+      await page.getByRole('button', { name: 'Discard' }).click()
+    } finally {
+      await cold.close()
+    }
   })
 
   test('a save by the developer becomes a pending request, not a commit', async () => {
