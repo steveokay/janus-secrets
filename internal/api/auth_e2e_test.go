@@ -278,3 +278,46 @@ func TestLoginRateLimitE2E(t *testing.T) {
 		t.Fatal("rate limiter never engaged")
 	}
 }
+
+// A capability probe must not spend the budget that protects passwords.
+//
+// `/v1/auth/oidc/status` and `/v1/auth/webauthn/status` answer "is this login
+// method configured" and nothing else; the login screen fires both on every
+// render. They used to sit on the credential limiter (burst 5), so merely
+// LOOKING at the login page three times inside a minute could deny a legitimate
+// sign-in with "too many attempts" — while an attacker, who skips the page and
+// posts straight to /login, was unaffected.
+func TestCapabilityProbesDoNotStarveLogin(t *testing.T) {
+	ts, email, password, _ := authStack(t)
+
+	// Well past the credential limiter's burst of 5 — enough that the old
+	// shared-budget behaviour would certainly have denied the login below —
+	// while staying inside the probe limiter's own budget. This asserts the
+	// PROPERTY (a page view is not a credential attempt), not the probe
+	// limiter's capacity, which is free to change.
+	const rounds = 12
+	for i := 0; i < rounds; i++ {
+		for _, path := range []string{"/v1/auth/oidc/status", "/v1/auth/webauthn/status"} {
+			resp, err := http.Get(ts.URL + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusTooManyRequests {
+				t.Fatalf("%s was rate limited after %d rounds; a page view is not a credential attempt", path, i)
+			}
+		}
+	}
+
+	// The real credential still works: the probes took nothing from its budget.
+	resp, err := http.Post(ts.URL+"/v1/auth/login", "application/json",
+		strings.NewReader(fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("login after %d capability probes: got %d, want 200 — the probes starved authentication",
+			rounds*2, resp.StatusCode)
+	}
+}

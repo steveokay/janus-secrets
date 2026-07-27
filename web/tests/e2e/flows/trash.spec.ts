@@ -79,12 +79,12 @@ test.describe.serial('Trash — restore and destroy', () => {
     await headerDelete(page).click()
     await confirmDialog(page, 'Move to trash')
 
-    // Deleting bounces out of the editor. NOTE: it lands on the registry, not
-    // on the dossier the code aims for — `ctx` is derived from the registry and
-    // the re-hydration that precedes the redirect has already dropped the
-    // now-deleted config, so the `ctx ? … : '/projects'` fallback wins. Harmless,
-    // but pinned here so the assertion documents what actually happens.
-    await expect(page).toHaveURL(/\/projects$/)
+    // Deleting bounces out of the editor and back to the DOSSIER the config
+    // belonged to — not the registry index. This used to land on /projects:
+    // `ctx` is derived from the registry, and the re-hydration that precedes
+    // the redirect had already dropped the config, so the fallback always won.
+    // The parent id is now captured before the delete.
+    await expect(page).toHaveURL(new RegExp(`/projects/${tree.projectId}$`))
 
     // ...and the card is gone from the dossier.
     await page.goto(`/projects/${tree.projectId}`)
@@ -114,7 +114,7 @@ test.describe.serial('Trash — restore and destroy', () => {
     await page.goto(`/projects/${tree.projectId}/configs/${tree.configId}`)
     await headerDelete(page).click()
     await confirmDialog(page, 'Move to trash')
-    await expect(page).toHaveURL(/\/projects$/)
+    await expect(page).toHaveURL(new RegExp(`/projects/${tree.projectId}$`))
 
     await openTrash(page)
     const row = trashRow(page, 'configs')

@@ -250,7 +250,11 @@
       <span class="folio">four-eyes edits to configs marked protected · values are never shown — key names only</span>
     </div>
     <div class="sheet table-wrap">
-      <table class="ledger" aria-label="Promotion request history" data-testid="edit-requests-table">
+      <!-- Labelled for what it actually holds. It previously read "Promotion
+           request history" — the name of a feature that is not on this screen
+           and not in this table, so the one thing a screen-reader user gets
+           instead of the visible heading described the wrong thing entirely. -->
+      <table class="ledger" aria-label="Protected-config edit requests" data-testid="edit-requests-table">
         <thead>
           <tr>
             <th scope="col">Config</th>

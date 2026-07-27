@@ -623,6 +623,12 @@
 
   async function deleteConfig() {
     const label = ctx ? `${ctx.env.slug}/${ctx.config.name}` : 'this config'
+    // Capture the parent project BEFORE deleting. `ctx` is $derived from
+    // registry.findConfig(configId), and the re-hydration below drops the config
+    // we just deleted — so reading ctx afterwards always yields undefined and
+    // the fallback always won, dumping the user on /projects instead of the
+    // dossier they were working in.
+    const parentProjectId = ctx?.project.id
     const ok = await dialog.confirm({
       title: `Move ${label} to the trash?`,
       body: 'Restorable from Trash until destroyed.',
@@ -633,7 +639,7 @@
     try {
       await api.deleteConfig(configId)
       await registry.hydrate(true)
-      router.go(ctx ? `/projects/${ctx.project.id}` : '/projects')
+      router.go(parentProjectId ? `/projects/${parentProjectId}` : '/projects')
     } catch (err) {
       flashToast(errorMessage(err, 'Delete failed.'))
     }
