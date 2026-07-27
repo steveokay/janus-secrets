@@ -63,6 +63,7 @@
       items: [
         { code: 'TK', label: 'Service tokens', href: '/tokens' },
         { code: 'MB', label: 'Members', href: '/members' },
+        { code: 'GR', label: 'Groups', href: '/groups' },
         { code: 'BG', label: 'Break-glass', href: '/break-glass' },
         { code: 'NT', label: 'Notifications', href: '/notifications' },
         { code: 'ST', label: 'Settings', href: '/settings' },

@@ -18,6 +18,7 @@ export const CHORDS: Chord[] = [
   { keys: 'r', label: 'Approvals', to: '/approvals' },
   { keys: 'k', label: 'Service tokens', to: '/tokens' },
   { keys: 'm', label: 'Members', to: '/members' },
+  { keys: 'g', label: 'Groups', to: '/groups' },
   { keys: 'n', label: 'Notifications', to: '/notifications' },
   { keys: 's', label: 'Settings', to: '/settings' },
   { keys: 'x', label: 'Trash', to: '/trash' },
