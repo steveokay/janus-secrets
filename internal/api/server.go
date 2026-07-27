@@ -292,6 +292,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	// it never clobbers the embedded SPA's own HTML CSP (served via NotFound).
 	r.Use(securityHeaders)
 	r.Use(s.instrument)
+	r.Use(withAuditScope)
 	r.Use(RequireUnsealed(kr))
 	if cfg.HTTPMaxBodyBytes > 0 {
 		r.Use(bodyLimit(cfg.HTTPMaxBodyBytes))

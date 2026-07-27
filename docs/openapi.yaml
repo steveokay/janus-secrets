@@ -3504,6 +3504,16 @@ paths:
               schema:
                 type: object
                 properties:
+                  scoped:
+                    type: boolean
+                    description: >-
+                      True when this is a PARTIAL view — the caller reads audit
+                      at project scope, so instance-level events and other
+                      teams' projects are absent. Clients MUST surface this
+                      rather than present the result as the whole ledger.
+                  scope_projects:
+                    type: integer
+                    description: How many projects a scoped view covers.
                   events:
                     type: array
                     items: { $ref: '#/components/schemas/AuditEvent' }

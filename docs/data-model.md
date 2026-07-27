@@ -200,6 +200,19 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`audit_events.project_id`** (migration `000048`) — the scope a scoped audit
+  read filters on, recorded at write time because the resource string is
+  free-form and a prefix/`LIKE` scheme would silently mis-scope events.
+  Deliberately **not** an input to `computeHash`: adding a hashed field would
+  invalidate every existing event and break `audit/verify` on upgrade. So it is
+  an index, not evidence — it narrows who may READ an event and can never affect
+  whether the chain verifies. Deliberately **not** a foreign key: an audit log
+  outlives the entity it describes, `ON DELETE SET NULL` would mutate an
+  append-only table to erase attribution exactly when it matters most, and an FK
+  would make destroying a project fail outright — the destroy is recorded AFTER
+  the row is gone. A dangling id matches no scoped filter (a destroyed project
+  is readable by nobody) so it behaves like NULL for scoped readers while
+  preserving history for instance-wide ones.
 - **`groups.can_create_projects`** (migration `000047`) — delegated project
   creation. A member of such a group may create a project owned by it, without
   the instance-wide `project:read` that instance admin would carry. Deliberately

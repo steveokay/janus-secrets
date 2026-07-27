@@ -200,3 +200,55 @@ func TestGroupsDoNotApplyToServiceTokens(t *testing.T) {
 		t.Fatalf("group store consulted %d times for a token principal; want 0", gs.calls)
 	}
 }
+
+// AllowedProjects must return exactly what Can would, project by project — it
+// exists only to avoid re-querying bindings per project, never to decide
+// differently.
+func TestAllowedProjectsMatchesCan(t *testing.T) {
+	uid := "u1"
+	ctx := context.Background()
+	user := auth.Principal{Kind: auth.KindUser, ID: uid}
+	e := New(&fakeBindings{byUser: map[string][]*store.RoleBinding{uid: {
+		{SubjectUserID: uid, ScopeLevel: "project", ProjectID: ptr("A"), Role: "admin"},
+		{SubjectUserID: uid, ScopeLevel: "project", ProjectID: ptr("B"), Role: "viewer"},
+	}}}).WithGroups(&fakeGroupBindings{byUser: map[string][]*store.RoleBinding{uid: {
+		viaGroup("g1", "project", "admin", ptr("C"), nil),
+	}}})
+
+	all := []string{"A", "B", "C", "D"}
+	got, err := e.AllowedProjects(ctx, user, AuditRead, all)
+	if err != nil {
+		t.Fatalf("AllowedProjects: %v", err)
+	}
+	// audit:read is admin+, so: A (direct admin) and C (group admin) only.
+	want := map[string]bool{"A": true, "C": true}
+	if len(got) != len(want) {
+		t.Fatalf("AllowedProjects = %v, want %v", got, want)
+	}
+	for _, pid := range got {
+		if !want[pid] {
+			t.Fatalf("AllowedProjects returned %q, which Can denies", pid)
+		}
+	}
+	// Cross-check against Can for every project, so the two can never drift.
+	for _, pid := range all {
+		canOK := e.Can(ctx, user, nil, AuditRead, Resource{ProjectID: pid}) == nil
+		if canOK != want[pid] {
+			t.Fatalf("Can(%q) = %v, disagrees with the expectation %v", pid, canOK, want[pid])
+		}
+	}
+}
+
+// A service token's scope is a config or environment, so it never confers a
+// project-wide action — and must not be handed one here.
+func TestAllowedProjectsRefusesServiceTokens(t *testing.T) {
+	e := New(&fakeBindings{}).WithGroups(&fakeGroupBindings{})
+	got, err := e.AllowedProjects(context.Background(),
+		auth.Principal{Kind: auth.KindServiceToken, ID: "t1"}, AuditRead, []string{"A", "B"})
+	if err != nil {
+		t.Fatalf("AllowedProjects: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a service token was allowed projects %v", got)
+	}
+}

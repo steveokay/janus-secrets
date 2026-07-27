@@ -6,6 +6,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Scoped audit read.** Every audit endpoint authorized against the instance
+  scope, so a team lead could not review their own project's trail without being
+  handed every event in the organisation — and audit rows carry resource paths
+  and key names, so that leaked the shape of every other team's secrets. It cut
+  the other way too: teams that should have been self-auditing simply could not.
+  With project visibility, groups and delegated creation already shipped, this
+  was the last place the isolation story leaked.
+
+  `audit:read` is now honoured at **project** scope. Filtering could not be
+  derived from the resource string — it is free-form, and a prefix/`LIKE` scheme
+  would silently mis-scope events, which for an audit view is the worst possible
+  failure because it would *look* complete. So the scope is recorded on the
+  event at write time (migration `000048`), captured at **authorization** time
+  rather than threaded through 144 `record()` call sites: an event's scope is
+  the scope its operation was authorized against. A request that authorizes
+  against two different projects is marked ambiguous and recorded with no scope,
+  so a cross-project action is never mis-attributed to one side and hidden from
+  the other's trail.
+
+  The column is deliberately **outside the chain hash** — `computeHash` covers a
+  fixed field list under the `janus:audit:v1` tag, and a hashed field would
+  invalidate every existing event and break `GET /v1/audit/verify` on upgrade.
+  That makes `project_id` an **index, not evidence**: someone with direct
+  database access could re-point an event to hide it from a *scoped* view. The
+  instance-wide view stays complete and the chain still detects tampering with
+  the event's own contents, but the distinction is recorded in
+  `docs/threat-model.md` as an explicit non-defense rather than glossed over.
+
+  `NULL` means "not attributable to one project" — instance-level actions,
+  cross-project operations, and everything written before the upgrade — all
+  visible only to instance-wide readers, so a team's scoped history starts at
+  the upgrade rather than being backfilled with guesses. `verify`, `checkpoint`
+  and `prune` stay instance-only, because the hash chain covers every event and
+  a subset cannot be verified. Scoping is project-level; an environment-scoped
+  binding confers nothing and such a caller is denied outright rather than shown
+  a partial trail. The restriction is applied in SQL, pinned by a test that
+  walks every page at `limit=3` over interleaved two-project writes and asserts
+  an exact count — a post-filter would let the keyset cursor silently truncate.
+  `GET /v1/audit/events` returns `scoped`/`scope_projects`, and the viewer shows
+  a **Scoped view** stamp so a partial trail is never presented as the ledger.
+
 ### Fixed
 - **The owning-team picker was unusable by delegated creators.** Listing the
   group catalog needs instance `group:manage`, so the picker shipped invisible

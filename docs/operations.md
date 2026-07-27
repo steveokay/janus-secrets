@@ -280,6 +280,31 @@ owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
 
+**Scoped audit read.** `audit:read` is honoured at **project** scope, so a team
+lead can review their own project's trail without being handed every event in
+the organisation (audit rows carry resource paths and key names, so the
+all-or-nothing read leaked the shape of every other team's secrets). Instance
+`audit:read` is unchanged and unrestricted. Four properties worth knowing:
+
+- Events carry a `project_id` recorded at write time (migration `000048`), and
+  the restriction is applied **in the query** — a post-filter would let the
+  keyset cursor skip rows and silently truncate a trail.
+- That column is deliberately **outside the chain hash**, so `GET
+  /v1/audit/verify` is unaffected for existing events. It is therefore an
+  *index, not evidence*: direct database access could re-point an event to hide
+  it from a **scoped** view, but the instance-wide view stays complete and the
+  chain still detects tampering with the event itself.
+- `NULL` means "not attributable to one project" — instance-level actions
+  (login, seal, user and group management), genuinely cross-project operations,
+  and **everything written before the upgrade**. All of it is visible only to
+  instance-wide readers, so a team's scoped history starts at the upgrade.
+- `verify`, `checkpoint` and `prune` stay **instance-only**: the hash chain
+  covers every event, so a subset cannot be verified.
+
+Scoping is project-level; an environment-scoped binding confers no audit read.
+`GET /v1/audit/events` reports `scoped` and `scope_projects` so a client can say
+so rather than present a partial trail as the whole ledger.
+
 **Delegated project creation.** `POST /v1/projects` accepts either
 instance-scoped `project:create` (admin+, the historical route) or membership of
 a group marked `can_create_projects` (`PUT /v1/groups/{gid}/capabilities`,

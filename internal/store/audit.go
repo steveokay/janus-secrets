@@ -19,13 +19,13 @@ func NewAuditRepo(s *Store) *AuditRepo { return &AuditRepo{s: s} }
 const auditAdvisoryKey int64 = 0x6A616E75736C6F67 // "januslog"
 
 const auditCols = `seq, occurred_at, actor_kind, actor_id, actor_name, action,
-	resource, detail, result, result_code, ip, prev_hash, hash`
+	resource, detail, result, result_code, ip, prev_hash, hash, project_id::text`
 
 func scanAuditRow(row interface{ Scan(...any) error }) (AuditRow, error) {
 	var a AuditRow
 	if err := row.Scan(&a.Seq, &a.OccurredAt, &a.ActorKind, &a.ActorID, &a.ActorName,
 		&a.Action, &a.Resource, &a.Detail, &a.Result, &a.ResultCode, &a.IP,
-		&a.PrevHash, &a.Hash); err != nil {
+		&a.PrevHash, &a.Hash, &a.ProjectID); err != nil {
 		return AuditRow{}, mapError(err)
 	}
 	return a, nil
@@ -50,12 +50,15 @@ func (r *AuditRepo) Append(ctx context.Context, compute func(AuditHead) (AuditRo
 		if err != nil {
 			return err
 		}
+		// The column list is spelled out here rather than reusing auditCols: the
+		// SELECT form casts project_id::text, which is not valid on an INSERT.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO audit_events (`+auditCols+`)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			`INSERT INTO audit_events (seq, occurred_at, actor_kind, actor_id, actor_name,
+			   action, resource, detail, result, result_code, ip, prev_hash, hash, project_id)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::uuid)`,
 			row.Seq, row.OccurredAt, row.ActorKind, row.ActorID, row.ActorName,
 			row.Action, row.Resource, row.Detail, row.Result, row.ResultCode,
-			row.IP, row.PrevHash, row.Hash); err != nil {
+			row.IP, row.PrevHash, row.Hash, row.ProjectID); err != nil {
 			return mapError(err)
 		}
 		out = row
@@ -127,6 +130,12 @@ func (r *AuditRepo) List(ctx context.Context, f AuditFilter, fn func(AuditRow) e
 		args = append(args, f.Actor)
 		where = append(where, "(actor_id = $"+n+" OR actor_name = $"+n+")")
 	}
+	if f.Projects != nil {
+		// Authorization filter, applied in SQL so keyset paging cannot skip
+		// rows. A non-nil empty slice matches nothing — the fail-closed reading
+		// of "this caller can read no project".
+		add("project_id = ANY($"+itoa(len(args)+1)+"::uuid[])", f.Projects)
+	}
 	sql := `SELECT ` + auditCols + ` FROM audit_events`
 	if len(where) > 0 {
 		sql += ` WHERE ` + strings.Join(where, " AND ")
@@ -172,6 +181,12 @@ func (r *AuditRepo) ListPage(ctx context.Context, f AuditFilter, beforeSeq int64
 		n := itoa(len(args) + 1)
 		args = append(args, f.Actor)
 		where = append(where, "(actor_id = $"+n+" OR actor_name = $"+n+")")
+	}
+	if f.Projects != nil {
+		// Authorization filter, applied in SQL so keyset paging cannot skip
+		// rows. A non-nil empty slice matches nothing — the fail-closed reading
+		// of "this caller can read no project".
+		add("project_id = ANY($"+itoa(len(args)+1)+"::uuid[])", f.Projects)
 	}
 	args = append(args, beforeSeq)
 	cursorN := itoa(len(args))
@@ -239,6 +254,12 @@ func auditWhere(f AuditFilter) (where []string, args []any) {
 		n := itoa(len(args) + 1)
 		args = append(args, f.Actor)
 		where = append(where, "(actor_id = $"+n+" OR actor_name = $"+n+")")
+	}
+	if f.Projects != nil {
+		// Authorization filter, applied in SQL so keyset paging cannot skip
+		// rows. A non-nil empty slice matches nothing — the fail-closed reading
+		// of "this caller can read no project".
+		add("project_id = ANY($"+itoa(len(args)+1)+"::uuid[])", f.Projects)
 	}
 	return where, args
 }

@@ -786,7 +786,15 @@ export const api = {
   listAuditEvents: (params: Record<string, string | number>) => {
     const q = new URLSearchParams()
     for (const [k, v] of Object.entries(params)) if (v !== '' && v !== undefined) q.set(k, String(v))
-    return get<{ events: ApiAuditEvent[]; next_cursor: number | null }>(`/v1/audit/events?${q}`)
+    return get<{
+      events: ApiAuditEvent[]
+      next_cursor: number | null
+      /** True when this is a PARTIAL view: the caller reads audit at project
+       *  scope, so instance-level events and other teams' projects are absent.
+       *  The screen must say so rather than present it as the whole ledger. */
+      scoped?: boolean
+      scope_projects?: number
+    }>(`/v1/audit/events?${q}`)
   },
   auditExportUrl: (format: 'jsonl' | 'csv') => `/v1/audit/export?format=${format}`,
   auditHistogram: (bucket: 'hour' | 'day', from?: string) => {

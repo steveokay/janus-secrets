@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 
+	"github.com/steveokay/janus-secrets/internal/auth"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
 
@@ -100,4 +101,48 @@ func (e *Engine) BoundRole(ctx context.Context, userID string, res Resource) (Ro
 		}
 	}
 	return best, nil
+}
+
+// AllowedProjects filters projectIDs down to those where the principal may
+// perform action, loading the principal's bindings and grants ONCE.
+//
+// It exists because the obvious loop — calling Can per project — re-queries
+// direct bindings, group bindings and break-glass grants on every iteration.
+// An instance with a thousand projects would issue thousands of queries to
+// render one audit page. The decision itself is identical to Can's: the same
+// union of direct and group bindings, with the same break-glass overlay.
+//
+// Service-token principals get an empty result: a token's scope is a config or
+// environment, so it never confers a project-wide action.
+func (e *Engine) AllowedProjects(ctx context.Context, p auth.Principal, action Action, projectIDs []string) ([]string, error) {
+	if p.Kind != auth.KindUser || len(projectIDs) == 0 {
+		return nil, nil
+	}
+	bindings, err := e.bindingsFor(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	var grants []*store.BreakGlassGrant
+	now := e.now()
+	if e.grants != nil {
+		grants, err = e.grants.ListActiveForUser(ctx, p.ID, now)
+		if err != nil {
+			return nil, err
+		}
+	}
+	out := make([]string, 0, len(projectIDs))
+	for _, pid := range projectIDs {
+		res := Resource{ProjectID: pid}
+		if userAllows(bindings, action, res) {
+			out = append(out, pid)
+			continue
+		}
+		for _, g := range grants {
+			if g.Active(now) && grantApplies(g, res) && roleAllows(Role(g.ElevatedRole), action) {
+				out = append(out, pid)
+				break
+			}
+		}
+	}
+	return out, nil
 }
