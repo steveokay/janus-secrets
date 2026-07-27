@@ -14,6 +14,9 @@ import (
 
 // handleAuditVerify walks the chain and reports integrity. Not self-audited.
 func (s *Server) handleAuditVerify(w http.ResponseWriter, r *http.Request) {
+	// Instance-only, and it must stay that way: the hash chain covers every
+	// event, so a subset cannot be verified. A scoped reader is denied rather
+	// than shown a verification that would not mean what it appears to.
 	if !s.authorize(w, r, authz.AuditRead, authz.Instance(), "audit.verify", "audit") {
 		return
 	}
@@ -33,13 +36,21 @@ func (s *Server) handleAuditVerify(w http.ResponseWriter, r *http.Request) {
 type auditEventsResponse struct {
 	Events     []auditExportRow `json:"events"`
 	NextCursor *int64           `json:"next_cursor"`
+	// Scoped reports that this is a PARTIAL view — the caller reads audit at
+	// project scope, so instance-level events and other teams' projects are
+	// absent. The UI must say so: a partial trail presented as "the audit
+	// ledger" is exactly the kind of clean-looking-but-untrue result this
+	// codebase avoids elsewhere.
+	Scoped        bool `json:"scoped"`
+	ScopeProjects int  `json:"scope_projects,omitempty"`
 }
 
 // handleAuditEvents serves the viewer: paginated, filterable, NOT self-audited
 // (precedent: verify; audit reads are not in the must-audit set — `authorize`
 // only records DENIALS, never successes, so this matches /verify exactly).
 func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(w, r, authz.AuditRead, authz.Instance(), "audit.events", "audit") {
+	scopeProjects, ok := s.authorizeAuditRead(w, r, "audit.events")
+	if !ok {
 		return
 	}
 	if s.audit == nil {
@@ -51,6 +62,9 @@ func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
 		return
 	}
+	// Authorization filter, applied in the query. Never post-filter: the keyset
+	// cursor would skip rows and silently truncate a team's trail.
+	filter.Projects = scopeProjects
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -83,7 +97,10 @@ func (s *Server) handleAuditEvents(w http.ResponseWriter, r *http.Request) {
 		last := rows[len(rows)-1].Seq
 		next = &last
 	}
-	writeJSON(w, http.StatusOK, auditEventsResponse{Events: out, NextCursor: next})
+	writeJSON(w, http.StatusOK, auditEventsResponse{
+		Events: out, NextCursor: next,
+		Scoped: scopeProjects != nil, ScopeProjects: len(scopeProjects),
+	})
 }
 
 // histBucket is the wire shape of one bucketed count in GET /v1/audit/histogram.
@@ -101,7 +118,8 @@ type histBucket struct {
 // self-audited (precedent: verify/events — audit reads are not in the
 // must-audit set).
 func (s *Server) handleAuditHistogram(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(w, r, authz.AuditRead, authz.Instance(), "audit.histogram", "audit") {
+	scopeProjects, ok := s.authorizeAuditRead(w, r, "audit.histogram")
+	if !ok {
 		return
 	}
 	if s.audit == nil {
@@ -113,6 +131,9 @@ func (s *Server) handleAuditHistogram(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
 		return
 	}
+	// Authorization filter, applied in the query. Never post-filter: the keyset
+	// cursor would skip rows and silently truncate a team's trail.
+	filter.Projects = scopeProjects
 	if filter.From == nil || filter.To == nil {
 		writeError(w, http.StatusBadRequest, CodeValidation, "from and to are required")
 		return
@@ -168,7 +189,8 @@ func (s *Server) handleAuditHistogram(w http.ResponseWriter, r *http.Request) {
 // export is self-audited BEFORE any body is written, so an aborted download is
 // still recorded; if that audit write fails, respond 500 before streaming.
 func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
-	if !s.authorize(w, r, authz.AuditRead, authz.Instance(), "audit.export", "audit") {
+	scopeProjects, ok := s.authorizeAuditRead(w, r, "audit.export")
+	if !ok {
 		return
 	}
 	if s.audit == nil {
@@ -184,6 +206,7 @@ func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter, detail, err := parseAuditFilter(r)
+	filter.Projects = scopeProjects // authorization filter, applied in SQL
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
 		return

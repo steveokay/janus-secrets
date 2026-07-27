@@ -75,6 +75,8 @@ func (rec *Recorder) Record(ctx context.Context, e Event) error {
 			Seq: seq, OccurredAt: occurred, ActorKind: e.Actor.Kind, ActorID: actorID,
 			ActorName: e.Actor.Name, Action: e.Action, Resource: e.Resource, Detail: detail,
 			Result: e.Result, ResultCode: code, IP: e.IP, PrevHash: prev, Hash: hash,
+			// NOT an input to computeHash above — by design.
+			ProjectID: e.ProjectID,
 		}, nil
 	})
 	return err

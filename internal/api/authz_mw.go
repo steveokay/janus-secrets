@@ -16,6 +16,11 @@ func (s *Server) can(r *http.Request, action authz.Action, res authz.Resource) e
 	if ts := tokenScopeFrom(r.Context()); ts != nil {
 		scope = &authz.TokenScope{Kind: ts.Kind, ID: ts.ID, Access: ts.Access}
 	}
+	// Capture the project this request is acting on for audit scoping. Done
+	// here — on every check, allowed or denied — so an event's scope is the
+	// scope its operation was authorized against, without threading a project
+	// id through every record() call site. See audit_scope.go.
+	noteAuditProject(r.Context(), res.ProjectID)
 	return s.authz.Can(r.Context(), p, scope, action, res)
 }
 

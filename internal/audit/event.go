@@ -19,4 +19,10 @@ type Event struct {
 	Result     string // "success" | "denied" | "error"
 	ResultCode string // envelope code for denied/error; "" → NULL
 	IP         string
+	// ProjectID scopes the event so a project-scoped reader can be shown their
+	// own trail and nobody else's. It is deliberately OUTSIDE the chain hash
+	// (see migration 000048): adding a hashed field would invalidate every
+	// existing event. nil = not attributable to one project (instance-level
+	// actions, and cross-project operations), visible only instance-wide.
+	ProjectID *string
 }

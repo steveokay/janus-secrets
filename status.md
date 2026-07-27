@@ -460,32 +460,48 @@ authorization machinery.
       several creating groups must name the owner rather than have Janus guess.
       `janus group delegate-creation`, a **delegate…** control on Groups, and an
       **Owning team** picker on project creation.
-- [ ] **(3) Audit read is instance-wide or nothing.** Every audit endpoint —
-      `verify`, `events`, `histogram`, `export` — authorizes against
-      `authz.Instance()`. A team lead cannot review their own project's trail
-      without being handed **every event in the organisation**, and audit rows
-      carry resource paths and key names, so that leaks the shape of every other
-      team's secrets. It also cuts the other way: teams that should be
-      self-auditing simply cannot.
+- [x] ~~**(3) Audit read is instance-wide or nothing.**~~ **SHIPPED
+      2026-07-27** — migration `000048`. `audit:read` is now honoured at
+      **project** scope, so a team lead reviews their own trail instead of being
+      handed every event in the organisation — which mattered because audit rows
+      carry resource paths and key names, so the all-or-nothing read leaked the
+      shape of every other team's secrets. **This was the last place the
+      isolation story leaked.**
 
-      **This is now the ONLY place the isolation story leaks** — projects are
-      invisible without a binding, groups manage access at team scale, and teams
-      create their own projects, but the audit log is still all-or-nothing.
+      Filtering could not be derived from the resource string: it is free-form
+      (`configs/<cid>/secrets`, `project/<pid>/members/<uid>`, `groups/<gid>`,
+      `auth/oidc`, …) and a prefix/`LIKE` scheme would silently mis-scope — for
+      an audit view the worst failure, because it would *look* complete. So the
+      scope is recorded on the event at write time.
 
-      **DESIGNED, NOT BUILT — see
-      [the design](docs/superpowers/specs/2026-07-27-scoped-audit-read-design.md).**
-      Deliberately not rushed: `audit_events` has no project column and the
-      resource string is free-form, so a prefix/`LIKE` filter would silently
-      mis-scope events, which for an audit view is the worst outcome — it would
-      look complete. Decisions already made: store `project_id` on the event
-      **outside the chain hash** (adding a hashed field would break
-      `audit/verify` for every existing event, and the column is an index, not
-      evidence); capture the scope at **authorization** time rather than
-      threading it through 144 `record()` call sites; `NULL` means instance-only,
-      so pre-upgrade events never appear in a scoped view (fail-closed); scoped
-      read is **project-level only**; `verify` stays instance-only because a
-      subset of a hash chain cannot be verified; and the filter goes **in the
-      query**, never after paging, or cursors silently skip rows.
+      **The column is deliberately outside the chain hash.** `computeHash`
+      covers a fixed field list under the `janus:audit:v1` tag; a hashed field
+      would invalidate every existing event and break `audit/verify` on upgrade.
+      The consequence is stated rather than hidden: `project_id` is an **index,
+      not evidence** — direct database access could re-point an event to hide it
+      from a *scoped* view, though the instance-wide view stays complete and the
+      chain still detects tampering with the event itself. Recorded in
+      `docs/threat-model.md` as an explicit non-defense.
+
+      Scope is captured at **authorization** time (`s.can` notes the resource's
+      project) rather than threaded through 144 `record()` call sites — an
+      event's scope *is* the scope its operation was authorized against. A
+      request that authorizes against two different projects is marked ambiguous
+      and recorded with **no** scope, so a cross-project action is never
+      mis-attributed to one side and hidden from the other.
+
+      `NULL` = instance-only, covering instance-level actions and everything
+      written before the upgrade, so a team's scoped history starts there rather
+      than being backfilled with guesses. `verify`/`checkpoint`/`prune` stay
+      instance-only, since a subset of a hash chain cannot be verified. An
+      environment-scoped binding confers nothing (project-level only), and such
+      a caller is denied outright rather than shown a partial trail. The filter
+      is applied **in the query**; a pagination test walks every page at
+      `limit=3` over interleaved two-project writes and asserts the exact count,
+      because a post-filter would silently truncate. `GET /v1/audit/events`
+      returns `scoped`/`scope_projects` and the viewer shows a **Scoped view**
+      stamp, so a partial trail is never presented as the whole ledger.
+
 - [ ] **Offboarding has no single answer to "what can this person reach?"**
       Bindings are individual rows across instance, project and environment
       scopes, so removing someone means finding every one of them. Groups

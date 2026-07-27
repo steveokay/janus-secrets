@@ -165,6 +165,15 @@ closed as out-of-scope (but a *bypass* of a control in §4 is very much in scope
   secret-destroy tier still requires a binding recorded in Janus itself — but it
   reaches up to `admin`. Group membership in your directory should be treated as
   privileged configuration and reviewed like a Janus binding.
+- **Hiding an event from a SCOPED audit view via direct database access.** Audit
+  events carry a `project_id` used to filter project-scoped reads, and it is
+  deliberately outside the hash chain (adding a hashed field would break
+  verification for every existing event). An actor with direct Postgres access
+  could therefore re-point an event so a team's scoped view misses it. That
+  actor is already outside the trust boundary above, the **instance-wide view
+  remains complete**, and the chain still detects any tampering with the event's
+  own contents — but a scoped view is a convenience filter, not evidence in its
+  own right, and should not be relied on as one.
 - **The non-goals** (PKI/CA, SSH signing, HSM/PKCS#11) — not built, so not
   defended.
 

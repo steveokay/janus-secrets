@@ -30,6 +30,7 @@ func (s *Server) recordActor(r *http.Request, actor audit.Actor, action, resourc
 	return s.audit.Record(r.Context(), audit.Event{
 		Actor: actor, Action: action, Resource: resource, Detail: detail,
 		Result: result, ResultCode: code, IP: r.RemoteAddr,
+		ProjectID: auditProjectOf(r.Context()),
 	})
 }
 

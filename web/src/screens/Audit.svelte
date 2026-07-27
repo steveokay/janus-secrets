@@ -4,6 +4,10 @@
   import { dialog } from '../lib/dialog.svelte'
 
   let events = $state<ApiAuditEvent[]>([])
+  /** The server reports whether this view is scoped to the projects the caller
+   *  can read. A partial trail must never be presented as "the audit ledger". */
+  let scoped = $state(false)
+  let scopeProjects = $state(0)
   let nextCursor = $state<number | null>(null)
   let verify = $state<VerifyResult | null>(null)
   let resultFilter = $state<'all' | 'success' | 'denied'>('all')
@@ -49,6 +53,8 @@
       const res = await api.listAuditEvents(params)
       events = cursor !== undefined ? [...events, ...res.events] : res.events
       nextCursor = res.next_cursor
+      scoped = res.scoped ?? false
+      scopeProjects = res.scope_projects ?? 0
     } catch (err) {
       error = errorMessage(err, 'Could not read the ledger.')
     } finally {
@@ -81,6 +87,12 @@
       <h1>Audit ledger</h1>
     </div>
     <div class="head-right">
+      {#if scoped}
+        <span
+          class="stamp flat scoped-stamp"
+          title="You read the audit log at project scope. Instance-level events (logins, seal, user and group management) and other teams' projects are not shown, and events recorded before this feature shipped have no project scope."
+        >Scoped view · {scopeProjects} project{scopeProjects === 1 ? '' : 's'}</span>
+      {/if}
       {#if verifying}
         <span class="verifying mono">walking the chain…</span>
       {:else if verify?.valid}
@@ -182,6 +194,7 @@
 </div>
 
 <style>
+  .scoped-stamp { color: var(--ochre); background: var(--ochre-wash); }
   .audit { max-width: 1280px; margin: 0 auto; }
   .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s4); }
   .page-head h1 { margin-top: var(--s1); }

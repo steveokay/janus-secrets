@@ -259,14 +259,14 @@ today — it is the gap between *correct* and *usable by an org*.
    exclusive. Implemented as a capability rather than a role, because any role
    granting `project:create` at instance scope also grants `project:read`
    there — the exact leak being closed.
-3. **Scoped audit read.** Every audit endpoint authorizes against the instance
-   scope, so a team lead reviewing their own project must be handed every event
-   in the organisation — and audit rows carry resource paths and key names.
-   With (1) and (2) shipped this is the last place isolation leaks.
-   **Designed 2026-07-27, not yet built** — see
-   [the design](superpowers/specs/2026-07-27-scoped-audit-read-design.md); the
-   key constraint is that the scope column must stay OUTSIDE the chain hash, or
-   `audit/verify` breaks for every existing event.
+3. ~~**Scoped audit read.**~~ **SHIPPED 2026-07-27** — migration `000048`.
+   `audit:read` honoured at project scope, with the restriction applied in the
+   query so keyset paging cannot truncate a trail. The scope column stays
+   OUTSIDE the chain hash (a hashed field would break `audit/verify` for every
+   existing event), which makes it an index rather than evidence — recorded as
+   an explicit non-defense in the threat model. `verify` stays instance-only,
+   since a subset of a hash chain cannot be verified. **With this, all three
+   org-scale items are done and the isolation story has no remaining leak.**
 
 **Raised by building groups (2026-07-27), tracked in `status.md`:** Members
 reported group-derived access as *no access* — **fixed the same day** by
