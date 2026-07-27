@@ -41,13 +41,35 @@ func actorOf(r *http.Request) string {
 // error is treated as "not protected == false" only when the config truly does
 // not exist; any other error is surfaced. It returns (protected, handled): when
 // handled is true an error response was already written and the caller returns.
+//
+// Protection is the UNION of the config's own flag and its environment's:
+//
+//	effective = config.require_approval OR environment.require_approval
+//
+// deliberately the same shape as role bindings — union, no precedence, no deny.
+// A config may add protection its environment does not require; it can never
+// remove protection the environment does. Every write path that can mutate
+// secrets (batch save, per-key set, rollback, promote-apply) funnels through
+// here, so environment protection cannot be bypassed by choosing a different
+// door.
+//
+// It fails CLOSED on an environment lookup error: an unreadable environment
+// must not silently downgrade a protected config to a direct commit.
 func (s *Server) requireApproval(w http.ResponseWriter, r *http.Request, cid string) (bool, bool) {
 	c, err := store.NewConfigRepo(s.st).Get(r.Context(), cid)
 	if err != nil {
 		s.writeServiceError(w, err)
 		return false, true
 	}
-	return c.RequireApproval, false
+	if c.RequireApproval {
+		return true, false
+	}
+	env, err := store.NewEnvironmentRepo(s.st).Get(r.Context(), c.EnvironmentID)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return false, true
+	}
+	return env.RequireApproval, false
 }
 
 // applyWrite runs SetSecrets and writes the version response, sharing the

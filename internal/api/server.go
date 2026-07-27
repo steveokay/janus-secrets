@@ -602,6 +602,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Post("/v1/promote/requests/{id}/cancel", s.handlePromoteRequestCancel)
 				// Protected-config (four-eyes) edit requests.
 				r.Put("/v1/configs/{cid}/require-approval", s.handleRequireApprovalSet)
+				r.Put("/v1/projects/{pid}/environments/{eid}/require-approval", s.handleEnvRequireApprovalSet)
 				r.Get("/v1/configs/{cid}/edit-requests", s.handleEditRequestList)
 				r.Post("/v1/configs/{cid}/edit-requests/{id}/approve", s.handleEditRequestApprove)
 				r.Post("/v1/configs/{cid}/edit-requests/{id}/reject", s.handleEditRequestReject)

@@ -7,6 +7,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Four-eyes protection at environment scope.** `require_approval` already
+  existed per config, but it defaulted to false and nothing ever set it — so a
+  config created in a production environment started **unprotected** and stayed
+  that way until a human remembered to tick a box. That was load-bearing in a
+  way it did not look: the recorded reason this system has no deny rules is that
+  a broad grant is acceptable *because* a write to production becomes a
+  four-eyes request rather than a commit. The argument rested on a default that
+  did not exist. Group bindings sharpened it further, since one project-scope
+  binding now grants production write to a whole team at once.
+
+  Protection is therefore a property of the **environment** as well, and the
+  effective value is the union — `config.require_approval OR
+  environment.require_approval` — deliberately the same shape as role bindings:
+  union, no precedence, no deny. A config may add protection its environment
+  does not require; it can never remove protection the environment does, so
+  production four-eyes survives a newly created config and cannot be switched
+  off one config at a time. Every path that can mutate secrets (batch save,
+  per-key set, delete, rollback, promote-apply) resolves protection through one
+  shared check, so no door skips it, and that check fails **closed** if the
+  environment cannot be read.
+
+  Ships migration `000046`, `PUT /v1/projects/{pid}/environments/{eid}/require-approval`
+  (`promotion:manage`), `janus env protect <slug> [--off]`, a Protect control and
+  four-eyes badge on each environment column of the project board, and an editor
+  banner that distinguishes protection inherited from the environment from the
+  config's own — the toggle says so rather than firing a request that would
+  appear to succeed and change nothing. Config responses gain
+  `environment_require_approval` and `effective_require_approval`; clients must
+  read the latter.
 - **Group-based role bindings — one binding for a whole team.** A binding may
   target a **group** instead of a user, so "Team Payments owns these projects"
   is one row per project rather than one per person per project, and

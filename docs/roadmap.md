@@ -275,6 +275,13 @@ are a Graph fetch or a maximum snapshot age); the static nav shows Groups to
 accounts that cannot use it (same root cause as the `/v1/auth/me` permissions
 item); and neither the Terraform provider nor the SDKs can manage groups.
 
+**Environment-scoped four-eyes shipped 2026-07-27** (migration `000046`), which
+is what makes the no-deny-rules decision defensible: `require_approval` was per
+config and defaulted to off, so a config created in production started
+unprotected and the "a broad grant is fine, because prod writes are four-eyes"
+argument rested on a control nobody had enabled. Protection is now also a
+property of the environment, unioned with the config's own flag.
+
 Also tracked, lower priority: exposing effective permissions to the UI so the
 nav can gate instead of collecting 403s; the fact that a binding can never
 *narrow* another one (better answered by defaulting prod to `require_approval`

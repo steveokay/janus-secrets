@@ -200,6 +200,14 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`environments.require_approval`** (migration `000046`) — four-eyes
+  protection at environment scope. Effective protection for a write is the union
+  `config.require_approval OR environment.require_approval`, mirroring how role
+  bindings union. The per-config flag (migration `000036`) defaults to false and
+  nothing set it, so a config created in a production environment started
+  unprotected; making it a property of the environment is what lets "production
+  is four-eyes" survive a newly created config, and what keeps the deliberate
+  absence of deny rules defensible.
 - **`groups` / `group_members` / `group_role_bindings`** (migration `000045`) —
   a binding may name a **group** instead of a user. A group is `kind='oidc'`
   (carrying a `claim_value` matched against the IdP's group claim, membership

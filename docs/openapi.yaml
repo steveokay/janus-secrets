@@ -1741,6 +1741,44 @@ paths:
                   key: { type: string }
                   locked: { type: boolean }
         "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/environments/{eid}/require-approval:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [configs]
+      summary: Require four-eyes approval for every config in an environment
+      description: >-
+        Protection is the UNION of a config's own flag and its environment's:
+        `effective = config.require_approval OR environment.require_approval`.
+        A config may add protection its environment does not require, but can
+        never remove protection the environment does — so "production is
+        four-eyes" survives a newly created config and cannot be switched off
+        one config at a time. Requires `promotion:manage` at the environment,
+        the same authority as the per-config toggle.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  require_approval: { type: boolean, description: The config's OWN flag. }
+                  environment_require_approval: { type: boolean, description: The environment's flag. }
+                  effective_require_approval: { type: boolean, description: What governs a write — the union of the two. Clients MUST read this. }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
   /v1/configs/{cid}/require-approval:
     parameters:
       - { name: cid, in: path, required: true, schema: { type: string, format: uuid } }

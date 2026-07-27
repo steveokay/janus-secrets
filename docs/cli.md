@@ -590,6 +590,12 @@ Environment CRUD within a project. `--project` (or `.janus.yaml` /
 `JANUS_PROJECT`) selects the project; the environment slug is a positional
 argument for `delete`/`restore`.
 
+`janus env protect <slug> [--off]` requires four-eyes approval for **every**
+config in an environment, including ones created later — the per-config flag
+defaults to off, so a new production config would otherwise start unprotected.
+Protection is a union: a config can add it, never remove what the environment
+requires.
+
 ### `janus config`
 
 ```bash

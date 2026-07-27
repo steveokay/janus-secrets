@@ -1,0 +1,29 @@
+-- Environment-level four-eyes protection.
+--
+-- require_approval already existed per CONFIG (migration 000036): a direct save
+-- to a protected config becomes a pending, envelope-encrypted edit request
+-- instead of a commit. But it defaulted to false and nothing ever set it, so
+-- every config created in a production environment started UNPROTECTED and
+-- stayed that way until a human remembered to toggle it.
+--
+-- That mattered more than it looks. The recorded reason this system has no deny
+-- rules is that a broad grant is acceptable *because* a write to production
+-- becomes a four-eyes request rather than a commit — so the argument rested on
+-- a default that did not exist. Group bindings sharpened it further: one
+-- project-scope binding now grants production write to a whole team at once
+-- rather than to one person at a time.
+--
+-- Protection is therefore a property of the ENVIRONMENT as well, and the
+-- effective value is the UNION:
+--
+--     effective = config.require_approval OR environment.require_approval
+--
+-- deliberately the same shape as role bindings — union, no precedence, no deny.
+-- A config can add protection its environment does not require; it can never
+-- remove protection the environment does. So "production is four-eyes" survives
+-- someone creating a new config, and cannot be quietly switched off one config
+-- at a time.
+--
+-- Default false, so no existing instance changes behaviour on upgrade.
+ALTER TABLE environments
+    ADD COLUMN require_approval boolean NOT NULL DEFAULT false;

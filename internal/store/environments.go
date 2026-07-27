@@ -11,11 +11,11 @@ type EnvironmentRepo struct{ s *Store }
 // NewEnvironmentRepo returns an environment repository.
 func NewEnvironmentRepo(s *Store) *EnvironmentRepo { return &EnvironmentRepo{s: s} }
 
-const envCols = `id::text, project_id::text, slug, name, created_at, updated_at, deleted_at`
+const envCols = `id::text, project_id::text, slug, name, require_approval, created_at, updated_at, deleted_at`
 
 func scanEnv(row interface{ Scan(...any) error }) (*Environment, error) {
 	var e Environment
-	if err := row.Scan(&e.ID, &e.ProjectID, &e.Slug, &e.Name,
+	if err := row.Scan(&e.ID, &e.ProjectID, &e.Slug, &e.Name, &e.RequireApproval,
 		&e.CreatedAt, &e.UpdatedAt, &e.DeletedAt); err != nil {
 		return nil, mapError(err)
 	}
@@ -167,4 +167,13 @@ func (r *EnvironmentRepo) LastActivity(ctx context.Context, ids []string) (map[s
 		out[id] = ts
 	}
 	return out, mapError(rows.Err())
+}
+
+// SetRequireApproval toggles an environment's four-eyes protection. Every
+// config in the environment is protected while it is on, regardless of the
+// config's own flag — effective protection is the union of the two. Value-free.
+func (r *EnvironmentRepo) SetRequireApproval(ctx context.Context, id string, enabled bool) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE environments SET require_approval = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, enabled)
 }

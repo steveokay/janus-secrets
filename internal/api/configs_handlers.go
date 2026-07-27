@@ -22,10 +22,17 @@ type configResponse struct {
 	Name          string  `json:"name"`
 	InheritsFrom  *string `json:"inherits_from"`
 	CreatedAt     string  `json:"created_at"`
-	// RequireApproval reflects the config's protected (four-eyes) flag: when
-	// true, direct secret saves become pending edit requests instead of
-	// committing.
+	// RequireApproval is the config's OWN protected (four-eyes) flag.
 	RequireApproval bool `json:"require_approval"`
+	// EnvironmentRequireApproval is the environment's flag. Effective
+	// protection is the UNION of the two, so a config whose own flag is false
+	// is still protected when its environment requires it.
+	EnvironmentRequireApproval bool `json:"environment_require_approval"`
+	// EffectiveRequireApproval is what actually governs a write: when true,
+	// direct secret saves become pending edit requests instead of committing.
+	// Clients MUST read this rather than RequireApproval — the UI misreporting
+	// a security control is exactly the defect PR #202 fixed.
+	EffectiveRequireApproval bool `json:"effective_require_approval"`
 	// Promotion provenance, present only when the config's latest version was
 	// created by a promote. Value-free (source env NAME + version).
 	PromotedFromEnv     *string `json:"promoted_from_env,omitempty"`
@@ -36,6 +43,31 @@ func configView(c *store.Config) configResponse {
 	return configResponse{ID: c.ID, EnvironmentID: c.EnvironmentID, Name: c.Name,
 		InheritsFrom: c.InheritsFrom, RequireApproval: c.RequireApproval,
 		CreatedAt: c.CreatedAt.UTC().Format(time.RFC3339)}
+}
+
+// applyEnvProtection folds each config's ENVIRONMENT four-eyes flag into the
+// view, so a client reads one authoritative field instead of re-deriving the
+// union itself. Effective protection is config OR environment.
+//
+// It fails CLOSED: if an environment cannot be read we mark the config
+// protected rather than leave it looking editable. Under-reporting protection
+// is the dangerous direction — a UI that shows "Save as vN" on a config where
+// saving actually files an approval request is precisely the defect PR #202
+// fixed, and the same mistake in reverse would hide a control that IS active.
+func (s *Server) applyEnvProtection(ctx context.Context, views []configResponse) {
+	repo := store.NewEnvironmentRepo(s.st)
+	cache := map[string]bool{}
+	for i := range views {
+		eid := views[i].EnvironmentID
+		protected, ok := cache[eid]
+		if !ok {
+			env, err := repo.Get(ctx, eid)
+			protected = err != nil || env.RequireApproval
+			cache[eid] = protected
+		}
+		views[i].EnvironmentRequireApproval = protected
+		views[i].EffectiveRequireApproval = views[i].RequireApproval || protected
+	}
 }
 
 // applyPromotionProvenance populates promoted_from_env/promoted_from_version on
@@ -98,7 +130,9 @@ func (s *Server) handleConfigCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, configView(c))
+	created := []configResponse{configView(c)}
+	s.applyEnvProtection(r.Context(), created)
+	writeJSON(w, http.StatusCreated, created[0])
 }
 
 func (s *Server) handleConfigList(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +161,7 @@ func (s *Server) handleConfigList(w http.ResponseWriter, r *http.Request) {
 		out = append(out, configView(c))
 	}
 	s.applyPromotionProvenance(r.Context(), out)
+	s.applyEnvProtection(r.Context(), out)
 	var next *string
 	if len(cfgs) > 0 {
 		last := cfgs[len(cfgs)-1]
@@ -159,6 +194,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	}
 	views := []configResponse{configView(c)}
 	s.applyPromotionProvenance(r.Context(), views)
+	s.applyEnvProtection(r.Context(), views)
 	writeJSON(w, http.StatusOK, views[0])
 }
 
@@ -230,7 +266,9 @@ func (s *Server) handleConfigRestore(w http.ResponseWriter, r *http.Request) {
 		s.writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, configView(c))
+	restored := []configResponse{configView(c)}
+	s.applyEnvProtection(r.Context(), restored)
+	writeJSON(w, http.StatusOK, restored[0])
 }
 
 // resolveConfigScopeIncludingDeleted builds the project→env→config resource for
