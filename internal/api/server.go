@@ -455,6 +455,71 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Use(RequireAuth(s.auth, s))
 			r.Get("/", s.handleTrashList)
 		})
+		// Group catalog: instance-scoped group:manage. Curating WHICH groups
+		// exist and who is in a local one is a directory operation; BINDING a
+		// group at a scope is scope-level authority and lives on the
+		// group-members routes below.
+		r.Route("/v1/groups", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth, s))
+			r.Use(s.requireInstance(authz.GroupManage, "group.manage", "groups"))
+			r.Get("/", s.handleGroupList)
+			r.Post("/", s.handleGroupCreate)
+			r.Get("/{gid}", s.handleGroupGet)
+			r.Delete("/{gid}", s.handleGroupDelete)
+			r.Get("/{gid}/members", s.handleGroupMemberList)
+			r.Put("/{gid}/members/{uid}", s.handleGroupMemberPut)
+			r.Delete("/{gid}/members/{uid}", s.handleGroupMemberDelete)
+		})
+		r.Route("/v1/instance/group-members", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth, s))
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.groupMembersList(w, r, s.instanceScope()) })
+			r.Put("/{gid}", func(w http.ResponseWriter, r *http.Request) {
+				s.groupMemberPut(w, r, s.instanceScope(), chi.URLParam(r, "gid"))
+			})
+			r.Delete("/{gid}", func(w http.ResponseWriter, r *http.Request) {
+				s.groupMemberDelete(w, r, s.instanceScope(), chi.URLParam(r, "gid"))
+			})
+		})
+		r.Route("/v1/projects/{pid}/group-members", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth, s))
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.groupMembersList(w, r, s.projectScope(r)) })
+			r.Put("/{gid}", func(w http.ResponseWriter, r *http.Request) {
+				s.groupMemberPut(w, r, s.projectScope(r), chi.URLParam(r, "gid"))
+			})
+			r.Delete("/{gid}", func(w http.ResponseWriter, r *http.Request) {
+				s.groupMemberDelete(w, r, s.projectScope(r), chi.URLParam(r, "gid"))
+			})
+		})
+		r.Route("/v1/projects/{pid}/environments/{eid}/group-members", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth, s))
+			// envScope resolves the environment's REAL parent chain, never the
+			// path pid, so a caller cannot manage another project's environment
+			// by nesting its id under a pid they control.
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				spec, err := s.envScope(r)
+				if err != nil {
+					s.writeServiceError(w, err)
+					return
+				}
+				s.groupMembersList(w, r, spec)
+			})
+			r.Put("/{gid}", func(w http.ResponseWriter, r *http.Request) {
+				spec, err := s.envScope(r)
+				if err != nil {
+					s.writeServiceError(w, err)
+					return
+				}
+				s.groupMemberPut(w, r, spec, chi.URLParam(r, "gid"))
+			})
+			r.Delete("/{gid}", func(w http.ResponseWriter, r *http.Request) {
+				spec, err := s.envScope(r)
+				if err != nil {
+					s.writeServiceError(w, err)
+					return
+				}
+				s.groupMemberDelete(w, r, spec, chi.URLParam(r, "gid"))
+			})
+		})
 		r.Route("/v1/instance/members", func(r chi.Router) {
 			r.Use(RequireAuth(s.auth, s))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) { s.membersList(w, r, s.instanceScope()) })

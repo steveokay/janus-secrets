@@ -25,6 +25,15 @@ func keyset(after *Cursor, argN int) (string, []any) {
 		[]any{after.CreatedAt, after.ID}
 }
 
+// keysetOn is keyset for a query whose sort columns need a table alias, because
+// a join makes bare created_at/id ambiguous. It emits a leading " AND " since
+// every caller appends it to an existing WHERE clause. alias is a compile-time
+// literal in every call site — never request-derived — so it is not an
+// injection vector.
+func keysetOn(alias string, argN int) string {
+	return fmt.Sprintf(" AND (%s.created_at, %s.id) < ($%d, $%d::uuid)", alias, alias, argN, argN+1)
+}
+
 // limitSQL returns " LIMIT $argN" (and its arg) when limit > 0, else ("", nil)
 // so a non-positive limit produces an unbounded query (the legacy List path).
 func limitSQL(limit, argN int) (string, []any) {

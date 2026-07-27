@@ -74,6 +74,9 @@ type Service struct {
 	oidcIdentities *store.OIDCIdentityRepo
 	oidcAuthReqs   *store.OIDCAuthRequestRepo
 
+	// groups backs the OIDC group-claim membership sync at login.
+	groups *store.GroupRepo
+
 	// oidcHTTP is the SSRF-hardened client for OIDC discovery + JWKS (both the
 	// human-login and CI-federation verifiers). Built once at construction.
 	oidcHTTP *http.Client
@@ -108,6 +111,8 @@ func NewService(st *store.Store, kr *crypto.Keyring) *Service {
 		oidcProviders:  store.NewOIDCProviderRepo(st),
 		oidcIdentities: store.NewOIDCIdentityRepo(st),
 		oidcAuthReqs:   store.NewOIDCAuthRequestRepo(st),
+
+		groups: store.NewGroupRepo(st),
 
 		oidcFedConfig:   store.NewOIDCFederationConfigRepo(st),
 		oidcFedBindings: store.NewOIDCFederationBindingRepo(st),

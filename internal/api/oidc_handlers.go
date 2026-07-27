@@ -87,7 +87,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_oidc_state", "authentication failed")
 		return
 	}
-	cookie, p, err := s.auth.CompleteOIDCLogin(withSessionMeta(r), q.Get("state"), q.Get("code"))
+	cookie, p, groups, err := s.auth.CompleteOIDCLogin(withSessionMeta(r), q.Get("state"), q.Get("code"))
 	if err != nil {
 		code, status := "oidc_denied", http.StatusUnauthorized
 		if errors.Is(err, auth.ErrInvalidOIDCState) {
@@ -103,6 +103,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
+	s.recordGroupSync(r, p, groups)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -114,6 +115,7 @@ type oidcConfigRequest struct {
 	Scopes       []string `json:"scopes"`
 	RedirectURL  string   `json:"redirect_url"`
 	Enabled      bool     `json:"enabled"`
+	GroupsClaim  string   `json:"groups_claim"`
 }
 
 // handleOIDCConfigGet: authz enforced by requireInstance middleware. Read — not audited.
@@ -140,6 +142,7 @@ func (s *Server) handleOIDCConfigPut(w http.ResponseWriter, r *http.Request) {
 		Name: req.Name, Issuer: req.Issuer, ClientID: req.ClientID,
 		ClientSecret: req.ClientSecret, Scopes: req.Scopes,
 		RedirectURL: req.RedirectURL, Enabled: req.Enabled,
+		GroupsClaim: req.GroupsClaim,
 	}); err != nil {
 		if errors.Is(err, auth.ErrValidation) {
 			writeError(w, http.StatusBadRequest, CodeValidation, "invalid provider config")

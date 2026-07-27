@@ -117,8 +117,12 @@ type OIDCProvider struct {
 	Scopes              []string
 	RedirectURL         string
 	Enabled             bool
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// GroupsClaim names the ID-token claim carrying group membership (e.g.
+	// "groups", or a dotted path). Empty disables group sync entirely — the
+	// operator opts in.
+	GroupsClaim string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // OIDCIdentity links a provider subject to a Janus user. (Issuer, Subject) is

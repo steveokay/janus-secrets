@@ -8,7 +8,7 @@ import (
 )
 
 const oidcProviderCols = `id::text, name, issuer, client_id, wrapped_client_secret,
-	scopes, redirect_url, enabled, created_at, updated_at`
+	scopes, redirect_url, enabled, groups_claim, created_at, updated_at`
 
 // OIDCProviderRepo persists the (single) configured OIDC provider. It is
 // crypto-blind: wrapped_client_secret is stored and returned as opaque bytes.
@@ -21,12 +21,12 @@ func NewOIDCProviderRepo(s *Store) *OIDCProviderRepo { return &OIDCProviderRepo{
 func (r *OIDCProviderRepo) Put(ctx context.Context, p OIDCProvider) error {
 	_, err := r.s.pool.Exec(ctx,
 		`INSERT INTO oidc_providers
-		   (name, issuer, client_id, wrapped_client_secret, scopes, redirect_url, enabled, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+		   (name, issuer, client_id, wrapped_client_secret, scopes, redirect_url, enabled, groups_claim, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
 		 ON CONFLICT (name) DO UPDATE SET
 		   issuer=$2, client_id=$3, wrapped_client_secret=$4, scopes=$5,
-		   redirect_url=$6, enabled=$7, updated_at=now()`,
-		p.Name, p.Issuer, p.ClientID, p.WrappedClientSecret, p.Scopes, p.RedirectURL, p.Enabled)
+		   redirect_url=$6, enabled=$7, groups_claim=$8, updated_at=now()`,
+		p.Name, p.Issuer, p.ClientID, p.WrappedClientSecret, p.Scopes, p.RedirectURL, p.Enabled, p.GroupsClaim)
 	return mapError(err)
 }
 
@@ -46,7 +46,7 @@ func (r *OIDCProviderRepo) Delete(ctx context.Context) error {
 func scanOIDCProvider(row pgx.Row) (*OIDCProvider, error) {
 	var p OIDCProvider
 	if err := row.Scan(&p.ID, &p.Name, &p.Issuer, &p.ClientID, &p.WrappedClientSecret,
-		&p.Scopes, &p.RedirectURL, &p.Enabled, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&p.Scopes, &p.RedirectURL, &p.Enabled, &p.GroupsClaim, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, mapError(err)
 	}
 	return &p, nil

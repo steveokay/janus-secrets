@@ -27,11 +27,22 @@ type GrantStore interface {
 	ListActiveForUser(ctx context.Context, userID string, now time.Time) ([]*store.BreakGlassGrant, error)
 }
 
+// GroupBindingStore is an OPTIONAL second source of role bindings: those a user
+// holds through GROUP membership. It returns ordinary RoleBindings (carrying
+// ViaGroupID for provenance), so the decision logic sees one longer slice and
+// gains no new concepts — group bindings union with direct ones exactly as two
+// direct bindings do, which is what keeps the engine a single rule with no
+// precedence tiers. An Engine with no group store behaves exactly as before.
+type GroupBindingStore interface {
+	ListForUser(ctx context.Context, userID string) ([]*store.RoleBinding, error)
+}
+
 // Engine decides permissions and manages role bindings. When grants is non-nil
 // the effective role for (user, scope) is the max of the bound role and any
 // active break-glass grant on that exact scope.
 type Engine struct {
 	bindings BindingStore
+	groups   GroupBindingStore
 	grants   GrantStore
 	now      func() time.Time
 }
@@ -47,6 +58,33 @@ func New(bindings BindingStore) *Engine {
 func (e *Engine) WithGrants(g GrantStore) *Engine {
 	e.grants = g
 	return e
+}
+
+// WithGroups attaches a group-binding source so bindings held through group
+// membership union with direct ones. Returns the receiver for chaining. Passing
+// nil is a no-op (leaves group resolution disabled).
+func (e *Engine) WithGroups(g GroupBindingStore) *Engine {
+	e.groups = g
+	return e
+}
+
+// bindingsFor returns every binding a user holds: direct, plus any derived from
+// group membership. Fails CLOSED — a group-store error propagates and denies
+// rather than silently resolving against direct bindings alone, which would
+// turn a transient database fault into a quiet permission change.
+func (e *Engine) bindingsFor(ctx context.Context, userID string) ([]*store.RoleBinding, error) {
+	direct, err := e.bindings.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if e.groups == nil {
+		return direct, nil
+	}
+	viaGroups, err := e.groups.ListForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return append(direct, viaGroups...), nil
 }
 
 // SetClock overrides the engine's clock (tests). nil restores time.Now.
@@ -75,7 +113,7 @@ func (e *Engine) Can(ctx context.Context, p auth.Principal, scope *TokenScope, a
 		}
 		return ErrForbidden
 	case auth.KindUser:
-		bindings, err := e.bindings.ListForUser(ctx, p.ID)
+		bindings, err := e.bindingsFor(ctx, p.ID)
 		if err != nil {
 			return err
 		}
