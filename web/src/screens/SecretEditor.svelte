@@ -120,7 +120,7 @@
     filter = new URLSearchParams(window.location.search).get('key') ?? ''
     showEditRequests = false
     try {
-      const [masked, vers, users, locked, maxAge, ins, reqs] = await Promise.all([
+      const [masked, vers, users, locked, maxAge, ins, reqs, cfg] = await Promise.all([
         api.maskedSecrets(cid),
         api.listVersions(cid),
         api.listUsers().catch(() => []),
@@ -131,9 +131,26 @@
         api.readInsights(cid).catch(() => ({ window_days: 30, keys: {} })),
         // Pending edit requests (value-free: key names only). 403-tolerant.
         api.listEditRequests(cid).catch(() => [] as import('../lib/api').ConfigEditRequest[]),
+        // The config record itself, for the authoritative require_approval flag.
+        // Tolerate a failure and fall back to the cache below, so a caller who
+        // can read secrets but not the config record is no worse off than before.
+        api.getConfig(cid).catch(() => null),
       ])
       editRequests = reqs
-      protected_ = registry.findConfig(cid)?.config.requireApproval ?? false
+      // Read the flag from the SERVER, not the registry cache.
+      //
+      // Deep-linking straight to /projects/:pid/configs/:cid is a cold load: the
+      // registry hydrates asynchronously and is three round-trips deep, so
+      // findConfig() returned undefined and `?? false` quietly meant
+      // "unprotected". A protected config then rendered with no banner, no
+      // review panel, and a Save button reading "Save as vN" — telling the
+      // operator their edit would commit when the server would in fact file it
+      // as a pending edit request. The control always held; the UI misreported
+      // it, and got it wrong more often the larger the instance grew.
+      protected_ = cfg?.require_approval ?? registry.findConfig(cid)?.config.requireApproval ?? false
+      // Keep the cache in step so other screens agree with what we just showed.
+      const cached = registry.findConfig(cid)
+      if (cfg && cached) cached.config.requireApproval = protected_
       insights = ins.keys
       insightsWindow = ins.window_days || 30
       lockedKeys = new Set(locked)
