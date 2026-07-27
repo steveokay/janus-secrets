@@ -186,3 +186,115 @@ func TestInstanceAdminCreationUnchangedE2E(t *testing.T) {
 		t.Fatalf("admin-created project got an unexpected group binding: %+v", bindings.Bindings)
 	}
 }
+
+// Regression: authorization must be decided BEFORE the body is read. An earlier
+// revision decoded first so it could see owner_group_id, which let an
+// unauthorized caller distinguish a malformed body (400) from a denial (403)
+// and skipped the denied audit event on that path.
+func TestProjectCreateAuthorizesBeforeParsingBodyE2E(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	owner := login(t, ts.URL, email, password)
+
+	var nobody struct{ ID, Password string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/users", owner, "", `{"email":"nobody@corp.io"}`, &nobody); code != 200 {
+		t.Fatalf("create user: %d", code)
+	}
+	session := login(t, ts.URL, "nobody@corp.io", nobody.Password)
+
+	// Every shape of unusable body must still answer 403, never 400 — otherwise
+	// the status code is an oracle for "the endpoint exists, your body is wrong".
+	for _, body := range []string{``, `{`, `{}`, `{"slug":""}`, `{"name":"no slug"}`, `[]`} {
+		if code := doAuthed(t, "POST", ts.URL+"/v1/projects", session, "", body, nil); code != 403 {
+			t.Fatalf("unauthorized create with body %q: got %d, want 403", body, code)
+		}
+	}
+
+	// And the denial is audited — a probing account must leave a trail.
+	var events struct {
+		Events []struct {
+			Action string `json:"action"`
+			Result string `json:"result"`
+		} `json:"events"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/audit/events?limit=100", owner, "", "", &events); code != 200 {
+		t.Fatalf("read audit: %d", code)
+	}
+	denied := 0
+	for _, e := range events.Events {
+		if e.Action == "project.create" && e.Result == "denied" {
+			denied++
+		}
+	}
+	if denied == 0 {
+		t.Fatal("no project.create denied event recorded for the refused attempts")
+	}
+}
+
+// An instance admin may hand a new project to a team they are not a member of.
+// Requiring membership was a defect: they already hold member:manage everywhere
+// and could bind that group a moment later, so it grants no new authority.
+func TestInstanceAdminCanHandProjectToAnyGroupE2E(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	owner := login(t, ts.URL, email, password)
+
+	// A plain group the admin is NOT in, and which cannot create projects.
+	g := createGroup(t, ts.URL, owner, `{"name":"payments","kind":"local"}`)
+
+	var created struct{ ID string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects", owner, "",
+		`{"slug":"handed","name":"Handed","owner_group_id":"`+g.ID+`"}`, &created); code != 201 {
+		t.Fatalf("admin handing a project to a team: got %d, want 201", code)
+	}
+	var bindings struct {
+		Bindings []struct {
+			GroupName string `json:"group_name"`
+			Role      string `json:"role"`
+		} `json:"bindings"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/projects/"+created.ID+"/group-members", owner, "", "", &bindings); code != 200 {
+		t.Fatalf("list bindings: %d", code)
+	}
+	if len(bindings.Bindings) != 1 || bindings.Bindings[0].GroupName != "payments" || bindings.Bindings[0].Role != "admin" {
+		t.Fatalf("bindings = %+v", bindings.Bindings)
+	}
+
+	// A group that does not exist is a validation error for an admin, not a 403.
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects", owner, "",
+		`{"slug":"nope","name":"Nope","owner_group_id":"00000000-0000-0000-0000-000000000000"}`, nil); code != 400 {
+		t.Fatalf("admin naming an unknown group: got %d, want 400", code)
+	}
+}
+
+// Belonging to several creating groups is not an authorization failure — the
+// caller must simply say which team owns the project.
+func TestAmbiguousCreatorGroupIsAValidationErrorE2E(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	owner := login(t, ts.URL, email, password)
+
+	var dev struct{ ID, Password string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/users", owner, "", `{"email":"dev@corp.io"}`, &dev); code != 200 {
+		t.Fatalf("create user: %d", code)
+	}
+	var ids []string
+	for _, name := range []string{"alpha", "beta"} {
+		g := createGroup(t, ts.URL, owner, `{"name":"`+name+`","kind":"local"}`)
+		ids = append(ids, g.ID)
+		if code := doAuthed(t, "PUT", ts.URL+"/v1/groups/"+g.ID+"/members/"+dev.ID, owner, "", "", nil); code != 204 {
+			t.Fatalf("add member: %d", code)
+		}
+		if code := doAuthed(t, "PUT", ts.URL+"/v1/groups/"+g.ID+"/capabilities", owner, "",
+			`{"can_create_projects":true}`, nil); code != 200 {
+			t.Fatalf("grant capability: %d", code)
+		}
+	}
+
+	session := login(t, ts.URL, "dev@corp.io", dev.Password)
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects", session, "", `{"slug":"which","name":"Which"}`, nil); code != 400 {
+		t.Fatalf("ambiguous owner: got %d, want 400", code)
+	}
+	// Naming one resolves it.
+	if code := doAuthed(t, "POST", ts.URL+"/v1/projects", session, "",
+		`{"slug":"which","name":"Which","owner_group_id":"`+ids[0]+`"}`, nil); code != 201 {
+		t.Fatalf("naming a group: %d", code)
+	}
+}

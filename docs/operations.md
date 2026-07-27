@@ -288,6 +288,10 @@ route exists because the first one *only* reveals everything: every role
 carrying `project:create` at instance scope also carries `project:read` there.
 A delegated creation binds the new project to the owning group at **admin** and
 to the creator at **owner**, and grants no visibility of anything else. The
+permission decision is made **before** the request body is read, so an
+unauthorized caller always gets the same audited `403` regardless of what they
+send. An instance admin may hand a project to any existing group; a delegated
+creator may only name a group they belong to. The
 capability is checked alongside the engine rather than inside it — creation is
 the one operation with no existing resource to authorize against — so
 `internal/authz` stays a pure decision function over roles.

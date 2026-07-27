@@ -156,9 +156,15 @@ are bound to.
 
 If someone belongs to more than one creating group, they must name which one
 owns the new project (`owner_group_id`, or the **Owning team** picker) rather
-than have Janus guess. Naming a group you are not a member of is refused with
-the same `403` as having no capability at all, so it is not a way to discover
-which groups exist.
+than have Janus guess — that is a `400`, not a `403`, because they *are*
+authorized and simply need to disambiguate. Naming a group you are not a member
+of is refused with the same `403` as having no capability at all, so it is not
+a way to discover which groups exist.
+
+An **instance admin** may name any existing group, including one they do not
+belong to, to hand a new project straight to a team. That grants no authority
+they lack — they hold `member:manage` everywhere and could bind the group a
+moment later — and an unknown group is a `400` for them rather than a `403`.
 
 This is a narrow **capability**, deliberately not a role. Roles are cumulative
 bundles — viewer ⊂ developer ⊂ admin ⊂ owner — so any role granting
