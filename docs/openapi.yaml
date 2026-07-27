@@ -516,6 +516,14 @@ components:
         environment_id: { type: string, format: uuid }
         role: { type: string, enum: [viewer, developer, admin] }
         created_at: { type: string, format: date-time }
+    DerivedMember:
+      type: object
+      description: One user's access to a scope held THROUGH a group.
+      properties:
+        user_id: { type: string, format: uuid }
+        role: { type: string, enum: [viewer, developer, admin] }
+        via_group_id: { type: string, format: uuid }
+        via_group_name: { type: string }
     GroupBindingRequest:
       type: object
       required: [role]
@@ -554,7 +562,12 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
     GroupBindingList:
-      description: Group role bindings at a scope.
+      description: >-
+        Group role bindings at a scope, plus the users who actually reach the
+        scope through them. The resolution rides `member:read` at the scope on
+        purpose: listing a group's members is instance `group:manage`, so
+        without it a project admin could not answer "who can act on my
+        project?" at all.
       content:
         application/json:
           schema:
@@ -563,6 +576,19 @@ components:
               bindings:
                 type: array
                 items: { $ref: '#/components/schemas/GroupBinding' }
+              derived_members:
+                type: array
+                description: >-
+                  One entry per (user, group) pair granting at this scope; a
+                  user in two granting groups appears twice and the caller takes
+                  the highest role.
+                items: { $ref: '#/components/schemas/DerivedMember' }
+              derived_truncated:
+                type: boolean
+                description: >-
+                  True when more pairs exist than one response returns. Reported
+                  rather than silent, because a members view that quietly
+                  dropped rows would understate who has access.
               next_cursor: { type: [string, "null"] }
 security:
   - bearerAuth: []

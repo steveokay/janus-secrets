@@ -27,7 +27,8 @@ aesthetic, `daylight`/`nightwatch` themes) embedded via `go:embed`, covering
 the entire API surface — init/unseal/login, projects → envs → configs, the
 secret editor (masked/audited reveal, dirty-buffer saves, per-key history,
 locked keys, import/export), the promotion pipeline + approvals, the audit
-ledger, tokens, scoped members + an RBAC matrix view, transit, an operations
+ledger, tokens, scoped members (effective role + direct/via-group source),
+groups, transit, an operations
 console (rotation/sync/dynamic, incl. create flows and credential issuance),
 an integrations hub (OIDC + CI federation), trash, and a settings hub
 (master-key rotate/rekey, backup, seal control). It replaced an earlier
@@ -494,15 +495,39 @@ authorization machinery.
 _These came out of the groups build itself, not from a roadmap. Each is a real
 gap; none is a security hole._
 
-- [ ] **The RBAC matrix does not show groups.** The Members matrix still plots
-      users × scopes, so a user whose access comes entirely from a group reads
-      as having none, and "who can write prod?" — the question the matrix
-      exists to answer — is now answerable only by cross-referencing the Groups
-      screen by hand. This was in the design and did not ship with the rest;
-      it is the largest loose end. Wants group rows in the matrix, or a
-      resolved view that folds group-derived access into each user's row and
-      labels it with its origin (`ViaGroupID` is already on every derived
-      binding, so the data is there).
+- [x] ~~**Members reported group-derived access as no access.**~~ **FIXED
+      2026-07-27** — and the item as originally written was wrong on a fact
+      worth recording: it claimed "the Members matrix still plots users ×
+      scopes". **There is no RBAC matrix.** The users × scopes grid
+      (`useRbacMatrix`, PR #92) was React/Nocturne-era and was removed by
+      `18f122c`, the Atrium rewrite; the summary at the top of this file still
+      advertised it, which is exactly the tracker drift that comes of checking
+      PR titles instead of code.
+
+      The real defect was narrower and worse than "incomplete": `Members.svelte`
+      built its role column from `listScopedMembers`, i.e. direct
+      `role_bindings` only, so a user holding developer at that scope **through
+      a group** rendered as *"no {scope} binding"* — wrong information on the
+      screen whose entire job is to say who has access.
+
+      Fixed by resolving it **server-side**, which is not an optimisation but a
+      requirement: listing a group's members is instance `group:manage`, while
+      reading a scope's members is `member:read` there, so a project admin —
+      the person most likely to ask "who can act on my project?" — was the one
+      person who could not work it out client-side. `GET
+      /v1/{scope}/group-members` now also returns `derived_members` (one
+      `{user_id, role, via_group_id, via_group_name}` per granting pair) and a
+      `derived_truncated` flag, reported rather than silent so a partial answer
+      never reads as complete. Members shows the **effective** role (the union)
+      plus a **Source** column — `direct`, `via <group>`, or both — and the
+      dropdown/Remove still act on the direct binding only, with derived rows
+      linking to `/groups` where the grant actually lives.
+
+      **Still open:** rebuilding the users × scopes grid itself, which the
+      Atrium rewrite dropped and nothing has replaced. That is a feature, not a
+      regression fix — the React one needed a 403-tolerant fan-out hook with a
+      shared cache — and it is the remaining way to answer "who can write prod?"
+      across every scope at once rather than one scope at a time.
 - [ ] **An OIDC group's member list only covers users who have signed in.**
       Membership is a login-time snapshot, so a person who has been in the IdP
       group for months but has never logged into Janus is invisible in

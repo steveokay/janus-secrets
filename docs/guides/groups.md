@@ -99,6 +99,20 @@ janus group bind "Team Payments" --role developer --project atlas-api
 Membership updates at each sign-in. Users who have never signed in do not
 appear in the member list, because Janus has never seen a token for them.
 
+## Seeing group-derived access
+
+The **Members** screen resolves it for you: **Role at \<scope\>** is the
+effective role — the union of a user's own binding and anything held through a
+group — and **Source** says which. A user whose access is entirely
+group-derived shows their real role with a `via <group>` chip, not "no
+binding".
+
+That resolution happens on the server, because it has to: reading a group's
+member list needs instance `group:manage`, while reading a scope's members
+needs only `member:read` there. A project admin holds the second and not the
+first, so without server-side resolution the person most likely to ask "who can
+act on my project?" would be the one person unable to find out.
+
 ## Who manages what
 
 Two different authorities, on purpose:

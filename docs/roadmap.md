@@ -261,9 +261,13 @@ today — it is the gap between *correct* and *usable by an org*.
    scope, so a team lead reviewing their own project must be handed every event
    in the organisation — and audit rows carry resource paths and key names.
 
-**Raised by building groups (2026-07-27), tracked in `status.md`:** the RBAC
-matrix still plots users only, so group-derived access is invisible in the
-"who can write prod?" view (the largest loose end); an OIDC group's member list
+**Raised by building groups (2026-07-27), tracked in `status.md`:** Members
+reported group-derived access as *no access* — **fixed the same day** by
+resolving it server-side (`derived_members` on the scope's group-binding list)
+and showing the effective role with a direct/via-group source column. Note the
+item as first written claimed an "RBAC matrix" still plotted users only; **there
+is no matrix** — it was React-era and the Atrium rewrite dropped it, so
+rebuilding a users × scopes grid remains genuinely open. Also: an OIDC group's member list
 covers only users who have signed in, since membership is a login snapshot;
 Entra's ~200-group overage leaves a retained snapshot stale with no time bound
 (the one place this design keeps stale membership unbounded — the alternatives
