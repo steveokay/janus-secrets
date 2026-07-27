@@ -327,6 +327,106 @@ Shipped 2026-07-26/27:
       bufio's read-ahead swallowed shares 2..n. `unseal` takes one share per
       invocation and never hit it.
 
+### Open — RBAC at organisation scale
+
+_The target shape: an organisation with many product teams, each owning some
+projects, unable to see each other's secrets — with instance owner/admin able to
+see everything. Janus already does the visibility half; what it lacks is
+everything that makes that arrangement manageable, delegable and auditable for
+more than a handful of people. Nothing here is a security hole — the server
+denies correctly today — they are the gaps between "correct" and "usable by an
+org"._
+
+
+Raised 2026-07-27 after walking the model with a real no-binding account. **The
+visibility half already works**: `handleProjectList` filters per item on
+`project:read`, so a fresh account sees `projects: 0` — a project is invisible
+unless you are bound to it (same for `/v1/trash` and `/v1/tokens`). What is
+missing is everything that makes that manageable for more than a handful of
+people.
+
+**Recommended order (decided 2026-07-27).** These are not independent — the
+first one is what makes the other two worth doing:
+
+1. **Groups.** Everything else is downstream. It is the only item that fixes
+   binding sprawl, makes offboarding a single action in the IdP, and makes
+   "Team Payments owns these projects" expressible rather than approximated by
+   dozens of per-user rows.
+2. **Delegated project creation.** Without it an org must choose between teams
+   self-serving and teams being isolated, and it will choose self-serve.
+3. **Scoped audit read.** So a team can audit itself without being handed every
+   other team's trail.
+
+Those three are what make Janus genuinely multi-team. The rest of this section
+is real but can wait: UI permission gating is cosmetic, `secret:read`
+granularity is a larger design conversation, and the union/no-deny edge is
+better handled by defaulting prod configs to `require_approval` than by new
+authorization machinery.
+
+- [ ] **(1) Group-based role bindings, driven by the IdP.** Bindings are per-user
+      only, so an admin repeats the same grant for every person on every project
+      and offboarding is a hunt for individual rows. Map an OIDC **group claim**
+      to role bindings instead, so membership is managed where it belongs — in
+      Okta / Entra / Google — and revoking someone there revokes it here.
+      **Note: Janus speaks OIDC, not SAML.** All three IdPs emit groups over
+      OIDC, so this reaches the same outcome without taking on a SAML
+      implementation, which would be a large new protocol surface for no extra
+      capability. Needs: a group→role mapping table scoped like a binding
+      (instance/project/environment), claim extraction at login, and a decision
+      about precedence — the safe answer is that group bindings union with
+      direct ones exactly as multiple direct bindings already do, so the engine
+      keeps its single rule.
+- [ ] **(2) Delegated project creation — today self-service forces org-wide
+      visibility.** `handleProjectCreate` authorizes against `authz.Instance()`,
+      so the only way to let a team create its own projects is to grant
+      **instance admin** — which carries `project:read` everywhere and reveals
+      every project in the organisation. The two goals "teams can self-serve"
+      and "teams cannot see each other" are currently mutually exclusive, and an
+      org will pick self-serve, quietly making everything visible. Wants either
+      a delegated creation grant (create projects, but read only your own) or
+      group-owned namespaces where creation is scoped to the owning group.
+- [ ] **(3) Audit read is instance-wide or nothing.** Every audit endpoint —
+      `verify`, `events`, `histogram`, `export` — authorizes against
+      `authz.Instance()`. A team lead cannot review their own project's trail
+      without being handed **every event in the organisation**, and audit rows
+      carry resource paths and key names, so that leaks the shape of every other
+      team's secrets. It also cuts the other way: teams that should be
+      self-auditing simply cannot. Wants `audit:read` honoured at project /
+      environment scope with the event list filtered to the caller's readable
+      scopes, instance-wide read staying with owner/admin. Note the filter must
+      be applied in the query, not after paging, or cursors will skip.
+- [ ] **Offboarding has no single answer to "what can this person reach?"**
+      Bindings are individual rows across instance, project and environment
+      scopes, so removing someone means finding every one of them. With groups
+      (above) most of this disappears, but a per-user "effective access" view and
+      a revoke-all action are what make an offboarding checkable rather than
+      hopeful.
+- [ ] **Permissions are not exposed to the UI, so nothing can be gated.** `Me`
+      is `{kind, id, name}` and the nav is a static list, so a user without
+      access still sees Transit, Operations, Members and Settings and discovers
+      their permissions by collecting 403s. Not a security hole — the server is
+      authoritative and denies correctly — but it is the first thing a non-admin
+      complains about, and it lands hardest on the people with the least
+      context. Exposing effective permissions on `/v1/auth/me` would let the
+      shell hide what an account cannot use. It must stay a **hint**: the server
+      remains the only authority.
+- [ ] **A binding cannot narrow another one.** Permissions are the union of all
+      applicable bindings and there are no deny rules, so *"developer on the
+      project, but read-only on prod"* is unexpressible — you must bind per
+      environment and never at project scope, and nothing warns you when you do.
+      One convenient project-level `developer` silently grants production
+      writes. **Do not solve this with deny rules**: allow-union plus deny is
+      where RBAC stops being reasonable about, and this engine's clarity is its
+      best property. Two better options: default prod configs to
+      `require_approval` so such a write becomes a four-eyes request rather than
+      a commit (the machinery exists and is E2E-tested), and add a "who can
+      write prod?" view so union semantics are visible rather than implicit.
+- [ ] **`secret:read` is all-or-nothing.** A viewer at project scope reads every
+      value in every environment, prod included; there is no granularity below a
+      config. Reveals are audited per key and unused keys are flagged, so the
+      posture is **detection, not prevention** — defensible for a single-tenant
+      self-hosted tool, but it should be a decision rather than an accident.
+
 **Open — found by the new E2E coverage, not yet fixed:**
 
 - [x] ~~**The secret editor loses the protected (four-eyes) flag on a deep

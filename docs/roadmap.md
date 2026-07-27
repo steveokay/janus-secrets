@@ -210,6 +210,41 @@ OIDC-status probe shares the password rate limiter; deleting a config redirects
 to `/projects` rather than the dossier; and a duplicate/wrong `aria-label` on the
 approvals table. Detail and reasoning in [`../status.md`](../status.md).
 
+## RBAC at organisation scale
+
+Raised 2026-07-27, tracked but **not started**. The target shape is an
+organisation with many product teams, each owning some projects and unable to
+see each other's secrets, with instance owner/admin seeing everything.
+
+Janus already does the **visibility** half: project/trash/token lists filter per
+item, so a fresh account with no bindings genuinely sees nothing. What is missing
+is what makes that arrangement manageable, delegable and auditable beyond a
+handful of people. None of it is a security hole — the server denies correctly
+today — it is the gap between *correct* and *usable by an org*.
+
+**Do these three, in this order:**
+
+1. **Group-based role bindings from OIDC group claims.** Everything else is
+   downstream. Bindings are per-user only today, so membership is maintained by
+   hand and offboarding is a hunt. (Janus speaks OIDC, not SAML; Okta, Entra and
+   Google all emit groups over OIDC, which reaches the same outcome without
+   taking on a second protocol.)
+2. **Delegated project creation.** `handleProjectCreate` authorizes against the
+   *instance* scope, so letting a team create its own projects means granting
+   instance admin — which reveals every project in the organisation. Self-serve
+   and isolation are currently mutually exclusive, and an org will pick
+   self-serve.
+3. **Scoped audit read.** Every audit endpoint authorizes against the instance
+   scope, so a team lead reviewing their own project must be handed every event
+   in the organisation — and audit rows carry resource paths and key names.
+
+Also tracked, lower priority: exposing effective permissions to the UI so the
+nav can gate instead of collecting 403s; the fact that a binding can never
+*narrow* another one (better answered by defaulting prod to `require_approval`
+than by deny rules, which would cost the engine its clarity); `secret:read`
+being all-or-nothing per config; and a per-user "effective access" view for
+offboarding. Detail and reasoning in [`../status.md`](../status.md).
+
 ## What's actually left
 
 **Both roadmaps are now exhausted.** Sections 1–5 (the original) closed before
