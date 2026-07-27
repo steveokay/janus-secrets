@@ -339,7 +339,8 @@ func (s *Server) groupMembersList(w http.ResponseWriter, r *http.Request, spec s
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
 		return
 	}
-	bs, err := s.groupBindingsRepo().ListForScopePage(r.Context(), spec.level, scopeIDOf(spec), pp.limit, pp.after)
+	scopeID := scopeIDOf(spec)
+	bs, err := s.groupBindingsRepo().ListForScopePage(r.Context(), spec.level, scopeID, pp.limit, pp.after)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
@@ -350,9 +351,46 @@ func (s *Server) groupMembersList(w http.ResponseWriter, r *http.Request, spec s
 		t := encodeCursor(last.CreatedAt, last.ID)
 		nextTok = &t
 	}
+	// Resolve who actually reaches this scope through those groups. This rides
+	// member:read at the scope on purpose: a project admin may see who has
+	// access to their project, but listing a group's members is instance
+	// `group:manage`, so without this they cannot answer "who can write here?"
+	// at all. Fetch one extra row to detect truncation honestly rather than
+	// silently returning a partial answer that reads as complete.
+	derived, err := s.groupBindingsRepo().DerivedMembersForScope(r.Context(), spec.level, scopeID, maxDerivedMembers+1)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	truncated := len(derived) > maxDerivedMembers
+	if truncated {
+		derived = derived[:maxDerivedMembers]
+	}
+	out := make([]derivedMemberView, 0, len(derived))
+	for _, d := range derived {
+		out = append(out, derivedMemberView{
+			UserID: d.UserID, Role: d.Role, ViaGroupID: d.GroupID, ViaGroupName: d.GroupName,
+		})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"bindings": toGroupBindingViews(bs), "next_cursor": nextTok,
+		"bindings":          toGroupBindingViews(bs),
+		"derived_members":   out,
+		"derived_truncated": truncated,
+		"next_cursor":       nextTok,
 	})
+}
+
+// maxDerivedMembers bounds the resolved (user, group) pairs one scope listing
+// returns. Truncation is reported, never silent — a members screen that quietly
+// dropped rows would understate who has access, which is the exact failure this
+// endpoint exists to prevent.
+const maxDerivedMembers = 2000
+
+type derivedMemberView struct {
+	UserID       string `json:"user_id"`
+	Role         string `json:"role"`
+	ViaGroupID   string `json:"via_group_id"`
+	ViaGroupName string `json:"via_group_name"`
 }
 
 // groupMemberPut binds a group to a scope at a role.

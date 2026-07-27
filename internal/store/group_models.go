@@ -74,6 +74,18 @@ type GroupRoleBindingInput struct {
 	CreatedBy     *string
 }
 
+// DerivedMember is one user's access to a scope held THROUGH a group, and the
+// group it came from. One row per (user, group) pair that grants at the scope —
+// a user in two granting groups produces two rows, and the caller takes the
+// highest role. It is display material for "who can act here, and why"; the
+// authorization decision is always made by the engine, never from this.
+type DerivedMember struct {
+	UserID    string
+	Role      string
+	GroupID   string
+	GroupName string
+}
+
 // GroupSyncResult reports what one OIDC login changed, for a value-free audit
 // event. Names, not ids, because the audit ledger is read by humans.
 type GroupSyncResult struct {

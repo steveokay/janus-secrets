@@ -2,7 +2,7 @@
   import {
     api, memberScopePath, groupScopePath, errorMessage,
     type UserInfo, type ApiMember, type Role,
-    type ApiGroup, type ApiGroupBinding, type GroupRole,
+    type ApiGroup, type ApiGroupBinding, type GroupRole, type ApiDerivedMember,
   } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
   import { dialog } from '../lib/dialog.svelte'
@@ -21,6 +21,8 @@
 
   let groups = $state<ApiGroup[]>([])
   let groupBindings = $state<ApiGroupBinding[]>([])
+  let derivedMembers = $state<ApiDerivedMember[]>([])
+  let derivedTruncated = $state(false)
   let groupError = $state('')
   let bindGroupId = $state('')
   let bindRole = $state<GroupRole>('viewer')
@@ -86,11 +88,16 @@
   async function loadGroupBindings(path: string) {
     groupError = ''
     try {
-      groupBindings = await api.listScopedGroupBindings(path)
+      const res = await api.scopedGroupAccess(path)
+      groupBindings = res.bindings
+      derivedMembers = res.derived
+      derivedTruncated = res.truncated
     } catch {
       // member:read covers both lists, so a failure here is a transport
       // problem rather than a permission one; keep the screen usable.
       groupBindings = []
+      derivedMembers = []
+      derivedTruncated = false
     }
   }
 
@@ -131,16 +138,66 @@
 
   const email = (uid: string) => users.find(u => u.id === uid)?.email ?? `${uid.slice(0, 8)}…`
 
-  interface Row { user: UserInfo; role: Role | null }
+  /** Group-derived access, indexed by user and reduced to the highest role. A
+   *  user in two granting groups keeps the strongest, and we remember every
+   *  group so the row can say where it came from. */
+  const derivedByUser = $derived.by(() => {
+    const m = new Map<string, { role: GroupRole; groups: string[] }>()
+    for (const d of derivedMembers) {
+      const cur = m.get(d.user_id)
+      if (!cur) {
+        m.set(d.user_id, { role: d.role, groups: [d.via_group_name] })
+        continue
+      }
+      cur.groups.push(d.via_group_name)
+      if (roleRank[d.role] > roleRank[cur.role]) cur.role = d.role
+    }
+    return m
+  })
+
+  interface Row {
+    user: UserInfo
+    /** The binding bound directly to this user; null if they have none here. */
+    direct: Role | null
+    /** The strongest role held through a group, and which groups granted it. */
+    derived: GroupRole | null
+    derivedGroups: string[]
+    /** What the server will actually allow — the union of the two. */
+    effective: Role | null
+  }
+
+  function effectiveOf(direct: Role | null, derived: GroupRole | null): Role | null {
+    if (!direct) return derived
+    if (!derived) return direct
+    return roleRank[derived] > roleRank[direct] ? derived : direct
+  }
+
   const rows = $derived.by((): Row[] => {
     const roleByUser = new Map(members.map(m => [m.user_id, m.role]))
     return users
       .filter(u => !u.disabled)
-      .map(u => ({ user: u, role: roleByUser.get(u.id) ?? null }))
-      .sort((a, b) => (roleRank[b.role ?? 'viewer'] ?? -1) - (roleRank[a.role ?? 'viewer'] ?? -1))
+      .map(u => {
+        const direct = roleByUser.get(u.id) ?? null
+        const via = derivedByUser.get(u.id)
+        const derived = via?.role ?? null
+        return {
+          user: u,
+          direct,
+          derived,
+          derivedGroups: via?.groups ?? [],
+          effective: effectiveOf(direct, derived),
+        }
+      })
+      .sort((a, b) => (roleRank[b.effective ?? 'viewer'] ?? -1) - (roleRank[a.effective ?? 'viewer'] ?? -1))
   })
-  /* bindings whose user we can't resolve (e.g. non-admin listUsers) still show */
+  /* bindings whose user we can't resolve (e.g. non-admin listUsers) still show —
+     direct and group-derived alike, so neither is silently dropped */
   const orphanMembers = $derived(members.filter(m => !users.some(u => u.id === m.user_id)))
+  const orphanDerived = $derived.by(() =>
+    [...derivedByUser.entries()]
+      .filter(([uid]) => !users.some(u => u.id === uid) && !members.some(m => m.user_id === uid))
+      .map(([uid, v]) => ({ user_id: uid, ...v })),
+  )
 
   async function invite(e: SubmitEvent) {
     e.preventDefault()
@@ -270,9 +327,10 @@
       <thead>
         <tr>
           <th scope="col">Member</th>
-          <th scope="col" style="width: 150px">Last login</th>
-          <th scope="col" style="width: 220px">Role at {scopeKind}</th>
-          <th scope="col" style="width: 200px">Change</th>
+          <th scope="col" style="width: 130px">Last login</th>
+          <th scope="col" style="width: 150px">Role at {scopeKind}</th>
+          <th scope="col" style="width: 210px">Source</th>
+          <th scope="col" style="width: 180px">Direct binding</th>
           <th scope="col" style="width: 110px"></th>
         </tr>
       </thead>
@@ -294,16 +352,32 @@
               {/if}
             </td>
             <td>
-              {#if row.role}
-                <span class="role role-{row.role}">{row.role}</span>
-                {#if row.role === 'owner' && scopeKind === 'instance'}<span class="folio guard">never-lock-out</span>{/if}
+              {#if row.effective}
+                <span class="role role-{row.effective}">{row.effective}</span>
+                {#if row.effective === 'owner' && scopeKind === 'instance'}<span class="folio guard">never-lock-out</span>{/if}
               {:else}
-                <span class="folio">no {scopeKind} binding</span>
+                <span class="folio">no access</span>
+              {/if}
+            </td>
+            <td class="source">
+              {#if row.direct && row.derived}
+                <span class="pill src-direct">direct</span>
+                <span class="pill src-group" title={row.derivedGroups.join(', ')}>
+                  via {row.derivedGroups[0]}{row.derivedGroups.length > 1 ? ` +${row.derivedGroups.length - 1}` : ''}
+                </span>
+              {:else if row.derived}
+                <span class="pill src-group" title={row.derivedGroups.join(', ')}>
+                  via {row.derivedGroups[0]}{row.derivedGroups.length > 1 ? ` +${row.derivedGroups.length - 1}` : ''}
+                </span>
+              {:else if row.direct}
+                <span class="pill src-direct">direct</span>
+              {:else}
+                <span class="folio muted">—</span>
               {/if}
             </td>
             <td>
-              <select class="select" value={row.role ?? ''} onchange={(e) => setRole(row.user.id, (e.currentTarget as HTMLSelectElement).value as Role)}>
-                <option value="" disabled>set role…</option>
+              <select class="select" value={row.direct ?? ''} onchange={(e) => setRole(row.user.id, (e.currentTarget as HTMLSelectElement).value as Role)}>
+                <option value="" disabled>{row.direct ? 'change…' : 'add direct…'}</option>
                 <option value="viewer">viewer</option>
                 <option value="developer">developer</option>
                 <option value="admin">admin</option>
@@ -314,8 +388,12 @@
               {#if row.user.locked}
                 <button class="btn btn-ghost btn-sm unlock-btn" onclick={() => unlock(row.user)}>Unlock</button>
               {/if}
-              {#if row.role}
+              {#if row.direct}
                 <button class="btn btn-ghost btn-sm del-btn" onclick={() => removeBinding(row.user.id)}>Remove</button>
+              {:else if row.derived}
+                <!-- Nothing to remove here: the grant lives on the group, so
+                     send the admin where it can actually be changed. -->
+                <a class="btn btn-ghost btn-sm" href="/groups">Groups →</a>
               {/if}
             </td>
           </tr>
@@ -325,18 +403,41 @@
             <td class="who"><span class="avatar">?</span><span class="m-name mono">{m.user_id.slice(0, 8)}…</span></td>
             <td><span class="folio muted">—</span></td>
             <td><span class="role role-{m.role}">{m.role}</span></td>
+            <td class="source"><span class="pill src-direct">direct</span></td>
             <td></td>
             <td class="row-actions">
               <button class="btn btn-ghost btn-sm del-btn" onclick={() => removeBinding(m.user_id)}>Remove</button>
             </td>
           </tr>
         {/each}
-        {#if !rows.length && !orphanMembers.length}
-          <tr><td colspan="5" class="empty folio">{loading ? 'Reading…' : 'No members visible for this scope.'}</td></tr>
+        {#each orphanDerived as d (d.user_id)}
+          <tr>
+            <td class="who"><span class="avatar">?</span><span class="m-name mono">{d.user_id.slice(0, 8)}…</span></td>
+            <td><span class="folio muted">—</span></td>
+            <td><span class="role role-{d.role}">{d.role}</span></td>
+            <td class="source">
+              <span class="pill src-group" title={d.groups.join(', ')}>
+                via {d.groups[0]}{d.groups.length > 1 ? ` +${d.groups.length - 1}` : ''}
+              </span>
+            </td>
+            <td></td>
+            <td class="row-actions"><a class="btn btn-ghost btn-sm" href="/groups">Groups →</a></td>
+          </tr>
+        {/each}
+        {#if !rows.length && !orphanMembers.length && !orphanDerived.length}
+          <tr><td colspan="6" class="empty folio">{loading ? 'Reading…' : 'No members visible for this scope.'}</td></tr>
         {/if}
       </tbody>
     </table>
   </div>
+
+  {#if derivedTruncated}
+    <p class="error rise">
+      This scope has more group-derived members than one page can resolve, so the
+      Source column is incomplete. Narrow the scope, or read the group's members
+      on the Groups screen.
+    </p>
+  {/if}
 
   <section class="groups rise" style="animation-delay: 110ms">
     <div class="sec-head">
@@ -388,10 +489,14 @@
   </section>
 
   <p class="foot-note folio">
+    <strong>Role at {scopeKind}</strong> is what the server will actually allow: the union of the
+    user's own binding and any held through a group. <strong>Source</strong> says which, so a role
+    nobody granted directly is never a mystery. The dropdown and Remove act on the
+    <em>direct</em> binding only — group-derived access is changed on the group, not here.
     An instance binding applies everywhere; a project binding covers that project's environments
-    and configs; roles union most-permissively — group bindings included, with no precedence
-    between them. You cannot grant a role above your own, a group can never be granted owner, and
-    the last instance owner can never be removed.
+    and configs; roles union most-permissively, with no precedence between the two sources. You
+    cannot grant a role above your own, a group can never be granted owner, and the last instance
+    owner can never be removed.
   </p>
 </div>
 
@@ -486,5 +591,9 @@
   .role-sel { max-width: 140px; }
   .kind-oidc { color: var(--archivist); background: var(--archivist-wash); }
   .kind-local { color: var(--verdigris); background: var(--verdigris-wash); }
+
+  .source { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+  .src-direct { color: var(--ink-faint); background: var(--paper-low); }
+  .src-group { color: var(--archivist); background: var(--archivist-wash); }
   .foot-note { margin-top: var(--s3); max-width: 72ch; }
 </style>

@@ -23,7 +23,13 @@ The scope switcher at the top of Members selects where bindings apply:
 
 Choose a role in the row's dropdown to bind; **Remove** deletes that
 binding (the user keeps bindings at other scopes — effective access is the
-union). Example: `nadia` as *developer* on `atlas-api` and nothing else —
+union).
+
+The **Role at \<scope\>** column shows what the server will actually allow,
+including anything held through a group, and **Source** says where it came
+from (`direct`, `via <group>`, or both). The dropdown and Remove only ever
+touch the **direct** binding — a group-derived role is changed on the group,
+so those rows link to Groups instead. Example: `nadia` as *developer* on `atlas-api` and nothing else —
 she can work every atlas config but can't see other projects or touch
 instance settings.
 

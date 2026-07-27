@@ -279,6 +279,17 @@ export interface ApiGroupBinding {
   role: GroupRole
   created_at: string
 }
+/** One user's access to a scope held THROUGH a group, and which group granted
+ *  it. One entry per (user, group) pair, so a user in two granting groups has
+ *  two — the caller takes the highest role. Display material only; the server
+ *  is always the authority on the decision itself. */
+export interface ApiDerivedMember {
+  user_id: string
+  role: GroupRole
+  via_group_id: string
+  via_group_name: string
+}
+
 export type MemberScope =
   | { kind: 'instance' }
   | { kind: 'project'; pid: string }
@@ -998,6 +1009,19 @@ export const api = {
   // caller's own bound role — a group can never be granted owner)
   listScopedGroupBindings: (path: string) =>
     get<{ bindings: ApiGroupBinding[] }>(path).then(r => r.bindings ?? []),
+  /** Group bindings at a scope PLUS who reaches it through them. Rides
+   *  member:read at the scope, so a project admin can answer "who can act
+   *  here?" without holding instance group:manage. */
+  scopedGroupAccess: (path: string) =>
+    get<{
+      bindings: ApiGroupBinding[]
+      derived_members: ApiDerivedMember[]
+      derived_truncated: boolean
+    }>(path).then(r => ({
+      bindings: r.bindings ?? [],
+      derived: r.derived_members ?? [],
+      truncated: r.derived_truncated ?? false,
+    })),
   putScopedGroupBinding: (path: string, gid: string, role: GroupRole) => put<void>(`${path}/${gid}`, { role }),
   deleteScopedGroupBinding: (path: string, gid: string) => del<void>(`${path}/${gid}`),
 }

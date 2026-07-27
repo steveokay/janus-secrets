@@ -153,6 +153,56 @@ func (r *GroupBindingRepo) ListForScopePage(ctx context.Context, level, scopeID 
 	return out, mapError(rows.Err())
 }
 
+// DerivedMembersForScope returns every user who reaches this scope THROUGH a
+// group, with the group that granted it — the join a scope admin cannot do
+// themselves, because listing a group's members needs instance `group:manage`
+// while reading a scope's members only needs `member:read` there.
+//
+// limit bounds the result (the caller passes limit+1 to detect truncation);
+// limit<=0 is unbounded. Unknown levels return ErrNotFound, matching
+// ListForScopePage.
+func (r *GroupBindingRepo) DerivedMembersForScope(ctx context.Context, level, scopeID string, limit int) ([]*DerivedMember, error) {
+	base := `SELECT m.user_id::text, b.role, g.id::text, g.name
+	           FROM group_role_bindings b
+	           JOIN groups g        ON g.id = b.group_id
+	           JOIN group_members m ON m.group_id = b.group_id
+	          WHERE `
+	var q string
+	var args []any
+	switch level {
+	case "instance":
+		q = base + `b.scope_level = 'instance'`
+	case "project":
+		q = base + `b.scope_level = 'project' AND b.project_id = $1::uuid`
+		args = append(args, scopeID)
+	case "environment":
+		q = base + `b.scope_level = 'environment' AND b.environment_id = $1::uuid`
+		args = append(args, scopeID)
+	default:
+		return nil, ErrNotFound
+	}
+	// Deterministic order so a truncated page is stable rather than arbitrary.
+	q += " ORDER BY m.user_id, g.name"
+	if ls, lArgs := limitSQL(limit, len(args)+1); ls != "" {
+		q += ls
+		args = append(args, lArgs...)
+	}
+	rows, err := r.s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*DerivedMember
+	for rows.Next() {
+		var d DerivedMember
+		if err := rows.Scan(&d.UserID, &d.Role, &d.GroupID, &d.GroupName); err != nil {
+			return nil, mapError(err)
+		}
+		out = append(out, &d)
+	}
+	return out, mapError(rows.Err())
+}
+
 // ListForGroup returns every scope a group grants access at ("where does this
 // group reach?" — the question an admin asks before deleting one).
 func (r *GroupBindingRepo) ListForGroup(ctx context.Context, groupID string) ([]*GroupRoleBinding, error) {
