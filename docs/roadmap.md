@@ -252,11 +252,13 @@ today — it is the gap between *correct* and *usable by an org*.
    would clear every membership and look exactly like a legitimate removal from
    all of them. `/groups` screen, a Groups section on Members, `janus group`,
    and a [guide](guides/groups.md).
-2. **Delegated project creation.** `handleProjectCreate` authorizes against the
-   *instance* scope, so letting a team create its own projects means granting
-   instance admin — which reveals every project in the organisation. Self-serve
-   and isolation are currently mutually exclusive, and an org will pick
-   self-serve.
+2. ~~**Delegated project creation.**~~ **SHIPPED 2026-07-27** — migration
+   `000047`. A group may be marked `can_create_projects`; a member creating a
+   project binds it to the group at admin and themselves at owner, with no
+   instance-wide read. Self-serve and isolation are no longer mutually
+   exclusive. Implemented as a capability rather than a role, because any role
+   granting `project:create` at instance scope also grants `project:read`
+   there — the exact leak being closed.
 3. **Scoped audit read.** Every audit endpoint authorizes against the instance
    scope, so a team lead reviewing their own project must be handed every event
    in the organisation — and audit rows carry resource paths and key names.

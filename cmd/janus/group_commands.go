@@ -62,8 +62,9 @@ func (c *apiClient) groupScopePath(project, env string) (string, error) {
 func newGroupCmd() *cobra.Command {
 	var address, token string
 	var kind, claim, description string
+	var canCreateProjects bool
 	var project, env, role string
-	var asJSON, yes bool
+	var asJSON, yes, canCreateOff bool
 
 	cmd := &cobra.Command{
 		Use:   "group",
@@ -124,7 +125,8 @@ func newGroupCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			body := map[string]any{"name": args[0], "kind": kind, "description": description}
+			body := map[string]any{"name": args[0], "kind": kind, "description": description,
+				"can_create_projects": canCreateProjects}
 			if claim != "" {
 				body["claim_value"] = claim
 			}
@@ -139,6 +141,8 @@ func newGroupCmd() *cobra.Command {
 	create.Flags().StringVar(&kind, "kind", "local", "group kind: oidc|local")
 	create.Flags().StringVar(&claim, "claim", "", "claim value the IdP emits (oidc groups only)")
 	create.Flags().StringVar(&description, "description", "", "description")
+	create.Flags().BoolVar(&canCreateProjects, "can-create-projects", false,
+		"let members create projects owned by this group (no instance-wide read)")
 
 	del := &cobra.Command{
 		Use: "delete <name|id>", Short: "Delete a group (membership and bindings cascade)", Args: cobra.ExactArgs(1),
@@ -397,6 +401,38 @@ func newGroupCmd() *cobra.Command {
 	bindings.Flags().StringVar(&env, "env", "", "environment name (omit for project scope)")
 	bindings.Flags().BoolVar(&asJSON, "json", false, "output JSON")
 
-	cmd.AddCommand(list, create, del, show, members, addMember, removeMember, bind, unbind, bindings)
+	delegate := &cobra.Command{
+		Use: "delegate-creation <name|id>", Args: cobra.ExactArgs(1),
+		Short: "Let a group create its own projects (--off to revoke)",
+		Long: "Members may create projects owned by this group. Each new project is bound to\n" +
+			"the group at admin and to its creator at owner -- and to nobody else, so this\n" +
+			"grants NO visibility of any existing project.\n\n" +
+			"Before this existed the only way to delegate creation was instance admin,\n" +
+			"which carries project:read everywhere and reveals every project in the org.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := newAPIClient(address, token)
+			if err != nil {
+				return err
+			}
+			gid, err := c.resolveGroupID(args[0])
+			if err != nil {
+				return err
+			}
+			enabled := !canCreateOff
+			if err := c.call("PUT", "/v1/groups/"+url.PathEscape(gid)+"/capabilities",
+				map[string]any{"can_create_projects": enabled}, nil); err != nil {
+				return err
+			}
+			if enabled {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s may now create its own projects\n", args[0])
+			} else {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s may no longer create projects (existing ones are unaffected)\n", args[0])
+			}
+			return nil
+		},
+	}
+	delegate.Flags().BoolVar(&canCreateOff, "off", false, "revoke the capability")
+
+	cmd.AddCommand(list, create, del, show, members, addMember, removeMember, bind, unbind, bindings, delegate)
 	return cmd
 }

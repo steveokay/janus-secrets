@@ -659,6 +659,11 @@ Groups can be addressed by name or id. Managing the catalog needs instance
 `group:manage`; binding a group needs `member:manage` at that scope and is
 capped by your own bound role. See [groups](guides/groups.md).
 
+`janus group delegate-creation <name|id> [--off]` lets a team create its own
+projects. Each new project is bound to the group at admin and its creator at
+owner — and to nobody else, so it grants no visibility of any existing project.
+`janus group create --can-create-projects` sets it at creation time.
+
 ### `janus pipeline`
 
 ```bash

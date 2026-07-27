@@ -1,0 +1,25 @@
+-- Delegated project creation.
+--
+-- handleProjectCreate authorized against the INSTANCE scope, so the only way to
+-- let a team create its own projects was to grant instance admin — which
+-- carries project:read everywhere and therefore reveals every project in the
+-- organisation. "Teams self-serve" and "teams cannot see each other" were
+-- mutually exclusive, and an org faced with that choice picks self-serve and
+-- quietly makes everything visible.
+--
+-- A group may now be marked as able to create projects. A member creates one by
+-- naming that group as the owner; the new project is bound to the group at
+-- admin so the team can work immediately, and to the creator directly at owner
+-- so it always has someone who can administer and delete it. No instance-wide
+-- read is granted at any point.
+--
+-- Why this is a flag and not a role: roles are cumulative bundles
+-- (viewer ⊂ developer ⊂ admin ⊂ owner), so ANY role granting project:create at
+-- instance scope also grants project:read there — which is precisely the leak
+-- being closed. Creation is also the one operation with no existing resource to
+-- authorize against, which is why it sat at instance scope in the first place.
+-- So this is a narrow capability checked alongside the engine, deliberately NOT
+-- a new rung on the ladder; internal/authz stays a pure decision function over
+-- roles.
+ALTER TABLE groups
+    ADD COLUMN can_create_projects boolean NOT NULL DEFAULT false;

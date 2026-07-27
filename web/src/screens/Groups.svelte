@@ -22,6 +22,7 @@
   let newKind = $state<GroupKind>('local')
   let newClaim = $state('')
   let newDesc = $state('')
+  let newCanCreate = $state(false)
   let createError = $state('')
 
   let addUserId = $state('')
@@ -73,13 +74,36 @@
         kind: newKind,
         claim_value: newKind === 'oidc' ? newClaim.trim() : undefined,
         description: newDesc.trim() || undefined,
+        can_create_projects: newCanCreate || undefined,
       })
-      newName = ''; newClaim = ''; newDesc = ''
+      newName = ''; newClaim = ''; newDesc = ''; newCanCreate = false
       creating = false
       await loadGroups()
       selectedId = g.id
     } catch (err) {
       createError = errorMessage(err, 'Could not create the group.')
+    }
+  }
+
+  async function toggleCanCreate(g: ApiGroup) {
+    const next = !g.can_create_projects
+    if (next) {
+      const ok = await dialog.confirm({
+        title: `Let ${g.name} create projects?`,
+        body:
+          'Members will be able to create projects owned by this group. Each new project is ' +
+          'bound to the group so the whole team can work in it — and to nobody else, so this ' +
+          'grants no visibility of any existing project.',
+        confirmLabel: 'Delegate creation',
+      })
+      if (!ok) return
+    }
+    error = ''
+    try {
+      await api.setGroupCanCreateProjects(g.id, next)
+      await loadGroups()
+    } catch (err) {
+      error = errorMessage(err, 'Could not change the capability.')
     }
   }
 
@@ -184,6 +208,10 @@
           <label class="label" for="g-desc">Description</label>
           <input id="g-desc" class="input" bind:value={newDesc} placeholder="optional" />
         </div>
+        <label class="check">
+          <input type="checkbox" bind:checked={newCanCreate} />
+          <span>may create projects</span>
+        </label>
         <button class="btn btn-stamp" type="submit" disabled={!newName.trim() || (newKind === 'oidc' && !newClaim.trim())}>
           Create group
         </button>
@@ -212,6 +240,7 @@
           <th scope="col" style="width: 220px">Claim value</th>
           <th scope="col" style="width: 100px">Members</th>
           <th scope="col" style="width: 100px">Grants</th>
+          <th scope="col" style="width: 150px">Creates projects</th>
           <th scope="col" style="width: 110px"></th>
         </tr>
       </thead>
@@ -240,13 +269,20 @@
                 <span class="folio muted">no access</span>
               {/if}
             </td>
+            <td>
+              <button
+                class="btn btn-ghost btn-sm"
+                onclick={() => toggleCanCreate(g)}
+                title="Members may create projects owned by this group, with no visibility of any other project"
+              >{g.can_create_projects ? '✓ delegated' : 'delegate…'}</button>
+            </td>
             <td class="row-actions">
               <button class="btn btn-ghost btn-sm del-btn" onclick={() => remove(g)}>Delete</button>
             </td>
           </tr>
         {/each}
         {#if !groups.length}
-          <tr><td colspan="6" class="empty folio">{loading ? 'Reading…' : 'No groups yet.'}</td></tr>
+          <tr><td colspan="7" class="empty folio">{loading ? 'Reading…' : 'No groups yet.'}</td></tr>
         {/if}
       </tbody>
     </table>
@@ -311,6 +347,12 @@
   {/if}
 
   <p class="foot-note folio">
+    <strong>Creates projects</strong> delegates project creation to a team without granting any
+    visibility of existing projects — which used to be impossible, since the only way to allow
+    creation was instance admin, and that reveals every project in the organisation. A project made
+    this way is bound to the group at admin and to its creator at owner.
+  </p>
+  <p class="foot-note folio">
     A group binding unions with direct bindings exactly as two direct bindings do — there is no
     precedence between them and no deny rule. A group can hold viewer, developer or admin, never
     owner: owner rotates the master key, prunes the audit chain and destroys secret history, so it
@@ -341,6 +383,7 @@
   .desc { display: block; font-size: 0.62rem; }
   .claim { font-size: var(--text-xs); }
 
+  .check { display: flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); }
   .kind-oidc { color: var(--archivist); background: var(--archivist-wash); }
   .kind-local { color: var(--verdigris); background: var(--verdigris-wash); }
 
