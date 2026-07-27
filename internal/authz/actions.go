@@ -21,7 +21,8 @@ const (
 	TokenRead        Action = "token:read"
 	TokenMint        Action = "token:mint"
 	TokenRevoke      Action = "token:revoke"
-	UserManage       Action = "user:manage" // instance-scoped
+	UserManage       Action = "user:manage"  // instance-scoped
+	GroupManage      Action = "group:manage" // instance-scoped (group catalog + local membership + claim mapping)
 	AuditRead        Action = "audit:read"
 	SysSeal          Action = "sys:seal"          // instance-scoped
 	SysBackup        Action = "sys:backup"        // instance-scoped
@@ -77,7 +78,7 @@ var (
 	developerActions = union(viewerActions, setOf(SecretWrite, ConfigCreate, TransitUse, DynamicIssue, SecretPromote, PromotionRequest))
 	adminActions     = union(developerActions, setOf(
 		ConfigDelete, EnvCreate, EnvDelete, EnvUpdate, ProjectCreate, ProjectUpdate, MemberManage,
-		TokenRead, TokenMint, TokenRevoke, UserManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage, NotificationManage))
+		TokenRead, TokenMint, TokenRevoke, UserManage, GroupManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage, NotificationManage))
 	// SecretPrune is owner-only: it is the only operation in the system that
 	// destroys secret value history, and unlike a soft delete it is irreversible.
 	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey, AuditManage, SecretPrune))

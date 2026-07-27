@@ -265,6 +265,10 @@ go test ./...
   from stored plaintext — see the drift section above.
 - The mint API accepts `ttl_seconds` and `ip_allowlist`; `janus_service_token`
   does not expose them yet.
+- **Groups are not manageable from Terraform yet.** Group role bindings ship in
+  the API, CLI and UI ([guide](groups.md)), but there are no `janus_group`,
+  `janus_group_member` or `janus_group_binding` resources — which is exactly the
+  surface an org adopting groups would want declarative. Tracked in `status.md`.
 - Registry publication and generated docs (`tfplugindocs`) are pending.
 
 See also: [Service tokens](service-tokens.md), [Managing secrets](managing-secrets.md),

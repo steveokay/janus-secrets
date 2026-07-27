@@ -247,6 +247,42 @@ export interface TokenNewIPs { count: number; window_hours: number }
 export interface UserInfo { id: string; email: string; disabled: boolean; locked: boolean; locked_until: string | null; last_login_at?: string | null }
 export type Role = 'viewer' | 'developer' | 'admin' | 'owner'
 export interface ApiMember { user_id: string; role: Role }
+
+/** A group's kind. 'oidc' membership comes from the IdP's group claim at login
+ *  and cannot be edited here; 'local' has an explicit admin-managed list. Never
+ *  both — that is what keeps "access via an IdP group is fully described by the
+ *  IdP" true. */
+export type GroupKind = 'oidc' | 'local'
+/** Group bindings top out at admin: owner rotates the master key, prunes the
+ *  audit chain and destroys secret history, so it stays a direct binding. */
+export type GroupRole = 'viewer' | 'developer' | 'admin'
+export interface ApiGroup {
+  id: string
+  name: string
+  kind: GroupKind
+  /** Opaque IdP value (Entra emits GUIDs); null for a local group. */
+  claim_value: string | null
+  description: string
+  member_count: number
+  binding_count: number
+  created_at: string
+}
+export interface ApiGroupMember { user_id: string; created_at: string }
+export interface ApiGroupBinding {
+  group_id: string
+  group_name?: string
+  group_kind?: GroupKind
+  scope_level: 'instance' | 'project' | 'environment'
+  /** Scope key, so a grant can be named rather than shown as a bare level. */
+  project_id?: string
+  environment_id?: string
+  role: GroupRole
+  created_at: string
+}
+export type MemberScope =
+  | { kind: 'instance' }
+  | { kind: 'project'; pid: string }
+  | { kind: 'environment'; pid: string; eid: string }
 export interface ApiTransitKey {
   name: string
   type: 'aes256-gcm' | 'ed25519'
@@ -946,6 +982,24 @@ export const api = {
   listScopedMembers: (path: string) => get<{ members: ApiMember[] }>(path).then(r => r.members),
   putScopedMember: (path: string, uid: string, role: Role) => put<void>(`${path}/${uid}`, { role }),
   deleteScopedMember: (path: string, uid: string) => del<void>(`${path}/${uid}`),
+
+  // groups — the catalog (instance-scoped group:manage)
+  listGroups: () => get<{ groups: ApiGroup[] }>('/v1/groups').then(r => r.groups ?? []),
+  createGroup: (req: { name: string; kind: GroupKind; claim_value?: string; description?: string }) =>
+    post<ApiGroup>('/v1/groups', req),
+  getGroup: (gid: string) => get<{ group: ApiGroup; bindings: ApiGroupBinding[] }>(`/v1/groups/${gid}`),
+  deleteGroup: (gid: string) => del<void>(`/v1/groups/${gid}`),
+  listGroupMembers: (gid: string) =>
+    get<{ members: ApiGroupMember[] }>(`/v1/groups/${gid}/members`).then(r => r.members ?? []),
+  addGroupMember: (gid: string, uid: string) => put<void>(`/v1/groups/${gid}/members/${uid}`, {}),
+  removeGroupMember: (gid: string, uid: string) => del<void>(`/v1/groups/${gid}/members/${uid}`),
+
+  // group bindings at a scope (member:manage AT THAT SCOPE, capped by the
+  // caller's own bound role — a group can never be granted owner)
+  listScopedGroupBindings: (path: string) =>
+    get<{ bindings: ApiGroupBinding[] }>(path).then(r => r.bindings ?? []),
+  putScopedGroupBinding: (path: string, gid: string, role: GroupRole) => put<void>(`${path}/${gid}`, { role }),
+  deleteScopedGroupBinding: (path: string, gid: string) => del<void>(`${path}/${gid}`),
 }
 
 export function memberScopePath(s: { kind: 'instance' } | { kind: 'project'; pid: string } | { kind: 'environment'; pid: string; eid: string }): string {
@@ -953,5 +1007,14 @@ export function memberScopePath(s: { kind: 'instance' } | { kind: 'project'; pid
     case 'instance': return '/v1/instance/members'
     case 'project': return `/v1/projects/${s.pid}/members`
     case 'environment': return `/v1/projects/${s.pid}/environments/${s.eid}/members`
+  }
+}
+
+/** The group-binding routes, mirroring memberScopePath one-for-one. */
+export function groupScopePath(s: MemberScope): string {
+  switch (s.kind) {
+    case 'instance': return '/v1/instance/group-members'
+    case 'project': return `/v1/projects/${s.pid}/group-members`
+    case 'environment': return `/v1/projects/${s.pid}/environments/${s.eid}/group-members`
   }
 }

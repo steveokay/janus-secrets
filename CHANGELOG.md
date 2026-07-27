@@ -7,6 +7,84 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Group-based role bindings — one binding for a whole team.** A binding may
+  target a **group** instead of a user, so "Team Payments owns these projects"
+  is one row per project rather than one per person per project, and
+  offboarding stops being a hunt for individual rows. Group bindings **union**
+  with direct ones exactly as two direct bindings already do — no precedence
+  tier, no deny rules, deny-by-default unchanged.
+
+  A group is one of two kinds and never both. `oidc` groups carry a claim value
+  and their membership is a snapshot refreshed from the IdP's group claim at
+  each login; an admin can never hand-add a member. `local` groups have an
+  explicit list, which is what an instance with no identity provider uses and
+  what covers password logins. The distinction is enforced by the schema rather
+  than by a handler — `group_members` carries a denormalised `group_kind` and a
+  composite foreign key to `groups(id, kind)` — so a hand-added member of an
+  IdP-fed group is *unrepresentable*. That is what makes one statement true and
+  keeps it true: **access granted via an IdP group is fully described by the
+  IdP**, so an access review run against Entra or Okta is complete for those
+  bindings. A single group that was both IdP-fed and hand-editable would have
+  made that review return a clean result that was not true, and would have
+  turned an IdP outage into a permanent invisible grant, since a login sync
+  only ever clears the rows it owns (temporary access already has a
+  purpose-built path in break-glass, which is TTL-clamped, loudly audited and
+  expires by itself). Group names are unique across both kinds, and a group's
+  display name is separate from its claim value because Entra emits group
+  GUIDs.
+
+  **A group binding can never grant `owner`** — refused by the API and by a
+  `CHECK` constraint. Owner rotates the master key, prunes the audit chain and
+  hard-destroys secret history; group-deriving it would hand that tier to
+  whoever administers the identity provider, who can add themselves silently
+  and whose membership list Janus cannot authoritatively enumerate (the
+  snapshot only covers users who have logged in). A consequence worth naming:
+  every instance owner therefore remains a direct binding, so the never-lock-out
+  guard needed no change and an IdP outage can never leave the instance without
+  an owner.
+
+  The authorization engine stayed a pure decision function. Group bindings
+  arrive through an optional second source (`WithGroups`, mirroring the
+  existing break-glass `WithGrants`) as ordinary role bindings stamped with
+  their origin, so `userAllows`, `bindingApplies`, `BoundRole` and
+  `EffectiveRole` gained no new concepts — they simply see a longer slice. It
+  fails closed: an error from the group store denies rather than quietly
+  resolving against direct bindings alone. Group-derived roles do count toward
+  the delegation cap, because a group binding is durable; the M-1 invariant is
+  untouched, since break-glass still arrives through a different interface and
+  is still excluded from `BoundRole`.
+
+  Managing the catalog and binding a group are deliberately different
+  authorities: creating groups, editing local membership and setting the claim
+  mapping is instance-scoped `group:manage`, while binding a group at a scope
+  is `member:manage` **at that scope**, under the identical `BoundRole` cap
+  `memberPut` applies. Without that cap, groups would have been a way around
+  it. The practical effect is that a project admin can grant a group access to
+  their own project but cannot add themselves to a group bound elsewhere, and
+  so cannot reach a project they do not already administer.
+
+  The claim resolver distinguishes *"this user is in no groups"* from *"this
+  token cannot tell us"*, which is the whole safety of the sync. An absent
+  claim clears the snapshot, failing closed — access is lost, never gained — if
+  an operator misconfigures the IdP. But Entra stops emitting `groups` once a
+  user exceeds roughly 200 of them and sends a Microsoft Graph pointer instead;
+  reading *that* as "no groups" would clear every membership the user has and
+  read exactly like a legitimate removal from all of them, so it is treated as
+  unknown, the snapshot is retained, and a `group.sync` audit event records
+  `status=overage`. Non-string elements, more than 512 values, and a genuinely
+  ambiguous dotted path (a claim literally named `a.b` alongside a nested
+  `{"a":{"b":…}}` — the same fail-closed rule CI-federation claim matching
+  already uses) all reject rather than parse partially. A space- or
+  comma-delimited string is never split, because that invents a parse we cannot
+  verify and breaks any group whose name contains the delimiter. A sync that
+  cannot be written fails the login outright: completing one against a snapshot
+  we just failed to update is precisely the silent-stale case groups exist to
+  remove.
+
+  Ships migration `000045`, a `/groups` screen (catalog, local membership, and
+  every scope a group reaches before you delete it), a Groups section on the
+  Members screen, `janus group` with ten subcommands, 16 documented API paths,
+  and a [guide](docs/guides/groups.md).
 - **`janus admin reset-password` — a way back in when the last owner is locked
   out.** There was previously no recovery path at all: the documented remedy was
   to start over from an empty database, i.e. destroy every secret you own, while

@@ -221,8 +221,11 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		return nil, nil, fmt.Errorf("webauthn config: %w", err)
 	}
 	// The authorizer overlays active break-glass grants on the bound role, so
-	// wire the grant store from the start.
+	// wire the grant store from the start. Group bindings are a second source of
+	// DURABLE bindings that union with direct ones (no precedence tier), which
+	// is why they arrive through WithGroups rather than the grant overlay.
 	authorizer := authz.New(store.NewRoleBindingRepo(st)).
+		WithGroups(store.NewGroupBindingRepo(st)).
 		WithGrants(store.NewBreakGlassRepo(st))
 	// The audit Recorder gets signed-checkpoint support: the checkpoint store
 	// (anchors + prune) plus a MAC-key provider derived (domain-separated) from

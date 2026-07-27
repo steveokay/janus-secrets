@@ -18,6 +18,28 @@ save, and the read view only reports whether one is set. The flow is
 Authorization Code + PKCE with state/nonce; tested against GitHub and Google.
 Password login keeps working alongside SSO.
 
+Janus does **not** auto-provision accounts: a user must already exist here
+before they can sign in through the IdP.
+
+### Group claim → role bindings (optional)
+
+Set **Groups claim** to the ID-token claim carrying group membership — `groups`
+for Okta, Entra and Google, or a dotted path like `realm_access.roles` for
+Keycloak. Leaving it empty disables group sync entirely; you opt in.
+
+With it set, create a group in Janus per claim value (**Groups → + New group**,
+kind `oidc`) and bind that group at a scope. One binding then grants the whole
+team a role, membership is maintained in your directory, and removing someone
+there removes their access here at their next sign-in.
+
+Entra emits group **object GUIDs** by default, so paste the GUID as the claim
+value and give the group a readable name — the name is what appears on
+bindings. Note that Entra stops sending the claim past roughly 200 groups per
+user; Janus detects that and keeps the last known membership rather than
+clearing it, and records `group.sync` with `status=overage` in the audit
+ledger. Full detail, including what a group can and cannot be granted, is in
+the [groups guide](groups.md).
+
 ## Machine identity federation (no long-lived secret)
 
 Lets a CI pipeline — or a Kubernetes pod — exchange its runtime OIDC JWT for a

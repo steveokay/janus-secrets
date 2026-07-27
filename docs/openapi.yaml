@@ -486,6 +486,45 @@ components:
             value stays consistent with the verify endpoint's count.
         created_at: { type: string, format: date-time }
         mac_valid: { type: boolean, description: Whether the stored HMAC verifies under the current key. }
+    Group:
+      type: object
+      description: >-
+        A named subject a role binding can target instead of a user. kind=oidc
+        carries claim_value and is fed from the IdP's group claim at login;
+        kind=local has an explicit admin-managed member list. Never both — that
+        is what keeps "access granted via an IdP group is fully described by the
+        IdP" true. claim_value is opaque (Entra emits GUIDs), which is why name
+        is separate.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [oidc, local] }
+        claim_value: { type: [string, "null"] }
+        description: { type: string }
+        member_count: { type: integer }
+        binding_count: { type: integer }
+        created_at: { type: string, format: date-time }
+    GroupBinding:
+      type: object
+      description: A group's role at a scope. Never carries owner.
+      properties:
+        group_id: { type: string, format: uuid }
+        group_name: { type: string }
+        group_kind: { type: string, enum: [oidc, local] }
+        scope_level: { type: string, enum: [instance, project, environment] }
+        project_id: { type: string, format: uuid }
+        environment_id: { type: string, format: uuid }
+        role: { type: string, enum: [viewer, developer, admin] }
+        created_at: { type: string, format: date-time }
+    GroupBindingRequest:
+      type: object
+      required: [role]
+      description: >-
+        owner is rejected: it rotates the master key, prunes the audit chain and
+        destroys secret history, so it must be a deliberate direct binding rather
+        than a group membership an external directory controls.
+      properties:
+        role: { type: string, enum: [viewer, developer, admin] }
   parameters:
     Limit:
       name: limit
@@ -514,6 +553,17 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    GroupBindingList:
+      description: Group role bindings at a scope.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              bindings:
+                type: array
+                items: { $ref: '#/components/schemas/GroupBinding' }
+              next_cursor: { type: [string, "null"] }
 security:
   - bearerAuth: []
   - sessionCookie: []
@@ -536,6 +586,7 @@ tags:
   - { name: pipeline }
   - { name: kek }
   - { name: members }
+  - { name: groups }
   - { name: metrics }
 paths:
   # ---------------------------------------------------------------------
@@ -2438,6 +2489,247 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "409": { description: Would remove the last instance owner. }
+
+  # ---------------------------------------------------------------------
+  # groups (group-based role bindings)
+  #
+  # Two authorities, deliberately separate: the group CATALOG (which groups
+  # exist, and who is in a local one) is instance-scoped group:manage, while
+  # BINDING a group at a scope is member:manage AT THAT SCOPE. So a project
+  # admin can grant a group access to their project but cannot put themselves
+  # into a group that is bound elsewhere.
+  # ---------------------------------------------------------------------
+  /v1/groups:
+    get:
+      tags: [groups]
+      summary: List groups
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: Groups (metadata only; never secret material).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items: { $ref: '#/components/schemas/Group' }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [groups]
+      summary: Create a group
+      description: >
+        kind=oidc requires claim_value (membership is a snapshot refreshed from
+        the OIDC group claim at login, and an admin can never hand-add a member);
+        kind=local forbids claim_value and takes an explicit member list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, kind]
+              properties:
+                name: { type: string, maxLength: 128 }
+                kind: { type: string, enum: [oidc, local] }
+                claim_value: { type: string, maxLength: 256 }
+                description: { type: string, maxLength: 512 }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        "400": { description: Validation error. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Name or claim value already in use. }
+  /v1/groups/{gid}:
+    parameters:
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [groups]
+      summary: Get a group with the scopes it grants access at
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  group: { $ref: '#/components/schemas/Group' }
+                  bindings:
+                    type: array
+                    items: { $ref: '#/components/schemas/GroupBinding' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [groups]
+      summary: Delete a group (membership and bindings cascade)
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/groups/{gid}/members:
+    parameters:
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [groups]
+      summary: List a group's members
+      description: >
+        For an oidc group this is the login-time snapshot, so it only covers
+        users who have signed in since the group was created.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user_id: { type: string }
+                        created_at: { type: string, format: date-time }
+                  next_cursor: { type: [string, "null"] }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/groups/{gid}/members/{uid}:
+    parameters:
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: uid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [groups]
+      summary: Add a user to a LOCAL group
+      responses:
+        "204": { description: Added. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: The group is oidc-fed; membership comes from the IdP. }
+    delete:
+      tags: [groups]
+      summary: Remove a user from a LOCAL group
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: The group is oidc-fed; membership comes from the IdP. }
+  /v1/instance/group-members:
+    get:
+      tags: [groups]
+      summary: List instance-scoped group bindings
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200": { $ref: '#/components/responses/GroupBindingList' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/instance/group-members/{gid}:
+    parameters:
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [groups]
+      summary: Bind a group at instance scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupBindingRequest' }
+      responses:
+        "204": { description: Bound. }
+        "400": { description: Validation error, including role=owner (never group-derived). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [groups]
+      summary: Unbind a group at instance scope
+      responses:
+        "204": { description: Unbound. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/group-members:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [groups]
+      summary: List a project's group bindings
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200": { $ref: '#/components/responses/GroupBindingList' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/group-members/{gid}:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [groups]
+      summary: Bind a group at project scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupBindingRequest' }
+      responses:
+        "204": { description: Bound. }
+        "400": { description: Validation error, including role=owner (never group-derived). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [groups]
+      summary: Unbind a group at project scope
+      responses:
+        "204": { description: Unbound. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/projects/{pid}/environments/{eid}/group-members:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [groups]
+      summary: List an environment's group bindings
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        "200": { $ref: '#/components/responses/GroupBindingList' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/projects/{pid}/environments/{eid}/group-members/{gid}:
+    parameters:
+      - { name: pid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: eid, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [groups]
+      summary: Bind a group at environment scope
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupBindingRequest' }
+      responses:
+        "204": { description: Bound. }
+        "400": { description: Validation error, including role=owner (never group-derived). }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [groups]
+      summary: Unbind a group at environment scope
+      responses:
+        "204": { description: Unbound. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------------
   # auth

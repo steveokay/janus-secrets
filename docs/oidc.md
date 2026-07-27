@@ -84,6 +84,7 @@ Denials are audited fail-closed by the `requireInstance` middleware.
 | `scopes` | Requested scopes (openid + email + profile). |
 | `redirect_url` | Explicit callback URL registered with the provider (points at `/v1/auth/oidc/callback`). |
 | `enabled` | Whether login is live. `status` reports `false` until this is true. |
+| `groups_claim` | ID-token claim carrying group membership (e.g. `groups`, or a dotted path like `realm_access.roles`). **Empty disables group sync** — the operator opts in. See [groups](guides/groups.md). |
 
 The client secret is only readable while the keyring is unsealed. `GET` reports
 its presence as `secret_set: true|false` and never the value itself; to change it
@@ -103,6 +104,29 @@ in Janus (created by an admin) before they can log in through OIDC.
 - `email_verified` must be true; an unverified email is rejected.
 - No matching user → the same single indistinguishable denial as any other
   callback failure (no account enumeration).
+
+## Group membership from the ID token
+
+When `groups_claim` is set, the verified ID token's group claim is read on every
+login and the user's `oidc`-group membership is replaced to match, in one
+transaction — there is never a window where the user has no groups. Only groups
+an admin has already created for a claim value match; groups are never
+auto-created, and an unknown claim value grants nothing.
+
+The resolver distinguishes three outcomes, which is where the safety lives:
+
+| Claim | Outcome |
+|---|---|
+| Array of strings (or a lone string) | Authoritative — membership replaced to match. A delimited string is **never** split. |
+| Absent, no overage marker | Authoritative and **empty** — membership cleared. Fails closed: a misconfigured IdP loses access rather than granting it. |
+| Absent, but `_claim_names` names it | **Unknown** — the snapshot is *retained*, and `group.sync` is audited with `status=overage`. Entra swaps the claim for a Microsoft Graph pointer past ~200 groups; reading that as "no groups" would clear every membership and look exactly like a legitimate removal from all of them. |
+| Non-string element, >512 values, or an ambiguous dotted path | **Rejected** — the login fails. A path that both a literal `a.b` claim and a nested `{"a":{"b":…}}` could produce is refused rather than resolved by precedence, the same fail-closed rule CI-federation claim matching uses. |
+
+A sync that cannot be written **fails the login**: completing one against a
+snapshot we just failed to update is precisely the silent-stale case groups
+exist to remove. Membership is stored per user, not per session, so it applies
+to that user's password logins too, and revoking a binding takes effect on the
+next request rather than at the next login.
 
 ## Storage
 
@@ -151,3 +175,10 @@ For the SPA / UI agent:
 Sub-project **C2** — OIDC-federated CI machine identity (GitHub Actions JWT
 exchange → scoped short-lived credential) — is **implemented**, reusing this same
 generic OIDC verification path. See [`docs/ci-federation.md`](ci-federation.md).
+
+**Group-based role bindings** (2026-07-27) build on the login path above: set
+`groups_claim` and create an `oidc` group per claim value, and one binding then
+grants a whole team a role. Membership is a login-time snapshot, so it covers
+only users who have signed in, and an IdP removal reaches Janus at that user's
+next login (bounded by the 24h session lifetime). See
+[`docs/guides/groups.md`](guides/groups.md).

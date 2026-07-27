@@ -27,9 +27,25 @@ union). Example: `nadia` as *developer* on `atlas-api` and nothing else —
 she can work every atlas config but can't see other projects or touch
 instance settings.
 
+## Groups — one binding for a whole team
+
+Repeating the same grant for every person on every project is what groups
+remove. Bind a **group** at a scope and everyone in it holds that role,
+including people who join later. Group bindings union with direct ones exactly
+as two direct bindings do — no precedence, no deny rules.
+
+Membership comes either from your identity provider's OIDC group claim
+(`oidc` groups) or from a list you manage here (`local` groups, which also
+cover password logins). A group can hold viewer, developer or admin — never
+owner. Full detail in the [groups guide](groups.md).
+
 ## Guardrails the server enforces
 
-- **Delegation ceiling** — you can't grant a role above your own.
+- **Delegation ceiling** — you can't grant a role above your own. Measured
+  against your *durable* role, so a break-glass elevation can never be turned
+  into a lasting binding — for users and for groups alike.
+- **A group can never be granted owner** — refused by the API and by the
+  database, so every instance owner stays a direct binding.
 - **Never-lock-out** — the last instance owner can't be removed, demoted, or
   disabled (marked in the UI).
 - **Four-eyes on promotions** — approving your own promotion request is

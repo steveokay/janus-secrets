@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { api, memberScopePath, errorMessage, type UserInfo, type ApiMember, type Role } from '../lib/api'
+  import {
+    api, memberScopePath, groupScopePath, errorMessage,
+    type UserInfo, type ApiMember, type Role,
+    type ApiGroup, type ApiGroupBinding, type GroupRole,
+  } from '../lib/api'
   import { registry } from '../lib/registry.svelte'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
@@ -15,6 +19,12 @@
   let loading = $state(true)
   let error = $state('')
 
+  let groups = $state<ApiGroup[]>([])
+  let groupBindings = $state<ApiGroupBinding[]>([])
+  let groupError = $state('')
+  let bindGroupId = $state('')
+  let bindRole = $state<GroupRole>('viewer')
+
   let inviting = $state(false)
   let inviteEmail = $state('')
   let invited = $state<{ email: string; password: string } | null>(null)
@@ -28,6 +38,12 @@
     return pid && eid ? memberScopePath({ kind: 'environment', pid, eid }) : null
   })
 
+  const groupPath = $derived.by(() => {
+    if (scopeKind === 'instance') return groupScopePath({ kind: 'instance' })
+    if (scopeKind === 'project') return pid ? groupScopePath({ kind: 'project', pid }) : null
+    return pid && eid ? groupScopePath({ kind: 'environment', pid, eid }) : null
+  })
+
   const envOptions = $derived(registry.findProject(pid)?.environments ?? [])
 
   $effect(() => {
@@ -39,6 +55,14 @@
 
   $effect(() => {
     api.listUsers().then(us => (users = us)).catch(() => (users = []))
+    // The catalog needs group:manage, which a scope admin may not hold — an
+    // empty list just means no picker, never a broken screen.
+    api.listGroups().then(gs => (groups = gs)).catch(() => (groups = []))
+  })
+
+  $effect(() => {
+    if (groupPath) void loadGroupBindings(groupPath)
+    else groupBindings = []
   })
 
   $effect(() => {
@@ -58,6 +82,52 @@
       loading = false
     }
   }
+
+  async function loadGroupBindings(path: string) {
+    groupError = ''
+    try {
+      groupBindings = await api.listScopedGroupBindings(path)
+    } catch {
+      // member:read covers both lists, so a failure here is a transport
+      // problem rather than a permission one; keep the screen usable.
+      groupBindings = []
+    }
+  }
+
+  async function bindGroup() {
+    if (!groupPath || !bindGroupId) return
+    groupError = ''
+    try {
+      await api.putScopedGroupBinding(groupPath, bindGroupId, bindRole)
+      bindGroupId = ''
+      await loadGroupBindings(groupPath)
+    } catch (err) {
+      groupError = errorMessage(err, 'Could not bind that group.')
+    }
+  }
+
+  async function unbindGroup(b: ApiGroupBinding) {
+    if (!groupPath) return
+    const ok = await dialog.confirm({
+      title: `Remove ${b.group_name ?? 'this group'}'s ${scopeKind} binding?`,
+      body: 'Every member loses this access on their next request. Their other bindings are untouched.',
+      confirmLabel: 'Remove binding',
+      danger: true,
+    })
+    if (!ok) return
+    groupError = ''
+    try {
+      await api.deleteScopedGroupBinding(groupPath, b.group_id)
+      await loadGroupBindings(groupPath)
+    } catch (err) {
+      groupError = errorMessage(err, 'Remove failed.')
+    }
+  }
+
+  /** Groups not already bound at this scope. */
+  const bindableGroups = $derived(
+    groups.filter(g => !groupBindings.some(b => b.group_id === g.id)),
+  )
 
   const email = (uid: string) => users.find(u => u.id === uid)?.email ?? `${uid.slice(0, 8)}…`
 
@@ -268,10 +338,60 @@
     </table>
   </div>
 
+  <section class="groups rise" style="animation-delay: 110ms">
+    <div class="sec-head">
+      <h2>Groups at {scopeKind}</h2>
+      {#if bindableGroups.length}
+        <div class="bind-row">
+          <select class="select" bind:value={bindGroupId} aria-label="Group to bind">
+            <option value="">bind a group…</option>
+            {#each bindableGroups as g}<option value={g.id}>{g.name}</option>{/each}
+          </select>
+          <select class="select role-sel" bind:value={bindRole} aria-label="Role for the group">
+            <option value="viewer">viewer</option>
+            <option value="developer">developer</option>
+            <option value="admin">admin</option>
+          </select>
+          <button class="btn btn-sm" onclick={bindGroup} disabled={!bindGroupId}>Bind</button>
+        </div>
+      {/if}
+    </div>
+    {#if groupError}<p class="error">{groupError}</p>{/if}
+
+    <div class="sheet table-wrap">
+      <table class="ledger" aria-label="Group bindings at this scope" data-testid="group-bindings-table">
+        <thead>
+          <tr>
+            <th scope="col">Group</th>
+            <th scope="col" style="width: 90px">Kind</th>
+            <th scope="col" style="width: 220px">Role at {scopeKind}</th>
+            <th scope="col" style="width: 110px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each groupBindings as b (b.group_id)}
+            <tr>
+              <td><span class="m-name">{b.group_name ?? b.group_id.slice(0, 8) + '…'}</span></td>
+              <td>{#if b.group_kind}<span class="pill kind-{b.group_kind}">{b.group_kind}</span>{/if}</td>
+              <td><span class="role role-{b.role}">{b.role}</span></td>
+              <td class="row-actions">
+                <button class="btn btn-ghost btn-sm del-btn" onclick={() => unbindGroup(b)}>Remove</button>
+              </td>
+            </tr>
+          {/each}
+          {#if !groupBindings.length}
+            <tr><td colspan="4" class="empty folio">No group holds a binding at this scope.</td></tr>
+          {/if}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <p class="foot-note folio">
     An instance binding applies everywhere; a project binding covers that project's environments
-    and configs; roles union most-permissively. You cannot grant a role above your own, and the
-    last instance owner can never be removed.
+    and configs; roles union most-permissively — group bindings included, with no precedence
+    between them. You cannot grant a role above your own, a group can never be granted owner, and
+    the last instance owner can never be removed.
   </p>
 </div>
 
@@ -357,5 +477,14 @@
   }
   .muted { color: var(--ink-faint); }
   .empty { text-align: center; padding: var(--s6) !important; }
+
+  .groups { margin-top: var(--s6); }
+  .sec-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--s4); flex-wrap: wrap; }
+  .sec-head h2 { margin: 0; font-size: var(--text-lg); }
+  .bind-row { display: flex; gap: var(--s2); flex-wrap: wrap; }
+  .bind-row .select { max-width: 190px; }
+  .role-sel { max-width: 140px; }
+  .kind-oidc { color: var(--archivist); background: var(--archivist-wash); }
+  .kind-local { color: var(--verdigris); background: var(--verdigris-wash); }
   .foot-note { margin-top: var(--s3); max-width: 72ch; }
 </style>

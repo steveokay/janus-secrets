@@ -82,8 +82,14 @@ func (e *Engine) EffectiveRole(ctx context.Context, userID string, res Resource)
 // alone (excluding any break-glass grant) that applies to res, or "" if none.
 // The break-glass guard uses this so a user cannot chain one grant into a
 // higher one: activation is measured against the durable bound role.
+//
+// Group-derived bindings COUNT here. A group binding is durable — the same kind
+// of thing as a direct one — so the delegation cap treats it the same. The M-1
+// invariant is untouched: break-glass grants arrive through GrantStore, never
+// through a binding source, so an elevation still cannot be laundered into a
+// lasting binding.
 func (e *Engine) BoundRole(ctx context.Context, userID string, res Resource) (Role, error) {
-	bindings, err := e.bindings.ListForUser(ctx, userID)
+	bindings, err := e.bindingsFor(ctx, userID)
 	if err != nil {
 		return "", err
 	}

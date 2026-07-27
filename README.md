@@ -169,6 +169,7 @@ Everything lives under [`docs/`](docs/) — start at the
 [the web UI](docs/guides/using-the-web-ui.md) ·
 [service tokens](docs/guides/service-tokens.md) ·
 [members & RBAC](docs/guides/members-and-rbac.md) ·
+[groups](docs/guides/groups.md) ·
 [passkeys](docs/guides/passkeys.md) ·
 [two-factor auth](docs/guides/two-factor-auth.md) ·
 [SSO & federation](docs/guides/sso-and-federation.md) ·
