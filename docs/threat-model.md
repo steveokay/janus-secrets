@@ -157,6 +157,14 @@ closed as out-of-scope (but a *bypass* of a control in §4 is very much in scope
   certification claim.
 - **Cloud KMS / IdP compromise.** Auto-unseal trusts the configured cloud KMS;
   OIDC login trusts the configured IdP. Their compromise is their threat model.
+  Note that with **group bindings** configured (`groups_claim` set), the IdP
+  drives *role assignment* and not only authentication: whoever can edit
+  membership of a mapped group can grant the Janus roles that group is bound to,
+  without touching Janus. That authority is deliberately capped — a group
+  binding can never be `owner`, so the master-key, audit-prune and
+  secret-destroy tier still requires a binding recorded in Janus itself — but it
+  reaches up to `admin`. Group membership in your directory should be treated as
+  privileged configuration and reviewed like a Janus binding.
 - **The non-goals** (PKI/CA, SSH signing, HSM/PKCS#11) — not built, so not
   defended.
 
@@ -171,6 +179,12 @@ Janus's guarantees hold **only** if the operator:
   ceremony for trust in the KMS).
 - Applies **least privilege**: minimal roles/scopes, four-eyes on protected
   configs, short-lived tokens/CI federation over long-lived tokens.
+- Treats **IdP group membership as privileged** where group bindings are used:
+  restrict who can edit a mapped group in the directory, and include those
+  groups in the same access review as Janus bindings. Because IdP-fed and local
+  groups never mix, an access review against the directory *is* complete for
+  IdP-derived access — anything granted outside it necessarily appears as a
+  local-group or direct binding in Janus.
 - Keeps **backups** of the sealed state + Postgres, and rehearses restore.
 - **Verifies release signatures/provenance** before deploying, and keeps
   current with security releases.

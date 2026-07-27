@@ -61,6 +61,7 @@ browser).
 | flag stale secrets by age | editor → per-row **Max-age** / toolbar config default (advisory; never blocks — [guide](managing-secrets.md#max-age--expiry-advisory)) |
 | mint a machine token | Service tokens ([guide](service-tokens.md)) |
 | give a teammate access | Members ([guide](members-and-rbac.md)) |
+| give a whole team access with one binding | Groups ([guide](groups.md)) — bind the group on Members |
 | set up SSO or keyless CI | Integrations ([guide](sso-and-federation.md)) |
 | rotation / sync / dynamic creds | Operations ([guide](operations-console.md)) |
 | recover something deleted | Trash ([guide](trash-and-recovery.md)) |

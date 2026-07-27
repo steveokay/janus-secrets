@@ -181,7 +181,8 @@ no duplicates.
 ## Identity & access tables
 
 Later milestones added identity, authorization, and audit tables alongside the
-secret hierarchy (migrations `000002_auth`, `000003_rbac`, `000004_audit`). They
+secret hierarchy (migrations `000002_auth`, `000003_rbac`, `000004_audit`, and
+later `000045_groups`). They
 hold no secret values and are outside the crypto-blind ciphertext path.
 
 - **`users`** — `id`, `email` (unique), `password_hash` (Argon2id PHC string),
@@ -199,6 +200,22 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`groups` / `group_members` / `group_role_bindings`** (migration `000045`) —
+  a binding may name a **group** instead of a user. A group is `kind='oidc'`
+  (carrying a `claim_value` matched against the IdP's group claim, membership
+  refreshed at each login) or `kind='local'` (an explicit admin-managed list),
+  and a CHECK ties `claim_value` to exactly the `oidc` kind. Two schema facts do
+  the security work rather than handler code: `group_members` carries a
+  denormalised `group_kind` and a **composite FK** to `groups(id, kind)`, which
+  makes a hand-added member of an IdP-fed group *unrepresentable* — the
+  invariant behind "access granted via an IdP group is fully described by the
+  IdP"; and `group_role_bindings.role` omits `'owner'`, so every instance owner
+  remains a direct `role_bindings` row and the never-lock-out counter is
+  unaffected. Scope shape and the COALESCE unique index mirror `role_bindings`
+  exactly, so group bindings inherit the same cascade when a project or
+  environment is deleted. The authorization engine reads them as ordinary
+  bindings stamped with their origin, so group and direct bindings union under
+  one rule with no precedence.
 - **`audit_events`** — the append-only, hash-chained audit log: `seq`
   (chain position, PK), `occurred_at`, actor (`actor_kind`/`actor_id`/
   `actor_name`), `action`, `resource`, `detail`, `result`/`result_code`, `ip`,

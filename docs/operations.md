@@ -266,6 +266,8 @@ bound to a user at **instance**, **project**, or **environment** scope:
 | `GET/PUT/DELETE /v1/projects/{pid}/members[/{uid}]` | Project role bindings | `member:*` at that project |
 | `GET/PUT/DELETE /v1/projects/{pid}/environments/{eid}/members[/{uid}]` | Environment role bindings | `member:*` at that environment |
 | `POST/GET /v1/users`, `POST /v1/users/{id}/disable` | Provision / list / deactivate users | `user:manage` (instance) |
+| `POST/GET/DELETE /v1/groups[/{gid}]`, `PUT/DELETE /v1/groups/{gid}/members/{uid}` | Group catalog + local membership | `group:manage` (instance) |
+| `GET/PUT/DELETE /v1/{scope}/group-members[/{gid}]` | Bind a **group** at instance / project / environment | `member:*` at that scope |
 | `POST/GET/DELETE /v1/tokens[/{id}]` | Mint / list / revoke service tokens | `token:*` at the token's scope |
 
 Bindings inherit top-down (an instance binding applies everywhere; a project
@@ -277,6 +279,28 @@ demoted, or disabled** (`409`) — so you can never lock yourself out. If every
 owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
+
+**Groups.** A binding may name a **group** instead of a user, so a team is one
+row per project rather than one per person per project. Group bindings union
+with direct ones under the same single rule — no precedence, no deny rules. A
+group is either `oidc` (membership is a snapshot refreshed from the IdP's group
+claim at each login; set the claim with `groups_claim` on the OIDC provider,
+empty = disabled) or `local` (an explicit list, which is what an instance with
+no IdP uses and what covers password logins). The two never mix: the schema
+makes a hand-added member of an IdP-fed group unrepresentable, which is what
+keeps *access granted via an IdP group is fully described by the IdP* true.
+
+Two operator-visible rails: a group binding can **never** be `owner` (refused by
+the API and by a `CHECK`), so every instance owner remains a direct binding and
+the never-lock-out guard above is unaffected; and curating the catalog
+(`group:manage`, instance) is a different authority from binding a group
+(`member:manage` at the scope, under the same delegation cap), so a project
+admin can grant a group access to their project but cannot add themselves to a
+group bound elsewhere. Audit actions: `group.create`, `group.delete`,
+`group.member.add`, `group.member.remove`, `group.binding.grant`,
+`group.binding.revoke`, and `group.sync` — the last written only when a login
+actually changed membership, or with `status=overage` when the IdP deferred the
+claim. See the [groups how-to](guides/groups.md).
 
 **Break-glass (emergency elevation).** For incidents, a user can self-service
 *raise* their own role on a scope for a bounded time instead of holding standing

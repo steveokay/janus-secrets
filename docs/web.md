@@ -49,7 +49,8 @@ The app fronts the full server lifecycle:
 | `/approvals` | Promotion requests — four-eyes review, approve/reject/cancel, value-free diff. Also a **Protected-config edits** section: pending edit requests for configs marked protected (`require_approval`), approve/reject/cancel, **key names only** |
 | `/compare` | **Cross-env diff** — pick any two configs (project → env → config) and see a key-level comparison: only-A / only-B / same / differs, per-side origin, env-accent status pills. **Values stay masked** — the screen never reveals; it only shows presence and whether the values match. Requires read on **both** configs and records one value-free `config.compare` audit event |
 | `/tokens` | Service tokens — mint (shown once), revoke, per-token **IP allowlist** (CIDR list set at mint or edited via the row's **IPs** action; empty = any IP, requests from outside are `403`), and a **new IP** badge when a token has authenticated from an unseen IP (value-free) |
-| `/members` | Members — scoped RBAC bindings at instance / project / environment |
+| `/members` | Members — scoped RBAC bindings at instance / project / environment, plus a **Groups** section binding a group at the selected scope (viewer / developer / admin; owner is not offered because the server refuses it) |
+| `/groups` | **Groups** — the catalog: create IdP-fed (`oidc`) or admin-managed (`local`) groups, curate local membership, and see every scope a group reaches before deleting it. An `oidc` group's member list is read-only and marked as the login-time snapshot |
 | `/break-glass` | **Break-glass** — guarded, time-boxed emergency role elevation. Loud vermilion treatment: activation form (scope + role + mandatory reason + TTL) and a live list of active grants with a countdown to expiry and an End (revoke) control. Activation is audited and forwarded to notification channels |
 | `/transit` | Transit keys — create, rotate, version notches, encrypt/sign bench |
 | `/operations` | Rotation / sync / dynamic consoles with **create** flows, pause/resume, run history, credential issuance |
@@ -60,8 +61,8 @@ The app fronts the full server lifecycle:
 
 `Ctrl+K` opens the command palette (projects, configs, pages including
 **Cross-env diff**, actions like theme toggle and audit export). `?` opens a **keyboard-shortcuts help modal**,
-and `g`-prefixed chords jump anywhere (`g p` Projects, `g a` Audit, `g s`
-Settings, … — the full table lives in the `?` modal). Chords never fire while
+and `g`-prefixed chords jump anywhere (`g p` Projects, `g a` Audit, `g g`
+Groups, `g s` Settings, … — the full table lives in the `?` modal). Chords never fire while
 typing in a field or while a dialog is open.
 
 ## The secret editor

@@ -41,9 +41,16 @@ Activation is deny-by-default and enforced at the API boundary:
    is stored and included in the audit event and the notification payload. The
    reason is plain text describing *why*; it is never a secret value.
 4. **Service tokens cannot activate break-glass.** Only interactive user
-   accounts (which hold role bindings) can elevate.
+   accounts (which hold role bindings) can elevate. A role held **through a
+   group** counts as holding one, so a user whose access comes from a group
+   binding can break the glass on that scope like anyone else.
 
 The role hierarchy is the usual one: `viewer` ⊂ `developer` ⊂ `admin` ⊂ `owner`.
+
+An elevation is measured against your **durable** role — direct bindings plus
+any held through a group — and never against another active grant. It also
+cannot be turned into a durable grant: while elevated you may not mint a binding
+above your bound role, for a user or for a group.
 
 ## TTL and expiry
 

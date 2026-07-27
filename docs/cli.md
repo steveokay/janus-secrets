@@ -49,6 +49,9 @@ janus whoami [--json]                                   # show the authenticated
 janus session list [--json]                             # your active sessions (current marked *)
 janus session revoke <id> | --others                    # revoke one session, or sign out everywhere else
 janus break-glass activate/list/revoke                  # time-boxed emergency role elevation (guarded, loud, audited)
+janus group list/show/create/delete                     # groups: one binding for a whole team (oidc-fed or local)
+janus group add-member/remove-member <group> <user-id>  # local groups only — oidc membership comes from the IdP
+janus group bind/unbind/bindings [--project P --env E]  # grant a group a role at a scope (never owner)
 janus setup [--project P --env E --config C]            # validate + write ./.janus.yaml
 
 janus secrets list [--json]                             # masked table + ORIGIN (no reveal, no audit)
@@ -539,7 +542,7 @@ on the next tick.
 ## Control plane
 
 The commands below manage the project → environment → config hierarchy
-itself, service tokens, cross-environment promotion, and master-key rotation
+itself, service tokens, groups, cross-environment promotion, and master-key rotation
 — as opposed to the secrets workflow above, which operates on the single
 config a directory is bound to. All accept `--address` / `--token` (same
 credential precedence as the secrets commands); most also accept
@@ -618,6 +621,37 @@ recovered later; mint a new one and revoke the old if it's lost. `list`
 shows metadata only (name, scope, access, created/expires) — never the
 token value. See [Service tokens](guides/service-tokens.md) for the scoping
 model in depth.
+
+### `janus group`
+
+```bash
+janus group list [--json]
+janus group show <name|id> [--json]                       # members + every scope it reaches
+janus group create <name> --kind local|oidc [--claim VALUE] [--description D]
+janus group delete <name|id> [--yes]
+janus group add-member <group> <user-id>
+janus group remove-member <group> <user-id>
+janus group bind <group> --role viewer|developer|admin [--project P] [--env E]
+janus group unbind <group> [--project P] [--env E]
+janus group bindings [--project P] [--env E] [--json]
+```
+
+Groups let **one** binding grant a whole team a role, so a team is one row per
+project rather than one per person per project. A group is either `oidc`
+(membership comes from the IdP's group claim at each login and cannot be edited
+here — `--claim` is the exact value your provider emits, which for Entra is a
+GUID) or `local` (an explicit member list, for instances with no IdP and for
+password logins). The two never mix.
+
+Scope for `bind`/`unbind`/`bindings` follows the usual precedence: `--project`
+and `--env`, else the directory binding from `janus setup`; with neither, the
+binding is **instance-wide**. `--role owner` is refused **locally**, before any
+request — a group can never be granted owner, because owner rotates the master
+key, prunes the audit chain and destroys secret history.
+
+Groups can be addressed by name or id. Managing the catalog needs instance
+`group:manage`; binding a group needs `member:manage` at that scope and is
+capped by your own bound role. See [groups](guides/groups.md).
 
 ### `janus pipeline`
 
