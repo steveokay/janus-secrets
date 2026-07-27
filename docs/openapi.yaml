@@ -2576,6 +2576,28 @@ paths:
   # admin can grant a group access to their project but cannot put themselves
   # into a group that is bound elsewhere.
   # ---------------------------------------------------------------------
+  /v1/auth/me/groups:
+    get:
+      tags: [groups]
+      summary: The caller's own group memberships
+      description: >-
+        Authenticated-only. Reveals nothing but the caller's own memberships —
+        never the group catalog, which needs instance `group:manage`. It exists
+        so a delegated creator can see which teams they may create a project
+        for; without it the owning-team picker was invisible to exactly the
+        people it is for. Service-token principals get an empty list.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items: { $ref: '#/components/schemas/Group' }
+        "401": { $ref: '#/components/responses/Unauthorized' }
   /v1/groups:
     get:
       tags: [groups]

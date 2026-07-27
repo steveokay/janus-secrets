@@ -1028,6 +1028,10 @@ export const api = {
 
   // groups — the catalog (instance-scoped group:manage)
   listGroups: () => get<{ groups: ApiGroup[] }>('/v1/groups').then(r => r.groups ?? []),
+  /** The CALLER's own group memberships. Unlike listGroups (instance
+   *  group:manage) this needs only authentication, so a delegated creator can
+   *  see which teams they may create a project for. */
+  myGroups: () => get<{ groups: ApiGroup[] }>('/v1/auth/me/groups').then(r => r.groups ?? []),
   createGroup: (req: { name: string; kind: GroupKind; claim_value?: string; description?: string; can_create_projects?: boolean }) =>
     post<ApiGroup>('/v1/groups', req),
   setGroupCanCreateProjects: (gid: string, can_create_projects: boolean) =>

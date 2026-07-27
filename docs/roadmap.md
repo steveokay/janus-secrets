@@ -262,6 +262,11 @@ today — it is the gap between *correct* and *usable by an org*.
 3. **Scoped audit read.** Every audit endpoint authorizes against the instance
    scope, so a team lead reviewing their own project must be handed every event
    in the organisation — and audit rows carry resource paths and key names.
+   With (1) and (2) shipped this is the last place isolation leaks.
+   **Designed 2026-07-27, not yet built** — see
+   [the design](superpowers/specs/2026-07-27-scoped-audit-read-design.md); the
+   key constraint is that the scope column must stay OUTSIDE the chain hash, or
+   `audit/verify` breaks for every existing event.
 
 **Raised by building groups (2026-07-27), tracked in `status.md`:** Members
 reported group-derived access as *no access* — **fixed the same day** by

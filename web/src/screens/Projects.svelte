@@ -11,14 +11,27 @@
   let error = $state('')
   let busy = $state(false)
 
-  /** Groups that may own a new project. Listing the catalog needs instance
-   *  group:manage, so a delegated creator gets an empty list and simply sees no
-   *  picker — the server then infers their single creating group. */
+  /** Groups that may own a new project.
+   *
+   *  Two sources on purpose. An instance admin can list the whole catalog and
+   *  may hand a project to any team. A delegated creator cannot — the catalog
+   *  needs instance group:manage — so they read their OWN memberships instead;
+   *  without that the picker was invisible to exactly the people it is for, and
+   *  anyone in two creating groups could not create at all, since the server
+   *  rightly refuses to guess which team owns the project. */
   let creatorGroups = $state<ApiGroup[]>([])
   $effect(() => {
-    api.listGroups()
-      .then(gs => (creatorGroups = gs.filter(g => g.can_create_projects)))
-      .catch(() => (creatorGroups = []))
+    void (async () => {
+      const [catalog, own] = await Promise.all([
+        api.listGroups().catch(() => [] as ApiGroup[]),
+        api.myGroups().catch(() => [] as ApiGroup[]),
+      ])
+      const byId = new Map<string, ApiGroup>()
+      for (const g of [...catalog, ...own]) {
+        if (g.can_create_projects) byId.set(g.id, g)
+      }
+      creatorGroups = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+    })()
   })
 
   const filtered = $derived(

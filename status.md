@@ -466,10 +466,26 @@ authorization machinery.
       without being handed **every event in the organisation**, and audit rows
       carry resource paths and key names, so that leaks the shape of every other
       team's secrets. It also cuts the other way: teams that should be
-      self-auditing simply cannot. Wants `audit:read` honoured at project /
-      environment scope with the event list filtered to the caller's readable
-      scopes, instance-wide read staying with owner/admin. Note the filter must
-      be applied in the query, not after paging, or cursors will skip.
+      self-auditing simply cannot.
+
+      **This is now the ONLY place the isolation story leaks** — projects are
+      invisible without a binding, groups manage access at team scale, and teams
+      create their own projects, but the audit log is still all-or-nothing.
+
+      **DESIGNED, NOT BUILT — see
+      [the design](docs/superpowers/specs/2026-07-27-scoped-audit-read-design.md).**
+      Deliberately not rushed: `audit_events` has no project column and the
+      resource string is free-form, so a prefix/`LIKE` filter would silently
+      mis-scope events, which for an audit view is the worst outcome — it would
+      look complete. Decisions already made: store `project_id` on the event
+      **outside the chain hash** (adding a hashed field would break
+      `audit/verify` for every existing event, and the column is an index, not
+      evidence); capture the scope at **authorization** time rather than
+      threading it through 144 `record()` call sites; `NULL` means instance-only,
+      so pre-upgrade events never appear in a scoped view (fail-closed); scoped
+      read is **project-level only**; `verify` stays instance-only because a
+      subset of a hash chain cannot be verified; and the filter goes **in the
+      query**, never after paging, or cursors silently skip rows.
 - [ ] **Offboarding has no single answer to "what can this person reach?"**
       Bindings are individual rows across instance, project and environment
       scopes, so removing someone means finding every one of them. Groups

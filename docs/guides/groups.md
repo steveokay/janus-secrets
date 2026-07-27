@@ -166,6 +166,12 @@ belong to, to hand a new project straight to a team. That grants no authority
 they lack — they hold `member:manage` everywhere and could bind the group a
 moment later — and an unknown group is a `400` for them rather than a `403`.
 
+A delegated creator does not need to see the group catalog to use this: the
+**Owning team** picker reads their own memberships (`GET /v1/auth/me/groups`,
+authenticated-only), while an instance admin additionally sees every group. That
+matters when someone belongs to two creating groups — the server refuses to
+guess which team owns the project, so they must be able to name one.
+
 This is a narrow **capability**, deliberately not a role. Roles are cumulative
 bundles — viewer ⊂ developer ⊂ admin ⊂ owner — so any role granting
 `project:create` at instance scope would also grant `project:read` there, which

@@ -298,3 +298,49 @@ func TestAmbiguousCreatorGroupIsAValidationErrorE2E(t *testing.T) {
 		t.Fatalf("naming a group: %d", code)
 	}
 }
+
+// The owning-team picker was unusable by the very people it is for: listing the
+// group catalog needs instance group:manage, so a delegated creator saw no
+// picker — and with membership of two creating groups, every create failed as
+// ambiguous with no way in the UI to resolve it.
+func TestCallerCanReadTheirOwnGroupsE2E(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	owner := login(t, ts.URL, email, password)
+
+	var dev struct{ ID, Password string }
+	if code := doAuthed(t, "POST", ts.URL+"/v1/users", owner, "", `{"email":"dev@corp.io"}`, &dev); code != 200 {
+		t.Fatalf("create user: %d", code)
+	}
+	mine := createGroup(t, ts.URL, owner, `{"name":"mine","kind":"local"}`)
+	createGroup(t, ts.URL, owner, `{"name":"someone-elses","kind":"local"}`)
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/groups/"+mine.ID+"/members/"+dev.ID, owner, "", "", nil); code != 204 {
+		t.Fatalf("add member: %d", code)
+	}
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/groups/"+mine.ID+"/capabilities", owner, "",
+		`{"can_create_projects":true}`, nil); code != 200 {
+		t.Fatalf("grant capability: %d", code)
+	}
+
+	session := login(t, ts.URL, "dev@corp.io", dev.Password)
+	// Premise: the catalog is still closed to them.
+	if code := doAuthed(t, "GET", ts.URL+"/v1/groups", session, "", "", nil); code != 403 {
+		t.Fatalf("non-admin listing the catalog: got %d, want 403", code)
+	}
+
+	var mineResp struct {
+		Groups []struct {
+			ID                string `json:"id"`
+			Name              string `json:"name"`
+			CanCreateProjects bool   `json:"can_create_projects"`
+		} `json:"groups"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/auth/me/groups", session, "", "", &mineResp); code != 200 {
+		t.Fatalf("read own groups: %d", code)
+	}
+	if len(mineResp.Groups) != 1 {
+		t.Fatalf("own groups = %+v — must list ONLY the caller's own", mineResp.Groups)
+	}
+	if mineResp.Groups[0].Name != "mine" || !mineResp.Groups[0].CanCreateProjects {
+		t.Fatalf("own group = %+v", mineResp.Groups[0])
+	}
+}
