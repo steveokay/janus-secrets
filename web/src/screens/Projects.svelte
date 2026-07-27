@@ -1,14 +1,25 @@
 <script lang="ts">
   import { registry } from '../lib/registry.svelte'
-  import { api, errorMessage } from '../lib/api'
+  import { api, errorMessage, type ApiGroup } from '../lib/api'
   import { relTime, stampDate } from '../lib/util'
 
   let query = $state('')
   let creating = $state(false)
   let newSlug = $state('')
   let newName = $state('')
+  let ownerGroupId = $state('')
   let error = $state('')
   let busy = $state(false)
+
+  /** Groups that may own a new project. Listing the catalog needs instance
+   *  group:manage, so a delegated creator gets an empty list and simply sees no
+   *  picker — the server then infers their single creating group. */
+  let creatorGroups = $state<ApiGroup[]>([])
+  $effect(() => {
+    api.listGroups()
+      .then(gs => (creatorGroups = gs.filter(g => g.can_create_projects)))
+      .catch(() => (creatorGroups = []))
+  })
 
   const filtered = $derived(
     registry.projects.filter(p => (p.name + p.slug).toLowerCase().includes(query.toLowerCase())),
@@ -19,10 +30,15 @@
     error = ''
     busy = true
     try {
-      await api.createProject(newSlug.trim(), newName.trim() || newSlug.trim())
+      await api.createProjectOwnedBy(
+        newSlug.trim(),
+        newName.trim() || newSlug.trim(),
+        ownerGroupId || undefined,
+      )
       creating = false
       newSlug = ''
       newName = ''
+      ownerGroupId = ''
       await registry.hydrate(true)
     } catch (err) {
       error = errorMessage(err, 'Could not create the project.')
@@ -56,6 +72,15 @@
         <label class="label" for="np-name">Name</label>
         <input id="np-name" class="input" bind:value={newName} placeholder="Atlas API" />
       </div>
+      {#if creatorGroups.length}
+        <div class="field">
+          <label class="label" for="np-owner">Owning team</label>
+          <select id="np-owner" class="select" bind:value={ownerGroupId}>
+            <option value="">none — instance-managed</option>
+            {#each creatorGroups as g}<option value={g.id}>{g.name}</option>{/each}
+          </select>
+        </div>
+      {/if}
       <button class="btn btn-stamp" type="submit" disabled={busy || !newSlug.trim()}>Open dossier</button>
       {#if error}<p class="error">{error}</p>{/if}
     </form>

@@ -200,6 +200,12 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`groups.can_create_projects`** (migration `000047`) — delegated project
+  creation. A member of such a group may create a project owned by it, without
+  the instance-wide `project:read` that instance admin would carry. Deliberately
+  a capability column rather than a role, because roles are cumulative bundles
+  and any role granting `project:create` at instance scope also grants
+  `project:read` there.
 - **`environments.require_approval`** (migration `000046`) — four-eyes
   protection at environment scope. Effective protection for a write is the union
   `config.require_approval OR environment.require_approval`, mirroring how role

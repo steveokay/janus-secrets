@@ -134,6 +134,37 @@ needs only `member:read` there. A project admin holds the second and not the
 first, so without server-side resolution the person most likely to ask "who can
 act on my project?" would be the one person unable to find out.
 
+## Letting a team create its own projects
+
+Creating a project used to require **instance admin** — which carries
+`project:read` everywhere and therefore reveals every project in the
+organisation. So "teams self-serve" and "teams cannot see each other" were
+mutually exclusive, and an org faced with that choice picks self-serve and
+quietly makes everything visible.
+
+Mark a group as able to create projects instead:
+
+- **Groups → the group's row → delegate…**
+- or `janus group delegate-creation "Team Payments"` (`--off` to revoke)
+- or `PUT /v1/groups/{gid}/capabilities`
+
+A member then creates a project and it is bound to the **group at admin** (so
+the whole team can work in it at once) and to the **creator at owner** (so it
+always has someone who can administer and delete it — a group binding can never
+be owner). Nothing else becomes visible: they still see only the projects they
+are bound to.
+
+If someone belongs to more than one creating group, they must name which one
+owns the new project (`owner_group_id`, or the **Owning team** picker) rather
+than have Janus guess. Naming a group you are not a member of is refused with
+the same `403` as having no capability at all, so it is not a way to discover
+which groups exist.
+
+This is a narrow **capability**, deliberately not a role. Roles are cumulative
+bundles — viewer ⊂ developer ⊂ admin ⊂ owner — so any role granting
+`project:create` at instance scope would also grant `project:read` there, which
+is exactly the leak being closed.
+
 ## Who manages what
 
 Two different authorities, on purpose:

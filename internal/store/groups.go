@@ -12,12 +12,12 @@ type GroupRepo struct{ s *Store }
 // NewGroupRepo returns a group repository.
 func NewGroupRepo(s *Store) *GroupRepo { return &GroupRepo{s: s} }
 
-const groupCols = `id::text, name, kind, claim_value, description, created_by::text, created_at`
+const groupCols = `id::text, name, kind, claim_value, description, can_create_projects, created_by::text, created_at`
 
 func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
 	var g Group
 	if err := row.Scan(&g.ID, &g.Name, &g.Kind, &g.ClaimValue, &g.Description,
-		&g.CreatedBy, &g.CreatedAt); err != nil {
+		&g.CanCreateProjects, &g.CreatedBy, &g.CreatedAt); err != nil {
 		return nil, mapError(err)
 	}
 	return &g, nil
@@ -28,10 +28,10 @@ func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
 // claim value surfaces as ErrConflict.
 func (r *GroupRepo) Create(ctx context.Context, in GroupInput) (*Group, error) {
 	row := r.s.pool.QueryRow(ctx,
-		`INSERT INTO groups (name, kind, claim_value, description, created_by)
-		 VALUES ($1, $2, $3, $4, $5::uuid)
+		`INSERT INTO groups (name, kind, claim_value, description, can_create_projects, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6::uuid)
 		 RETURNING `+groupCols,
-		in.Name, in.Kind, in.ClaimValue, in.Description, in.CreatedBy)
+		in.Name, in.Kind, in.ClaimValue, in.Description, in.CanCreateProjects, in.CreatedBy)
 	return scanGroup(row)
 }
 
@@ -44,7 +44,7 @@ func (r *GroupRepo) Get(ctx context.Context, id string) (*Group, error) {
 		 FROM groups g WHERE id = $1::uuid`, id)
 	var g Group
 	if err := row.Scan(&g.ID, &g.Name, &g.Kind, &g.ClaimValue, &g.Description,
-		&g.CreatedBy, &g.CreatedAt, &g.MemberCount, &g.BindingCount); err != nil {
+		&g.CanCreateProjects, &g.CreatedBy, &g.CreatedAt, &g.MemberCount, &g.BindingCount); err != nil {
 		return nil, mapError(err)
 	}
 	return &g, nil
@@ -82,7 +82,7 @@ func (r *GroupRepo) List(ctx context.Context, limit int, after *Cursor) ([]*Grou
 	for rows.Next() {
 		var g Group
 		if err := rows.Scan(&g.ID, &g.Name, &g.Kind, &g.ClaimValue, &g.Description,
-			&g.CreatedBy, &g.CreatedAt, &g.MemberCount, &g.BindingCount); err != nil {
+			&g.CanCreateProjects, &g.CreatedBy, &g.CreatedAt, &g.MemberCount, &g.BindingCount); err != nil {
 			return nil, mapError(err)
 		}
 		out = append(out, &g)
@@ -155,7 +155,7 @@ func (r *GroupRepo) ListForUser(ctx context.Context, userID string) ([]*Group, e
 	// and created_at, so the bare list is ambiguous across the join.
 	rows, err := r.s.pool.Query(ctx,
 		`SELECT g.id::text, g.name, g.kind, g.claim_value, g.description,
-		        g.created_by::text, g.created_at
+		        g.can_create_projects, g.created_by::text, g.created_at
 		   FROM groups g
 		   JOIN group_members m ON m.group_id = g.id
 		  WHERE m.user_id = $1::uuid
@@ -233,6 +233,38 @@ func collectNames(rows pgx.Rows, err error) ([]string, error) {
 			return nil, mapError(err)
 		}
 		out = append(out, n)
+	}
+	return out, mapError(rows.Err())
+}
+
+// SetCanCreateProjects toggles a group's delegated project-creation capability.
+func (r *GroupRepo) SetCanCreateProjects(ctx context.Context, id string, enabled bool) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE groups SET can_create_projects = $2 WHERE id = $1::uuid`, id, enabled)
+}
+
+// CreatorGroupsForUser returns the groups a user belongs to that may create
+// projects. Empty means the user has no delegated creation capability at all —
+// the deny-by-default answer.
+func (r *GroupRepo) CreatorGroupsForUser(ctx context.Context, userID string) ([]*Group, error) {
+	rows, err := r.s.pool.Query(ctx,
+		`SELECT g.id::text, g.name, g.kind, g.claim_value, g.description,
+		        g.can_create_projects, g.created_by::text, g.created_at
+		   FROM groups g
+		   JOIN group_members m ON m.group_id = g.id
+		  WHERE m.user_id = $1::uuid AND g.can_create_projects
+		  ORDER BY g.name`, userID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	var out []*Group
+	for rows.Next() {
+		g, err := scanGroup(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, g)
 	}
 	return out, mapError(rows.Err())
 }

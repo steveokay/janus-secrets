@@ -436,15 +436,30 @@ authorization machinery.
       Groups section on Members, `janus group` (10 subcommands, owner refused
       locally), 16 OpenAPI paths, and a [guide](docs/guides/groups.md). The e2e
       suite was verified to fail against an engine without `WithGroups`.
-- [ ] **(2) Delegated project creation — today self-service forces org-wide
-      visibility.** `handleProjectCreate` authorizes against `authz.Instance()`,
-      so the only way to let a team create its own projects is to grant
-      **instance admin** — which carries `project:read` everywhere and reveals
-      every project in the organisation. The two goals "teams can self-serve"
-      and "teams cannot see each other" are currently mutually exclusive, and an
-      org will pick self-serve, quietly making everything visible. Wants either
-      a delegated creation grant (create projects, but read only your own) or
-      group-owned namespaces where creation is scoped to the owning group.
+- [x] ~~**(2) Delegated project creation — today self-service forces org-wide
+      visibility.**~~ **SHIPPED 2026-07-27** — migration `000047`
+      (`groups.can_create_projects`). Both options in the original note turned
+      out to be the same one: a group may be marked as able to create projects,
+      and a member creating one binds it to the **group at admin** (the team can
+      work immediately) and the **creator at owner** (so it always has someone
+      who can administer and delete it — a group binding can never be owner).
+      No instance-wide read is granted at any point, so "teams self-serve" and
+      "teams cannot see each other" stop being mutually exclusive.
+
+      It is a narrow **capability**, deliberately not a new rung on the role
+      ladder: roles are cumulative bundles, so *any* role granting
+      `project:create` at instance scope also grants `project:read` there —
+      precisely the leak being closed. It is therefore checked alongside the
+      engine rather than inside it, which is defensible because creation is the
+      one operation with no existing resource to authorize against (which is
+      why it sat at instance scope to begin with). `internal/authz` stays a pure
+      decision function over roles.
+
+      Naming a group you are not a member of returns the same `403` as having no
+      capability, so it is not a probe for which groups exist. Members of
+      several creating groups must name the owner rather than have Janus guess.
+      `janus group delegate-creation`, a **delegate…** control on Groups, and an
+      **Owning team** picker on project creation.
 - [ ] **(3) Audit read is instance-wide or nothing.** Every audit endpoint —
       `verify`, `events`, `histogram`, `export` — authorizes against
       `authz.Instance()`. A team lead cannot review their own project's trail

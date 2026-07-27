@@ -7,6 +7,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Delegated project creation.** `handleProjectCreate` authorized against the
+  instance scope, so the only way to let a team create its own projects was to
+  grant instance admin — which carries `project:read` everywhere and therefore
+  reveals every project in the organisation. "Teams self-serve" and "teams
+  cannot see each other" were mutually exclusive, and an org faced with that
+  choice picks self-serve and quietly makes everything visible.
+
+  A group may now be marked `can_create_projects`. A member creates a project
+  owned by that group, and it is bound to the **group at admin** so the whole
+  team can work in it at once, and to the **creator at owner** so it always has
+  someone who can administer and delete it (a group binding can never be owner,
+  by design). No instance-wide read is granted at any point.
+
+  This is a narrow capability, deliberately **not** a new rung on the role
+  ladder. Roles are cumulative bundles — viewer ⊂ developer ⊂ admin ⊂ owner —
+  so any role granting `project:create` at instance scope would also grant
+  `project:read` there, which is exactly the leak being closed. It is checked
+  alongside the authorization engine rather than inside it, which is defensible
+  because creation is the one operation with no existing resource to authorize
+  against — the reason it sat at instance scope in the first place.
+  `internal/authz` stays a pure decision function over roles.
+
+  Naming a group you are not a member of returns the same `403` as having no
+  capability at all, so it is not a way to discover which groups exist; a member
+  of several creating groups must name the owner rather than have Janus guess.
+  Ships migration `000047`, `PUT /v1/groups/{gid}/capabilities`,
+  `janus group delegate-creation <name> [--off]`, `janus group create
+  --can-create-projects`, a **delegate…** control on the Groups screen, and an
+  **Owning team** picker on project creation.
 - **Four-eyes protection at environment scope.** `require_approval` already
   existed per config, but it defaulted to false and nothing ever set it — so a
   config created in a production environment started **unprotected** and stayed

@@ -277,6 +277,10 @@ export interface ApiGroup {
   id: string
   name: string
   kind: GroupKind
+  /** Members may create projects owned by this group, with NO instance-wide
+   *  read — the point being that delegating creation used to require instance
+   *  admin, which revealed every project in the organisation. */
+  can_create_projects?: boolean
   /** Opaque IdP value (Entra emits GUIDs); null for a local group. */
   claim_value: string | null
   description: string
@@ -714,6 +718,11 @@ export const api = {
 
   // structure
   listProjects: () => get<{ projects: ApiProject[] }>('/v1/projects').then(r => r.projects),
+  /** ownerGroupId hands the new project to a team: it is bound to the group at
+   *  admin and to the creator at owner. Required for a delegated creator unless
+   *  they belong to exactly one creating group. */
+  createProjectOwnedBy: (slug: string, name: string, ownerGroupId?: string) =>
+    post<ApiProject>('/v1/projects', { slug, name, owner_group_id: ownerGroupId }),
   createProject: (slug: string, name: string) => post<ApiProject>('/v1/projects', { slug, name }),
   listEnvironments: (pid: string) =>
     get<{ environments: ApiEnvironment[] }>(`/v1/projects/${pid}/environments`).then(r => r.environments),
@@ -1019,8 +1028,10 @@ export const api = {
 
   // groups — the catalog (instance-scoped group:manage)
   listGroups: () => get<{ groups: ApiGroup[] }>('/v1/groups').then(r => r.groups ?? []),
-  createGroup: (req: { name: string; kind: GroupKind; claim_value?: string; description?: string }) =>
+  createGroup: (req: { name: string; kind: GroupKind; claim_value?: string; description?: string; can_create_projects?: boolean }) =>
     post<ApiGroup>('/v1/groups', req),
+  setGroupCanCreateProjects: (gid: string, can_create_projects: boolean) =>
+    put<{ can_create_projects: boolean }>(`/v1/groups/${gid}/capabilities`, { can_create_projects }),
   getGroup: (gid: string) => get<{ group: ApiGroup; bindings: ApiGroupBinding[] }>(`/v1/groups/${gid}`),
   deleteGroup: (gid: string) => del<void>(`/v1/groups/${gid}`),
   listGroupMembers: (gid: string) =>

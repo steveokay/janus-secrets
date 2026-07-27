@@ -23,20 +23,22 @@ const (
 )
 
 type groupView struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Kind         string  `json:"kind"`
-	ClaimValue   *string `json:"claim_value"`
-	Description  string  `json:"description"`
-	MemberCount  int     `json:"member_count"`
-	BindingCount int     `json:"binding_count"`
-	CreatedAt    string  `json:"created_at"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Kind              string  `json:"kind"`
+	ClaimValue        *string `json:"claim_value"`
+	Description       string  `json:"description"`
+	CanCreateProjects bool    `json:"can_create_projects"`
+	MemberCount       int     `json:"member_count"`
+	BindingCount      int     `json:"binding_count"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 func toGroupView(g *store.Group) groupView {
 	return groupView{
 		ID: g.ID, Name: g.Name, Kind: g.Kind, ClaimValue: g.ClaimValue,
-		Description: g.Description, MemberCount: g.MemberCount,
+		Description: g.Description, CanCreateProjects: g.CanCreateProjects,
+		MemberCount:  g.MemberCount,
 		BindingCount: g.BindingCount, CreatedAt: g.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
@@ -79,6 +81,9 @@ type createGroupRequest struct {
 	Kind        string `json:"kind"`
 	ClaimValue  string `json:"claim_value"`
 	Description string `json:"description"`
+	// CanCreateProjects delegates project creation to this group WITHOUT the
+	// instance-wide read that instance admin would carry.
+	CanCreateProjects bool `json:"can_create_projects"`
 }
 
 // handleGroupCreate: authz enforced by requireInstance (group:manage).
@@ -94,7 +99,8 @@ func (s *Server) handleGroupCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, "a name of 1-128 characters is required")
 		return
 	}
-	in := store.GroupInput{Name: req.Name, Kind: req.Kind, Description: req.Description}
+	in := store.GroupInput{Name: req.Name, Kind: req.Kind, Description: req.Description,
+		CanCreateProjects: req.CanCreateProjects}
 	switch req.Kind {
 	case store.GroupKindLocal:
 		// A local group has no claim value: membership is the explicit list.
@@ -500,4 +506,29 @@ func groupBindingResource(spec scopeSpec, groupID string) string {
 	default:
 		return "instance/group-members/" + groupID
 	}
+}
+
+// handleGroupCapabilitySet toggles a group's delegated project-creation
+// capability. Instance group:manage, like the rest of the catalog: an admin
+// delegates creation to a team, and the team then creates projects nobody else
+// can see. Value-free.
+func (s *Server) handleGroupCapabilitySet(w http.ResponseWriter, r *http.Request) {
+	gid := chi.URLParam(r, "gid")
+	var body struct {
+		CanCreateProjects bool `json:"can_create_projects"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	if err := s.groupsRepo().SetCanCreateProjects(r.Context(), gid, body.CanCreateProjects); err != nil {
+		s.writeGroupStoreError(w, err)
+		return
+	}
+	if err := s.record(r, "group.capability.set", "groups/"+gid+"/capabilities", "success", "",
+		"can_create_projects="+boolStr(body.CanCreateProjects)); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"can_create_projects": body.CanCreateProjects})
 }

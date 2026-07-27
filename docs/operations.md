@@ -280,6 +280,18 @@ owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
 
+**Delegated project creation.** `POST /v1/projects` accepts either
+instance-scoped `project:create` (admin+, the historical route) or membership of
+a group marked `can_create_projects` (`PUT /v1/groups/{gid}/capabilities`,
+instance `group:manage`; `janus group delegate-creation <name>`). The second
+route exists because the first one *only* reveals everything: every role
+carrying `project:create` at instance scope also carries `project:read` there.
+A delegated creation binds the new project to the owning group at **admin** and
+to the creator at **owner**, and grants no visibility of anything else. The
+capability is checked alongside the engine rather than inside it — creation is
+the one operation with no existing resource to authorize against — so
+`internal/authz` stays a pure decision function over roles.
+
 **Four-eyes at environment scope.** `require_approval` exists per config *and*
 per environment, and the effective value is the **union**: `config OR
 environment`. Protecting an environment (`PUT

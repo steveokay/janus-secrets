@@ -19,8 +19,14 @@ type Group struct {
 	Kind        string
 	ClaimValue  *string
 	Description string
-	CreatedBy   *string
-	CreatedAt   time.Time
+	// CanCreateProjects lets members create projects owned by this group,
+	// WITHOUT the instance-wide read that instance admin would carry. It is a
+	// narrow capability rather than a role: roles are cumulative bundles, so any
+	// role granting project:create at instance scope also grants project:read
+	// there — which is the exact leak this avoids.
+	CanCreateProjects bool
+	CreatedBy         *string
+	CreatedAt         time.Time
 
 	// Populated by List/Get for display only; never used in a decision.
 	MemberCount  int
@@ -29,11 +35,12 @@ type Group struct {
 
 // GroupInput is the create payload.
 type GroupInput struct {
-	Name        string
-	Kind        string
-	ClaimValue  *string
-	Description string
-	CreatedBy   *string
+	Name              string
+	Kind              string
+	ClaimValue        *string
+	Description       string
+	CanCreateProjects bool
+	CreatedBy         *string
 }
 
 // GroupMember is one user's membership of one group. There is no source column:

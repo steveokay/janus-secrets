@@ -501,6 +501,11 @@ components:
         kind: { type: string, enum: [oidc, local] }
         claim_value: { type: [string, "null"] }
         description: { type: string }
+        can_create_projects:
+          type: boolean
+          description: >-
+            Members may create projects owned by this group, without any
+            instance-wide read.
         member_count: { type: integer }
         binding_count: { type: integer }
         created_at: { type: string, format: date-time }
@@ -649,6 +654,14 @@ paths:
               type: object
               required: [slug]
               properties:
+                owner_group_id:
+                  type: string
+                  format: uuid
+                  description: >-
+                    Group that will own the project. Required for a delegated
+                    creator unless they belong to exactly one creating group;
+                    optional for an instance admin. The project is bound to the
+                    group at admin and to the creator at owner.
                 slug: { type: string, example: acme-web }
                 name: { type: string, example: Acme Web }
       responses:
@@ -2602,6 +2615,7 @@ paths:
                 kind: { type: string, enum: [oidc, local] }
                 claim_value: { type: string, maxLength: 256 }
                 description: { type: string, maxLength: 512 }
+                can_create_projects: { type: boolean }
       responses:
         "201":
           description: Created.
@@ -2636,6 +2650,41 @@ paths:
       summary: Delete a group (membership and bindings cascade)
       responses:
         "204": { description: Deleted. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+  /v1/groups/{gid}/capabilities:
+    parameters:
+      - { name: gid, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [groups]
+      summary: Delegate project creation to a group
+      description: >-
+        A member of a group with `can_create_projects` may create a project
+        owned by that group, WITHOUT the instance-wide `project:read` that
+        instance admin would carry — which is what made "teams self-serve" and
+        "teams cannot see each other" mutually exclusive. It is a narrow
+        capability rather than a role: roles are cumulative bundles, so any role
+        granting `project:create` at instance scope also grants `project:read`
+        there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [can_create_projects]
+              properties:
+                can_create_projects: { type: boolean }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  can_create_projects: { type: boolean }
+        "400": { description: Validation error. }
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
   /v1/groups/{gid}/members:

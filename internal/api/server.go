@@ -466,6 +466,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			r.Post("/", s.handleGroupCreate)
 			r.Get("/{gid}", s.handleGroupGet)
 			r.Delete("/{gid}", s.handleGroupDelete)
+			r.Put("/{gid}/capabilities", s.handleGroupCapabilitySet)
 			r.Get("/{gid}/members", s.handleGroupMemberList)
 			r.Put("/{gid}/members/{uid}", s.handleGroupMemberPut)
 			r.Delete("/{gid}/members/{uid}", s.handleGroupMemberDelete)
