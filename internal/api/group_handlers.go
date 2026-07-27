@@ -532,3 +532,34 @@ func (s *Server) handleGroupCapabilitySet(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"can_create_projects": body.CanCreateProjects})
 }
+
+// handleMyGroups returns the groups the CALLER belongs to. Authenticated-only:
+// it reveals nothing but the caller's own memberships, which they can already
+// infer from their access, and never the group catalog (that needs instance
+// group:manage).
+//
+// It exists because the catalog being admin-only made the owning-team picker
+// unusable for exactly the people it is for: a delegated creator could not list
+// groups, so with membership of two creating groups they had no way to name one
+// and every create failed as ambiguous.
+func (s *Server) handleMyGroups(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	if p.Kind != auth.KindUser {
+		// Service tokens carry no group membership; say so plainly rather than
+		// erroring, so clients can call this unconditionally.
+		writeJSON(w, http.StatusOK, map[string]any{"groups": []groupView{}})
+		return
+	}
+	gs, err := s.groupsRepo().ListForUser(r.Context(), p.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	out := make([]groupView, 0, len(gs))
+	for _, g := range gs {
+		// Counts are not populated by ListForUser and are not the caller's
+		// business here; leave them zero rather than issue N more queries.
+		out = append(out, toGroupView(g))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": out})
+}

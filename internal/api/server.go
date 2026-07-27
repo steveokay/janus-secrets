@@ -416,6 +416,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				r.Use(RequireAuth(s.auth, s))
 				r.Post("/logout", s.handleLogout)
 				r.Get("/me", s.handleMe)
+				r.Get("/me/groups", s.handleMyGroups)
 				r.With(loginLimiter.middleware).Post("/password", s.handlePasswordChange)
 				r.Get("/sessions", s.handleSessionList)
 				r.Delete("/sessions", s.handleSessionRevokeOthers)

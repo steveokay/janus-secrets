@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **The owning-team picker was unusable by delegated creators.** Listing the
+  group catalog needs instance `group:manage`, so the picker shipped invisible
+  to exactly the people it exists for — and anyone belonging to two creating
+  groups could not create a project at all, because the server rightly refuses
+  to guess which team owns it and the UI offered no way to name one. Adds
+  `GET /v1/auth/me/groups`, authenticated-only, returning just the caller's own
+  memberships and never the catalog. The picker now merges the catalog (admins)
+  with the caller's own groups (everyone).
 - **Project creation authorized after reading the request body.** Delegated
   project creation moved body decoding ahead of the permission check so it could
   read `owner_group_id`. An unauthorized caller could therefore tell a malformed
