@@ -60,35 +60,62 @@ func projectView(p *store.Project) projectResponse {
 // and folding it into the role ladder would reintroduce the instance-wide read.
 // The engine stays a pure decision function over roles.
 func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
+	p, _ := PrincipalFrom(r.Context())
+	instanceAllowed := s.can(r, authz.ProjectCreate, authz.Instance()) == nil
+
+	// AUTHORIZE BEFORE READING THE BODY. "May you create projects at all?" does
+	// not depend on request content — only "which group owns this one" does. An
+	// earlier revision decoded first so it could read owner_group_id, which let
+	// an unauthorized caller tell a malformed body (400) from a denial (403)
+	// and, worse, skipped the denied audit event on that path.
+	var creatorGroups []*store.Group
+	if p.Kind == auth.KindUser {
+		gs, err := s.groupsRepo().CreatorGroupsForUser(r.Context(), p.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		creatorGroups = gs
+	}
+	if !instanceAllowed && len(creatorGroups) == 0 {
+		if aerr := s.record(r, "project.create", "projects", "denied", CodeForbidden, ""); aerr != nil {
+			writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+			return
+		}
+		writeError(w, http.StatusForbidden, CodeForbidden, "access denied")
+		return
+	}
+
 	var req createProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Slug == "" {
 		writeError(w, http.StatusBadRequest, CodeValidation, "slug is required")
 		return
 	}
 
-	p, _ := PrincipalFrom(r.Context())
-	instanceAllowed := s.can(r, authz.ProjectCreate, authz.Instance()) == nil
-
-	// Resolve the owning group when one was named (or is required).
-	var owner *store.Group
-	if req.OwnerGroupID != "" || !instanceAllowed {
-		g, err := s.resolveCreatorGroup(r, req.OwnerGroupID)
-		if err != nil {
+	owner, err := s.resolveOwnerGroup(r, req.OwnerGroupID, instanceAllowed, creatorGroups)
+	if err != nil {
+		switch {
+		case errors.Is(err, errAmbiguousCreatorGroup):
+			// The caller IS authorized; they just belong to several creating
+			// groups and must say which team owns this project. A 403 here
+			// would misreport an authorization failure.
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"you belong to more than one group that can create projects — name one in owner_group_id")
+			return
+		case instanceAllowed:
+			writeError(w, http.StatusBadRequest, CodeValidation, "unknown owner group")
+			return
+		default:
 			// Deny-by-default and indistinguishable: an unknown group, a group
 			// the caller is not in, and a group without the capability are the
 			// same 403, so this is not a probe for which groups exist.
-			if !instanceAllowed {
-				if aerr := s.record(r, "project.create", "projects", "denied", CodeForbidden, ""); aerr != nil {
-					writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
-					return
-				}
-				writeError(w, http.StatusForbidden, CodeForbidden, "access denied")
+			if aerr := s.record(r, "project.create", "projects", "denied", CodeForbidden, ""); aerr != nil {
+				writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 				return
 			}
-			writeError(w, http.StatusBadRequest, CodeValidation, "unknown owner group")
+			writeError(w, http.StatusForbidden, CodeForbidden, "access denied")
 			return
 		}
-		owner = g
 	}
 
 	proj, err := s.service.CreateProject(r.Context(), req.Slug, req.Name)
@@ -114,35 +141,58 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, projectView(proj))
 }
 
-// resolveCreatorGroup returns the group that will own a new project, verifying
-// the caller is a member of it AND that it may create projects. When no id is
-// supplied and the caller has exactly one such group, that group is used; with
-// several, the caller must name one rather than have us guess which team owns
-// the project.
-func (s *Server) resolveCreatorGroup(r *http.Request, groupID string) (*store.Group, error) {
-	p, _ := PrincipalFrom(r.Context())
-	if p.Kind != auth.KindUser {
-		return nil, errNoCreatorGroup // service tokens never carry group membership
-	}
-	groups, err := s.groupsRepo().CreatorGroupsForUser(r.Context(), p.ID)
-	if err != nil {
-		return nil, err
-	}
+// resolveOwnerGroup returns the group that will own a new project, or nil when
+// none applies. creatorGroups is the caller's already-resolved set of groups
+// that may create projects, so this makes no further membership query.
+//
+// Two callers, two rules:
+//
+//   - A DELEGATED creator must be a member of the named group and it must carry
+//     the capability. That membership check is what stops someone planting
+//     access into another team's group.
+//   - An INSTANCE ADMIN may name ANY existing group. They already hold
+//     member:manage everywhere and could bind that group to the project a
+//     moment later, so this grants no authority they lack — and requiring them
+//     to be a member of a team just to hand it a project was a defect.
+//
+// With no id supplied: an instance admin gets no owner group (the historical
+// behaviour — no bindings are seeded); a delegated creator with exactly one
+// creating group gets that one, and with several must name it rather than have
+// us guess which team owns the project.
+func (s *Server) resolveOwnerGroup(r *http.Request, groupID string, instanceAllowed bool, creatorGroups []*store.Group) (*store.Group, error) {
 	if groupID == "" {
-		if len(groups) == 1 {
-			return groups[0], nil
+		if instanceAllowed {
+			return nil, nil
 		}
-		return nil, errNoCreatorGroup
+		switch len(creatorGroups) {
+		case 1:
+			return creatorGroups[0], nil
+		case 0:
+			return nil, errNoCreatorGroup // unreachable: the gate above rejects this
+		default:
+			return nil, errAmbiguousCreatorGroup
+		}
 	}
-	for _, g := range groups {
+	for _, g := range creatorGroups {
 		if g.ID == groupID {
 			return g, nil
 		}
 	}
-	return nil, errNoCreatorGroup
+	if !instanceAllowed {
+		// Not one of theirs. Indistinguishable from "no such group" on purpose.
+		return nil, errNoCreatorGroup
+	}
+	g, err := s.groupsRepo().Get(r.Context(), groupID)
+	if err != nil {
+		return nil, errNoCreatorGroup
+	}
+	return g, nil
 }
 
-var errNoCreatorGroup = errors.New("api: no creator group")
+var (
+	errNoCreatorGroup        = errors.New("api: no creator group")
+	errAmbiguousCreatorGroup = errors.New("api: ambiguous creator group")
+)
 
 // seedProjectOwnership binds the owning group at admin and the creator at
 // owner. The group binding is what makes the project the TEAM's rather than one

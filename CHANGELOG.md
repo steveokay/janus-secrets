@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Project creation authorized after reading the request body.** Delegated
+  project creation moved body decoding ahead of the permission check so it could
+  read `owner_group_id`. An unauthorized caller could therefore tell a malformed
+  body (`400`) from a denial (`403`), and — more materially — the
+  `project.create` **denied** audit event was skipped on that path, so a probing
+  account left no trail. The decision is now made before the body is read: "may
+  you create projects at all?" never depends on request content, only "which
+  group owns this one" does. Found by a consolidation review of the same day's
+  changes and pinned by a test that sends six unusable bodies and requires `403`
+  for every one.
+- **An instance admin could not hand a new project to a team they were not in.**
+  The owner-group check required membership for every caller. That is the right
+  rule for a delegated creator — it is what stops someone planting access into
+  another team's group — but wrong for an instance admin, who already holds
+  `member:manage` everywhere and could bind the group a moment later. Admins may
+  now name any existing group; an unknown one is a `400` rather than a `403`.
+  Belonging to several creating groups without naming one is also now a `400`,
+  since the caller is authorized and merely needs to disambiguate.
+
 ### Added
 - **Delegated project creation.** `handleProjectCreate` authorized against the
   instance scope, so the only way to let a team create its own projects was to
