@@ -375,17 +375,34 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 		// begin, and the rate of challenge-row insertion — stays the same order of
 		// magnitude.
 		passkeyLimiter := newIPRateLimiter(60.0/60.0, 24) // 60/min sustained, burst 24
+		// Capability probes are NOT credential attempts. `/oidc/status` and
+		// `/webauthn/status` answer "is this login method configured" and nothing
+		// else — no account data, no secret, nothing to brute-force — and the
+		// login screen fires both on every render.
+		//
+		// `/oidc/status` used to sit on loginLimiter, so simply LOOKING at the
+		// login page spent from the budget that protects passwords: with burst 5,
+		// three visits inside a minute could deny a legitimate sign-in with "too
+		// many attempts". Rate limiting a page view as if it were a password guess
+		// punishes the honest user and does nothing to an attacker, who skips the
+		// page and posts straight to /login.
+		//
+		// They still get a limiter — /oidc/status reads the provider row, so it is
+		// not free — just one whose budget cannot starve authentication.
+		probeLimiter := newIPRateLimiter(120.0/60.0, 40) // 120/min sustained, burst 40
 		r.Route("/v1/auth", func(r chi.Router) {
 			r.With(loginLimiter.middleware).Post("/login", s.handleLogin)
-			r.With(loginLimiter.middleware).Get("/oidc/status", s.handleOIDCStatus)
+			r.With(probeLimiter.middleware).Get("/oidc/status", s.handleOIDCStatus)
 			r.With(loginLimiter.middleware).Get("/oidc/login", s.handleOIDCLogin)
 			r.With(loginLimiter.middleware).Get("/oidc/callback", s.handleOIDCCallback)
 			r.With(loginLimiter.middleware).Post("/oidc/federate", s.handleOIDCFederate)
 			// ── WebAuthn / passkeys (pre-auth) ─────────────────────────────
-			// /status is the login screen's probe (feature-configured only, no
-			// account data). login/begin+finish are the assertion ceremony. All
-			// three are per-IP rate limited (see passkeyLimiter above).
-			r.With(passkeyLimiter.middleware).Get("/webauthn/status", s.handleWebAuthnStatus)
+			// login/begin+finish are the assertion ceremony and stay on the
+			// passkey budget. /status is a capability probe like /oidc/status —
+			// it reports only whether passkeys are configured — so it shares the
+			// probe limiter and cannot eat the ceremony's budget by rendering the
+			// login screen.
+			r.With(probeLimiter.middleware).Get("/webauthn/status", s.handleWebAuthnStatus)
 			r.With(passkeyLimiter.middleware).Post("/webauthn/login/begin", s.handleWebAuthnLoginBegin)
 			r.With(passkeyLimiter.middleware).Post("/webauthn/login/finish", s.handleWebAuthnLoginFinish)
 			// Passwordless (client-side discoverable) sign-in: no email at begin,
