@@ -8,6 +8,42 @@ sensitive environments such as prod.
 This reuses the same request → approve → apply machinery as environment
 promotion, but for *in-place* edits to one config.
 
+
+## Protect a whole environment (recommended for production)
+
+Per-config protection defaults to **off**, so a config created in `prod`
+starts unprotected and stays that way until somebody remembers to tick the box.
+That is a poor place to keep a security control — and it matters more once a
+whole **team** is bound at project scope through a [group](groups.md), because
+one binding then grants production write to everyone in it.
+
+So protect the **environment**:
+
+- **Project board → the environment's column header → Protect**
+- or `janus env protect prod` (`--off` to stop)
+- or `PUT /v1/projects/{pid}/environments/{eid}/require-approval`
+
+Every config in it requires approval, **including ones created later**.
+
+Protection is a **union**:
+
+```
+effective = config.require_approval OR environment.require_approval
+```
+
+— deliberately the same shape as role bindings: union, no precedence, no deny.
+A config may add protection its environment does not require; it can never
+remove protection the environment does. So production four-eyes cannot be
+switched off one config at a time, and the editor's Protect button on such a
+config says *Env-protected* and explains that rather than firing a request that
+would appear to succeed and change nothing.
+
+This is what lets Janus stay free of deny rules. *"Developer on the project,
+but read-only on prod"* is unexpressible by design — the answer is that a write
+to production becomes a four-eyes **request** rather than a commit, which is
+only true if the environment is protected.
+
+
 ## 1. Mark a config protected
 
 In the secret editor for the config, click **Protect…** in the header (this

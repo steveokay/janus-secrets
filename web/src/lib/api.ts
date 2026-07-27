@@ -181,7 +181,24 @@ export interface SealStatus {
 export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
 export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
-export interface ApiConfig { id: string; environment_id: string; name: string; inherits_from: string | null; require_approval?: boolean; created_at: string }
+export interface ApiConfig {
+  id: string
+  environment_id: string
+  name: string
+  inherits_from: string | null
+  /** The config's OWN four-eyes flag. */
+  require_approval?: boolean
+  /** The ENVIRONMENT's flag — set for every config in a protected environment. */
+  environment_require_approval?: boolean
+  /**
+   * What actually governs a write: the union of the two. Read THIS, never
+   * `require_approval` alone — a UI that misreports a security control is the
+   * defect PR #202 fixed, and reading the config flag alone reintroduces it for
+   * environment-protected configs.
+   */
+  effective_require_approval?: boolean
+  created_at: string
+}
 export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean; owner?: string; note?: string }
 export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
@@ -727,6 +744,12 @@ export const api = {
   // protected-config (four-eyes) controls
   setRequireApproval: (cid: string, enabled: boolean) =>
     put<{ require_approval: boolean }>(`/v1/configs/${cid}/require-approval`, { enabled }),
+  /** Protect a whole ENVIRONMENT: every config in it becomes four-eyes,
+   *  including ones created later. This is what makes "production is
+   *  four-eyes" survive a new config rather than depending on someone
+   *  remembering to tick a box. */
+  setEnvRequireApproval: (pid: string, eid: string, enabled: boolean) =>
+    put<{ require_approval: boolean }>(`/v1/projects/${pid}/environments/${eid}/require-approval`, { enabled }),
   listEditRequests: (cid: string, status?: string) => {
     const q = status ? `?status=${encodeURIComponent(status)}` : ''
     return get<{ requests: ConfigEditRequest[] }>(`/v1/configs/${cid}/edit-requests${q}`).then(r => r.requests ?? [])

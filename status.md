@@ -473,17 +473,38 @@ authorization machinery.
       context. Exposing effective permissions on `/v1/auth/me` would let the
       shell hide what an account cannot use. It must stay a **hint**: the server
       remains the only authority.
-- [ ] **A binding cannot narrow another one.** Permissions are the union of all
-      applicable bindings and there are no deny rules, so *"developer on the
-      project, but read-only on prod"* is unexpressible — you must bind per
-      environment and never at project scope, and nothing warns you when you do.
-      One convenient project-level `developer` silently grants production
-      writes. **Do not solve this with deny rules**: allow-union plus deny is
-      where RBAC stops being reasonable about, and this engine's clarity is its
-      best property. Two better options: default prod configs to
-      `require_approval` so such a write becomes a four-eyes request rather than
-      a commit (the machinery exists and is E2E-tested), and add a "who can
-      write prod?" view so union semantics are visible rather than implicit.
+- [x] ~~**A binding cannot narrow another one.**~~ **HALF-FIXED 2026-07-27 —
+      the safety net is now real.** Permissions are the union of all applicable
+      bindings and there are no deny rules, so *"developer on the project, but
+      read-only on prod"* stays unexpressible, and that remains deliberate:
+      allow-union plus deny is where RBAC stops being reasonable about.
+
+      The recorded answer was "default prod configs to `require_approval` so
+      such a write becomes a four-eyes request rather than a commit (the
+      machinery exists and is E2E-tested)". **That default did not exist.**
+      `require_approval` was per config, `DEFAULT false`, and `ConfigRepo.Create`
+      never set it — so every config created in a production environment started
+      unprotected, and the justification for having no deny rules rested on a
+      control nobody had switched on. Groups made it sharper: one project-scope
+      binding now grants production write to a whole team at once rather than to
+      one person at a time.
+
+      Fixed by making protection a property of the **environment** (migration
+      `000046`), with the effective value as the union
+      `config.require_approval OR environment.require_approval` — the same shape
+      as role bindings, so the engine keeps one rule. A config may add
+      protection its environment does not require but can never remove what the
+      environment does, so production four-eyes survives a new config and cannot
+      be switched off one config at a time. All five write paths (batch, per-key
+      set, delete, rollback, promote-apply) resolve it through one shared check
+      that fails **closed**. `janus env protect <slug>`, a Protect control per
+      environment column on the project board, and an editor banner that says
+      when protection is inherited rather than the config's own.
+
+      **Still open:** a *"who can write prod?"* view, so union semantics are
+      visible rather than implicit. Members now shows effective role + source
+      per scope, which is the per-scope half; the cross-scope view is the same
+      users × scopes grid noted above.
 - [ ] **`secret:read` is all-or-nothing.** A viewer at project scope reads every
       value in every environment, prod included; there is no granularity below a
       config. Reveals are audited per key and unused keys are flagged, so the

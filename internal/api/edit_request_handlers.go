@@ -42,6 +42,48 @@ func (s *Server) handleRequireApprovalSet(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"require_approval": body.Enabled})
 }
 
+// handleEnvRequireApprovalSet toggles an ENVIRONMENT's four-eyes protection, so
+// every config in it is protected regardless of its own flag. Same
+// promotion:manage permission as the per-config toggle, resolved at the
+// environment's real scope.
+//
+// This is what makes "production is four-eyes" a property of the environment
+// rather than a checkbox somebody has to remember on each new config — and it
+// is what lets a broad grant (a whole team bound developer at project scope)
+// stay safe without introducing deny rules.
+func (s *Server) handleEnvRequireApprovalSet(w http.ResponseWriter, r *http.Request) {
+	eid := chi.URLParam(r, "eid")
+	// Resolve the environment's REAL parent chain, never the path pid, so a
+	// caller cannot flip another project's environment by nesting its id under a
+	// pid they control (the same guard envScope applies).
+	res, err := s.resolveScopeResource(r.Context(), "environment", eid)
+	if err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if !s.authorize(w, r, authz.PromotionManage, res, "environment.require_approval.set",
+		"environments/"+eid+"/require-approval") {
+		return
+	}
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
+		return
+	}
+	if err := store.NewEnvironmentRepo(s.st).SetRequireApproval(r.Context(), eid, body.Enabled); err != nil {
+		s.writeServiceError(w, err)
+		return
+	}
+	if err := s.record(r, "environment.require_approval.set",
+		"environments/"+eid+"/require-approval", "success", "", "enabled="+boolStr(body.Enabled)); err != nil {
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"require_approval": body.Enabled})
+}
+
 func boolStr(b bool) string {
 	if b {
 		return "true"

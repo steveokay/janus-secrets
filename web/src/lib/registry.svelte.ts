@@ -18,6 +18,10 @@ export interface ViewEnv {
   slug: string
   name: string
   kind: EnvKind
+  /** True when EVERY config in this environment requires four-eyes approval,
+   *  including ones created later. Derived from the configs' effective flags,
+   *  which the server computes as config OR environment. */
+  requireApproval: boolean
   configs: ViewConfig[]
 }
 export interface ViewProject {
@@ -55,18 +59,25 @@ async function loadTree(): Promise<ViewProject[]> {
       const environments = await Promise.all(
         envs.map(async e => {
           const configs = await api.listConfigs(p.id, e.id)
+          // Every config in a protected environment carries
+          // environment_require_approval, so any one of them reports the
+          // environment's own flag. An environment with no configs yet cannot
+          // say — it renders unprotected until it has one, which is honest:
+          // there is nothing to protect.
+          const envProtected = configs.some(c => c.environment_require_approval)
           return {
             id: e.id,
             slug: e.slug,
             name: e.name,
             kind: envKind(e.slug || e.name),
+            requireApproval: envProtected,
             configs: configs.map(c => ({
               id: c.id,
               name: c.name,
               inheritsFrom: c.inherits_from,
               createdAt: c.created_at,
               reads24h: readsByConfig.get(c.id) ?? 0,
-              requireApproval: c.require_approval ?? false,
+              requireApproval: c.effective_require_approval ?? c.require_approval ?? false,
             })),
           }
         }),

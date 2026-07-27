@@ -84,6 +84,10 @@
   // Protected-config (four-eyes) state. `protected_` mirrors the config's
   // require_approval flag; pending edit requests are listed for reviewers.
   let protected_ = $state(false)
+  /** True when the ENVIRONMENT requires approval — inherited, not removable here. */
+  let protectedByEnv = $state(false)
+  /** The config's own flag, which is what the toggle actually writes. */
+  let ownProtected = $state(false)
   let togglingProtected = $state(false)
   let editRequests = $state<import('../lib/api').ConfigEditRequest[]>([])
   let showEditRequests = $state(false)
@@ -147,7 +151,18 @@
       // operator their edit would commit when the server would in fact file it
       // as a pending edit request. The control always held; the UI misreported
       // it, and got it wrong more often the larger the instance grew.
-      protected_ = cfg?.require_approval ?? registry.findConfig(cid)?.config.requireApproval ?? false
+      // The EFFECTIVE flag governs saving, so it is what the banner, the review
+      // panel and the Save button must reflect. Falling back to the config's own
+      // flag would under-report protection for an environment-protected config.
+      protected_ = cfg?.effective_require_approval
+        ?? cfg?.require_approval
+        ?? registry.findConfig(cid)?.config.requireApproval
+        ?? false
+      // Track WHY separately: protection inherited from the environment cannot
+      // be turned off here, so the per-config toggle must say so instead of
+      // silently doing nothing.
+      protectedByEnv = cfg?.environment_require_approval ?? false
+      ownProtected = cfg?.require_approval ?? false
       // Keep the cache in step so other screens agree with what we just showed.
       const cached = registry.findConfig(cid)
       if (cfg && cached) cached.config.requireApproval = protected_
@@ -410,17 +425,27 @@
   }
 
   async function toggleProtected() {
+    // Environment protection is a union: a config can add protection but never
+    // remove what the environment requires. Say so rather than firing a request
+    // that would appear to succeed and change nothing.
+    if (protectedByEnv && ownProtected === false) {
+      flashToast('This environment requires approval for every config — protection cannot be removed here.')
+      return
+    }
     togglingProtected = true
     saveError = ''
     try {
-      const next = !protected_
+      const next = !ownProtected
       await api.setRequireApproval(configId, next)
-      protected_ = next
+      ownProtected = next
+      protected_ = next || protectedByEnv
       const c = registry.findConfig(configId)?.config
       if (c) c.requireApproval = next
       flashToast(next
         ? 'This config is now protected — direct saves become approval requests (four-eyes).'
-        : 'Protection removed — saves commit directly again.')
+        : protectedByEnv
+          ? 'Config-level protection removed — the environment still requires approval.'
+          : 'Protection removed — saves commit directly again.')
     } catch (err) {
       flashToast(errorMessage(err, 'Could not change protection.'))
     } finally {
@@ -838,9 +863,11 @@
           class="btn btn-sm {protected_ ? 'btn-primary' : ''}"
           onclick={toggleProtected}
           disabled={togglingProtected}
-          title="Require a different reviewer to approve secret saves (four-eyes)"
+          title={protectedByEnv
+            ? 'This environment requires approval for every config — protection cannot be removed here'
+            : 'Require a different reviewer to approve secret saves (four-eyes)'}
         >
-          {protected_ ? '🛡 Protected' : 'Protect…'}
+          {protectedByEnv ? '🛡 Env-protected' : protected_ ? '🛡 Protected' : 'Protect…'}
         </button>
         <button class="btn btn-sm" onclick={revealAll} disabled={!anyHidden}>Reveal all</button>
         <button class="btn btn-sm btn-ghost del-btn" onclick={deleteConfig}>Delete</button>
@@ -867,8 +894,14 @@
       <div class="protected-banner sheet rise" role="note">
         <span class="shield" aria-hidden="true">🛡</span>
         <div>
-          <strong>Protected config</strong> — direct saves don’t commit. Each save becomes an
-          <em>edit request</em> that a <strong>different</strong> reviewer must approve (four-eyes).
+          {#if protectedByEnv}
+            <strong>Protected environment</strong> — every config in <strong>{env.slug}</strong> requires
+            approval, including ones created later. Direct saves don’t commit: each becomes an
+            <em>edit request</em> that a <strong>different</strong> reviewer must approve (four-eyes).
+          {:else}
+            <strong>Protected config</strong> — direct saves don’t commit. Each save becomes an
+            <em>edit request</em> that a <strong>different</strong> reviewer must approve (four-eyes).
+          {/if}
         </div>
         {#if pendingEdits.length > 0}
           <button class="btn btn-sm" onclick={() => (showEditRequests = !showEditRequests)}>

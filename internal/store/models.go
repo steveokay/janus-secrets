@@ -36,9 +36,15 @@ type Environment struct {
 	ProjectID string
 	Slug      string
 	Name      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt *time.Time
+	// RequireApproval makes every config in this environment protected
+	// (four-eyes), regardless of the config's own flag. Effective protection is
+	// the UNION of the two — a config may add protection its environment does
+	// not require, but can never remove protection the environment does. This is
+	// what makes "production is four-eyes" survive a newly created config.
+	RequireApproval bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       *time.Time
 }
 
 // Config holds secrets within an environment. InheritsFrom is reserved for the

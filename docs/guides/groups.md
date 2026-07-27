@@ -40,6 +40,27 @@ TTL-clamped, loudly audited and expires by itself.
 Group names are unique across both kinds, so an IdP group and a local group can
 never quietly become the same group.
 
+## Groups and production
+
+A group binding is a *scope* grant, so binding "Team Payments" as developer on a
+project covers that project's production environment too. There is no way to
+say "developer here, but read-only on prod" — bindings union and there are no
+deny rules, which is a deliberate choice: allow-union plus deny is where RBAC
+stops being reasonable about.
+
+The answer is to make the production **environment** four-eyes, so a write there
+becomes a request a different person approves rather than a commit:
+
+```
+janus env protect prod
+```
+
+Then a broad, convenient grant stays safe: the team can do their work, and
+production changes still need a second pair of eyes. Note this is a real
+control only once the environment is protected — per-config protection defaults
+to off, so a config created in prod would otherwise start unprotected. See
+[protected configs](protected-configs.md).
+
 ## A group can never be owner
 
 A group binding holds `viewer`, `developer` or `admin`. `owner` is refused by

@@ -153,6 +153,39 @@
     }
   }
 
+  async function toggleEnvProtected(env: ViewEnv) {
+    if (!project) return
+    const next = !env.requireApproval
+    if (next) {
+      const ok = await dialog.confirm({
+        title: `Require approval for every config in ${env.slug}?`,
+        body:
+          'Direct saves stop committing: each becomes an edit request a different reviewer must ' +
+          'approve (four-eyes). It covers configs created later too, which is the point — it is ' +
+          'what makes this hold without anyone remembering to tick a box per config.',
+        confirmLabel: 'Require approval',
+      })
+      if (!ok) return
+    } else {
+      const ok = await dialog.confirm({
+        title: `Stop requiring approval in ${env.slug}?`,
+        body:
+          'Saves will commit directly again for every config that is not individually protected. ' +
+          'If a whole team is bound at project scope, this is what stands between them and a ' +
+          'direct production write.',
+        confirmLabel: 'Remove requirement',
+        danger: true,
+      })
+      if (!ok) return
+    }
+    try {
+      await api.setEnvRequireApproval(project.id, env.id, next)
+      await registry.hydrate(true)
+    } catch (err) {
+      error = errorMessage(err, 'Could not change the approval requirement.')
+    }
+  }
+
   async function cloneEnv(envId: string, slug: string) {
     const name = await dialog.prompt({
       title: `Clone environment ${slug}`,
@@ -316,9 +349,19 @@
             <span class="env-title">
               <span class="pill pill-{env.kind}">{env.slug}</span>
               {#if env.name && env.name !== env.slug}<span class="env-name folio">“{env.name}”</span>{/if}
+              {#if env.requireApproval}
+                <span class="pill pill-protected" title="Every config here requires four-eyes approval, including ones created later">🛡 four-eyes</span>
+              {/if}
             </span>
             <span class="env-tools">
               <span class="folio">{env.configs.reduce((a, c) => a + c.reads24h, 0).toLocaleString()} reads/24h</span>
+              <button
+                class="btn btn-ghost btn-sm"
+                title={env.requireApproval
+                  ? 'Stop requiring approval for saves in this environment'
+                  : 'Require a different reviewer to approve every save in this environment'}
+                onclick={() => toggleEnvProtected(env)}
+              >{env.requireApproval ? 'Unprotect' : 'Protect'}</button>
               <button class="btn btn-ghost btn-sm" title="Rename display name" onclick={() => renameEnv(env)}>Rename</button>
               <button class="btn btn-ghost btn-sm" title="Clone environment" onclick={() => cloneEnv(env.id, env.slug)}>Clone</button>
               <button class="btn btn-ghost btn-sm del-btn" title="Move to trash" onclick={() => deleteEnv(env.id, env.slug)}>✕</button>
@@ -416,6 +459,7 @@
   .env-col { border-radius: var(--radius-plate); transition: background var(--t-fast), outline-color var(--t-fast); outline: 2px dashed transparent; outline-offset: 4px; }
   .env-col.drop-ok { outline-color: var(--rule); }
   .env-col.drop-hover { outline-color: var(--archivist); background: var(--archivist-wash); }
+  .pill-protected { color: var(--vermilion); background: var(--vermilion-wash); }
   .cfg-card { cursor: grab; }
   .cfg-card.lifting { opacity: 0.45; transform: rotate(-1deg); }
   .grip { color: var(--ink-ghost); font-size: 0.7rem; margin-right: 0.15rem; cursor: grab; }

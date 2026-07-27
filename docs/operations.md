@@ -280,6 +280,19 @@ owner binding is somehow lost, the next server start re-grants instance-owner to
 the oldest user. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
 
+**Four-eyes at environment scope.** `require_approval` exists per config *and*
+per environment, and the effective value is the **union**: `config OR
+environment`. Protecting an environment (`PUT
+/v1/projects/{pid}/environments/{eid}/require-approval`, `promotion:manage`;
+`janus env protect <slug>`) makes every config in it four-eyes **including ones
+created later** — which matters because the per-config flag defaults to off, so
+a config created in production would otherwise start unprotected. A config may
+add protection its environment does not require but can never remove it, so
+production four-eyes cannot be switched off one config at a time. Every write
+path that can mutate secrets — batch save, per-key set, delete, rollback,
+promote-apply — resolves protection through one shared check, so there is no
+door that skips it.
+
 **Groups.** A binding may name a **group** instead of a user, so a team is one
 row per project rather than one per person per project. Group bindings union
 with direct ones under the same single rule — no precedence, no deny rules. A
