@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Documented that the chart's SSRF hardening blocks the cluster's own API
+  server.** `JANUS_OUTBOUND_BLOCK_PRIVATE=true` (the chart default) also blocks
+  `kubernetes.default.svc`, because a ClusterIP sits in a private range. That
+  silently broke both in-cluster integrations: the k8s **sync provider** failed
+  with a sanitized `apply failed`, and Kubernetes **service-account federation**
+  failed with a generic 401 whose JWKS fetch never left the pod. Found by
+  running both against a real cluster for the first time. `values.yaml` and the
+  Kubernetes guide now say so; with the block off, sync works end-to-end.
+
+### Fixed
 - **The Helm chart's API Service also selected the bundled Postgres pod.** The
   `janus` Service matched on `app.kubernetes.io/name` + `instance` only, and the
   evaluation Postgres carries both — so `kubectl port-forward svc/janus`, the

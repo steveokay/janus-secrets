@@ -669,6 +669,48 @@ intentionally NotReady until unsealed), and a fresh install crash-loops a few
 times before Postgres accepts connections, since the chart has no wait-for-DB
 init container.
 
+**Found by exercising the Kubernetes integrations on a real cluster (2026-07-28):**
+
+Both k8s-native integrations were tested end-to-end against minikube for the
+first time. Unit tests covered them (httptest fakes, synthetic tokens); nothing
+had ever run against a live API server.
+
+- [x] ~~**The chart's SSRF hardening silently breaks both in-cluster
+      integrations.**~~ **DOCUMENTED 2026-07-28** — the chart sets
+      `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, which also blocks
+      `kubernetes.default.svc` (a ClusterIP in a private range). The **k8s sync
+      provider** then fails with a sanitized `apply failed` that does not say
+      why, and **SA federation** fails with a generic 401 because the JWKS fetch
+      never leaves the pod. Diagnosed by elimination: the provider's exact SSA
+      request, RBAC, and TLS-against-the-cluster-CA all succeed from a pod with
+      the same credentials. With `env.outboundBlockPrivate=false` the sync
+      **works end-to-end** — a real `Secret` appeared with the values
+      round-tripped from Janus. Now called out in `values.yaml` and the
+      Kubernetes guide.
+- [ ] **A blunt on/off SSRF toggle is the wrong shape for k8s.** The fix above
+      is documentation: an operator must choose between SSRF hardening and the
+      cluster-native integrations. An **allowlist** (permit specific hosts/CIDRs
+      while still blocking the rest) would let both hold at once, and is the
+      better long-term answer than asking people to turn the control off.
+- [ ] **Federation cannot verify an issuer whose cert is signed by the cluster
+      CA.** The OIDC verifier uses system roots only, and there is no way to
+      supply a CA bundle — so with the default `https://kubernetes.default.svc`
+      issuer, verification cannot succeed even with discovery opened up and the
+      outbound block off. Confirmed by triangulation: `curl` with system roots
+      fails, with the cluster CA succeeds, and the **sync provider works
+      precisely because it accepts an explicit `ca_cert`**. The
+      [federation reference](docs/ci-federation.md) already documents that Janus
+      "must also trust the API server's certificate" and recommends an external
+      issuer instead, so this is a known constraint rather than a surprise — but
+      the asymmetry with sync argues for a per-issuer `ca_cert`, which would
+      make self-hosted clusters work directly. Managed clusters (EKS/GKE/AKS)
+      are unaffected: their issuers are public and publicly trusted.
+
+**Verified working end-to-end on the cluster:** the k8s sync provider (real
+`Secret` created via server-side apply, values correct, run history recorded),
+and all Kubernetes Go tests (SA-token federation claim matching including the
+7 required-claim subtests; sync provider SSA/prune/CA-rejection/non-2xx).
+
 **Open — found by the new E2E coverage, not yet fixed:**
 
 - [x] ~~**The secret editor loses the protected (four-eyes) flag on a deep
