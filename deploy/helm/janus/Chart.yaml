@@ -9,11 +9,11 @@ description: >-
 type: application
 
 # Chart version — bump on any change to the chart itself.
-version: 0.1.0
+version: 0.2.0
 
 # The Janus release this chart's defaults target. Keep in step with a real
 # published image tag (ghcr.io/steveokay/janus:<appVersion>).
-appVersion: "0.1.0"
+appVersion: "0.3.0"
 
 keywords:
   - secrets

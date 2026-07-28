@@ -1,3 +1,10 @@
+> **If Janus runs inside the cluster you are syncing to, set
+> `env.outboundBlockPrivate=false`** (Helm) or `JANUS_OUTBOUND_BLOCK_PRIVATE=false`.
+> The default blocks outbound requests to private ranges as SSRF hardening, and
+> `kubernetes.default.svc` is a ClusterIP in exactly such a range — so the sync
+> fails with a sanitized `apply failed` that does not say why. The same applies
+> to Kubernetes service-account federation.
+
 # Kubernetes integration
 
 This is a task-oriented guide to getting a config's secrets into a

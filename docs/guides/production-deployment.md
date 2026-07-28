@@ -733,6 +733,20 @@ For a quick kick-the-tyres cluster with no external database, the chart can
 stand up an **evaluation-only** single-replica Postgres
 (`--set postgresql.enabled=true`) — never use it in production.
 
+Two things that trip people up on a first install, neither a fault:
+
+- **Do not use `helm install --wait` with `seal.type=shamir`.** Readiness gates
+  on unseal by design, so the pod stays NotReady until you supply the quorum and
+  `--wait` times out. Install without it, then unseal.
+- **The pod may restart a few times on a fresh install** (`Exit Code: 1`) until
+  Postgres accepts connections. The chart has no wait-for-DB init container;
+  Kubernetes retries and it settles on its own.
+
+The chart validates its seal configuration at template time: an unknown
+`seal.type`, or a cloud-KMS type without its key, fails immediately with a
+message naming the missing value rather than producing a pod that can never
+unseal.
+
 #### One-time `janus init` (both paths)
 
 After the first deploy, initialize the empty database exactly once. Even with

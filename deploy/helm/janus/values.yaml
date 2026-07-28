@@ -24,7 +24,7 @@ image:
   repository: ghcr.io/steveokay/janus
   # Pin a real released tag. NEVER use ":latest": Janus auto-runs schema
   # migrations on boot, so an unpinned image can migrate on a routine restart.
-  tag: "0.1.0"
+  tag: "0.3.0"
   # Optional immutable digest (e.g. "sha256:abc..."). When set it takes
   # precedence over tag (image referenced as repository@digest).
   digest: ""
@@ -223,6 +223,19 @@ env:
   # Graceful-drain window on SIGTERM (must be positive Go duration).
   shutdownGrace: "10s"
   # Block outbound requests to private/link-local ranges (SSRF hardening).
+  #
+  # IMPORTANT ON KUBERNETES: `true` also blocks the CLUSTER'S OWN API SERVER,
+  # because kubernetes.default.svc is a ClusterIP in a private range. That
+  # silently breaks both in-cluster integrations — verified on a real cluster:
+  #
+  #   * the k8s SYNC provider fails with "apply failed" (the run is recorded
+  #     as a failure, but the sanitized error does not say why), and
+  #   * Kubernetes service-account FEDERATION fails with a generic 401,
+  #     because the JWKS fetch never leaves the pod.
+  #
+  # Set it to `false` if you sync to, or federate against, the cluster Janus
+  # runs in. Leave it `true` when every outbound target is external — it is a
+  # real SSRF control and worth keeping where it costs nothing.
   outboundBlockPrivate: true
 
   # Optional HTTP tuning (empty ⇒ server default). See §3 of the guide.

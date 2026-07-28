@@ -51,16 +51,23 @@ jobs:
       - name: helm lint
         run: helm lint deploy/helm/janus --set seal.type=shamir
       - name: render every seal mode
+        # Each render GREPS for the configured value in the output. A previous
+        # version piped to /dev/null, so a validator checking a values key that
+        # did not exist (gcpkms.keyName vs the real gcpkms.key) passed CI while
+        # breaking every correctly-configured GCP install.
         run: |
           set -euo pipefail
           helm template t deploy/helm/janus --set seal.type=shamir > /dev/null
           helm template t deploy/helm/janus --set seal.type=awskms \
-            --set seal.awskms.keyArn=arn:aws:kms:us-east-1:1:key/x > /dev/null
+            --set seal.awskms.keyArn=arn:aws:kms:us-east-1:1:key/x \
+            | grep -q 'arn:aws:kms:us-east-1:1:key/x'
           helm template t deploy/helm/janus --set seal.type=gcpkms \
-            --set seal.gcpkms.keyName=projects/p/locations/l/keyRings/r/cryptoKeys/k > /dev/null
+            --set seal.gcpkms.key=projects/p/locations/l/keyRings/r/cryptoKeys/k \
+            | grep -q 'projects/p/locations/l/keyRings/r/cryptoKeys/k'
           helm template t deploy/helm/janus --set seal.type=azurekv \
             --set seal.azurekv.vaultUrl=https://v.vault.azure.net \
-            --set seal.azurekv.keyName=k > /dev/null
+            --set seal.azurekv.keyName=k \
+            | grep -q 'https://v.vault.azure.net'
       - name: reject an invalid or incomplete seal config
         run: |
           set -euo pipefail
