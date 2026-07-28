@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The Helm chart's API Service also selected the bundled Postgres pod.** The
+  `janus` Service matched on `app.kubernetes.io/name` + `instance` only, and the
+  evaluation Postgres carries both — so `kubectl port-forward svc/janus`, the
+  command the chart's own `NOTES.txt` gives for the **unseal step**, picked the
+  database pod and failed with `Pod 'janus-postgresql-0' does not have a named
+  port 'http'`. With `postgresql.enabled=true` the documented first-run
+  procedure was therefore impossible to follow.
+
+  API traffic was never actually mis-routed — the Postgres pod joined the
+  Service as a port-less endpoint, since it has no `http` container port — but
+  it sat one label away from receiving live requests. The API Service now pins
+  `app.kubernetes.io/component: server`. The Deployment's own `.spec.selector`
+  is deliberately left untouched because it is an immutable field; narrowing
+  only the Service and adding the component to the pod template keeps
+  `helm upgrade` working on existing releases (verified against a live cluster).
+- **An invalid or incomplete seal configuration rendered silently.**
+  `seal.type=bogus` passed straight through into `JANUS_SEAL_TYPE`, and the
+  chart's own defaults (`seal.type: awskms` with an empty `keyArn`) produced a
+  pod that could never unseal. Both now fail at template time with a message
+  naming the missing value.
+
+### Added
+- **CI for the Helm chart.** It had none, which is why the three defects above
+  survived until the chart was first deployed for real. The new job lints,
+  renders every seal mode, asserts that an invalid or incomplete seal config
+  *fails*, and asserts that the API Service selector cannot match the bundled
+  Postgres pod.
+
 ### Added
 - **A time bound on OIDC group snapshots** (`JANUS_OIDC_GROUP_MAX_AGE`,
   migration `000050`). Group membership from an identity provider is a snapshot
