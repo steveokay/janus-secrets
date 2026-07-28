@@ -5,6 +5,8 @@
   import { api, type KeySearchResult } from '../lib/api'
   import { shortcuts } from '../lib/shortcuts.svelte'
   import { trapFocus } from '../lib/a11y'
+  import { DESTINATIONS, visibleFor } from '../lib/nav'
+  import { session } from '../lib/session.svelte'
 
   interface Item { id: string; group: string; label: string; sublabel?: string; keywords: string; hint?: boolean; run: () => void }
 
@@ -19,22 +21,6 @@
   let searchSeq = 0
   let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
-  const NAV: Array<[string, string, string]> = [
-    ['Go to Overview', '/', 'home dashboard overview'],
-    ['Go to Projects', '/projects', 'projects registry dossiers'],
-    ['Go to Audit ledger', '/audit', 'audit activity log events record chain'],
-    ['Go to Approvals', '/approvals', 'approvals promotion requests review'],
-    ['Go to Cross-env diff', '/compare', 'compare diff cross env config staging prod difference values masked'],
-    ['Go to Transit', '/transit', 'transit encrypt sign kms keys'],
-    ['Go to Operations', '/operations', 'operations rotation sync dynamic leases'],
-    ['Go to Integrations', '/integrations', 'integrations oidc sso federation github kubernetes'],
-    ['Go to Service tokens', '/tokens', 'tokens service machine api'],
-    ['Go to Members', '/members', 'members users roles rbac team'],
-    ['Go to Break-glass', '/break-glass', 'break glass emergency access elevation escalation incident'],
-    ['Go to Notifications', '/notifications', 'notifications alerts webhook slack channels'],
-    ['Go to Settings', '/settings', 'settings master key backup password'],
-    ['Go to Trash', '/trash', 'trash deleted restore bin'],
-  ]
 
   // Debounced global key search. Only ≥2 chars fire a request; stale responses
   // (a slower fetch for an older query) are dropped via searchSeq. Errors show
@@ -80,8 +66,14 @@
             run: () => router.go(`/projects/${p.id}/configs/${c.id}`),
           })
     }
-    for (const [label, to, kw] of NAV)
-      out.push({ id: `n:${to}`, group: 'Navigate', label, keywords: kw, run: () => router.go(to) })
+    // Same gated list the rail renders. Offering a destination here that the
+    // rail hides would undo the gating entirely — the palette is the fastest
+    // way into any screen.
+    for (const d of DESTINATIONS.filter(d => visibleFor(d, session.me?.permissions)))
+      out.push({
+        id: `n:${d.href}`, group: 'Navigate', label: `Go to ${d.label}`,
+        keywords: d.keywords, run: () => router.go(d.href),
+      })
     out.push({
       id: 'a:theme', group: 'Actions', label: `Switch to ${theme.current === 'daylight' ? 'Nightwatch' : 'Daylight'}`,
       keywords: 'theme dark light night day toggle', run: () => theme.toggle(),

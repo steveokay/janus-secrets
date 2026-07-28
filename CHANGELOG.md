@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **`GET /v1/auth/me` reports effective permissions, and the UI hides what your
+  account cannot use.** The navigation rail, the command palette and the
+  `g`-chord shortcuts now render from one gated list, so a developer with no
+  instance-level rights no longer sees Transit, Groups or Notification channels
+  and then learns they are not theirs by collecting 403s.
+
+  This is a **presentation hint, not a control**. The server authorizes every
+  request independently; a hidden screen is still reachable by typing its URL
+  and behaves exactly as before. Permissions come back as two sets — `instance`
+  and `anywhere` — because *where* a permission holds decides what it justifies
+  showing: a project viewer holds `transit:read` inside their project, but the
+  transit endpoints authorize at instance scope, so a single flat list would
+  have shown Transit and immediately refused it. `authz.Effective` resolves
+  bindings once and evaluates the same predicates `Can` does, so the hint cannot
+  drift from the decision, and active break-glass grants are included while they
+  last. A server that sends no `permissions` shows everything, since degrading
+  to show-nothing would strand a signed-in owner on an empty rail.
+
 ### Changed
 - **The Makefile now mirrors every CI gate, so nothing has to wait for a push
   to fail.** `make test` was green while three gates it never ran — the web

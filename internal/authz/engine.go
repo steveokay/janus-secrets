@@ -151,13 +151,22 @@ func (e *Engine) grantAllows(ctx context.Context, userID string, action Action, 
 	if err != nil {
 		return false, err
 	}
+	return grantsAllow(gs, now, action, res), nil
+}
+
+// grantsAllow is the grant rule itself, over an already-fetched slice. Effective
+// resolves grants once and evaluates many actions against them, so the rule
+// lives here and both callers share it — two copies would be two things to keep
+// in step, and the failure mode of them disagreeing is a screen that appears
+// and then 403s.
+func grantsAllow(gs []*store.BreakGlassGrant, now time.Time, action Action, res Resource) bool {
 	for _, g := range gs {
 		if !g.Active(now) {
 			continue
 		}
 		if grantApplies(g, res) && roleAllows(Role(g.ElevatedRole), action) {
-			return true, nil
+			return true
 		}
 	}
-	return false, nil
+	return false
 }

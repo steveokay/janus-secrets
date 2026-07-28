@@ -9,6 +9,7 @@ import (
 
 	"github.com/steveokay/janus-secrets/internal/audit"
 	"github.com/steveokay/janus-secrets/internal/auth"
+	"github.com/steveokay/janus-secrets/internal/authz"
 	"github.com/steveokay/janus-secrets/internal/crypto"
 )
 
@@ -116,14 +117,50 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// mePermissions is the effective permission set the UI uses to decide what to
+// SHOW. It is explicitly a hint: every request is still authorized server-side,
+// so a client that ignores this — or forges it — gains exactly nothing.
+type mePermissions struct {
+	Instance []authz.Action `json:"instance"`
+	Anywhere []authz.Action `json:"anywhere"`
+}
+
+type meResponse struct {
+	Kind        string        `json:"kind"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Permissions mePermissions `json:"permissions"`
+}
+
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, CodeUnauthenticated, "authentication required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"kind": string(p.Kind), "id": p.ID, "name": p.Name,
+	// An empty set is a meaningful answer (a user with no bindings sees a nav
+	// with nothing on it), so start from empty rather than nil: `[]` and `null`
+	// read differently on the client, and only one of them is true.
+	perms := mePermissions{Instance: []authz.Action{}, Anywhere: []authz.Action{}}
+	if s.authz != nil {
+		var scope *authz.TokenScope
+		if ts := tokenScopeFrom(r.Context()); ts != nil {
+			scope = &authz.TokenScope{Kind: ts.Kind, ID: ts.ID, Access: ts.Access}
+		}
+		eff, err := s.authz.Effective(r.Context(), p, scope)
+		if err != nil {
+			// Fail CLOSED on the hint: report no permissions rather than
+			// guessing. The UI then shows the minimum, which is recoverable by
+			// reloading — where guessing generously would advertise screens the
+			// server will refuse.
+			s.logger.Warn("effective permissions unavailable", "err", err, "principal", p.ID)
+		} else {
+			perms.Instance = eff.Instance
+			perms.Anywhere = eff.Anywhere
+		}
+	}
+	writeJSON(w, http.StatusOK, meResponse{
+		Kind: string(p.Kind), ID: p.ID, Name: p.Name, Permissions: perms,
 	})
 }
 

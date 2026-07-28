@@ -63,6 +63,40 @@ Service tokens are separate from members: they get least-privilege
 config/environment/transit scopes and can never perform management actions —
 see [Service tokens](service-tokens.md).
 
+## What each person sees
+
+The web UI hides what your account cannot use. The navigation rail, the command
+palette (`ctrl`+`K`) and the `g`-chord shortcuts all render from the same list,
+filtered by the permissions `GET /v1/auth/me` reports — so a developer with no
+instance-level rights does not see Transit, Groups or Notification channels, and
+someone bound to no project does not see Projects.
+
+That filtering is **presentation only**. The server authorizes every request
+independently and is the sole authority: a hidden screen is still reachable by
+typing its URL, where it behaves exactly as it always did — usually a 403. The
+point is not to add a control, it is to stop people discovering their
+permissions by collecting refusals.
+
+The response splits permissions in two, because *where* a permission holds
+decides what it justifies showing:
+
+- `instance` — what you hold against the instance itself. This gates
+  instance-scoped screens: Transit, the group catalog, user management,
+  notification channels.
+- `anywhere` — what you hold at instance scope **or** on any single project or
+  environment you are bound to. This gates project-shaped screens: Projects,
+  Audit, Members, Approvals, Trash.
+
+The distinction is not cosmetic. A project viewer holds `secret:read` and
+`transit:read` *inside their project*, but the transit endpoints authorize at
+instance scope — so gating Transit on `anywhere` would show a screen that
+immediately refuses. An active [break-glass](break-glass.md) grant is included
+while it lasts, so an elevation makes the screens it unlocked appear.
+
+Two screens are never hidden: **Settings** (your own password, TOTP, passkeys
+and sessions) and **Break-glass** (elevation is self-service; the server decides
+whether the role you ask for is above the one you hold).
+
 ## Last login
 
 Every user carries a `last_login_at` timestamp: the most recent successful login

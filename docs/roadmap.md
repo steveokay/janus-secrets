@@ -205,10 +205,11 @@ hydration, so a deep link — a cold load — rendered a protected config as
 unprotected, down to a Save button reading "Save as vN". The server-side control
 always held, so nothing was exploitable; the UI misreported it. Fixed in PR #202
 by reading the flag from the server, and pinned by a cold-context deep-link E2E
-test. Still open: the login screen throttles password logins because the
-OIDC-status probe shares the password rate limiter; deleting a config redirects
-to `/projects` rather than the dossier; and a duplicate/wrong `aria-label` on the
-approvals table. Detail and reasoning in [`../status.md`](../status.md).
+test. The other three — the OIDC-status probe sharing the password rate limiter,
+the config-delete redirect, and a duplicate `aria-label` on the approvals table —
+were all found **already fixed** when the tracker was verified against the code
+on 2026-07-28; they had been repaired in passing without being checked off.
+Detail and reasoning in [`../status.md`](../status.md).
 
 ## RBAC at organisation scale
 
@@ -291,9 +292,25 @@ covers only users who have signed in, since membership is a login snapshot;
 Entra's ~200-group overage leaving a retained snapshot stale with no time bound
 **was fixed 2026-07-28** (`JANUS_OIDC_GROUP_MAX_AGE`, migration 000050 — a
 generic maximum snapshot age rather than an Entra-specific Graph fetch; local
-membership never expires); the static nav shows Groups to
-accounts that cannot use it (same root cause as the `/v1/auth/me` permissions
-item); and neither the Terraform provider nor the SDKs can manage groups.
+membership never expires); the static nav showing Groups to accounts that cannot
+use it **was fixed 2026-07-28** together with its root cause — `GET
+/v1/auth/me` now reports effective permissions and the shell renders from them,
+so the rail, the command palette and the `g`-chords all hide what an account
+cannot use (see below); and neither the Terraform provider nor the SDKs can
+manage groups.
+
+**Permission-gated navigation shipped 2026-07-28.** `/v1/auth/me` gained a
+`permissions` object and the UI stopped being a static list. It is a **hint** —
+the server authorizes every request and a hidden screen is still reachable by
+URL — so what it buys is that a non-admin no longer discovers their permissions
+by collecting 403s. The design decision worth keeping: permissions are reported
+as **two sets**, `instance` and `anywhere`, because a project viewer holds
+`transit:read` inside their project while the transit endpoints authorize at
+instance scope; one flat list would have shown Transit and then refused it.
+`authz.Effective` resolves bindings once and reuses the same predicates `Can`
+does, so the hint cannot drift from the decision. Detail in
+[`../status.md`](../status.md) and
+[members-and-rbac.md](guides/members-and-rbac.md).
 
 **Environment-scoped four-eyes shipped 2026-07-27** (migration `000046`), which
 is what makes the no-deny-rules decision defensible: `require_approval` was per

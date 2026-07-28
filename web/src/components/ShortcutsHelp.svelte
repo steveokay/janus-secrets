@@ -1,7 +1,8 @@
 <script lang="ts">
   import { router } from '../lib/router.svelte'
   import { dialog } from '../lib/dialog.svelte'
-  import { shortcuts, CHORDS } from '../lib/shortcuts.svelte'
+  import { shortcuts, chordsFor } from '../lib/shortcuts.svelte'
+  import { session } from '../lib/session.svelte'
   import { trapFocus } from '../lib/a11y'
 
   // `g` pressed, waiting for the second key of the chord
@@ -39,7 +40,7 @@
 
     if (pending) {
       clearPending()
-      const chord = CHORDS.find(c => c.keys === e.key.toLowerCase())
+      const chord = chordsFor(session.me?.permissions).find(c => c.keys === e.key.toLowerCase())
       if (chord) {
         e.preventDefault()
         router.go(chord.to)
@@ -92,7 +93,7 @@
         <section>
           <h4 class="folio">Go to — press <kbd class="key">g</kbd>, then…</h4>
           <dl class="chords">
-            {#each CHORDS as c (c.keys)}
+            {#each chordsFor(session.me?.permissions) as c (c.keys)}
               <div><dt><kbd class="key">g</kbd><kbd class="key">{c.keys}</kbd></dt><dd>{c.label}</dd></div>
             {/each}
           </dl>

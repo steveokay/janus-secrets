@@ -1,28 +1,13 @@
-/* Keyboard shortcuts: the `g`-chord navigation table and the help-modal
-   state, shared by ShortcutsHelp (which owns the key handling) and the
-   command palette (which offers "Keyboard shortcuts" as an action). */
+/* Keyboard shortcuts: the help-modal state, shared by ShortcutsHelp (which owns
+   the key handling) and the command palette (which offers "Keyboard shortcuts"
+   as an action). */
 
-export interface Chord {
-  keys: string      // second key of the `g`-chord
-  label: string
-  to: string
-}
+/* The `g`-chord table now lives with every other navigation destination in
+   lib/nav.ts, gated by the caller's permissions — a chord that jumps to a
+   screen the rail hides would route around the gating. Re-exported here so
+   ShortcutsHelp keeps one import for both the chords and the modal state. */
+export { chordsFor } from './nav'
 
-export const CHORDS: Chord[] = [
-  { keys: 'h', label: 'Overview', to: '/' },
-  { keys: 'p', label: 'Projects', to: '/projects' },
-  { keys: 't', label: 'Transit', to: '/transit' },
-  { keys: 'o', label: 'Operations', to: '/operations' },
-  { keys: 'i', label: 'Integrations', to: '/integrations' },
-  { keys: 'a', label: 'Audit ledger', to: '/audit' },
-  { keys: 'r', label: 'Approvals', to: '/approvals' },
-  { keys: 'k', label: 'Service tokens', to: '/tokens' },
-  { keys: 'm', label: 'Members', to: '/members' },
-  { keys: 'g', label: 'Groups', to: '/groups' },
-  { keys: 'n', label: 'Notifications', to: '/notifications' },
-  { keys: 's', label: 'Settings', to: '/settings' },
-  { keys: 'x', label: 'Trash', to: '/trash' },
-]
 
 let helpOpen = $state(false)
 
