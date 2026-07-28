@@ -268,6 +268,18 @@ today — it is the gap between *correct* and *usable by an org*.
    since a subset of a hash chain cannot be verified. **With this, all three
    org-scale items are done and the isolation story has no remaining leak.**
 
+**Found by deploying the Helm chart for the first time (2026-07-28), all
+fixed:** the chart shipped in #165 with no CI and had never actually been
+deployed. Its API Service selected on name+instance only, which the bundled
+evaluation Postgres also carries — so `kubectl port-forward svc/janus`, the
+command its own NOTES.txt gives for the **unseal** step, picked the database pod
+and failed. API traffic was never mis-routed (Postgres joined as a port-less
+endpoint) but sat one label away. An invalid `seal.type`, and the chart's own
+defaults (`awskms` with an empty key), also rendered a pod that could never
+unseal. Fixed by pinning `component: server` on the Service selector, validating
+the seal config at template time, and adding the `helm` CI job that was missing
+entirely. Details in `status.md`.
+
 **Raised by building groups (2026-07-27), tracked in `status.md`:** Members
 reported group-derived access as *no access* — **fixed the same day** by
 resolving it server-side (`derived_members` on the scope's group-binding list)

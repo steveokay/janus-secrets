@@ -24,7 +24,7 @@ image:
   repository: ghcr.io/steveokay/janus
   # Pin a real released tag. NEVER use ":latest": Janus auto-runs schema
   # migrations on boot, so an unpinned image can migrate on a routine restart.
-  tag: "0.1.0"
+  tag: "0.3.0"
   # Optional immutable digest (e.g. "sha256:abc..."). When set it takes
   # precedence over tag (image referenced as repository@digest).
   digest: ""

@@ -68,9 +68,9 @@ See [Deployment modes §10.2](../docs/guides/production-deployment.md#102-kubern
 
 | Value | Purpose | Default |
 |---|---|---|
-| `image.repository` / `image.tag` / `image.digest` | Which image to run. Pin a tag or digest — never `:latest` (migrations run on boot). | `ghcr.io/steveokay/janus` / `0.1.0` |
+| `image.repository` / `image.tag` / `image.digest` | Which image to run. Pin a tag or digest — never `:latest` (migrations run on boot). | `ghcr.io/steveokay/janus` / `0.3.0` |
 | `seal.type` | `awskms` \| `gcpkms` \| `azurekv` \| `shamir`. Cloud-KMS types auto-unseal on boot (recommended for k8s). | `awskms` |
-| `seal.awskms.keyArn` / `seal.gcpkms.key` / `seal.azurekv.vaultUrl`+`keyName` | Per-provider key reference. | `""` |
+| `seal.awskms.keyArn` / `seal.gcpkms.key` / `seal.azurekv.vaultUrl`+`keyName` | Per-provider key reference. **Required** when that seal type is chosen — the chart fails at template time rather than rendering a pod that can never unseal. | `""` |
 | `serviceAccount.annotations` | Cloud-identity annotations for KMS access (IRSA / GKE WI / Azure WI). | `{}` |
 | `database.existingSecret` | Name of a Secret holding `JANUS_DATABASE_URL` (**preferred**). | `""` |
 | `database.url` | Fallback DSN the chart wraps in a Secret. | `""` |

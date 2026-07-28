@@ -80,8 +80,8 @@ here turns both into an immediate, readable error.
 {{- if and (eq $t "awskms") (not .Values.seal.awskms.keyArn) -}}
 {{- fail "seal.type=awskms requires seal.awskms.keyArn (or use seal.type=shamir)" -}}
 {{- end -}}
-{{- if and (eq $t "gcpkms") (not .Values.seal.gcpkms.keyName) -}}
-{{- fail "seal.type=gcpkms requires seal.gcpkms.keyName (or use seal.type=shamir)" -}}
+{{- if and (eq $t "gcpkms") (not .Values.seal.gcpkms.key) -}}
+{{- fail "seal.type=gcpkms requires seal.gcpkms.key (or use seal.type=shamir)" -}}
 {{- end -}}
 {{- if eq $t "azurekv" -}}
 {{- if or (not .Values.seal.azurekv.vaultUrl) (not .Values.seal.azurekv.keyName) -}}
