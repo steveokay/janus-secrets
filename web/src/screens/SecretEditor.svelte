@@ -28,7 +28,6 @@
     stale: boolean                // past effective max-age (advisory; never blocks)
     lastReadAt: string | null     // most recent per-key reveal (null = never read)
     unused: boolean               // not read within the unused window (advisory)
-    owner: string | null          // annotation owner label (null = unset; advisory)
     note: string | null           // annotation free-text note (null = unset; advisory)
     revealed: boolean
     value: string | null   // plaintext once revealed
@@ -66,10 +65,10 @@
   let maxAgeDraft = $state('')
   let showConfigMaxAge = $state(false)
   let configMaxAgeDraft = $state('')
-  // Per-key annotation (owner + note; value-free, never blocks). Popover editor
-  // keyed by secret name; drafts hold the in-progress owner/note.
+  // Per-key annotation (a free-text note; value-free, never blocks). Popover
+  // editor keyed by secret name. Ownership is NOT here — it belongs to the
+  // project, since a service has an owner and its keys almost never do.
   let annotationKeyFor = $state<string | null>(null)
-  let annotationOwnerDraft = $state('')
   let annotationNoteDraft = $state('')
   let historyFor = $state<string | null>(null)
   let keyHistory = $state<KeyVersionMeta[]>([])
@@ -185,7 +184,6 @@
           stale: m.stale ?? false,
           lastReadAt: m.last_read_at ?? null,
           unused: m.unused ?? false,
-          owner: m.owner ?? null,
           note: m.note ?? null,
           revealed: false,
           value: null,
@@ -385,7 +383,7 @@
   function addRow() {
     rows.push({
       key: '', origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
-      maxAgeSeconds: null, stale: false, lastReadAt: null, unused: false, owner: null, note: null,
+      maxAgeSeconds: null, stale: false, lastReadAt: null, unused: false, note: null,
       revealed: true, value: null, draft: '', dirty: false, deleted: false, added: true, editing: true,
     })
   }
@@ -588,34 +586,32 @@
 
   const staleCount = $derived(rows.filter(r => r.stale && !r.added).length)
 
-  // ── per-key annotation (owner + note) ────────────────────────────────────
+  // ── per-key annotation (a note) ──────────────────────────────────────────
   function openKeyAnnotation(row: Row) {
     if (annotationKeyFor === row.key) { annotationKeyFor = null; return }
     annotationKeyFor = row.key
-    annotationOwnerDraft = row.owner ?? ''
     annotationNoteDraft = row.note ?? ''
   }
 
   async function saveKeyAnnotation(row: Row) {
-    const owner = annotationOwnerDraft.trim()
     const note = annotationNoteDraft.trim()
     try {
-      await api.setKeyAnnotation(configId, row.key, owner || null, note || null)
+      await api.setKeyAnnotation(configId, row.key, note || null)
       annotationKeyFor = null
       await load(configId)
     } catch (err) {
-      flashToast(errorMessage(err, 'Could not save annotation.'))
+      flashToast(errorMessage(err, 'Could not save note.'))
     }
   }
 
   async function clearKeyAnnotation(row: Row) {
     try {
-      // Empty owner + note clears the whole annotation server-side.
-      await api.setKeyAnnotation(configId, row.key, null, null)
+      // An empty note clears the annotation server-side.
+      await api.setKeyAnnotation(configId, row.key, null)
       annotationKeyFor = null
       await load(configId)
     } catch (err) {
-      flashToast(errorMessage(err, 'Could not clear annotation.'))
+      flashToast(errorMessage(err, 'Could not clear the note.'))
     }
   }
 
@@ -815,7 +811,7 @@
       } else {
         rows.push({
           key: e.key, origin: 'own', valueVersion: 0, createdAt: new Date().toISOString(),
-          maxAgeSeconds: null, stale: false, lastReadAt: null, unused: false, owner: null, note: null,
+          maxAgeSeconds: null, stale: false, lastReadAt: null, unused: false, note: null,
           revealed: true, value: null, draft: e.value, dirty: true, deleted: false, added: true, editing: false,
         })
         added++
@@ -1213,9 +1209,8 @@
                   {#if row.key && !isEnvVarKey(row.key)}
                     <span class="file-badge" title="Not an env-var identifier — janus run skips it; janus secrets download --format files materializes it to disk">file</span>
                   {/if}
-                  {#if (row.owner || row.note) && !row.added}
-                    <div class="annotation-line" title="Annotation — owner and note (metadata, never a value)">
-                      {#if row.owner}<span class="owner-chip">👤 {row.owner}</span>{/if}
+                  {#if row.note && !row.added}
+                    <div class="annotation-line" title="Note — metadata, never a value">
                       {#if row.note}<span class="note-text folio">{row.note}</span>{/if}
                     </div>
                   {/if}
@@ -1295,10 +1290,10 @@
                     title="Advisory max-age override for this key">
                     Max-age{#if overriddenKeys.has(row.key)} ·&nbsp;set{/if}
                   </button>
-                  <button class="btn btn-ghost btn-sm" class:has-override={!!(row.owner || row.note)}
+                  <button class="btn btn-ghost btn-sm" class:has-override={!!row.note}
                     onclick={() => openKeyAnnotation(row)}
-                    title="Owner + note annotation for this key (metadata, never a value)">
-                    {annotationKeyFor === row.key ? 'Close owner' : (row.owner || row.note) ? 'Owner · set' : 'Owner…'}
+                    title="Free-text note for this key (metadata, never a value)">
+                    {annotationKeyFor === row.key ? 'Close note' : row.note ? 'Note · set' : 'Note…'}
                   </button>
                 {/if}
                 {#if row.origin !== 'inherited' || row.added}
@@ -1371,20 +1366,17 @@
                   <div class="annotation-panel">
                     <span class="label">Annotation — {row.key}</span>
                     <p class="folio">
-                      Owner and free-text note so “what is this and who do I ask” is answerable.
-                      Metadata only — no secret value is stored. Never blocks any operation.
+                      Free text so “what is this secret” is answerable. Metadata only — no secret
+                      value is stored, and it never blocks any operation. <strong>Who owns it</strong>
+                      is set on the project, not per key.
                     </p>
                     <div class="annotation-controls">
-                      <input class="input annotation-owner" placeholder="owner — e.g. team-data, alice@corp.io"
-                        maxlength="256"
-                        bind:value={annotationOwnerDraft}
-                        onkeydown={(e) => { if (e.key === 'Enter') saveKeyAnnotation(row) }} />
-                      <textarea class="input annotation-note" placeholder="note — what is this secret, when to rotate, who owns it…"
+                      <textarea class="input annotation-note" placeholder="note — what is this secret, when to rotate…"
                         rows="2" maxlength="2048"
                         bind:value={annotationNoteDraft}></textarea>
                       <div class="annotation-actions">
                         <button class="btn btn-primary btn-sm" onclick={() => saveKeyAnnotation(row)}>Save</button>
-                        {#if row.owner || row.note}
+                        {#if row.note}
                           <button class="btn btn-ghost btn-sm" onclick={() => clearKeyAnnotation(row)}>Clear</button>
                         {/if}
                       </div>
@@ -1679,7 +1671,7 @@
   tr.deleted td:first-child { box-shadow: inset 3px 0 0 var(--vermilion); }
 
   /* The action set grew with the feature set — reveal/mask, history, lock,
-     max-age, owner, reads, delete. With `white-space: nowrap` this cell
+     max-age, note, reads, delete. With `white-space: nowrap` this cell
      demanded its full single-line width from the table's auto layout, and the
      value column absorbed every bit of the shortfall until the editor
      collapsed to an unusable sliver. Let the actions wrap onto a second line
@@ -1722,15 +1714,13 @@
   .maxage-controls { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s2); }
   .maxage-input { width: 12rem; }
 
-  /* per-key annotation (owner + note) — value-free metadata */
+  /* per-key annotation (a note) — value-free metadata */
   .annotation-line { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; margin-top: 0.25rem; }
-  .owner-chip { font-size: var(--text-xs); color: var(--archivist); font-weight: 600; white-space: nowrap; }
   .note-text { font-size: var(--text-xs); color: var(--ink-soft); }
   .annotation-row td { background: var(--archivist-wash); }
   .annotation-panel { padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
   .annotation-panel .folio { max-width: 60ch; }
   .annotation-controls { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); max-width: 44rem; }
-  .annotation-owner { width: 100%; }
   .annotation-note { width: 100%; resize: vertical; font-family: inherit; }
   .annotation-actions { display: flex; align-items: center; gap: var(--s2); }
   .file-badge {

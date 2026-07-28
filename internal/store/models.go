@@ -25,9 +25,15 @@ type Project struct {
 	Name       string
 	WrappedKEK []byte
 	KEKVersion int
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  *time.Time
+	// Owner is an ADVISORY display label — a team, rota or email answering "who
+	// do I ask about this service". It grants nothing, blocks nothing, and is
+	// never consulted in an authorization decision; actual ownership is a role
+	// binding. nil when unset. Moved here from per-key annotations in migration
+	// 000049: a service has an owner, its individual keys almost never do.
+	Owner     *string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
 }
 
 // Environment is a user-definable environment within a project (dev/staging/prod).

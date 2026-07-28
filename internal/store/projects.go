@@ -13,12 +13,12 @@ type ProjectRepo struct{ s *Store }
 // NewProjectRepo returns a project repository.
 func NewProjectRepo(s *Store) *ProjectRepo { return &ProjectRepo{s: s} }
 
-const projectCols = `id::text, slug, name, wrapped_kek, kek_version, created_at, updated_at, deleted_at`
+const projectCols = `id::text, slug, name, wrapped_kek, kek_version, owner, created_at, updated_at, deleted_at`
 
 func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 	var p Project
 	if err := row.Scan(&p.ID, &p.Slug, &p.Name, &p.WrappedKEK, &p.KEKVersion,
-		&p.CreatedAt, &p.UpdatedAt, &p.DeletedAt); err != nil {
+		&p.Owner, &p.CreatedAt, &p.UpdatedAt, &p.DeletedAt); err != nil {
 		return nil, mapError(err)
 	}
 	return &p, nil
@@ -220,4 +220,12 @@ func (r *ProjectRepo) RotateKEK(ctx context.Context, id string, wrapNew func(old
 		return 0, err
 	}
 	return newVersion, nil
+}
+
+// UpdateOwner sets or clears a project's advisory owner label. nil clears it.
+// Display metadata only — it is never consulted in an authorization decision.
+func (r *ProjectRepo) UpdateOwner(ctx context.Context, id string, owner *string) error {
+	return r.s.execAffectingOne(ctx,
+		`UPDATE projects SET owner = $2, updated_at = now()
+		 WHERE id = $1::uuid AND deleted_at IS NULL`, id, owner)
 }

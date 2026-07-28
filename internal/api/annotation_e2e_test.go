@@ -58,31 +58,37 @@ func TestAnnotationAPIE2E(t *testing.T) {
 
 	// Viewer cannot set an annotation.
 	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/DATABASE_URL/annotation", viewerCookie, "",
-		`{"owner":"`+ownerText+`","note":"`+noteText+`"}`, nil); code != http.StatusForbidden {
+		`{"note":"`+noteText+`"}`, nil); code != http.StatusForbidden {
 		t.Fatalf("viewer annotation PUT: want 403, got %d", code)
 	}
 
-	// Developer sets owner + note (owner trimmed).
+	// Developer sets a note (trimmed).
 	var set struct {
-		Key   string  `json:"key"`
-		Owner *string `json:"owner"`
-		Note  *string `json:"note"`
+		Key  string  `json:"key"`
+		Note *string `json:"note"`
 	}
 	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/DATABASE_URL/annotation", devCookie, "",
-		`{"owner":"  `+ownerText+`  ","note":"`+noteText+`"}`, &set); code != 200 {
+		`{"note":"  `+noteText+`  "}`, &set); code != 200 {
 		t.Fatalf("developer annotation PUT: want 200, got %d", code)
 	}
-	if set.Owner == nil || *set.Owner != ownerText || set.Note == nil || *set.Note != noteText {
+	if set.Note == nil || *set.Note != noteText {
 		t.Fatalf("set echo = %+v", set)
 	}
 
-	// Owner-only on a second key.
+	// A note on a second key.
 	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/API_KEY/annotation", devCookie, "",
-		`{"owner":"team-api-fixture"}`, nil); code != 200 {
-		t.Fatalf("owner-only PUT: want 200, got %d", code)
+		`{"note":"third-party key"}`, nil); code != 200 {
+		t.Fatalf("second note PUT: want 200, got %d", code)
 	}
 
-	// Masked list surfaces owner + note (and no value).
+	// owner is REJECTED here, not ignored: it moved to the project, and
+	// silently dropping it would leave the caller believing it was recorded.
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/API_KEY/annotation", devCookie, "",
+		`{"owner":"`+ownerText+`","note":"x"}`, nil); code != http.StatusBadRequest {
+		t.Fatalf("owner on a key annotation: want 400, got %d", code)
+	}
+
+	// Masked list surfaces the note (and no value, and no owner).
 	var masked struct {
 		Secrets map[string]struct {
 			Owner *string `json:"owner"`
@@ -94,32 +100,31 @@ func TestAnnotationAPIE2E(t *testing.T) {
 		t.Fatalf("masked GET: want 200, got %d", code)
 	}
 	db := masked.Secrets["DATABASE_URL"]
-	if db.Owner == nil || *db.Owner != ownerText || db.Note == nil || *db.Note != noteText {
+	if db.Note == nil || *db.Note != noteText {
 		t.Fatalf("DATABASE_URL masked annotation = %+v", db)
+	}
+	if db.Owner != nil {
+		t.Fatalf("masked response must no longer carry a per-key owner, got %v", *db.Owner)
 	}
 	if db.Value != nil {
 		t.Fatalf("masked response must not carry a secret value, got %v", *db.Value)
 	}
-	apiKey := masked.Secrets["API_KEY"]
-	if apiKey.Owner == nil || *apiKey.Owner != "team-api-fixture" || apiKey.Note != nil {
-		t.Fatalf("API_KEY masked annotation = %+v", apiKey)
-	}
 
-	// Clearing (empty owner + note) removes the whole annotation → nil in masked.
+	// Clearing (empty note) removes the whole annotation → nil in masked.
 	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/DATABASE_URL/annotation", devCookie, "",
-		`{"owner":"","note":""}`, nil); code != 200 {
+		`{"note":""}`, nil); code != 200 {
 		t.Fatalf("clear annotation PUT: want 200, got %d", code)
 	}
 	masked.Secrets = nil
 	doAuthed(t, "GET", ts.URL+"/v1/configs/"+cid+"/secrets", viewerCookie, "", "", &masked)
-	if db := masked.Secrets["DATABASE_URL"]; db.Owner != nil || db.Note != nil {
+	if db := masked.Secrets["DATABASE_URL"]; db.Note != nil {
 		t.Fatalf("DATABASE_URL should be cleared, got %+v", db)
 	}
 
-	// Over-length owner is a 400.
+	// Over-length note is a 400.
 	if code := doAuthed(t, "PUT", ts.URL+"/v1/configs/"+cid+"/secrets/API_KEY/annotation", devCookie, "",
-		`{"owner":"`+strings.Repeat("x", 300)+`"}`, nil); code != http.StatusBadRequest {
-		t.Fatalf("over-length owner PUT: want 400, got %d", code)
+		`{"note":"`+strings.Repeat("x", 2100)+`"}`, nil); code != http.StatusBadRequest {
+		t.Fatalf("over-length note PUT: want 400, got %d", code)
 	}
 
 	// Value-free audit: neither the annotation text nor any secret value may

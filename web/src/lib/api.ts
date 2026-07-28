@@ -179,7 +179,17 @@ export interface SealStatus {
   progress?: { submitted: number; required: number }
 }
 export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
-export interface ApiProject { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
+export interface ApiProject {
+  id: string
+  slug: string
+  name: string
+  /** ADVISORY display label — "who do I ask about this service". Grants
+   *  nothing and is never consulted in an authorization decision; real
+   *  ownership is a role binding. Moved here from per-key annotations. */
+  owner?: string | null
+  created_at?: string
+  last_activity_at?: string | null
+}
 export interface ApiEnvironment { id: string; slug: string; name: string; created_at?: string; last_activity_at?: string | null }
 export interface ApiConfig {
   id: string
@@ -199,7 +209,7 @@ export interface ApiConfig {
   effective_require_approval?: boolean
   created_at: string
 }
-export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean; owner?: string; note?: string }
+export interface MaskedSecret { value_version: number; created_at: string; origin: 'own' | 'inherited' | 'overridden'; type?: string; max_age_seconds?: number; stale?: boolean; last_read_at?: string | null; unused?: boolean; note?: string }
 export interface MaxAgePolicy { key: string; max_age_seconds: number }
 export interface SecretChange { key: string; value?: string; delete?: boolean }
 export interface VersionMeta { version: number; message: string; created_by: string; created_at: string }
@@ -833,7 +843,10 @@ export const api = {
     post<{ signature: string }>(`/v1/transit/sign/${encodeURIComponent(name)}`, { input: btoa(input) }),
 
   // structure lifecycle
-  renameProject: (pid: string, name: string) => request<ApiProject>('PATCH', `/v1/projects/${pid}`, { name }),
+  /** Rename, and optionally set the project's advisory owner label. Omitting
+   *  owner leaves it unchanged; "" clears it. */
+  renameProject: (pid: string, name: string, owner?: string | null) =>
+    request<ApiProject>('PATCH', `/v1/projects/${pid}`, owner === undefined ? { name } : { name, owner }),
   deleteProject: (pid: string) => del<void>(`/v1/projects/${pid}`),
   restoreProject: (pid: string) => post<ApiProject>(`/v1/projects/${pid}/restore`, {}),
   destroyProject: (pid: string) => del<void>(`/v1/projects/${pid}?destroy=true`),
@@ -877,9 +890,12 @@ export const api = {
       `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/max-age`, { max_age_seconds: seconds }),
   // per-key annotation (owner + note; value-free metadata, never blocks anything).
   // Send empty owner + note to clear the whole annotation.
-  setKeyAnnotation: (cid: string, key: string, owner: string | null, note: string | null) =>
-    put<{ key: string; owner: string | null; note: string | null }>(
-      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/annotation`, { owner, note }),
+  /** A key's free-text note. Ownership is NOT here — it is a property of the
+   *  project (migration 000049); a service has an owner, its individual keys
+   *  almost never do. Sending `owner` is rejected by the server. */
+  setKeyAnnotation: (cid: string, key: string, note: string | null) =>
+    put<{ key: string; note: string | null }>(
+      `/v1/configs/${cid}/secrets/${encodeURIComponent(key)}/annotation`, { note }),
 
   listLockedKeys: (cid: string) => get<{ keys: string[] }>(`/v1/configs/${cid}/locked-keys`).then(r => r.keys ?? []),
   lockKey: (cid: string, key: string) => post<{ key: string; locked: boolean }>(`/v1/configs/${cid}/locked-keys`, { key }),

@@ -16,9 +16,14 @@ import (
 // masked-secrets list (SecretRead). Mutations emit a value-free audit event
 // (key name / config path only — never owner/note text or a secret value).
 
-// handleKeyAnnotationPut sets or clears a key's owner + note annotation.
-// Body: {"owner": "...", "note": "..."}. A field may be null/omitted/empty to
-// leave it unset; when BOTH end up empty the annotation is cleared entirely.
+// handleKeyAnnotationPut sets or clears a key's note.
+// Body: {"note": "..."}. An empty/omitted note clears the annotation.
+//
+// `owner` used to live here and no longer does — it moved to the PROJECT in
+// migration 000049, because a service has an owner and its individual keys
+// almost never do. Sending it is REJECTED rather than ignored: silently
+// dropping a field an operator supplied would leave them believing ownership
+// was recorded when it was not.
 func (s *Server) handleKeyAnnotationPut(w http.ResponseWriter, r *http.Request) {
 	res, cid, err := s.configResource(r)
 	if err != nil {
@@ -37,7 +42,12 @@ func (s *Server) handleKeyAnnotationPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, CodeValidation, "invalid body")
 		return
 	}
-	owner, note, cleared, err := s.service.SetAnnotation(r.Context(), cid, key, body.Owner, body.Note, promoteActorUser(r))
+	if body.Owner != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			"owner is set on the project, not the key — use PATCH /v1/projects/{pid}")
+		return
+	}
+	note, cleared, err := s.service.SetAnnotation(r.Context(), cid, key, body.Note, promoteActorUser(r))
 	if err != nil {
 		s.writeServiceError(w, err)
 		return
@@ -50,10 +60,7 @@ func (s *Server) handleKeyAnnotationPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
-	out := map[string]any{"key": key, "owner": nil, "note": nil}
-	if owner != nil {
-		out["owner"] = *owner
-	}
+	out := map[string]any{"key": key, "note": nil}
 	if note != nil {
 		out["note"] = *note
 	}

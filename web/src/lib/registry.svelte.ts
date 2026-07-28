@@ -28,6 +28,8 @@ export interface ViewProject {
   id: string
   slug: string
   name: string
+  /** Advisory owner label; null when unset. Never an authorization input. */
+  owner: string | null
   createdAt: string
   lastActivityAt: string | null
   environments: ViewEnv[]
@@ -87,6 +89,7 @@ async function loadTree(): Promise<ViewProject[]> {
       return {
         id: p.id,
         slug: p.slug,
+        owner: p.owner ?? null,
         name: p.name,
         createdAt: p.created_at ?? '',
         lastActivityAt: p.last_activity_at ?? null,
