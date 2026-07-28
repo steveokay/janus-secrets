@@ -9,44 +9,56 @@ import (
 // Annotation length bounds (mirror the DB CHECK constraints). Enforced at the
 // service boundary so a too-long value is a clean ErrValidation, not a DB error.
 const (
-	MaxAnnotationOwnerLen = 256
-	MaxAnnotationNoteLen  = 2048
+	// MaxProjectOwnerLen bounds the project's advisory owner label. It lives on
+	// the project, not the key: a service has an owner, its individual keys
+	// almost never do (migration 000049).
+	MaxProjectOwnerLen   = 256
+	MaxAnnotationNoteLen = 2048
 )
 
-// Annotation is one per-key secret annotation: an owner label and/or a free-text
-// note. Value-free — human-facing metadata only, never secret material. Owner and
-// Note are nil when unset.
+// Annotation is one per-key secret note — free text such as "read replica,
+// rotate with the primary". Value-free: human-facing metadata only, never
+// secret material. Note is nil when unset.
 type Annotation struct {
-	Key   string
-	Owner *string
-	Note  *string
+	Key  string
+	Note *string
 }
 
-// SetAnnotation sets (or clears) the owner + note annotation for a key. owner and
-// note are trimmed; an empty string is treated as "unset" for that field. If both
-// end up empty the annotation is cleared entirely. key must be a valid secret key.
-// Returns the normalized owner/note that were stored (both nil on a clear) and
-// whether the resulting state is a clear (true) or a set (false), so the caller
-// can echo the stored values and emit the right audit action.
-func (s *Service) SetAnnotation(ctx context.Context, configID, key string, owner, note *string, actor string) (outOwner, outNote *string, cleared bool, err error) {
+// SetAnnotation sets (or clears) a key's note. The note is trimmed; an empty
+// string is treated as "unset" and clears the annotation entirely. key must be a
+// valid secret key. Returns the normalized note that was stored (nil on a clear)
+// and whether the resulting state is a clear, so the caller can echo the stored
+// value and emit the right audit action.
+func (s *Service) SetAnnotation(ctx context.Context, configID, key string, note *string, actor string) (outNote *string, cleared bool, err error) {
 	if err := validateKey(key); err != nil {
-		return nil, nil, false, err
+		return nil, false, err
 	}
-	o := normalizeAnnField(owner)
 	n := normalizeAnnField(note)
-	if o != nil && len(*o) > MaxAnnotationOwnerLen {
-		return nil, nil, false, fmt.Errorf("%w: owner exceeds maximum length", ErrValidation)
-	}
 	if n != nil && len(*n) > MaxAnnotationNoteLen {
-		return nil, nil, false, fmt.Errorf("%w: note exceeds maximum length", ErrValidation)
+		return nil, false, fmt.Errorf("%w: note exceeds maximum length", ErrValidation)
 	}
 	if _, err := s.configs.Get(ctx, configID); err != nil {
-		return nil, nil, false, mapStoreErr(err)
+		return nil, false, mapStoreErr(err)
 	}
-	if o == nil && n == nil {
-		return nil, nil, true, mapStoreErr(s.annots.Clear(ctx, configID, key))
+	if n == nil {
+		return nil, true, mapStoreErr(s.annots.Clear(ctx, configID, key))
 	}
-	return o, n, false, mapStoreErr(s.annots.Set(ctx, configID, key, o, n, actor))
+	return n, false, mapStoreErr(s.annots.Set(ctx, configID, key, n, actor))
+}
+
+// SetProjectOwner sets or clears a project's advisory owner label. Trimmed; an
+// empty string clears it. ADVISORY ONLY — a display label answering "who do I
+// ask about this service". It grants nothing and is never consulted in an
+// authorization decision; real ownership is a role binding.
+func (s *Service) SetProjectOwner(ctx context.Context, projectID string, owner *string) (*string, error) {
+	o := normalizeAnnField(owner)
+	if o != nil && len(*o) > MaxProjectOwnerLen {
+		return nil, fmt.Errorf("%w: owner exceeds maximum length", ErrValidation)
+	}
+	if err := s.projects.UpdateOwner(ctx, projectID, o); err != nil {
+		return nil, mapStoreErr(err)
+	}
+	return o, nil
 }
 
 // ClearAnnotation removes a key's annotation. Clearing an absent annotation is a
@@ -72,7 +84,7 @@ func (s *Service) ListAnnotations(ctx context.Context, configID string) ([]Annot
 	}
 	out := make([]Annotation, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, Annotation{Key: e.Key, Owner: e.Owner, Note: e.Note})
+		out = append(out, Annotation{Key: e.Key, Note: e.Note})
 	}
 	return out, nil
 }

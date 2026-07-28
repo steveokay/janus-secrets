@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING: secret ownership moved from the key to the project.** Per-key
+  `owner` was the wrong grain. A *service* has an owner; its individual keys
+  almost never do, so the field was either repeated on every key or left empty
+  — and neither told anyone anything. It also read confusingly beside
+  group-owned projects, where a binding genuinely says which team owns what.
+
+  `owner` is now a field on the **project** (`PATCH /v1/projects/{pid}`, guarded
+  by the same `project:update` as the name; shown on the dossier header). It
+  remains **advisory**: a display label that grants nothing, blocks nothing, and
+  is never consulted in an authorization decision. Real ownership is a role
+  binding. Project, not environment, because ownership does not differ between a
+  service's dev and prod — an environment-level field would be the same value
+  copied three times and would drift.
+
+  The per-key **note** is unchanged and stays where it is: "read replica, rotate
+  with the primary" is real per-key information that does not generalise.
+
+  Sending `owner` to `PUT /v1/configs/{cid}/secrets/{key}/annotation` now
+  returns **400** rather than being ignored — silently dropping a field an
+  operator supplied would leave them believing ownership was recorded when it
+  was not. `owner` is likewise gone from the masked-list entries.
+
+  **No operator-entered data is destroyed on upgrade** (migration `000049`).
+  Where every annotated key in a project agreed on a single owner, it is
+  promoted to the project — the case this change is for, and it converts
+  cleanly. Where they disagreed, promotion would lose the detail, so each owner
+  is folded into that key's note instead (`owner: alice@corp.io`). Verified
+  against real Postgres with a fixture covering both shapes.
+
 ### Added
 - **Scoped audit read.** Every audit endpoint authorized against the instance
   scope, so a team lead could not review their own project's trail without being

@@ -97,9 +97,6 @@ func (s *Server) handleSecretsList(w http.ResponseWriter, r *http.Request) {
 		}
 		// Advisory per-key annotation (see internal/secrets/annotations.go):
 		// owner label + free-text note. Value-free metadata; omitted when unset.
-		if m.Owner != nil {
-			entry["owner"] = *m.Owner
-		}
 		if m.Note != nil {
 			entry["note"] = *m.Note
 		}

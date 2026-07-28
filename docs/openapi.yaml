@@ -82,6 +82,16 @@ components:
         id: { type: string, format: uuid }
         slug: { type: string, example: acme-web }
         name: { type: string, example: Acme Web }
+        owner:
+          type: string
+          nullable: true
+          maxLength: 256
+          description: >-
+            ADVISORY display label answering "who do I ask about this service".
+            It grants nothing, blocks nothing, and is never consulted in an
+            authorization decision — real ownership is a role binding. Moved
+            here from per-key annotations, because a service has an owner and
+            its individual keys almost never do. Set via PATCH /v1/projects/{pid}.
         created_at: { type: string, format: date-time }
         last_activity_at:
           type: string
@@ -1467,7 +1477,6 @@ paths:
                             stale: { type: boolean, description: Advisory. True when the key's age (now - created_at) exceeds its effective max_age_seconds. Never blocks. }
                             last_read_at: { type: string, format: date-time, nullable: true, description: Advisory. Timestamp of the most recent per-key reveal (secret.reveal audit event); null when never read per-key. Bulk raw reads record an aggregate resource and are not per-key attributable. }
                             unused: { type: boolean, description: Advisory. True when the key has had no per-key reveal within the unused-secret threshold window (JANUS_UNUSED_SECRET_DAYS, default 90 days) — never read, or last read older than the window. Never blocks. }
-                            owner: { type: string, description: Advisory per-key annotation — a human-facing owner label. Value-free metadata; omitted when unset. }
                             note: { type: string, description: Advisory per-key annotation — a free-text note ("what is this / who do I ask"). Value-free metadata; omitted when unset. }
                   - type: object
                     description: Revealed (reveal=true).
@@ -2024,15 +2033,20 @@ paths:
       - { name: key, in: path, required: true, schema: { type: string } }
     put:
       tags: [secrets]
-      summary: Set or clear a key's owner + note annotation
+      summary: Set or clear a key's note
       description: >
-        Sets a human-facing owner label and free-text note on a key so "what is
-        this and who do I ask" is answerable. Value-free — no secret VALUES are
-        read or written. Send an empty/null owner and note to clear the whole
-        annotation. Owner and note are trimmed; an empty field is treated as
-        unset. Requires secret:write; emits a value-free audit event. The stored
-        annotation is surfaced per key in the masked GET
+        Sets a free-text note on a key so "what is this secret" is answerable.
+        Value-free — no secret VALUES are read or written. Send an empty/null
+        note to clear the annotation; it is trimmed, and an empty result is
+        treated as unset. Requires secret:write; emits a value-free audit event.
+        The stored note is surfaced per key in the masked GET
         /v1/configs/{cid}/secrets response.
+
+
+        `owner` USED TO LIVE HERE and no longer does — it moved to the PROJECT,
+        because a service has an owner and its individual keys almost never do.
+        Sending it is REJECTED with a 400 rather than ignored: silently dropping
+        a field would leave the caller believing ownership was recorded.
       requestBody:
         required: true
         content:
@@ -2040,20 +2054,18 @@ paths:
             schema:
               type: object
               properties:
-                owner: { type: string, nullable: true, description: owner label (<=256 chars), or null/empty to unset }
                 note: { type: string, nullable: true, description: free-text note (<=2048 chars), or null/empty to unset }
       responses:
         "200":
-          description: OK. Echoes the normalized stored annotation (both null when cleared).
+          description: OK. Echoes the normalized stored note (null when cleared).
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   key: { type: string }
-                  owner: { type: string, nullable: true }
                   note: { type: string, nullable: true }
-        "400": { description: Validation error (bad key or over-length field). }
+        "400": { description: Validation error (bad key, over-length note, or the removed `owner` field). }
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/configs/{cid}/versions:
     parameters:

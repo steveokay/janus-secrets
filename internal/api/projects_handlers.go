@@ -25,18 +25,26 @@ type createProjectRequest struct {
 
 type renameRequest struct {
 	Name string `json:"name"`
+	// Owner is optional: omitted leaves it unchanged, "" clears it. Advisory
+	// display metadata, guarded by the same project:update as the name.
+	Owner *string `json:"owner"`
 }
 
 type projectResponse struct {
-	ID             string  `json:"id"`
-	Slug           string  `json:"slug"`
-	Name           string  `json:"name"`
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+	// Owner is an ADVISORY display label ("who do I ask about this service").
+	// It grants nothing and is never consulted in an authorization decision —
+	// real ownership is a role binding. Moved here from per-key annotations in
+	// migration 000049.
+	Owner          *string `json:"owner"`
 	CreatedAt      string  `json:"created_at"`
 	LastActivityAt *string `json:"last_activity_at"`
 }
 
 func projectView(p *store.Project) projectResponse {
-	return projectResponse{ID: p.ID, Slug: p.Slug, Name: p.Name,
+	return projectResponse{ID: p.ID, Slug: p.Slug, Name: p.Name, Owner: p.Owner,
 		CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339)}
 }
 
@@ -314,6 +322,12 @@ func (s *Server) handleProjectRename(w http.ResponseWriter, r *http.Request) {
 	if err := repo.UpdateName(r.Context(), pid, req.Name); err != nil {
 		s.writeServiceError(w, err)
 		return
+	}
+	if req.Owner != nil {
+		if _, err := s.service.SetProjectOwner(r.Context(), pid, req.Owner); err != nil {
+			s.writeServiceError(w, err)
+			return
+		}
 	}
 	if err := s.record(r, "project.update", "projects/"+pid, "success", "", ""); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")

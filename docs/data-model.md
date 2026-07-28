@@ -200,6 +200,15 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`projects.owner`** (migration `000049`) — an ADVISORY display label
+  answering "who do I ask about this service". It grants nothing and is never an
+  authorization input; real ownership is a role binding. Moved here from
+  `config_secret_annotations.owner`, which was the wrong grain: a service has an
+  owner, its individual keys almost never do. The migration preserves what
+  operators typed — a project whose annotated keys all agreed on one owner has
+  it promoted, and where they disagreed each owner is folded into that key's
+  note. The per-key **note** stays: "read replica, rotate with the primary" is
+  real per-key information that does not generalise.
 - **`audit_events.project_id`** (migration `000048`) — the scope a scoped audit
   read filters on, recorded at write time because the resource string is
   free-form and a prefix/`LIKE` scheme would silently mis-scope events.

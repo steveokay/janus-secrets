@@ -34,7 +34,7 @@ type MergedMeta struct {
 	Stale         bool
 	LastReadAt    *time.Time
 	Unused        bool
-	// Owner/Note are the ADVISORY per-key annotation (see annotations.go): a
+	// Note is the ADVISORY per-key annotation (see annotations.go): a
 	// human-facing owner label and free-text note. nil when unset. Value-free
 	// (metadata only) and, like max-age, scoped to the requested (leaf) config —
 	// NOT inherited. Purely informational; never blocks any operation.
@@ -125,10 +125,8 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 	if err != nil {
 		return nil, mapStoreErr(err)
 	}
-	annOwner := map[string]*string{}
 	annNote := map[string]*string{}
 	for _, e := range annEntries {
-		annOwner[e.Key] = e.Owner
 		annNote[e.Key] = e.Note
 	}
 
@@ -170,7 +168,6 @@ func (s *Service) ListSecretsMerged(ctx context.Context, configID string) ([]Mer
 		} else {
 			m.Unused = true // never read per-key
 		}
-		m.Owner = annOwner[k]
 		m.Note = annNote[k]
 		out = append(out, m)
 	}

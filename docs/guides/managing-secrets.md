@@ -313,35 +313,52 @@ effective `max_age_seconds` per key. Policies live under:
 | `PUT /v1/configs/{cid}/max-age` | set/clear the config default (`{"max_age_seconds": N\|null}`) |
 | `PUT /v1/configs/{cid}/secrets/{key}/max-age` | set/clear a per-key override |
 
-### Annotations — owner + note (advisory)
+### Notes on a key (advisory)
 
-An **annotation** attaches human-facing metadata to a key so
-"what is this and who do I ask about it?" is answerable from the masked
-view. Each key may carry an **owner** label (e.g. `team-data`,
-`alice@corp.io`) and a free-text **note** (what the secret is for, when to
-rotate it, who to page). Annotations are **value-free** — no secret value
-is ever stored or returned — and, like max-age, they are **purely
-informational**: nothing about an annotation blocks a read, write, or
-reveal.
+A **note** attaches human-facing metadata to a key so "what is this secret?"
+is answerable from the masked view — what it is for, when to rotate it, what
+breaks if it changes. Notes are **value-free** (no secret value is ever stored
+or returned) and, like max-age, **purely informational**: nothing about a note
+blocks a read, write, or reveal.
 
-Owner and note are trimmed; an empty field is treated as unset, and
-setting both to empty **clears** the whole annotation. Annotations are
-scoped to the config where they are set (they are *not* inherited by
-branch configs, mirroring locked-keys / max-age semantics).
+The note is trimmed; an empty note **clears** the annotation. Notes are scoped
+to the config where they are set (they are *not* inherited by branch configs,
+mirroring locked-keys / max-age semantics).
 
-Setting or clearing an annotation is a config write (`secret:write`) and
-emits a value-free audit event (`secret.annotation.set` /
-`secret.annotation.clear` — key name / config path only, never the owner
-or note text). Reading rides the masked list (`secret:read`).
+Setting or clearing is a config write (`secret:write`) and emits a value-free
+audit event (`secret.annotation.set` / `secret.annotation.clear` — key name and
+config path only, never the note text). Reading rides the masked list
+(`secret:read`), which carries `note` per key (omitted when unset). The editor
+shows the note under each annotated key with a per-row **Note…** popover.
 
-The masked list response (`GET /v1/configs/{cid}/secrets`) carries `owner`
-and `note` per key (omitted when unset). The web editor renders an
-**owner · note** line under each annotated key and offers a per-row
-**Owner…** popover to edit or clear them.
+#### Ownership lives on the project, not the key
+
+There used to be an `owner` field here as well. It was the wrong grain: a
+*service* has an owner, its individual keys almost never do, so the field was
+either repeated on every key or left empty — and neither told anyone anything.
+It now lives on the **project** (see
+[members and RBAC](members-and-rbac.md)), set with the project name:
+
+```
+PATCH /v1/projects/{pid}   {"name": "Acme Web", "owner": "team-payments"}
+```
+
+or from the project dossier's **Rename** control. It is an **advisory display
+label** — it grants nothing, blocks nothing, and is never consulted in an
+authorization decision. Real ownership is a role binding, and a project can be
+owned by a whole team via a [group](groups.md).
+
+Sending `owner` to the key-annotation endpoint is **rejected with a 400**
+rather than ignored, so a caller is never left believing ownership was
+recorded when it was not. Existing per-key owners were preserved on upgrade:
+where every annotated key in a project agreed on one owner it was promoted to
+the project, and where they disagreed each owner was folded into that key's
+note.
 
 | Endpoint | Purpose |
 |---|---|
-| `PUT /v1/configs/{cid}/secrets/{key}/annotation` | set/clear a key's owner + note (`{"owner": "…"\|null, "note": "…"\|null}`; empty both clears) |
+| `PUT /v1/configs/{cid}/secrets/{key}/annotation` | set/clear a key's note (`{"note": "…"\|null}`; empty clears) |
+| `PATCH /v1/projects/{pid}` | set/clear the project's advisory `owner` |
 
 ### Unused-secret detection (advisory)
 

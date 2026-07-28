@@ -19,37 +19,32 @@ func TestAnnotationRepo(t *testing.T) {
 		t.Fatalf("List empty = %v, %v", got, err)
 	}
 
-	// Owner + note.
-	if err := ar.Set(ctx, cid, "DATABASE_URL", strp("team-data"), strp("primary DB dsn"), ""); err != nil {
-		t.Fatalf("Set owner+note: %v", err)
+	// Notes only — owner moved to the project in migration 000049.
+	if err := ar.Set(ctx, cid, "DATABASE_URL", strp("primary DB dsn"), ""); err != nil {
+		t.Fatalf("Set note: %v", err)
 	}
-	// Owner only (note NULL).
-	if err := ar.Set(ctx, cid, "API_KEY", strp("team-api"), nil, ""); err != nil {
-		t.Fatalf("Set owner-only: %v", err)
+	if err := ar.Set(ctx, cid, "API_KEY", strp("third-party key"), ""); err != nil {
+		t.Fatalf("Set note: %v", err)
 	}
 	got, err := ar.List(ctx, cid)
 	if err != nil || len(got) != 2 {
 		t.Fatalf("List = %v, %v", got, err)
 	}
 	// Sorted by key: API_KEY first, then DATABASE_URL.
-	if got[0].Key != "API_KEY" || got[0].Owner == nil || *got[0].Owner != "team-api" || got[0].Note != nil {
+	if got[0].Key != "API_KEY" || got[0].Note == nil || *got[0].Note != "third-party key" {
 		t.Fatalf("API_KEY entry = %+v", got[0])
 	}
-	if got[1].Key != "DATABASE_URL" || got[1].Owner == nil || *got[1].Owner != "team-data" ||
-		got[1].Note == nil || *got[1].Note != "primary DB dsn" {
+	if got[1].Key != "DATABASE_URL" || got[1].Note == nil || *got[1].Note != "primary DB dsn" {
 		t.Fatalf("DATABASE_URL entry = %+v", got[1])
 	}
 
-	// Upsert overwrites (note now set, owner cleared to NULL).
-	if err := ar.Set(ctx, cid, "API_KEY", nil, strp("rotate quarterly"), ""); err != nil {
+	// Upsert overwrites the note.
+	if err := ar.Set(ctx, cid, "API_KEY", strp("rotate quarterly"), ""); err != nil {
 		t.Fatalf("Set upsert: %v", err)
 	}
 	got, _ = ar.List(ctx, cid)
 	for _, e := range got {
 		if e.Key == "API_KEY" {
-			if e.Owner != nil {
-				t.Fatalf("API_KEY owner should be NULL after upsert, got %v", *e.Owner)
-			}
 			if e.Note == nil || *e.Note != "rotate quarterly" {
 				t.Fatalf("API_KEY note = %v", e.Note)
 			}

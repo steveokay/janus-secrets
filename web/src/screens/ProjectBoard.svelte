@@ -62,6 +62,7 @@
   let showPipeline = $state(false)
   let renaming = $state(false)
   let newName = $state('')
+  let newOwner = $state('')
 
   $effect(() => {
     if (project) {
@@ -109,7 +110,8 @@
     e.preventDefault()
     if (!project || !newName.trim()) return
     try {
-      await api.renameProject(project.id, newName.trim())
+      // Owner rides the same PATCH and the same project:update permission.
+      await api.renameProject(project.id, newName.trim(), newOwner.trim())
       renaming = false
       await registry.hydrate(true)
     } catch (err) {
@@ -263,15 +265,22 @@
         <p class="folio"><a href="/projects">Registry</a> / dossier {project.slug.toUpperCase()} · est. {stampDate(project.createdAt)}</p>
         {#if renaming}
           <form class="rename" onsubmit={renameProject}>
-            <input class="input" bind:value={newName} />
+            <input class="input" bind:value={newName} aria-label="Project name" />
+            <input class="input" bind:value={newOwner} maxlength="256"
+              placeholder="owner — e.g. team-payments, alice@corp.io" aria-label="Project owner" />
             <button class="btn btn-sm btn-stamp" type="submit">Save</button>
             <button class="btn btn-sm btn-ghost" type="button" onclick={() => (renaming = false)}>Cancel</button>
           </form>
         {:else}
           <h1>
             {project.name}
-            <button class="btn btn-ghost btn-sm rename-btn" onclick={() => { renaming = true; newName = project.name }}>Rename</button>
+            <button class="btn btn-ghost btn-sm rename-btn" onclick={() => { renaming = true; newOwner = project?.owner ?? ''; newName = project.name }}>Rename</button>
           </h1>
+          {#if project.owner}
+            <p class="folio owner-line" title="Advisory — who to ask about this service. Grants no access; real ownership is a role binding.">
+              👤 {project.owner}
+            </p>
+          {/if}
         {/if}
       </div>
       <div class="head-actions">
@@ -429,6 +438,7 @@
   }
   .inline-form .input { max-width: 220px; }
 
+  .owner-line { margin-top: var(--s1); }
   .rename { display: flex; gap: var(--s2); align-items: center; margin-top: var(--s2); }
   .rename .input { max-width: 260px; }
   .rename-btn { font-size: 0.6rem; vertical-align: middle; }
