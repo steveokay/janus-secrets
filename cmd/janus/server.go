@@ -272,6 +272,18 @@ func buildBootConfig(logger *slog.Logger) (api.BootConfig, error) {
 		lockout.Max = lockout.Base
 	}
 
+	// Maximum age of an OIDC group snapshot. Unset/invalid → 0 (bound off),
+	// which preserves historical behaviour; enabling it by default would
+	// silently revoke group-derived access on upgrade. Never fail boot on it.
+	var oidcGroupMaxAge time.Duration
+	if v := os.Getenv("JANUS_OIDC_GROUP_MAX_AGE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			oidcGroupMaxAge = d
+		} else {
+			logger.Warn("invalid JANUS_OIDC_GROUP_MAX_AGE; the bound stays off", "value", v)
+		}
+	}
+
 	// Advisory unused-secret threshold (days). Non-positive/invalid → default 90
 	// (applied in the secrets service). Never fail boot on this advisory knob.
 	unusedSecretDays := 0 // 0 → service default (DefaultUnusedSecretDays = 90)
@@ -377,6 +389,7 @@ func buildBootConfig(logger *slog.Logger) (api.BootConfig, error) {
 		MetricsToken:     os.Getenv("JANUS_METRICS_TOKEN"), // "" → /metrics 404s
 		BreakGlassMaxTTL: breakGlassMaxTTL,                 // 0 → default 1h
 		UnusedSecretDays: unusedSecretDays,                 // 0 → default 90 days
+		OIDCGroupMaxAge:  oidcGroupMaxAge,                  // 0 → bound off
 
 		SecretRetainMinVersions: secretRetainMinVersions, // 0 → no version-count floor
 		SecretRetainMinDays:     secretRetainMinDays,     // 0 → no age floor

@@ -215,6 +215,15 @@ func (r *GroupRepo) SyncOIDCMembership(ctx context.Context, userID string, claim
 			return err
 		}
 		res.Added, res.Removed = added, removed
+		// Stamp the authoritative sync in the SAME transaction as the
+		// membership replace, so the snapshot and "when we last knew it" can
+		// never disagree. Only reached on a KNOWN claim — an overage login
+		// never calls this, which is what lets the max-age bound trigger for
+		// exactly the case it exists for.
+		if _, err := tx.Exec(ctx,
+			`UPDATE users SET oidc_groups_synced_at = now() WHERE id = $1::uuid`, userID); err != nil {
+			return mapError(err)
+		}
 		return nil
 	})
 	return res, err

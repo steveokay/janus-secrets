@@ -104,6 +104,18 @@ type BootConfig struct {
 	// BreakGlassMaxTTL clamps a break-glass grant's requested TTL (cmd/janus
 	// reads JANUS_BREAKGLASS_MAX_TTL). Zero → the api package default (1h).
 	BreakGlassMaxTTL time.Duration
+	// OIDCGroupMaxAge bounds how long a user's OIDC group snapshot is trusted.
+	// Past it, bindings derived from `oidc` groups stop applying for that user
+	// until their next authoritative sync. Zero (the default) disables the
+	// bound, preserving historical behaviour — enabling it by default would
+	// silently revoke access on upgrade from anyone who had not logged in
+	// recently. `janus doctor` warns when group sync is configured without it.
+	//
+	// It exists for the one case the snapshot model cannot self-correct: Entra
+	// stops emitting the group claim past ~200 groups, so the snapshot is
+	// retained rather than cleared and would otherwise never expire. LOCAL
+	// group membership is never affected.
+	OIDCGroupMaxAge time.Duration
 	// UnusedSecretDays is the advisory "not read in N days" threshold for
 	// unused-secret detection (cmd/janus reads JANUS_UNUSED_SECRET_DAYS). Zero or
 	// negative → the secrets service default (90 days). Purely advisory.
@@ -225,7 +237,7 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 	// DURABLE bindings that union with direct ones (no precedence tier), which
 	// is why they arrive through WithGroups rather than the grant overlay.
 	authorizer := authz.New(store.NewRoleBindingRepo(st)).
-		WithGroups(store.NewGroupBindingRepo(st)).
+		WithGroups(store.NewGroupBindingRepo(st).WithOIDCMaxAge(bc.OIDCGroupMaxAge)).
 		WithGrants(store.NewBreakGlassRepo(st))
 	// The audit Recorder gets signed-checkpoint support: the checkpoint store
 	// (anchors + prune) plus a MAC-key provider derived (domain-separated) from

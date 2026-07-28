@@ -604,17 +604,28 @@ gap; none is a security hole._
       partial one. The UI says so in prose; it should say so structurally
       (e.g. mark the count as "seen at sign-in"), and the offboarding view
       below has the same caveat.
-- [ ] **Entra group overage leaves membership stale without bound.** Past ~200
-      groups Entra sends a `_claim_names` Graph pointer instead of the claim.
-      Janus correctly treats that as *unknown* and keeps the last snapshot
-      rather than clearing it (clearing would look exactly like a legitimate
-      removal from every group), and it audits `group.sync` with
-      `status=overage`. But the retained snapshot then never expires, which is
-      the one place this design keeps stale membership with no time bound. The
-      honest fixes are a Graph fetch for the overage case (a new outbound
-      dependency and a new credential) or a configurable maximum snapshot age
-      after which group-derived access stops applying. Documented as a known
-      limitation in the [groups guide](docs/guides/groups.md) for now.
+- [x] ~~**Entra group overage leaves membership stale without bound.**~~
+      **FIXED 2026-07-28** — migration `000050` + `JANUS_OIDC_GROUP_MAX_AGE`.
+      Of the two honest fixes, chose the **configurable maximum snapshot age**
+      over a Graph fetch: Graph would need new credentials, add an outbound call
+      to the login path, and be Entra-specific in a deliberately generic OIDC
+      implementation. Past the configured age, `oidc`-derived bindings stop
+      applying until the user's next **authoritative** sync — and an overage
+      login deliberately does NOT refresh the clock, or the bound would never
+      fire for the exact case it exists for.
+
+      **Local membership never expires.** It is admin-managed, has no freshness
+      concept, and expiring it would break every instance with no IdP at all —
+      the edge case that would have made a naive implementation worse than the
+      problem.
+
+      Off by default, because enabling it silently on upgrade would revoke
+      group-derived access from anyone who had not logged in recently; a
+      `janus doctor` check warns when group sync is configured without it, so
+      it is discoverable rather than buried in a guide. A missing sync timestamp
+      is treated as stale (fail closed), and the migration backfills existing
+      members so nothing is revoked retroactively. Verified by disabling the SQL
+      clause and watching both tests go red.
 - [ ] **The Groups nav item is visible to accounts that cannot use it.** The
       catalog needs instance `group:manage`, but the nav is static, so a
       non-admin sees Groups and learns it is not theirs by collecting a 403.
