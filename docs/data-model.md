@@ -200,6 +200,14 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   `role` (`viewer`/`developer`/`admin`/`owner`), `created_by`. A CHECK enforces
   that exactly the right scope-id column is set per level, and a COALESCE-based
   unique index makes each (subject, scope) binding singular (upsert-in-place).
+- **`users.oidc_groups_synced_at`** (migration `000050`) — when the user's OIDC
+  group snapshot was last refreshed **authoritatively**. Stamped inside the same
+  transaction as the membership replace, so the snapshot and "when we last knew
+  it" cannot disagree; an overage login never stamps it. With
+  `JANUS_OIDC_GROUP_MAX_AGE` set, `oidc`-derived bindings stop applying past
+  that age (NULL is treated as stale — fail closed). Local membership is never
+  affected. Existing members are backfilled on upgrade so nothing is revoked
+  retroactively.
 - **`projects.owner`** (migration `000049`) — an ADVISORY display label
   answering "who do I ask about this service". It grants nothing and is never an
   authorization input; real ownership is a role binding. Moved here from

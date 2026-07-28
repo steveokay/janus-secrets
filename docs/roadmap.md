@@ -276,9 +276,10 @@ item as first written claimed an "RBAC matrix" still plotted users only; **there
 is no matrix** — it was React-era and the Atrium rewrite dropped it, so
 rebuilding a users × scopes grid remains genuinely open. Also: an OIDC group's member list
 covers only users who have signed in, since membership is a login snapshot;
-Entra's ~200-group overage leaves a retained snapshot stale with no time bound
-(the one place this design keeps stale membership unbounded — the alternatives
-are a Graph fetch or a maximum snapshot age); the static nav shows Groups to
+Entra's ~200-group overage leaving a retained snapshot stale with no time bound
+**was fixed 2026-07-28** (`JANUS_OIDC_GROUP_MAX_AGE`, migration 000050 — a
+generic maximum snapshot age rather than an Entra-specific Graph fetch; local
+membership never expires); the static nav shows Groups to
 accounts that cannot use it (same root cause as the `/v1/auth/me` permissions
 item); and neither the Terraform provider nor the SDKs can manage groups.
 

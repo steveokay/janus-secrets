@@ -305,6 +305,17 @@ Scoping is project-level; an environment-scoped binding confers no audit read.
 `GET /v1/audit/events` reports `scoped` and `scope_projects` so a client can say
 so rather than present a partial trail as the whole ledger.
 
+**Bounding an OIDC group snapshot.** `JANUS_OIDC_GROUP_MAX_AGE` (a Go
+duration; unset/invalid = OFF) expires group-derived access when a user's
+membership stops being refreshed. It exists for the one case the snapshot model
+cannot self-correct: Entra stops emitting the group claim past ~200 groups, so
+Janus retains the last good snapshot rather than clearing it — correct, since
+clearing would look like a legitimate removal from every group — and it would
+otherwise never expire. Only authoritative syncs refresh the clock; an overage
+login does not. **Local group membership never expires** (admin-managed, no
+freshness concept). Off by default so an upgrade cannot silently revoke access;
+`janus doctor` warns when group sync is configured without it.
+
 **Delegated project creation.** `POST /v1/projects` accepts either
 instance-scoped `project:create` (admin+, the historical route) or membership of
 a group marked `can_create_projects` (`PUT /v1/groups/{gid}/capabilities`,

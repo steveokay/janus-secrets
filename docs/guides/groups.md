@@ -203,7 +203,7 @@ so an emergency elevation cannot be turned into a lasting group binding.
 To cut IdP-derived access immediately, remove the binding or revoke the user's
 sessions (Settings → Active sessions, or `janus session revoke`).
 
-## Known limitation: Entra group overage
+## Entra group overage, and bounding it
 
 Entra stops emitting `groups` once a user is in roughly 200 groups, sending a
 `_claim_names` pointer to Microsoft Graph instead. Janus treats that as
@@ -212,10 +212,35 @@ Entra stops emitting `groups` once a user is in roughly 200 groups, sending a
 it as "in no groups", which would clear every membership and look exactly like
 a legitimate removal from all of them.
 
-The consequence is that such a user's membership stops tracking the IdP until
-you fix it upstream — assign the application a filtered group set in Entra so
-the claim stays under the limit. Watch for `group.sync` events with
-`status=overage` in the audit ledger.
+That leaves one problem the snapshot model cannot self-correct: the retained
+snapshot stops tracking the IdP and, on its own, would never expire.
+
+**Bound it with a maximum snapshot age:**
+
+```
+JANUS_OIDC_GROUP_MAX_AGE=720h    # 30 days
+```
+
+Past that, bindings derived from `oidc` groups stop applying for that user
+until their next authoritative sync — their next successful login with a
+readable group claim. Only **authoritative** syncs refresh the clock; an
+overage login deliberately does not, or the bound would never fire for the case
+it exists for.
+
+**Local group membership is never affected.** It is admin-managed, has no
+freshness concept, and expiring it would break every instance with no identity
+provider at all.
+
+The setting is **off by default**: enabling it silently on upgrade would revoke
+group-derived access from anyone who had not logged in recently. `janus doctor`
+warns when group sync is configured without it, so it is discoverable rather
+than buried here. A user with no sync timestamp at all is treated as stale
+(fail closed), and the upgrade backfills existing members so nobody is revoked
+retroactively.
+
+The upstream fix is still worth doing: assign the application a filtered group
+set in Entra so the claim stays under the limit. Watch for `group.sync` events
+with `status=overage` in the audit ledger.
 
 ## What is audited
 

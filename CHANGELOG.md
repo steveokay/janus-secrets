@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **A time bound on OIDC group snapshots** (`JANUS_OIDC_GROUP_MAX_AGE`,
+  migration `000050`). Group membership from an identity provider is a snapshot
+  refreshed at login, which normally self-corrects. The exception is Entra: past
+  roughly 200 groups it stops emitting the claim and sends a Microsoft Graph
+  pointer instead, so Janus retains the last good snapshot rather than clearing
+  it — correct, because clearing would look exactly like a legitimate removal
+  from every group — but that snapshot then had no time bound at all. It was the
+  one place the design kept stale membership indefinitely.
+
+  Past the configured age, bindings derived from `oidc` groups stop applying for
+  that user until their next **authoritative** sync. An overage login
+  deliberately does not refresh the clock, or the bound would never fire for the
+  case it exists for; the stamp is written in the same transaction as the
+  membership replace, so the snapshot and "when we last knew it" cannot
+  disagree.
+
+  A generic maximum age rather than a Graph fetch: Graph would need new
+  credentials, add an outbound call to the login path, and be Entra-specific in
+  a deliberately generic OIDC implementation.
+
+  **Local group membership never expires** — it is admin-managed, has no
+  freshness concept, and expiring it would break every instance with no identity
+  provider at all. The setting is off by default, since enabling it silently on
+  upgrade would revoke access from anyone who had not logged in recently, and a
+  new `janus doctor` check warns when group sync is configured without it. A
+  missing timestamp is treated as stale (fail closed), and the migration
+  backfills existing members so nothing is revoked retroactively.
+
 ## [0.3.0] - 2026-07-28
 
 RBAC at organisation scale. An organisation with many product teams can now run

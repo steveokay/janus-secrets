@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func mkGroup(t *testing.T, name, kind, claim string) *Group {
@@ -324,3 +325,113 @@ func TestGroupMemberPaginationAndDelete(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// The Entra overage bound. An OIDC snapshot that stops being refreshed must
+// eventually stop granting access — but LOCAL membership is admin-managed, has
+// no freshness concept, and must never expire (that would break every instance
+// with no identity provider at all).
+func TestOIDCGroupSnapshotMaxAge(t *testing.T) {
+	if testStore == nil {
+		t.Skip("postgres/docker not available")
+	}
+	resetDB(t)
+	ctx := context.Background()
+	groups := NewGroupRepo(testStore)
+	uid := mkUser(t, "stale@example.com")
+	pid := mkProject(t, "staleproj")
+
+	oidcGroup := mkGroup(t, "idp-team", GroupKindOIDC, "grp-idp")
+	localGroup := mkGroup(t, "local-team", GroupKindLocal, "")
+	if err := groups.AddMember(ctx, localGroup.ID, GroupKindLocal, uid, nil); err != nil {
+		t.Fatal(err)
+	}
+	// An authoritative sync creates the oidc membership AND stamps the user.
+	if _, err := groups.SyncOIDCMembership(ctx, uid, []string{"grp-idp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	bindings := NewGroupBindingRepo(testStore)
+	for _, g := range []*Group{oidcGroup, localGroup} {
+		if _, err := bindings.Create(ctx, GroupRoleBindingInput{
+			GroupID: g.ID, ScopeLevel: "project", ProjectID: &pid, Role: "developer",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Fresh: both apply.
+	fresh := NewGroupBindingRepo(testStore).WithOIDCMaxAge(time.Hour)
+	got, err := fresh.ListForUser(ctx, uid)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("fresh snapshot: %d bindings (err %v), want 2", len(got), err)
+	}
+
+	// Age the snapshot past the bound.
+	if _, err := testStore.pool.Exec(ctx,
+		`UPDATE users SET oidc_groups_synced_at = now() - interval '48 hours' WHERE id = $1::uuid`, uid); err != nil {
+		t.Fatal(err)
+	}
+	got, err = fresh.ListForUser(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("stale snapshot: %d bindings, want 1 (local only)", len(got))
+	}
+	if got[0].ViaGroupID == nil || *got[0].ViaGroupID != localGroup.ID {
+		t.Fatalf("the surviving binding must be the LOCAL one, got %+v", got[0])
+	}
+
+	// With the bound OFF (the default) nothing expires — historical behaviour.
+	unbounded := NewGroupBindingRepo(testStore)
+	got, err = unbounded.ListForUser(ctx, uid)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("bound disabled: %d bindings (err %v), want 2", len(got), err)
+	}
+
+	// A fresh authoritative sync restores it.
+	if _, err := groups.SyncOIDCMembership(ctx, uid, []string{"grp-idp"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = fresh.ListForUser(ctx, uid)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("after re-sync: %d bindings (err %v), want 2", len(got), err)
+	}
+}
+
+// A NULL sync timestamp on oidc membership is treated as stale — fail closed.
+// The migration backfills existing members so an upgrade never revokes
+// retroactively, but a row that somehow has none must not be trusted.
+func TestOIDCGroupNullSyncIsStale(t *testing.T) {
+	if testStore == nil {
+		t.Skip("postgres/docker not available")
+	}
+	resetDB(t)
+	ctx := context.Background()
+	groups := NewGroupRepo(testStore)
+	uid := mkUser(t, "null@example.com")
+	pid := mkProject(t, "nullproj")
+	g := mkGroup(t, "idp-team", GroupKindOIDC, "grp-idp")
+
+	if _, err := groups.SyncOIDCMembership(ctx, uid, []string{"grp-idp"}); err != nil {
+		t.Fatal(err)
+	}
+	bindings := NewGroupBindingRepo(testStore)
+	if _, err := bindings.Create(ctx, GroupRoleBindingInput{
+		GroupID: g.ID, ScopeLevel: "project", ProjectID: &pid, Role: "developer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testStore.pool.Exec(ctx,
+		`UPDATE users SET oidc_groups_synced_at = NULL WHERE id = $1::uuid`, uid); err != nil {
+		t.Fatal(err)
+	}
+	bounded := NewGroupBindingRepo(testStore).WithOIDCMaxAge(time.Hour)
+	got, err := bounded.ListForUser(ctx, uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("a NULL sync timestamp must be treated as stale, got %d bindings", len(got))
+	}
+}

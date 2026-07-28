@@ -211,6 +211,7 @@ func runDoctor(ctx context.Context, o doctorOpts) *doctorReport {
 	// --- observability + optional subsystems -------------------------------
 	rep.add(checkMetrics())
 	rep.add(checkLogging())
+	rep.add(checkOIDCGroupMaxAge())
 	rep.add(checkHTTPLimits())
 	rep.add(checkAuditShipping())
 	rep.add(checkBackupSchedule())
@@ -416,6 +417,7 @@ var knownEnvVars = map[string]bool{
 	"JANUS_SECRET_RETAIN_MIN_VERSIONS": true,
 	"JANUS_SECRET_RETAIN_MIN_DAYS":     true,
 	"JANUS_UNUSED_SECRET_DAYS":         true,
+	"JANUS_OIDC_GROUP_MAX_AGE":         true,
 	// server: audit shipping
 	"JANUS_AUDIT_SHIP_MODE":             true,
 	"JANUS_AUDIT_SHIP_TICK":             true,
@@ -1531,4 +1533,32 @@ func localServerURL(listenAddr string, tlsEnabled bool) string {
 		scheme = "https"
 	}
 	return scheme + "://" + net.JoinHostPort(host, port)
+}
+
+// checkOIDCGroupMaxAge warns when the OIDC group snapshot has no time bound.
+//
+// Group membership from an IdP is a snapshot refreshed at login, which normally
+// self-corrects. The exception is Entra: past roughly 200 groups it stops
+// emitting the claim and sends a Microsoft Graph pointer instead, so Janus
+// retains the last good snapshot rather than clearing it — correct, since
+// clearing would look exactly like a legitimate removal from every group, but
+// it means that user's membership stops tracking the IdP indefinitely.
+//
+// JANUS_OIDC_GROUP_MAX_AGE bounds it. This check exists because the setting is
+// off by default (enabling it by default would silently revoke access on
+// upgrade) and is therefore easy never to discover.
+func checkOIDCGroupMaxAge() doctorCheck {
+	const name = "oidc.group-max-age"
+	v := strings.TrimSpace(os.Getenv("JANUS_OIDC_GROUP_MAX_AGE"))
+	if v == "" {
+		return dWarn(name, "no maximum age for OIDC group snapshots",
+			"set JANUS_OIDC_GROUP_MAX_AGE (e.g. 30d worth: 720h) so group-derived access expires if a user's membership stops being refreshed — Entra stops sending the group claim past ~200 groups, and the retained snapshot would otherwise never expire",
+			"local groups are never affected; only oidc-derived membership expires")
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return dFail(name, "JANUS_OIDC_GROUP_MAX_AGE is not a positive Go duration: "+v,
+			"use a value like 720h (30 days); an invalid value leaves the bound OFF")
+	}
+	return dPass(name, "oidc group snapshots expire after "+d.String())
 }

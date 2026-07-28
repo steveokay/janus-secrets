@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -12,10 +13,34 @@ import (
 // Deliberately separate from RoleBindingRepo: the direct-binding SQL is the
 // hottest security path in the system and is left untouched, and each table
 // keeps its own pagination cursor.
-type GroupBindingRepo struct{ s *Store }
+type GroupBindingRepo struct {
+	s *Store
+	// oidcMaxAge bounds how long an OIDC group snapshot is trusted. Zero (the
+	// default) disables the bound entirely and preserves the historical
+	// behaviour. See WithOIDCMaxAge.
+	oidcMaxAge time.Duration
+}
 
 // NewGroupBindingRepo returns a group-binding repository.
 func NewGroupBindingRepo(s *Store) *GroupBindingRepo { return &GroupBindingRepo{s: s} }
+
+// WithOIDCMaxAge bounds how long a user's OIDC group snapshot may be trusted.
+// Past it, bindings derived from `oidc` groups stop applying for that user
+// until their next authoritative sync (i.e. their next successful login with a
+// readable group claim).
+//
+// This exists for the one case the snapshot model cannot self-correct: Entra
+// stops emitting the group claim past ~200 groups, so the snapshot is retained
+// rather than cleared — correctly, since clearing would look like a legitimate
+// removal from every group — but would otherwise never expire.
+//
+// LOCAL group membership is never affected: it is admin-managed and has no
+// freshness concept, and expiring it would break every instance with no
+// identity provider. Zero disables the bound.
+func (r *GroupBindingRepo) WithOIDCMaxAge(d time.Duration) *GroupBindingRepo {
+	r.oidcMaxAge = d
+	return r
+}
 
 const groupBindingCols = `id::text, group_id::text, scope_level,
 	project_id::text, environment_id::text, role, created_by::text, created_at`
@@ -79,12 +104,26 @@ func (r *GroupBindingRepo) Create(ctx context.Context, in GroupRoleBindingInput)
 // This is the authz.GroupBindingStore implementation — it runs on every
 // authorization decision, served by group_members_user_idx.
 func (r *GroupBindingRepo) ListForUser(ctx context.Context, userID string) ([]*RoleBinding, error) {
+	// The staleness clause is applied in SQL and only to `oidc` membership.
+	// Local membership always applies. A NULL sync timestamp on an oidc row is
+	// treated as STALE (fail closed) — the migration backfills existing members
+	// so an upgrade never revokes retroactively.
+	staleness := ""
+	args := []any{userID}
+	if r.oidcMaxAge > 0 {
+		staleness = `
+		    AND (m.group_kind <> 'oidc'
+		         OR (u.oidc_groups_synced_at IS NOT NULL
+		             AND u.oidc_groups_synced_at > now() - $2::interval))`
+		args = append(args, r.oidcMaxAge.String())
+	}
 	rows, err := r.s.pool.Query(ctx,
 		`SELECT b.id::text, b.scope_level, b.project_id::text, b.environment_id::text,
 		        b.role, b.created_by::text, b.created_at, b.group_id::text
 		   FROM group_role_bindings b
 		   JOIN group_members m ON m.group_id = b.group_id
-		  WHERE m.user_id = $1::uuid`, userID)
+		   JOIN users u         ON u.id = m.user_id
+		  WHERE m.user_id = $1::uuid`+staleness, args...)
 	if err != nil {
 		return nil, mapError(err)
 	}
