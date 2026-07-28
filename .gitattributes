@@ -1,0 +1,15 @@
+# Files that MUST keep LF endings in the working tree, on every platform.
+#
+# Git for Windows defaults to core.autocrlf=true, which rewrites LF to CRLF on
+# checkout. Both of these break on the CR:
+#
+#   - the Makefile — a trailing CR is carried into every backslash-continued
+#     recipe line, so the shell sees `\<CR>` and the continuation falls apart;
+#   - scripts/*.sh — bash reports `$'\r': command not found`, which reads like
+#     a missing program rather than a line ending.
+#
+# Nothing here forces endings on source files; it only pins the ones that are
+# executed as scripts.
+Makefile text eol=lf
+*.mk text eol=lf
+*.sh text eol=lf

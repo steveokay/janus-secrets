@@ -10,15 +10,21 @@ authoritative description of the architecture, crypto rules, and non-goals.
 - **Go** — the toolchain is pinned in [`go.mod`](go.mod) (`toolchain
   go1.26.5`). Use that version; CI builds and the security gates run against
   it (`GOTOOLCHAIN=go1.26.5`).
-- **Node 20** — for the Svelte web UI under [`web/`](web/).
+- **Node 24** — for the Svelte web UI under [`web/`](web/). **22.18 is the
+  floor**: the web unit tests are plain `node --test` over TypeScript and rely
+  on native type stripping, so an older Node fails to run them at all.
 - **Docker** — the Go integration tests use
   [testcontainers](https://golang.org/x/) to spin up real Postgres, and the
   full stack runs via docker-compose.
+- **helm** (optional) — only needed for `make helm-test`, the chart gate.
 
 ## Build & run
 
+`make help` lists every target. The common ones:
+
 ```sh
 make build          # build the web bundle, embed it, and build the janus binary
+make build-fast     # same, skipping 'npm ci' (only when node_modules is in step)
 make dev            # prints the two-terminal hot-reload dev workflow
 docker compose up   # full local stack: app on :8210, Postgres on :5433
 make migrate        # apply migrations to a local db (server also auto-migrates on boot)
@@ -27,7 +33,11 @@ make migrate        # apply migrations to a local db (server also auto-migrates 
 `make build` runs `npm ci && npm run build` in `web/`, copies the output into
 `internal/web/dist/`, and compiles `./cmd/janus` with the assets embedded via
 `go:embed`. There is **no Node server in production** — the SPA is served from
-the Go binary.
+the Go binary. The binary is **version-stamped** with the same
+`internal/version` ldflags goreleaser uses, so `janus version` on a local build
+names the commit it came from instead of reporting `dev`. On Windows the output
+is `bin/janus.exe` (Git Bash resolves `bin/janus` to it, so the scripts under
+`scripts/` are unaffected).
 
 The single `janus` binary is both the server (`janus server`) and the CLI
 (`janus run`, `janus secrets …`). Only `JANUS_DATABASE_URL` is strictly
@@ -41,7 +51,8 @@ for the full environment-variable reference.
 Run the full suite locally before opening a PR:
 
 ```sh
-make test           # root module + the nested modules + web tests
+make test           # root module + the nested modules + web typecheck + web tests
+make ci             # every gate below, in CI's order — run this before pushing
 ```
 
 `make test` covers **every** module, not just the root one: `go test ./...` does
@@ -51,27 +62,46 @@ SDKs). `make test-modules` runs just those four if you only touched an SDK or
 the provider.
 
 Your change must pass **every** gate in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml). All of these are
-treated as build failures — a red gate blocks merge:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml). Each has a Make target
+that runs the identical command, so nothing has to wait for a push to fail —
+`make ci` runs the lot. All of these are treated as build failures — a red gate
+blocks merge:
 
-- **Build & vet** — `go build ./...` and `go vet ./...` are clean.
-- **Tests** — `go test -race ./...` is green. Integration tests need Docker
+- **Build & vet** (`make lint`) — `go build ./...` and `go vet ./...` are clean,
+  in the root module **and** in each nested module.
+- **Tests** (`make test`) — `go test -race -timeout 30m ./...` is green. The
+  30-minute timeout is deliberate: `go test` defaults to 10 minutes and
+  `internal/api` under `-race` sits right on that line, so on a slow machine the
+  default produces a timeout panic that looks nothing like the clock it is.
+  Integration tests need Docker
   (they skip cleanly when it's absent, but CI has it). Web: `npm run check`
   (svelte-check + tsc) and `npm run build` succeed.
-- **The nested modules** — `go-module (sdk/go)` and
+- **The nested modules** (`make test-modules`) — `go-module (sdk/go)` and
   `go-module (terraform-provider-janus)` build, vet and test each own-`go.mod`
   module separately, because the root `./...` never reaches them. `sdk-ts`
   typechecks and tests the TypeScript SDK; `sdk-python` runs the Python SDK on
   **both 3.9 and 3.13** — 3.9 is the floor `requires-python` advertises, and
   testing only a modern interpreter would let a 3.10-only construct through and
   quietly break the compatibility the package promises.
-- **`internal/crypto` 100% coverage** — the crypto package requires **100.0%**
-  statement coverage, including nonce-reuse and tamper (modified-ciphertext)
-  cases. CI fails the build on anything less.
-- **govulncheck** — `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
-  reports 0 findings.
-- **gosec** — `go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1
+- **`internal/crypto` 100% coverage** (`make cover`) — the crypto package
+  requires **100.0%** statement coverage, including nonce-reuse and tamper
+  (modified-ciphertext) cases. CI fails the build on anything less, and so does
+  the target.
+- **govulncheck** (`make vuln`) — `go run
+  golang.org/x/vuln/cmd/govulncheck@latest ./...` reports 0 findings. The target
+  sets `GOTOOLCHAIN` from go.mod, because `go run <tool>@latest` resolves in its
+  own module context — go.mod's `toolchain` line does not reach it, so without
+  the pin the scan runs against whatever stdlib your local `go` happens to be
+  and a laptop one patch release behind reports a stdlib CVE this repo does not
+  have.
+- **gosec** (`make sec`) — `go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1
   -exclude-dir=internal/crypto/shamir ./...` exits 0.
+- **The Helm chart** (`make helm-test`) — `helm lint`, every seal mode renders
+  its configured value, and an invalid or incomplete seal config fails at
+  template time. The chart had no CI at all until three defects survived to a
+  real deployment; each render **greps** for the value it set, because piping a
+  render to `/dev/null` is exactly what hid a validator checking a values key
+  that did not exist.
 - **No secret values in logs or errors** — a dedicated grep-based leak test
   asserts that no plaintext secret value ever appears in captured log output
   or error strings. Never log, wrap, or format a secret value; the audit log
@@ -79,6 +109,14 @@ treated as build failures — a red gate blocks merge:
 
 Prefer **table-driven** unit tests. Add tests with the code — features and
 bug fixes without tests will be asked to add them.
+
+The browser E2E suite (Playwright, `web/tests/e2e/`) is **not** part of CI —
+`make e2e` brings up a throwaway stack on `:8231` under its own compose project,
+runs the suite, and tears it down with its volume. It is **destructive by
+design** (it runs the one-shot init ceremony and hard-destroys projects), so
+never point it at your dev instance on `:8210`. First run needs the browser:
+`cd web && npx playwright install --with-deps chromium`. See
+[`web/tests/e2e/README.md`](web/tests/e2e/README.md).
 
 ## Crypto rules (do not deviate without discussion)
 
@@ -101,7 +139,7 @@ bug fixes without tests will be asked to add them.
   `NNNNNN_name.up.sql` + `NNNNNN_name.down.sql` pairs, applied with
   `golang-migrate`. Every `up` needs a matching `down`.
 - Numbers are **zero-padded, six digits, strictly increasing**. The latest is
-  `000044`; **the next migration number is `000045`.** (Check `migrations/`
+  `000050`; **the next migration number is `000051`.** (Check `migrations/`
   rather than trusting this line — it is the one thing here that goes stale
   every time a migration lands.)
 - A `CHECK` constraint that enumerates values the Go code also enumerates (sync

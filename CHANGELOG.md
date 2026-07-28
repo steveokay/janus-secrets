@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **The Makefile now mirrors every CI gate, so nothing has to wait for a push
+  to fail.** `make test` was green while three gates it never ran — the web
+  typecheck (`npm run check`), `govulncheck`, and `gosec` — could still turn CI
+  red, the 100%-`internal/crypto` coverage target *printed* the number without
+  failing below it, and the Helm chart job had no local equivalent at all. New
+  targets: `ci` (the lot, in CI's order), `cover` (now enforcing), `vuln`,
+  `sec`, `helm-test`, `lint` (now vetting the nested modules too), `e2e` /
+  `e2e-up` / `e2e-down`, `build-fast`, `clean`, and `help`. `make test` also
+  carries CI's `-timeout 30m`, since `go test`'s 10-minute default is one slow
+  machine away from a timeout panic that reads like a real failure.
+- **Locally built binaries are version-stamped.** `make build` now injects the
+  same `internal/version` ldflags goreleaser uses, so `janus version` names the
+  commit it was built from instead of reporting `dev (commit none, built
+  unknown)`. On Windows it writes `bin/janus.exe`, which cmd and PowerShell can
+  actually execute.
+
 ### Fixed
 - **Documented that the chart's SSRF hardening blocks the cluster's own API
   server.** `JANUS_OUTBOUND_BLOCK_PRIVATE=true` (the chart default) also blocks
