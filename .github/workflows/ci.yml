@@ -37,6 +37,62 @@ jobs:
       - name: gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -exclude-dir=internal/crypto/shamir ./...
 
+  helm:
+    # The Helm chart had NO CI at all, which is exactly why three defects
+    # survived until it was first deployed for real: a Service selector that
+    # also matched the bundled Postgres (breaking the `kubectl port-forward
+    # svc/janus` the chart's own NOTES.txt prescribes for unsealing), an
+    # unknown seal.type rendering happily into the pod env, and default values
+    # that produced a pod which could never unseal.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+      - name: helm lint
+        run: helm lint deploy/helm/janus --set seal.type=shamir
+      - name: render every seal mode
+        run: |
+          set -euo pipefail
+          helm template t deploy/helm/janus --set seal.type=shamir > /dev/null
+          helm template t deploy/helm/janus --set seal.type=awskms \
+            --set seal.awskms.keyArn=arn:aws:kms:us-east-1:1:key/x > /dev/null
+          helm template t deploy/helm/janus --set seal.type=gcpkms \
+            --set seal.gcpkms.keyName=projects/p/locations/l/keyRings/r/cryptoKeys/k > /dev/null
+          helm template t deploy/helm/janus --set seal.type=azurekv \
+            --set seal.azurekv.vaultUrl=https://v.vault.azure.net \
+            --set seal.azurekv.keyName=k > /dev/null
+      - name: reject an invalid or incomplete seal config
+        run: |
+          set -euo pipefail
+          for args in "--set seal.type=bogus" "--set seal.type=awskms" \
+                      "--set seal.type=gcpkms" "--set seal.type=azurekv"; do
+            if helm template t deploy/helm/janus $args > /dev/null 2>&1; then
+              echo "expected a template failure for: $args" >&2
+              exit 1
+            fi
+          done
+      - name: the API Service must select ONLY the server pod
+        run: |
+          set -euo pipefail
+          helm template t deploy/helm/janus --set seal.type=shamir \
+            --set postgresql.enabled=true > /tmp/rendered.yaml
+          python3 - <<'PY'
+          import re, sys, yaml
+          docs = [d for d in yaml.safe_load_all(open('/tmp/rendered.yaml')) if d]
+          svc = next(d for d in docs if d['kind'] == 'Service'
+                     and d['metadata']['labels'].get('app.kubernetes.io/component') != 'postgresql')
+          sel = svc['spec']['selector']
+          if sel.get('app.kubernetes.io/component') != 'server':
+              print('API Service selector must pin component=server, got', sel, file=sys.stderr)
+              sys.exit(1)
+          sts = next(d for d in docs if d['kind'] == 'StatefulSet')
+          pg = sts['spec']['template']['metadata']['labels']
+          if all(pg.get(k) == v for k, v in sel.items()):
+              print('the bundled Postgres pod still matches the API Service selector', file=sys.stderr)
+              sys.exit(1)
+          print('ok: API Service selects only the server pod')
+          PY
+
   web:
     runs-on: ubuntu-latest
     defaults:

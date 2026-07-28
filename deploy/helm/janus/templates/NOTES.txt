@@ -28,6 +28,10 @@ The Janus server boots SEALED. Every secret route returns 503 until unseal.
 
      kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "janus.fullname" . }} 8200:{{ .Values.service.port }}
 
+     (With seal.type=shamir the pod stays NotReady until you unseal, so
+      `helm install --wait` will time out. That is expected: readiness gates on
+      unseal by design. Install without --wait, then unseal.)
+
    Then point the CLI at it:  export JANUS_ADDR=http://127.0.0.1:8200
 
 2) ONE-TIME initialization (only on a brand-new, empty database). This returns

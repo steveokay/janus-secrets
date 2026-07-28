@@ -1,3 +1,4 @@
+{{- include "janus.validateSeal" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,7 +20,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "janus.selectorLabels" . | nindent 8 }}
+        {{- include "janus.serverSelectorLabels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

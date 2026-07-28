@@ -638,6 +638,37 @@ gap; none is a security hole._
       `janus_group`, `janus_group_member` and `janus_group_binding` resources,
       mirroring the API's two-authority split.
 
+**Found by actually deploying the Helm chart (2026-07-28):**
+
+The chart shipped in PR #165 and had **never been deployed**, nor covered by any
+CI. Deploying it to a local minikube cluster surfaced three defects, all now
+fixed:
+
+- [x] ~~The API Service also selected the bundled Postgres pod.~~ It matched on
+      `name`+`instance` only, which the evaluation Postgres also carries — so
+      `kubectl port-forward svc/janus`, the command `NOTES.txt` gives for the
+      **unseal step**, picked the database and failed. API traffic was never
+      mis-routed (Postgres joined as a port-less endpoint, having no `http`
+      port) but sat one label from receiving it. Fixed by pinning
+      `component: server` on the Service selector and the pod template, leaving
+      the Deployment's immutable `.spec.selector` alone so `helm upgrade` still
+      works — verified against the live cluster.
+- [x] ~~An invalid or incomplete seal config rendered silently.~~ `seal.type`
+      is now validated, and a cloud-KMS type without its key fails at template
+      time. The chart's own defaults (`awskms` + empty `keyArn`) previously
+      rendered a pod that could never unseal.
+- [x] ~~The chart had no CI at all.~~ Added a job that lints, renders every seal
+      mode, asserts invalid configs fail, and asserts the API Service cannot
+      match the Postgres pod.
+
+Verified end-to-end on minikube: 3-of-5 Shamir init → `/v1/sys/live` 200 while
+`/v1/sys/ready` 503 (sealed, exactly as documented) → quorum unseal → Ready 1/1,
+schema at the expected migration. Two things worth knowing that are **not**
+defects: `helm install --wait` cannot succeed with Shamir (the pod is
+intentionally NotReady until unsealed), and a fresh install crash-loops a few
+times before Postgres accepts connections, since the chart has no wait-for-DB
+init container.
+
 **Open — found by the new E2E coverage, not yet fixed:**
 
 - [x] ~~**The secret editor loses the protected (four-eyes) flag on a deep

@@ -16,4 +16,4 @@ spec:
       targetPort: http
       protocol: TCP
   selector:
-    {{- include "janus.selectorLabels" . | nindent 4 }}
+    {{- include "janus.serverSelectorLabels" . | nindent 4 }}
