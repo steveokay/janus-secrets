@@ -138,10 +138,20 @@ static rotation framework (scheduled, webhook-notified; Postgres password + gene
 
 ## Development commands
 
+`make help` lists every target. The ones you need day to day:
+
 ```
-make dev          # run server with hot reload (air) + vite dev server
-make test         # go test ./... + web tests
+make build        # build the SPA, embed it, build a version-stamped bin/janus
+make dev          # print the two-terminal hot-reload workflow (vite + go server)
+make dev-up       # build, docker compose up, unseal the dev instance
 make migrate      # apply migrations to local db
-make build        # build web, embed, build binaries
+make test         # go tests (root + nested modules) + web typecheck + web unit tests
+make ci           # every CI gate locally: build lint test cover vuln sec helm-test
 docker compose up # full local stack
 ```
+
+Each gate also stands alone — `make cover` (internal/crypto 100%, fails below),
+`make vuln` / `make sec` (govulncheck / gosec), `make helm-test` (chart lint +
+every seal mode), `make e2e` (throwaway stack + Playwright; destructive). They
+run the same commands with the same flags as `.github/workflows/ci.yml`; change
+one and change the other.
