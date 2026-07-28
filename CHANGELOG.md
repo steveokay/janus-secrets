@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-28
+
+RBAC at organisation scale. An organisation with many product teams can now run
+one Janus: teams own their projects, manage access through their identity
+provider, create their own projects without seeing anyone else's, and audit
+themselves — with production changes gated by four-eyes approval as a property
+of the environment rather than a checkbox somebody had to remember.
+
 ### Changed
 - **BREAKING: secret ownership moved from the key to the project.** Per-key
   `owner` was the wrong grain. A *service* has an owner; its individual keys
@@ -585,6 +593,7 @@ security hardening that followed. (Nothing was tagged before this; everything on
   injection guard), and protected pending edit requests from **KEK-version
   retirement** during project-KEK rotation.
 
-[Unreleased]: https://github.com/steveokay/janus-secrets/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/steveokay/janus-secrets/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/steveokay/janus-secrets/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/steveokay/janus-secrets/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/steveokay/janus-secrets/releases/tag/v0.1.0
