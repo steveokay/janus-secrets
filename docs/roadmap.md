@@ -377,9 +377,11 @@ Still tracked, and deliberate rather than pending: `secret:read` remains
 all-or-nothing per config (a recorded decision — detection over prevention), and
 a binding still cannot *narrow* another one (better answered by defaulting prod
 to `require_approval` than by deny rules, which would cost the engine its
-clarity). One genuine item is open: an OIDC group's member list covers only
-users who have signed in, and the Groups screen says so in prose where it should
-say so structurally. Detail and reasoning in [`../status.md`](../status.md).
+clarity). The last open item — an OIDC group's member list covering only users
+who have signed in — was **fixed 2026-07-29**: the API reports
+`membership_complete`, and the Groups screen qualifies the count, the list
+heading and the empty state from it, rather than explaining the caveat in prose
+beside a bare number. Detail and reasoning in [`../status.md`](../status.md).
 
 ## What's actually left
 

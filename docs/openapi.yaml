@@ -560,7 +560,21 @@ components:
           description: >-
             Members may create projects owned by this group, without any
             instance-wide read.
-        member_count: { type: integer }
+        member_count:
+          type: integer
+          description: >-
+            How many members Janus has RECORDED — not necessarily how many the
+            group has. See `membership_complete`.
+        membership_complete:
+          type: boolean
+          description: >-
+            Whether `member_count` is the whole answer. True for a `local` group
+            (the list is admin-managed, so what Janus holds IS the membership).
+            False for `oidc`: membership is a snapshot refreshed from the IdP's
+            group claim at each login, so someone who has been in the IdP group
+            for months but has never signed into Janus is absent from the count.
+            Nothing is mis-granted — they get the access on first sign-in — but a
+            client must not present the count as a membership list.
         binding_count: { type: integer }
         created_at: { type: string, format: date-time }
     GroupBinding:

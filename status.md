@@ -646,14 +646,26 @@ gap; none is a security hole._
       one was deleted by the Atrium rewrite. It is server-side this time, which
       avoids the 403-tolerant client fan-out the React version needed, and it
       answers "who can write prod?" across every scope at once.
-- [ ] **An OIDC group's member list only covers users who have signed in.**
-      Membership is a login-time snapshot, so a person who has been in the IdP
-      group for months but has never logged into Janus is invisible in
-      `/groups`. Nothing is mis-granted — they get the access on first sign-in —
-      but "who is in this group?" reads as a complete answer when it is a
-      partial one. The UI says so in prose; it should say so structurally
-      (e.g. mark the count as "seen at sign-in"), and the offboarding view
-      below has the same caveat.
+- [x] ~~**An OIDC group's member list only covers users who have signed in.**~~
+      **FIXED 2026-07-29** — `GET /v1/groups` now returns
+      **`membership_complete`**, and the Groups screen renders from it: the
+      count carries a **seen** qualifier, the detail heading reads *Members
+      seen*, and an empty list says "nobody in this group has signed into Janus
+      yet" instead of "No members" — which would be flatly untrue when the IdP
+      group is full.
+
+      The flag is **reported rather than derived from `kind`**, matching how the
+      rest of the system handles partial answers (`values_compared`,
+      `derived_truncated`, `scoped`, revoke-all's `complete`). Deriving it works
+      until one client forgets to, and the failure mode is silent: a partial
+      answer that looks complete, during an access review, is the whole risk
+      here. Nothing was ever mis-granted — a person in the IdP group gets their
+      access on first sign-in — so this is a **reader** problem, and it is fixed
+      where readers look.
+
+      The rest of the surface was already consistent: the SDKs name the field
+      `members_seen` and the Terraform provider deliberately exposes no member
+      count and no member data source (PR #223).
 - [x] ~~**Entra group overage leaves membership stale without bound.**~~
       **FIXED 2026-07-28** — migration `000050` + `JANUS_OIDC_GROUP_MAX_AGE`.
       Of the two honest fixes, chose the **configurable maximum snapshot age**
@@ -954,16 +966,15 @@ which is how it should stay.
 provider and the SDKs, per-issuer federation `ca_cert`, and the cross-scope
 access review — which closed the offboarding view, the users × scopes grid and
 the *"who can write prod?"* question together, since all three were the same
-missing cross-scope answer. **Exactly two engineering items remain**, and both
-are deliberate rather than pending:
+missing cross-scope answer. **Exactly one engineering item remains**, and it is a
+recorded decision rather than pending work:
 
 - **`secret:read` is all-or-nothing** — a recorded decision (detection over
   prevention, defensible for a single-tenant self-hosted tool), not a gap
   awaiting work.
-- **An OIDC group's member list covers only users who have signed in** — the
-  one genuine open item. #223 was careful not to make it worse (no member count,
-  no member data source, the SDK field is named `members_seen`), but the Groups
-  screen still states it in prose where it should state it structurally.
+- **An OIDC group's member list covers only users who have signed in** —
+  **fixed 2026-07-29**: `membership_complete` on the API, and the Groups screen
+  qualifies the count, the heading and the empty state from it.
 
 Two things shipped this batch are **unverified against reality** and should be
 treated as such until someone runs them: the federation `ca_cert` has never been

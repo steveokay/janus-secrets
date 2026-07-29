@@ -29,9 +29,26 @@ type groupView struct {
 	ClaimValue        *string `json:"claim_value"`
 	Description       string  `json:"description"`
 	CanCreateProjects bool    `json:"can_create_projects"`
-	MemberCount       int     `json:"member_count"`
-	BindingCount      int     `json:"binding_count"`
-	CreatedAt         string  `json:"created_at"`
+	// MemberCount is how many members Janus has RECORDED — which is not the
+	// same as how many the group has. See MembershipComplete.
+	MemberCount  int `json:"member_count"`
+	BindingCount int `json:"binding_count"`
+	// MembershipComplete reports whether MemberCount is the whole answer.
+	//
+	// For a `local` group it is: the list is admin-managed, so what Janus holds
+	// IS the membership. For an `oidc` group it is NOT: membership is a snapshot
+	// refreshed from the IdP's group claim at each **login**, so a person who has
+	// been in the IdP group for months but has never signed into Janus is absent
+	// from the count entirely. Nothing is mis-granted — they get the access on
+	// first sign-in — but "who is in this group?" reads as a complete answer when
+	// it is a partial one.
+	//
+	// It is reported explicitly rather than left for the client to derive from
+	// `kind`, for the same reason `values_compared`, `derived_truncated` and
+	// `scoped` are: a partial answer that looks complete is the failure mode, and
+	// re-deriving the rule per client is how one of them ends up not doing it.
+	MembershipComplete bool   `json:"membership_complete"`
+	CreatedAt          string `json:"created_at"`
 }
 
 func toGroupView(g *store.Group) groupView {
@@ -39,7 +56,10 @@ func toGroupView(g *store.Group) groupView {
 		ID: g.ID, Name: g.Name, Kind: g.Kind, ClaimValue: g.ClaimValue,
 		Description: g.Description, CanCreateProjects: g.CanCreateProjects,
 		MemberCount:  g.MemberCount,
-		BindingCount: g.BindingCount, CreatedAt: g.CreatedAt.UTC().Format(time.RFC3339),
+		BindingCount: g.BindingCount,
+		// Derived from kind at the boundary, so the rule lives in one place.
+		MembershipComplete: g.Kind == store.GroupKindLocal,
+		CreatedAt:          g.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

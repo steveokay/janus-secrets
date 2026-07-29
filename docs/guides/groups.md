@@ -120,6 +120,20 @@ janus group bind "Team Payments" --role developer --project atlas-api
 Membership updates at each sign-in. Users who have never signed in do not
 appear in the member list, because Janus has never seen a token for them.
 
+> **The member count for an `oidc` group is "seen", not "in".** This is the one
+> place the group model gives a narrower answer than the question implies, so it
+> is reported **structurally** rather than only in prose: `GET /v1/groups`
+> returns `membership_complete: false` for an `oidc` group, the Groups screen
+> labels the count **seen** and titles the list *Members seen*, and an empty list
+> reads "nobody in this group has signed into Janus yet" rather than "no
+> members" — which would be flatly untrue if the IdP group is full. The SDKs
+> name the field `members_seen` for the same reason, and the Terraform provider
+> deliberately exposes **no** member count and no member data source.
+>
+> Nothing is mis-granted either way: a person in the IdP group gets their access
+> on first sign-in. The risk being managed is a **reader** mistaking a partial
+> answer for a complete one during an access review.
+
 ## Seeing group-derived access
 
 The **Members** screen resolves it for you: **Role at \<scope\>** is the

@@ -325,8 +325,16 @@ export interface ApiGroup {
   /** Opaque IdP value (Entra emits GUIDs); null for a local group. */
   claim_value: string | null
   description: string
+  /** How many members Janus has RECORDED — not necessarily how many the group
+   *  has. See membership_complete. */
   member_count: number
   binding_count: number
+  /** Whether member_count is the whole answer. True for a `local` group (the
+   *  list is admin-managed). False for `oidc`: membership is a snapshot taken
+   *  at each login, so anyone who has never signed into Janus is absent from
+   *  the count — they get their access on first sign-in. Reported by the server
+   *  rather than derived from `kind`, so one client cannot forget the rule. */
+  membership_complete?: boolean
   created_at: string
 }
 export interface ApiGroupMember { user_id: string; created_at: string }

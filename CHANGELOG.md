@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **An OIDC group's member count read as a membership list.** Membership is a
+  snapshot refreshed from the IdP at each login, so anyone who has never signed
+  into Janus was absent from it — yet `/groups` showed a bare number under a
+  column headed *Members*, and an empty group read "No members" even when the
+  IdP group was full. Nothing was ever mis-granted (access arrives on first
+  sign-in); the risk was a **reader** taking a partial answer for a complete one
+  during an access review.
+
+  `GET /v1/groups` now returns `membership_complete`, and the screen renders
+  from it: the count carries a **seen** qualifier, the detail heading reads
+  *Members seen*, and the empty state explains why the list may be short. The
+  flag is reported rather than derived from `kind` — matching `values_compared`,
+  `derived_truncated` and `scoped` — because deriving it works right up until
+  one client forgets, and that failure is silent.
+
 ### Added
 - **Access review — one answer to "who can write prod?" and "what can this
   person reach?"** A new `/access` screen over `GET /v1/access/matrix` (people ×
