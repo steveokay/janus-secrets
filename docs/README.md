@@ -36,7 +36,10 @@ Task-oriented walkthroughs for the common workflows:
   rotation policies, sync targets (GitHub / Kubernetes), and dynamic
   Postgres roles with shown-once credential issuance, all from the UI.
 - [Members & RBAC](guides/members-and-rbac.md) — inviting users and binding
-  roles at instance / project / environment scope, with the guardrails.
+  roles at instance / project / environment scope, with the guardrails; plus
+  the **access review** (`/access`): the people × scopes matrix that answers
+  "who can write prod?", the per-user offboarding view showing *why* each grant
+  applies, and revoke-all — including what it deliberately cannot revoke.
 - [Groups](guides/groups.md) — one binding for a whole team: IdP-fed groups
   driven by an OIDC group claim, or locally-managed groups where there is no
   identity provider, why the two kinds never mix, and why a group can never

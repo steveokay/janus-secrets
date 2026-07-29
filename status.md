@@ -502,15 +502,51 @@ authorization machinery.
       returns `scoped`/`scope_projects` and the viewer shows a **Scoped view**
       stamp, so a partial trail is never presented as the whole ledger.
 
-- [ ] **Offboarding has no single answer to "what can this person reach?"**
-      Bindings are individual rows across instance, project and environment
-      scopes, so removing someone means finding every one of them. Groups
-      (shipped) remove most of it — for an IdP-fed group, offboarding is a
-      single action in Okta/Entra — but a per-user "effective access" view and
-      a revoke-all action are what make an offboarding checkable rather than
-      hopeful. The pieces now exist: `GroupRepo.ListForUser` answers "which
-      groups?" and derived bindings carry `ViaGroupID`, so a view can say *why*
-      each grant applies.
+- [x] ~~**Offboarding has no single answer to "what can this person reach?"**~~
+      **SHIPPED 2026-07-29 (PR #225)** — and it closed the users × scopes grid
+      and the *"who can write prod?"* view in the same stroke, since all three
+      were the same missing thing: a cross-scope answer. `GET /v1/access/matrix`
+      (people × scopes, each cell the effective role **and every binding that
+      produced it**), `GET /v1/access/users/{uid}` (one person's bindings,
+      direct vs group, their reach, live break-glass grants), and
+      `POST /v1/access/users/{uid}/revoke-all`, behind a new `/access` screen.
+
+      **One rule, not two.** Cells are computed in memory by
+      `authz.ApplicableBindings` / `RoleFromBindings`, which share
+      `bindingApplies` with the decision path — `BoundRole` now delegates to
+      `RoleFromBindings`. A second implementation of "which bindings apply"
+      would have drifted into a review that disagrees with enforcement, which is
+      the one thing an access review must never do.
+
+      **Five queries regardless of instance size**, copying `audit_authz.go`'s
+      shape: one `AllowedProjects` load decides what is reviewable, then
+      `ListForProjects` / `ListForScopes` / `DerivedForScopes` fetch in bulk.
+      The delegation cap had the same fan-out problem, so `authz.BoundRoles`
+      answers many resources on one load.
+
+      **Revoke-all is deliberately narrow and says so.** It removes *direct*
+      bindings at scopes where the caller holds `member:manage` **and** whose
+      role is ≤ the caller's `BoundRole` there (the M-1 cap — which makes it
+      stricter than `memberDelete`, whose lack of a cap is now the odd one out).
+      It does **not** remove group-derived access, revoke active break-glass, or
+      disable the account; each is reported structurally and `complete` is false
+      while any remain. It refuses the **whole** request with a 409 rather than
+      removing the last instance owner. Each revocation writes an ordinary
+      `member.revoke` event at its exact scope plus one `member.revoke_all`
+      summary, fail-closed via `s.record` (`s.authorize` records denials only).
+
+      **Deny-by-default holds:** the scope set *is* the authorization boundary
+      and the SQL filter is built from it, so a caller who cannot read
+      instance-scoped bindings does not see them at all — `instance_visible:
+      false` says so, and `?project=` refuses an unreviewable id identically to
+      a nonexistent one.
+
+      **Not verified:** the screen has never been rendered in a browser in
+      either theme (svelte-check only), so column widths under many scopes are
+      unproven, and it uses a component-local `--ochre` override because there
+      is no `.stamp.warn` primitive. The truncation paths (200 projects / 1000
+      envs / 5000 bindings / 500 users / 20000 cells) have never been watched to
+      fire.
 - [x] ~~**Permissions are not exposed to the UI, so nothing can be gated.**~~
       **FIXED 2026-07-28** — `GET /v1/auth/me` now carries `permissions`, and
       the shell renders from it. It stays a **hint**: the server authorizes
@@ -563,10 +599,10 @@ authorization machinery.
       environment column on the project board, and an editor banner that says
       when protection is inherited rather than the config's own.
 
-      **Still open:** a *"who can write prod?"* view, so union semantics are
-      visible rather than implicit. Members now shows effective role + source
-      per scope, which is the per-scope half; the cross-scope view is the same
-      users × scopes grid noted above.
+      **The cross-scope half shipped 2026-07-29 (PR #225):** `/access` shows
+      people × scopes with every binding that produced each cell, so the union
+      is visible rather than implicit. That is what makes "no deny rules" an
+      inspectable choice instead of an act of faith.
 - [ ] **`secret:read` is all-or-nothing.** A viewer at project scope reads every
       value in every environment, prod included; there is no granularity below a
       config. Reveals are audited per key and unused keys are flagged, so the
@@ -606,11 +642,10 @@ gap; none is a security hole._
       dropdown/Remove still act on the direct binding only, with derived rows
       linking to `/groups` where the grant actually lives.
 
-      **Still open:** rebuilding the users × scopes grid itself, which the
-      Atrium rewrite dropped and nothing has replaced. That is a feature, not a
-      regression fix — the React one needed a 403-tolerant fan-out hook with a
-      shared cache — and it is the remaining way to answer "who can write prod?"
-      across every scope at once rather than one scope at a time.
+      **The grid was rebuilt 2026-07-29 (PR #225)** — not restored: the React
+      one was deleted by the Atrium rewrite. It is server-side this time, which
+      avoids the 403-tolerant client fan-out the React version needed, and it
+      answers "who can write prod?" across every scope at once.
 - [ ] **An OIDC group's member list only covers users who have signed in.**
       Membership is a login-time snapshot, so a person who has been in the IdP
       group for months but has never logged into Janus is invisible in
@@ -646,12 +681,40 @@ gap; none is a security hole._
       was its root cause. Groups is gated on **instance** `group:manage`, so a
       project admin — whose role bundle contains `group:manage` but only within
       their project — correctly does not see it.
-- [ ] **No group support in the Terraform provider or the SDKs.** A team that
-      manages Janus as code can create projects, configs, secrets and tokens
-      but must click to create a group and bind it — which is exactly the
-      surface an org adopting groups would want declarative. Wants
-      `janus_group`, `janus_group_member` and `janus_group_binding` resources,
-      mirroring the API's two-authority split.
+- [x] ~~**No group support in the Terraform provider or the SDKs.**~~
+      **SHIPPED 2026-07-29 (PR #223)** — `janus_group`, `janus_group_member` and
+      `janus_group_binding`, plus catalog operations (list/get/create/delete,
+      local membership, the project-creation capability, `myGroups`) in all
+      three SDKs. No new dependency in any module.
+
+      **Bindings are deliberately Terraform-only, not in the SDKs.** Three
+      reasons, in order of weight: the SDKs document a config- or
+      environment-scoped read token, which can never hold `member:manage`, so
+      every binding call from a normally-configured client would 403; a binding
+      needs the scope triple and the `BoundRole` delegation cap modelled to be
+      usable, which in an SDK degrades to three mutually exclusive optional args
+      and an undiagnosable 403; and a binding is *durable access*, the class of
+      change that should be planned and diffed. The cost is stated in each guide
+      (a JML script that also binds must shell out to `janus group bind`), and a
+      test in the TS and Python suites asserts no binding-shaped method exists —
+      so reversing this is a decision, not a drive-by.
+
+      **Both invariants land at plan time.** `owner` gets its *own* diagnostic
+      (master-key rotation / audit prune / never-lock-out) rather than a generic
+      "invalid value", because owner is a valid role — just never for a group;
+      a test asserts **zero** API calls on that path. The two-kinds rule cannot
+      come from configuration alone (kind is not an attribute of
+      `janus_group_member`), so `ModifyPlan` looks it up whenever `group_id` is
+      concrete, and a `Create` pre-flight catches the same-apply case with no
+      write. A lookup failure is deliberately silent — `plan` must not break on
+      an unreachable server.
+
+      Note `janus_group` exposes **no member count and no member data source**,
+      and the SDK field is named `members_seen`: an `oidc` group's list only
+      covers users seen at sign-in, so a count would read as membership and is
+      not. **Not verified:** nothing was applied against a live Janus, and
+      `terraform plan`/`apply` were never run (plan-time logic is driven through
+      the validator entry points directly).
 
 **Found by actually deploying the Helm chart (2026-07-28):**
 
@@ -775,19 +838,42 @@ had ever run against a live API server.
       Boot failure is fatal, not a warning: starting on the environment's policy
       while an override exists would be a **silent** egress change, the one
       outcome this control must never produce.
-- [ ] **Federation cannot verify an issuer whose cert is signed by the cluster
-      CA.** The OIDC verifier uses system roots only, and there is no way to
-      supply a CA bundle — so with the default `https://kubernetes.default.svc`
-      issuer, verification cannot succeed even with discovery opened up and the
-      outbound block off. Confirmed by triangulation: `curl` with system roots
-      fails, with the cluster CA succeeds, and the **sync provider works
-      precisely because it accepts an explicit `ca_cert`**. The
-      [federation reference](docs/ci-federation.md) already documents that Janus
-      "must also trust the API server's certificate" and recommends an external
-      issuer instead, so this is a known constraint rather than a surprise — but
-      the asymmetry with sync argues for a per-issuer `ca_cert`, which would
-      make self-hosted clusters work directly. Managed clusters (EKS/GKE/AKS)
-      are unaffected: their issuers are public and publicly trusted.
+- [x] ~~**Federation cannot verify an issuer whose cert is signed by the cluster
+      CA.**~~ **SHIPPED 2026-07-29 (PR #224, migration `000052`)** — trusted
+      issuers carry an optional per-issuer `ca_cert` (PEM) used for that issuer's
+      discovery + JWKS TLS. The asymmetry that motivated it is now closed: sync
+      accepted a `ca_cert`, federation did not.
+
+      **A bundle REPLACES the system roots for that issuer**, rather than adding
+      to them. It matches what the sync provider already does; it is the stricter
+      reading, since an issuer is one host with one legitimate signer, so a
+      mis-issuance by any public root cannot impersonate it; and additive trust
+      would be strictly weaker in exactly the case the feature exists for
+      (private cluster CA *plus* every public CA) for no benefit. An operator who
+      wants public roots leaves it empty. There is no `InsecureSkipVerify` path
+      at any layer, and a test asserts it is never set.
+
+      **The verifier cache was the real hazard.** A cached `fedVerifier` owns the
+      HTTP client its JWKS `RemoteKeySet` was built with, so a corrected bundle
+      would have been masked until restart. The cache-hit check now compares
+      issuer + audience + CA, on top of the existing `invalidateFederationVerifier()`
+      on every mutation path — the comparison is the second line of defence for a
+      row changed by a restore, a second instance, or a hand-edit.
+
+      The shared `s.oidcHTTP` client is left untouched (it serves every other
+      issuer and human OIDC login); a bundle produces a *per-issuer* client built
+      through `nethard.SafeHTTPClient` with the live process policy, so the SSRF
+      guard is fully intact. A custom CA changes which certificate is acceptable,
+      never which address may be dialled — operators with
+      `JANUS_OUTBOUND_BLOCK_PRIVATE=true` still need the ClusterIP allowlisted.
+
+      **Not verified: never exercised against a real cluster.** The end-to-end
+      proof is an `httptest.NewTLSServer` mock IdP trusted only via the supplied
+      bundle (fails with system roots, fails with a valid-but-wrong CA, succeeds
+      with its own). Same trust relationship, but it is not minikube — and a k8s
+      feature looking right and then failing on contact with a real cluster is
+      exactly how this item was found in the first place. The migration has also
+      only been applied by the test harness, and the down migration never run.
 
 **Verified working end-to-end on the cluster:** the k8s sync provider (real
 `Secret` created via server-side apply, values correct, run history recorded),
@@ -862,6 +948,29 @@ is written, tested and — as of 2026-07-26 — covered by CI.
 Nothing on the *roadmap* is outstanding. Open engineering work now lives in the
 section above, sourced from real usage rather than invented to fill a list —
 which is how it should stay.
+
+**The RBAC-at-organisation-scale and Kubernetes batches closed out 2026-07-29**
+(PRs #223 · #224 · #225, migration `000052`): group resources in the Terraform
+provider and the SDKs, per-issuer federation `ca_cert`, and the cross-scope
+access review — which closed the offboarding view, the users × scopes grid and
+the *"who can write prod?"* question together, since all three were the same
+missing cross-scope answer. **Exactly two engineering items remain**, and both
+are deliberate rather than pending:
+
+- **`secret:read` is all-or-nothing** — a recorded decision (detection over
+  prevention, defensible for a single-tenant self-hosted tool), not a gap
+  awaiting work.
+- **An OIDC group's member list covers only users who have signed in** — the
+  one genuine open item. #223 was careful not to make it worse (no member count,
+  no member data source, the SDK field is named `members_seen`), but the Groups
+  screen still states it in prose where it should state it structurally.
+
+Two things shipped this batch are **unverified against reality** and should be
+treated as such until someone runs them: the federation `ca_cert` has never been
+exercised against a real cluster (only an `httptest` TLS server with the same
+trust relationship), and the `/access` screen has never been rendered in a
+browser in either theme. A Kubernetes feature that looked right and then failed
+on contact with a real cluster is precisely how the `ca_cert` item was found.
 
 Unrelated to the roadmap, one operational chore is also waiting on the
 maintainer: `gh auth refresh -h github.com -s write:packages`, so

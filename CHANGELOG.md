@@ -7,6 +7,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Access review — one answer to "who can write prod?" and "what can this
+  person reach?"** A new `/access` screen over `GET /v1/access/matrix` (people ×
+  scopes, each cell the effective role **and every binding that produced it**),
+  `GET /v1/access/users/{uid}` (direct vs group bindings, reach, live
+  break-glass), and `POST /v1/access/users/{uid}/revoke-all`. Union semantics
+  were previously implicit and offboarding was hopeful rather than checkable.
+
+  Cells are computed by `authz.ApplicableBindings` / `RoleFromBindings`, which
+  share `bindingApplies` with the decision path — `BoundRole` now delegates to
+  them — because a second implementation of "which bindings apply" would drift
+  into a review that disagrees with enforcement. Five queries regardless of
+  instance size.
+
+  **Revoke-all is narrow on purpose and reports its limits.** It removes
+  *direct* bindings at scopes where you hold `member:manage` and whose role is
+  ≤ your `BoundRole` there. It does not remove group-derived access, revoke
+  break-glass, or disable the account — each is reported structurally — and it
+  refuses the whole request rather than removing the last instance owner.
+- **Per-issuer `ca_cert` for workload federation** (migration `000052`). The
+  OIDC verifier used system roots only, so an issuer signed by a private CA —
+  the default `https://kubernetes.default.svc`, signed by the cluster CA —
+  could never verify, while the sync provider worked precisely because it
+  accepts a `ca_cert`. That asymmetry is now closed.
+
+  A bundle **replaces** the system roots for that issuer rather than adding to
+  them: it matches the sync provider, it is the stricter reading (one host, one
+  legitimate signer), and additive trust would be strictly weaker in the exact
+  case the feature exists for. No `InsecureSkipVerify` path exists. The verifier
+  cache now compares the CA as well as issuer and audience — a cached verifier
+  owns the client its JWKS key set was built with, so a corrected bundle would
+  otherwise have been masked until restart.
+- **Group resources in the Terraform provider and the SDKs.** `janus_group`,
+  `janus_group_member` and `janus_group_binding`, plus catalog operations in the
+  Go, TypeScript and Python SDKs. No new dependency in any module.
+
+  **Bindings are Terraform-only, deliberately.** The SDKs document a
+  config-scoped read token that can never hold `member:manage`, so every binding
+  call from a normally-configured client would 403; and a binding is durable
+  access, the class of change that should be planned and diffed. A test in the
+  TS and Python suites asserts no binding-shaped method exists, so reversing
+  this is a decision rather than a drive-by. Both group invariants fail at
+  **plan** time: `owner` gets its own diagnostic (it is a valid role, just never
+  for a group) and the two-kinds rule is checked in `ModifyPlan`.
 - **The outbound policy is editable from the UI, applied without a restart.**
   Settings → **Outbound policy** (owner only) edits `block_private` and the
   allowlist; `GET`/`PUT`/`DELETE /v1/sys/outbound-policy` back it. A stored

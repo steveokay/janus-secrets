@@ -242,9 +242,14 @@ owner-only authority, `allow_proxy` staying environment-only, and
 `JANUS_OUTBOUND_POLICY_LOCKED` for deployments that need the control outside the
 application entirely. See [`../docs/threat-model.md`](threat-model.md).
 
-Still open from the same exercise: federation cannot verify an issuer whose
-certificate is signed by the cluster CA (there is no per-issuer `ca_cert`,
-though the sync provider accepts one). Detail in [`../status.md`](../status.md).
+**The `ca_cert` half closed 2026-07-29 (PR #224, migration `000052`).** Trusted
+issuers now carry an optional per-issuer CA bundle, so a cluster-CA-signed
+issuer verifies — the asymmetry with sync, which always accepted a `ca_cert`, is
+gone. A bundle **replaces** the system roots for that issuer rather than adding
+to them (one host, one legitimate signer), and the verifier cache compares the
+CA so a corrected bundle is not masked until restart. **It has not been run
+against a real cluster** — the proof is an `httptest` TLS server with the same
+trust relationship. Detail in [`../status.md`](../status.md).
 
 ## RBAC at organisation scale
 
@@ -354,12 +359,27 @@ unprotected and the "a broad grant is fine, because prod writes are four-eyes"
 argument rested on a control nobody had enabled. Protection is now also a
 property of the environment, unioned with the config's own flag.
 
-Also tracked, lower priority: exposing effective permissions to the UI so the
-nav can gate instead of collecting 403s; the fact that a binding can never
-*narrow* another one (better answered by defaulting prod to `require_approval`
-than by deny rules, which would cost the engine its clarity); `secret:read`
-being all-or-nothing per config; and a per-user "effective access" view for
-offboarding. Detail and reasoning in [`../status.md`](../status.md).
+**The cross-scope batch closed 2026-07-29 (PR #225).** The users × scopes grid,
+the per-user offboarding view and the *"who can write prod?"* question were all
+the same missing thing — a cross-scope answer — and shipped together as
+`/access`, with a revoke-all that is deliberately narrow and reports what it
+cannot remove (group-derived access, break-glass, the account itself) rather
+than implying a clean sweep. Cells are computed by the **same** predicates the
+decision path uses, since a review that disagrees with enforcement is worse than
+none. **The screen has not been rendered in a browser** in either theme.
+
+**Group resources shipped the same day (PR #223)**, with bindings deliberately
+Terraform-only: an SDK's config-scoped read token can never hold
+`member:manage`, so binding calls from a normally-configured client would only
+ever 403.
+
+Still tracked, and deliberate rather than pending: `secret:read` remains
+all-or-nothing per config (a recorded decision — detection over prevention), and
+a binding still cannot *narrow* another one (better answered by defaulting prod
+to `require_approval` than by deny rules, which would cost the engine its
+clarity). One genuine item is open: an OIDC group's member list covers only
+users who have signed in, and the Groups screen says so in prose where it should
+say so structurally. Detail and reasoning in [`../status.md`](../status.md).
 
 ## What's actually left
 
