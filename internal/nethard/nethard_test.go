@@ -50,7 +50,7 @@ func TestSafeControl(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctrl := SafeControl(tt.policy)
+			ctrl := SafeControl(Static(tt.policy))
 			err := ctrl("tcp", tt.address, nil)
 			if tt.blocked && err == nil {
 				t.Fatalf("address %q: expected block, got allow", tt.address)
@@ -68,7 +68,7 @@ func TestSafeControl(t *testing.T) {
 func TestSafeControlNonIP(t *testing.T) {
 	// Control is expected to receive a resolved IP literal; a hostname must fail
 	// closed rather than pass unchecked.
-	ctrl := SafeControl(Policy{})
+	ctrl := SafeControl(Static(Policy{}))
 	if err := ctrl("tcp", "example.com:80", nil); !errors.Is(err, ErrBlockedAddress) {
 		t.Fatalf("non-IP host: expected ErrBlockedAddress, got %v", err)
 	}
@@ -181,7 +181,7 @@ func TestSafeHTTPClientNoProxyByDefault(t *testing.T) {
 	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
 	t.Setenv("HTTP_PROXY", "http://proxy.internal:3128")
 
-	c := SafeHTTPClient(5*time.Second, PolicyFromEnv())
+	c := SafeHTTPClient(5*time.Second, Static(PolicyFromEnv()))
 	tr, ok := c.Transport.(*http.Transport)
 	if !ok {
 		t.Fatal("expected *http.Transport")
@@ -195,7 +195,7 @@ func TestSafeHTTPClientProxyOptIn(t *testing.T) {
 	t.Setenv(EnvAllowProxy, "true")
 	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
 
-	c := SafeHTTPClient(5*time.Second, PolicyFromEnv())
+	c := SafeHTTPClient(5*time.Second, Static(PolicyFromEnv()))
 	tr, ok := c.Transport.(*http.Transport)
 	if !ok {
 		t.Fatal("expected *http.Transport")
@@ -266,7 +266,7 @@ func TestCheckURLHost(t *testing.T) {
 }
 
 func TestSafeHTTPClientWired(t *testing.T) {
-	c := SafeHTTPClient(5, Policy{})
+	c := SafeHTTPClient(5, Static(Policy{}))
 	if c.Transport == nil {
 		t.Fatal("expected transport")
 	}

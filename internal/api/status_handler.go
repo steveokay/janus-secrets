@@ -132,9 +132,11 @@ func (s *Server) handleSysStatus(w http.ResponseWriter, r *http.Request) {
 		Schedulers:    map[string]schedulerStatus{},
 	}
 
-	// Egress policy. Read from the environment the same way every outbound
-	// client does, so the panel cannot report a policy the dialers are not using.
-	outPolicy := nethard.PolicyFromEnv()
+	// Egress policy. Read from the LIVE process source — the same one every
+	// outbound dial consults — so the panel cannot report a policy the dialers
+	// are not using. Reading the environment here would misreport any instance
+	// whose policy has been edited at runtime.
+	outPolicy := nethard.Process().Policy()
 	resp.Outbound = outboundStatus{
 		BlockPrivate: outPolicy.BlockPrivate,
 		Allow:        nethard.DescribeAllow(outPolicy.Allow),

@@ -738,6 +738,43 @@ had ever run against a live API server.
       boot and `janus doctor` both warn rather than pretending it does
       something. CI (and `make helm-test`) assert the chart omits the variable
       when empty and renders it when set.
+- [x] ~~**The outbound policy could only be changed by restarting the server.**~~
+      **SHIPPED 2026-07-29** — Settings → **Outbound policy** (owner only) plus
+      `GET`/`PUT`/`DELETE /v1/sys/outbound-policy`, migration `000051`. A stored
+      policy supersedes the environment and survives restarts; both the screen
+      and the API report **which source is in force**, so a manifest that
+      disagrees with the instance is visible rather than silent.
+
+      **The plumbing was the work, not the screen.** Each engine built one
+      `http.Client` at construction whose dialer closed over a policy *value*,
+      so a runtime change could never reach it. Policy now resolves through a
+      single process-wide `nethard.Source` read on every dial —
+      deliberately **one** source, because a per-engine copy would leave
+      rotation obeying the new policy while sync still obeyed the old, a
+      split-brain invisible until something failed to connect.
+      `TestSourceIsLive` drives a dialer built once and asserts both tightening
+      and loosening land on the next dial.
+
+      **It is a deliberate, bounded weakening** — recorded in
+      `docs/threat-model.md` rather than glossed. The guard bounds what a
+      mis-configured integration can make the server dial, and integration
+      config is already admin-gated, so an in-app policy sits under an authority
+      it partly constrains. Four bounds: the metadata/link-local ranges are
+      unexemptable **in enforcement** (checkIP consults the allowlist below
+      them), so no stored value can reach them; the capability is **owner-only**
+      (`sys:egress`), beside master-key rotation and audit prune, explicitly not
+      admin, since admin is the tier that configures the integrations this
+      guards; `allow_proxy` is **not storable** and is rejected with a 400
+      rather than silently dropped, because it is the one setting that blinds
+      the guard outright; and `JANUS_OUTBOUND_POLICY_LOCKED=true` pins the
+      policy to the environment (writes 409) for deployments that need the
+      control strictly outside the app. Worth naming: the DEFAULT policy already
+      permits private space, so this only widens instances that had hardened
+      past the default.
+
+      Boot failure is fatal, not a warning: starting on the environment's policy
+      while an override exists would be a **silent** egress change, the one
+      outcome this control must never produce.
 - [ ] **Federation cannot verify an issuer whose cert is signed by the cluster
       CA.** The OIDC verifier uses system roots only, and there is no way to
       supply a CA bundle — so with the default `https://kubernetes.default.svc`

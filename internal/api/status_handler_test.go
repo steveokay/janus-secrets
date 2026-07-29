@@ -139,9 +139,18 @@ func TestSysStatusAdminShape(t *testing.T) {
 		t.Errorf("outbound.allow = %v, want empty (unset in this stack)", st.Outbound.Allow)
 	}
 
+	// The panel must report the LIVE policy, so drive the real path: store a
+	// policy through the owner-only endpoint and read it back from /sys/status.
+	// Setting the environment here would prove nothing — the dialers read the
+	// process source, not os.Getenv.
 	t.Run("reports a configured allowlist", func(t *testing.T) {
-		t.Setenv("JANUS_OUTBOUND_BLOCK_PRIVATE", "true")
-		t.Setenv("JANUS_OUTBOUND_ALLOW", "10.96.0.1/32, 10.0.0.0/8")
+		t.Cleanup(func() {
+			doAuthed(t, "DELETE", ts.URL+"/v1/sys/outbound-policy", adminCookie, "", "", nil)
+		})
+		body := `{"block_private":true,"allow":["10.96.0.1/32","10.0.0.0/8"]}`
+		if code := doAuthed(t, "PUT", ts.URL+"/v1/sys/outbound-policy", adminCookie, "", body, nil); code != 200 {
+			t.Fatalf("put outbound policy: %d", code)
+		}
 		var got sysStatusWire
 		if code := doAuthed(t, "GET", ts.URL+"/v1/sys/status", adminCookie, "", "", &got); code != 200 {
 			t.Fatalf("status: %d", code)

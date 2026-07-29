@@ -7,6 +7,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **The outbound policy is editable from the UI, applied without a restart.**
+  Settings → **Outbound policy** (owner only) edits `block_private` and the
+  allowlist; `GET`/`PUT`/`DELETE /v1/sys/outbound-policy` back it. A stored
+  policy supersedes the environment and survives restarts, and both the screen
+  and the API report **which source is in force**, so a Helm chart that
+  disagrees with the running instance is visible rather than silent. Migration
+  `000051`.
+
+  Changes take effect on the **next dial** across every engine at once. That
+  needed the plumbing, not the screen: each engine built one `http.Client` at
+  construction whose dialer closed over a policy *value*, so nothing could ever
+  change it. Policy now resolves through a single process-wide
+  `nethard.Source` read per dial — one source deliberately, since a per-engine
+  copy would leave rotation obeying the new policy while sync obeyed the old.
+
+  This is a deliberate, bounded weakening and is recorded in the threat model.
+  The guard exists to bound what a mis-configured integration can make the
+  server dial, and integration config is already admin-gated — so an in-app
+  policy sits under an authority it partly constrains. Four things bound it:
+  the metadata/link-local ranges are unexemptable **in enforcement**, below the
+  allowlist check, so no stored value reaches them; the capability is
+  **owner-only** (`sys:egress`), the tier of master-key rotation and audit
+  prune; `allow_proxy` — the one setting that blinds the guard — is not
+  storable and stays environment-only, rejected with a `400` rather than
+  silently dropped; and **`JANUS_OUTBOUND_POLICY_LOCKED=true`** pins the policy
+  to the environment, failing every write with a `409`, for deployments that
+  need the control to live strictly outside the application.
 - **`JANUS_OUTBOUND_ALLOW` — an SSRF allowlist, so hardening and the
   cluster-native integrations can hold at the same time.**
   `JANUS_OUTBOUND_BLOCK_PRIVATE` was all-or-nothing, and the Helm chart turns it

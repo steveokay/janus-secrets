@@ -229,10 +229,22 @@ private-space block and **nothing else** — the link-local / cloud-metadata
 ranges can never be allowlisted, and an entry naming one fails at boot rather
 than looking effective. Entries are addresses, never hostnames, because the
 guard validates the *resolved* IP and trusting a name would reopen DNS
-rebinding. Still open from the same exercise: federation cannot verify an issuer
-whose certificate is signed by the cluster CA (there is no per-issuer
-`ca_cert`, though the sync provider accepts one). Detail in
-[`../status.md`](../status.md).
+rebinding.
+
+**And it became editable in the UI the same day** (migration `000051`): Settings
+→ Outbound policy, owner-only, applied on the next dial rather than at the next
+restart. The plumbing was the real work — every engine captured the policy by
+value at construction, so it now resolves through one process-wide
+`nethard.Source` read per dial. This is a **bounded, recorded weakening**: the
+guard sits above admin by design, so an in-app policy gives some of that back.
+It is held in check by the metadata ranges being unexemptable in enforcement,
+owner-only authority, `allow_proxy` staying environment-only, and
+`JANUS_OUTBOUND_POLICY_LOCKED` for deployments that need the control outside the
+application entirely. See [`../docs/threat-model.md`](threat-model.md).
+
+Still open from the same exercise: federation cannot verify an issuer whose
+certificate is signed by the cluster CA (there is no per-issuer `ca_cert`,
+though the sync provider accepts one). Detail in [`../status.md`](../status.md).
 
 ## RBAC at organisation scale
 

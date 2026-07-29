@@ -36,6 +36,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -80,6 +82,79 @@ type Policy struct {
 	// it did before the allowlist existed. See EnvAllow.
 	Allow []netip.Prefix
 }
+
+// Source supplies the policy in force for the NEXT dial.
+//
+// The guarded clients are long-lived — each engine builds one http.Client at
+// construction and keeps it — so a policy captured by value at that moment can
+// never change afterwards. Reading through a Source instead means an operator
+// editing the policy at runtime takes effect on the next connection, with no
+// restart and no client rebuild.
+//
+// Every guarded constructor takes a *Source rather than a Policy so that a
+// fixed policy cannot be passed where a live one is required: a caller that
+// genuinely wants a constant writes Static(p), which says so.
+//
+// The zero value is not usable; construct with NewSource or Static.
+type Source struct {
+	p atomic.Pointer[Policy]
+}
+
+// NewSource returns a Source that starts at p and can be updated with Set.
+func NewSource(p Policy) *Source {
+	s := &Source{}
+	s.Set(p)
+	return s
+}
+
+// Static returns a Source that never changes. It exists so tests and
+// fixed-policy callers read explicitly as fixed.
+func Static(p Policy) *Source { return NewSource(p) }
+
+// Policy returns the policy currently in force. Safe for concurrent use, and
+// cheap enough for the connect-time hot path (one atomic load).
+func (s *Source) Policy() Policy {
+	if s == nil {
+		// A nil Source must not silently disable the guard. Fall back to the
+		// most restrictive interpretation the package can state without config:
+		// the always-blocked ranges still apply, private space is not exempted.
+		return Policy{}
+	}
+	if p := s.p.Load(); p != nil {
+		return *p
+	}
+	return Policy{}
+}
+
+// Set replaces the policy for subsequent dials. In-flight connections are not
+// torn down — the guard runs at connect time, so a tightened policy applies to
+// new connections and to every redirect hop, not to an established socket.
+func (s *Source) Set(p Policy) { s.p.Store(&p) }
+
+var (
+	processOnce sync.Once
+	processSrc  *Source
+)
+
+// Process returns the one egress policy the whole process dials under.
+//
+// There is deliberately a single Source rather than one per engine: an operator
+// editing the policy means "this server's egress", and a per-engine copy would
+// leave rotation obeying the new policy while sync still obeyed the old one —
+// a split-brain that would be invisible until something failed to connect.
+//
+// It initialises from the environment on first use, so a caller that never
+// configures anything behaves exactly as it did before the policy became
+// editable. Boot overrides it with SetProcess once the stored policy is known.
+func Process() *Source {
+	processOnce.Do(func() { processSrc = NewSource(PolicyFromEnv()) })
+	return processSrc
+}
+
+// SetProcess replaces the process-wide policy. Boot calls it after resolving
+// the stored override, and the update handler calls it after a successful
+// write, so a change takes effect on the next dial without a restart.
+func SetProcess(p Policy) { Process().Set(p) }
 
 // PolicyFromEnv builds a Policy from the process environment. The link-local /
 // metadata block is unconditional; only the private-space tightening and the
@@ -170,8 +245,11 @@ func checkIP(ip net.IP, policy Policy) error {
 // it if the policy forbids the IP. Because Control runs after DNS resolution on
 // every dial — including redirect follows and reconnects — this defeats
 // DNS-rebinding attacks that a URL-time check would miss.
-func SafeControl(policy Policy) func(network, address string, c syscall.RawConn) error {
+// The policy is read from src on EVERY dial, so a runtime policy change applies
+// to the next connection without rebuilding the client.
+func SafeControl(src *Source) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, _ syscall.RawConn) error {
+		policy := src.Policy()
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			// Fall back to treating the whole address as a host (no port).
@@ -190,8 +268,8 @@ func SafeControl(policy Policy) func(network, address string, c syscall.RawConn)
 // SafeDialContext returns a DialContext function whose dialer applies SafeControl
 // for non-HTTP dials (SMTP, Postgres/MySQL/Redis). The timeout bounds a single
 // connect attempt so a black-holed internal IP cannot hang a scheduler goroutine.
-func SafeDialContext(policy Policy, timeout time.Duration) func(ctx context.Context, network, address string) (net.Conn, error) {
-	d := &net.Dialer{Timeout: timeout, Control: SafeControl(policy)}
+func SafeDialContext(src *Source, timeout time.Duration) func(ctx context.Context, network, address string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: timeout, Control: SafeControl(src)}
 	return d.DialContext
 }
 
@@ -229,22 +307,26 @@ func checkURLHost(u *url.URL, policy Policy) error {
 // the true destination from the connect-time guard. When policy.AllowProxy is
 // set, http.ProxyFromEnvironment is restored behind a best-effort URL-time host
 // check (Transport consults Proxy once per request, including each redirect hop).
-func SafeHTTPClient(timeout time.Duration, policy Policy) *http.Client {
+func SafeHTTPClient(timeout time.Duration, src *Source) *http.Client {
 	tr := &http.Transport{
 		Proxy:                 nil, // explicit: see EnvAllowProxy
-		DialContext:           SafeDialContext(policy, timeout),
+		DialContext:           SafeDialContext(src, timeout),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-	if policy.AllowProxy {
+	// AllowProxy is env-only and therefore fixed for the process lifetime, so
+	// whether a Proxy hook exists is decided once here. The hook still re-reads
+	// the policy per request, so a runtime allowlist change applies to the
+	// best-effort URL-time check too.
+	if src.Policy().AllowProxy {
 		tr.Proxy = func(req *http.Request) (*url.URL, error) {
 			// Runs per request before the connection is selected. Returning an
 			// error here aborts the request. This keeps hc.Transport an
 			// *http.Transport for callers that must set TLSClientConfig.
-			if err := checkURLHost(req.URL, policy); err != nil {
+			if err := checkURLHost(req.URL, src.Policy()); err != nil {
 				return nil, err
 			}
 			return http.ProxyFromEnvironment(req)

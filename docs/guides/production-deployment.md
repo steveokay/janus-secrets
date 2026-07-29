@@ -238,7 +238,17 @@ targets.
 |---|---|---|
 | `JANUS_OUTBOUND_BLOCK_PRIVATE` | Also reject loopback + RFC1918 + ULA on outbound integration calls. Pair it with `JANUS_OUTBOUND_ALLOW` when a few private targets are legitimate. | `false` |
 | `JANUS_OUTBOUND_ALLOW` | Comma-separated IPs / CIDRs **exempt** from `JANUS_OUTBOUND_BLOCK_PRIVATE`, e.g. `10.96.0.1/32`. Never exempts the link-local/metadata ranges. | _(empty)_ |
-| `JANUS_OUTBOUND_ALLOW_PROXY` | Let outbound integration calls honour `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and `NO_PROXY`). **Weakens the SSRF guard — see below.** | `false` |
+| `JANUS_OUTBOUND_ALLOW_PROXY` | Let outbound integration calls honour `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and `NO_PROXY`). **Weakens the SSRF guard — see below.** Environment-only: it cannot be set from the UI. | `false` |
+| `JANUS_OUTBOUND_POLICY_LOCKED` | Pin the egress policy to the environment: owner-editable changes (Settings → Outbound policy, `PUT /v1/sys/outbound-policy`) return `409`. Set it where the policy must live outside the application. | `false` |
+
+> **The first two are also editable at runtime by an owner** — Settings →
+> Outbound policy, applied on the next dial with no restart. A stored policy
+> **supersedes** these variables and survives restarts, so an instance can
+> legitimately disagree with its own manifest; the screen and `GET
+> /v1/sys/outbound-policy` both report which source is in force. Set
+> `JANUS_OUTBOUND_POLICY_LOCKED=true` to forbid that. The always-blocked
+> metadata ranges cannot be exempted by either route, and `allow_proxy` is never
+> editable in-app.
 
 ### Allowlisting specific private destinations
 

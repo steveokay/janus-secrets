@@ -34,7 +34,7 @@ type redisDialer func(ctx context.Context, addr string, useTLS bool, skipVerify 
 // policyRedisDial returns a redisDialer that applies the SSRF guard (SafeControl)
 // and a bounded connect timeout. The Control fn re-checks the resolved IP at
 // connect time (blocks link-local/IMDS; loopback + RFC1918 allowed by default).
-func policyRedisDial(policy nethard.Policy) redisDialer {
+func policyRedisDial(policy *nethard.Source) redisDialer {
 	return func(ctx context.Context, addr string, useTLS bool, skipVerify bool) (net.Conn, error) {
 		d := net.Dialer{Timeout: dbDialTimeout, Control: nethard.SafeControl(policy)}
 		if !useTLS {
@@ -56,7 +56,7 @@ func policyRedisDial(policy nethard.Policy) redisDialer {
 // redisRotator resets a single Redis ACL user's password via ACL SETUSER.
 type redisRotator struct {
 	dial   redisDialer
-	policy nethard.Policy
+	policy *nethard.Source
 }
 
 func (rr redisRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, secretKey, newValue string) error {

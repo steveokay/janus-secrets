@@ -35,6 +35,22 @@ import (
 // resolved-IP check exists to close.
 const EnvAllow = "JANUS_OUTBOUND_ALLOW"
 
+// EnvPolicyLocked, when set truthy, pins the egress policy to the environment
+// and makes the API refuse every write to it.
+//
+// It exists because making the policy editable moves a control that constrained
+// a compromised admin to sitting *under* that same authority. The blast radius
+// is already bounded — no stored policy can reach the link-local / metadata
+// ranges, so the worst an attacker gains is private-space reachability, which
+// the DEFAULT policy permits anyway — but a deployment that deliberately
+// hardened beyond the default should be able to keep the guarantee it chose.
+// Setting this restores the original property: egress policy lives outside the
+// application and changing it requires changing the deployment.
+const EnvPolicyLocked = "JANUS_OUTBOUND_POLICY_LOCKED"
+
+// PolicyLocked reports whether the stored policy may be edited.
+func PolicyLocked() bool { return envTruthy(os.Getenv(EnvPolicyLocked)) }
+
 // alwaysBlockedPrefixes enumerates, as prefixes, the ranges checkIP rejects
 // unconditionally. It exists so parsing can refuse an allowlist entry that could
 // never take effect.

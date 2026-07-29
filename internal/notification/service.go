@@ -32,7 +32,7 @@ type Service struct {
 	st     *store.Store
 	logger *slog.Logger
 	hc     *http.Client
-	policy nethard.Policy // SSRF policy applied to webhook/Slack and SMTP dials
+	policy *nethard.Source // live SSRF policy applied to webhook/Slack and SMTP dials
 	now    func() time.Time
 }
 
@@ -41,7 +41,7 @@ func New(kr *crypto.Keyring, st *store.Store, aud *store.AuditRepo, logger *slog
 	if logger == nil {
 		logger = slog.Default()
 	}
-	policy := nethard.PolicyFromEnv()
+	policy := nethard.Process()
 	return &Service{
 		kr:     kr,
 		repo:   store.NewNotificationRepo(st),

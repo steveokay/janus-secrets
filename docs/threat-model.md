@@ -120,7 +120,27 @@ additionally rejects loopback/RFC1918/ULA, and `JANUS_OUTBOUND_ALLOW` exempts
 named IPs/CIDRs from *that* tightening only: no allowlist entry can reach the
 link-local/cloud-metadata ranges, and an entry naming one is a startup error
 rather than a silent no-op, so the highest-value SSRF target stays unreachable
-through configuration. The resolved-IP recheck only holds when Janus
+through configuration.
+
+**Runtime-editable egress policy (accepted, bounded).** Those two settings are
+also editable in-app by an **owner** (Settings → Outbound policy). This is a
+deliberate weakening, recorded rather than hidden: the guard bounds what a
+mis-/maliciously-configured integration can dial, and integration configuration
+is itself admin-gated, so an in-app policy sits under an authority it partly
+constrains — an attacker holding an owner session can widen private-space egress
+before adding a target. Three things bound it. The metadata/link-local block is
+enforced in `checkIP` **below** the allowlist and is unexemptable by any stored
+value, so the highest-value target remains out of reach through this path. The
+capability is **owner-only** (`sys:egress`), the same tier as master-key
+rotation and audit prune, and every change is fail-closed audited with the
+before/after ranges. And `JANUS_OUTBOUND_ALLOW_PROXY` — the one setting that
+blinds the guard outright — is **not** storable and stays environment-only.
+Deployments that need the original property (policy strictly outside the
+application) set `JANUS_OUTBOUND_POLICY_LOCKED=true`, which makes every write
+fail. Note also that the default policy already permits private space, so this
+only widens instances that had hardened past the default.
+
+The resolved-IP recheck only holds when Janus
 dials the destination itself, so these clients ignore `HTTP_PROXY`/`HTTPS_PROXY`
 by default; `JANUS_OUTBOUND_ALLOW_PROXY=true` re-enables proxying, logs a
 startup warning, and leaves only a best-effort URL-time literal-IP check —

@@ -19,7 +19,7 @@ import (
 const k8sTimeout = 20 * time.Second
 
 type k8sProvider struct {
-	policy nethard.Policy
+	policy *nethard.Source
 	// newClient builds an HTTP client that trusts caPEM (overridable in tests).
 	newClient func(caPEM string) (*http.Client, error)
 }
@@ -30,7 +30,7 @@ func (k8sProvider) Name() string { return ProviderK8s }
 // dials through the SSRF guard (blocks link-local/IMDS; loopback + RFC1918
 // allowed for in-cluster/self-hosted API servers), bounds redirects, and has a
 // request timeout.
-func defaultK8sClient(policy nethard.Policy, caPEM string) (*http.Client, error) {
+func defaultK8sClient(policy *nethard.Source, caPEM string) (*http.Client, error) {
 	pool := x509.NewCertPool()
 	if caPEM != "" {
 		if !pool.AppendCertsFromPEM([]byte(caPEM)) {

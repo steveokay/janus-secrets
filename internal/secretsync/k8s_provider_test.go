@@ -102,7 +102,7 @@ func TestK8sPruneFalseMergePatch(t *testing.T) {
 }
 
 func TestK8sBadCACertRejected(t *testing.T) {
-	_, err := defaultK8sClient(nethard.Policy{}, "not a pem")
+	_, err := defaultK8sClient(nethard.Static(nethard.Policy{}), "not a pem")
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Errorf("err = %v, want ErrInvalidConfig", err)
 	}

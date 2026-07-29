@@ -455,6 +455,7 @@ var knownEnvVars = map[string]bool{
 	"JANUS_OUTBOUND_BLOCK_PRIVATE": true,
 	"JANUS_OUTBOUND_ALLOW":         true,
 	"JANUS_OUTBOUND_ALLOW_PROXY":   true,
+	"JANUS_OUTBOUND_POLICY_LOCKED": true,
 	"JANUS_METRICS_TOKEN":          true,
 	"JANUS_LOG_LEVEL":              true,
 	"JANUS_LOG_FORMAT":             true,
@@ -908,7 +909,7 @@ func checkWebAuthnOrigins(ctx context.Context, cfg auth.WebAuthnConfig, listenAd
 
 	listenPort := listenPortOf(listenAddr)
 	inContainer := containerDetector()
-	hc := nethard.SafeHTTPClient(o.timeout, nethard.Policy{})
+	hc := nethard.SafeHTTPClient(o.timeout, nethard.Static(nethard.Policy{}))
 
 	var problems, notes []string
 	skipped := 0
@@ -1137,6 +1138,14 @@ func checkOutbound() doctorCheck {
 	} else {
 		detail = append(detail, "loopback + RFC1918 + ULA are allowed (default; self-hosted deployments dial internal targets)")
 	}
+	// doctor is a preflight over the ENVIRONMENT and does not open the database,
+	// so it cannot see a stored override. Say so rather than reporting the
+	// environment as though it were necessarily what the server will dial under.
+	if nethard.PolicyLocked() {
+		detail = append(detail, "the policy is pinned to the environment ("+nethard.EnvPolicyLocked+"); it cannot be changed in the app")
+	} else {
+		detail = append(detail, "a stored policy (Settings → Outbound policy) supersedes these values; check GET /v1/sys/outbound-policy on a running server")
+	}
 	if allow := nethard.DescribeAllow(p.Allow); len(allow) > 0 {
 		detail = append(detail, "exempt from the private-space block ("+nethard.EnvAllow+"): "+strings.Join(allow, ", "))
 		// An allowlist without the tightening it exempts from does nothing. Worth
@@ -1337,7 +1346,7 @@ func checkServerReachable(ctx context.Context, o doctorOpts, listenAddr string, 
 
 	cctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
-	hc := nethard.SafeHTTPClient(o.timeout, nethard.Policy{})
+	hc := nethard.SafeHTTPClient(o.timeout, nethard.Static(nethard.Policy{}))
 	var body struct {
 		Status      string `json:"status"`
 		Initialized bool   `json:"initialized"`

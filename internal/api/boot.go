@@ -160,6 +160,15 @@ func Boot(ctx context.Context, bc BootConfig) (*Server, *store.Store, error) {
 		return nil, nil, fmt.Errorf("migrate: %w", err)
 	}
 
+	// Apply the stored egress policy over the environment before anything can
+	// dial. A failure here is fatal rather than a warning: booting on the
+	// environment's policy while an override exists would be a SILENT egress
+	// policy change, which is the one outcome this control must never produce.
+	if err := resolveOutboundPolicy(ctx, store.NewOutboundPolicyRepo(st)); err != nil {
+		st.Close()
+		return nil, nil, fmt.Errorf("resolve outbound policy: %w", err)
+	}
+
 	seals := store.NewSealConfigStore(st)
 	stored, err := seals.Get(ctx)
 	initialized := true

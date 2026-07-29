@@ -41,7 +41,7 @@ type Service struct {
 	logger   *slog.Logger
 	st       *store.Store
 	hc       *http.Client
-	policy   nethard.Policy   // SSRF policy applied to shared + k8s HTTP clients
+	policy   *nethard.Source  // live SSRF policy applied to shared + k8s HTTP clients
 	now      func() time.Time // injectable clock (tests)
 	tickHook func()           // optional; called at the top of each RunDue (metrics/health)
 	// verifyTickHook is the drift verifier's equivalent of tickHook (called at
@@ -61,7 +61,7 @@ func New(kr *crypto.Keyring, st *store.Store, sec *secrets.Service, aud *audit.R
 	if logger == nil {
 		logger = slog.Default()
 	}
-	policy := nethard.PolicyFromEnv()
+	policy := nethard.Process()
 	return &Service{
 		kr: kr, repo: store.NewSyncTargetRepo(st), projects: store.NewProjectRepo(st),
 		secrets: sec, audit: aud, logger: logger, st: st,
