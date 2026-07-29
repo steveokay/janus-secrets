@@ -238,7 +238,7 @@
           <th scope="col">Group</th>
           <th scope="col" style="width: 90px">Kind</th>
           <th scope="col" style="width: 220px">Claim value</th>
-          <th scope="col" style="width: 100px">Members</th>
+          <th scope="col" style="width: 120px">Members</th>
           <th scope="col" style="width: 100px">Grants</th>
           <th scope="col" style="width: 150px">Creates projects</th>
           <th scope="col" style="width: 110px"></th>
@@ -261,7 +261,16 @@
                 <span class="folio muted">—</span>
               {/if}
             </td>
-            <td><span class="folio">{g.member_count}</span></td>
+            <td>
+              <!-- An oidc group's membership is a login-time snapshot, so this
+                   count is "users Janus has seen", not "users in the group".
+                   Rendered differently rather than footnoted: a bare number in a
+                   column headed "Members" reads as the whole answer. -->
+              <span class="folio">{g.member_count}</span>
+              {#if !g.membership_complete}
+                <span class="seen" title="Membership comes from the identity provider at sign-in. Anyone who has never signed into Janus is not counted — they get their access on first sign-in.">seen</span>
+              {/if}
+            </td>
             <td>
               {#if g.binding_count}
                 <span class="folio">{g.binding_count}</span>
@@ -298,7 +307,11 @@
 
       <div class="cols">
         <section>
-          <h3 class="sub">Members</h3>
+          <!-- For an oidc group this is "who Janus has seen", not "who is in the
+               group" — so the heading and the empty state both have to say so.
+               "Members" over an empty list reads as "this group is empty", which
+               may be flatly untrue in the IdP. -->
+          <h3 class="sub">{selected.membership_complete === false ? 'Members seen' : 'Members'}</h3>
           {#if selected.kind === 'oidc'}
             <p class="folio note">
               From the identity provider, refreshed at each sign-in — so this lists only users who
@@ -323,7 +336,13 @@
                 {/if}
               </li>
             {/each}
-            {#if !members.length}<li class="folio muted">No members.</li>{/if}
+            {#if !members.length}
+              <li class="folio muted">
+                {selected.membership_complete === false
+                  ? 'Nobody in this group has signed into Janus yet. They may still be members in the identity provider — they appear here on first sign-in.'
+                  : 'No members.'}
+              </li>
+            {/if}
           </ul>
         </section>
 
@@ -382,6 +401,18 @@
   .g-name { font-weight: 620; }
   .desc { display: block; font-size: 0.62rem; }
   .claim { font-size: var(--text-xs); }
+
+  /* Marks an oidc group's member count as a login-time snapshot rather than a
+     membership list. Deliberately quiet — it qualifies the number, it is not a
+     warning: nothing is mis-granted, the answer is just narrower than the
+     column heading suggests. */
+  .seen {
+    margin-left: var(--s2);
+    font-size: var(--text-xs);
+    color: var(--ink-faint);
+    border-bottom: 1px dotted var(--rule);
+    cursor: help;
+  }
 
   .check { display: flex; align-items: center; gap: var(--s2); font-size: var(--text-sm); }
   .kind-oidc { color: var(--archivist); background: var(--archivist-wash); }

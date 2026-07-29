@@ -267,3 +267,68 @@ func TestGroupDerivedRoleCountsTowardDelegationE2E(t *testing.T) {
 		t.Fatalf("group-admin granting owner: got %d, want 403", code)
 	}
 }
+
+// TestGroupMembershipCompletenessIsReportedE2E pins the one place the group
+// model gives a narrower answer than the question implies.
+//
+// A `local` group's member list IS its membership — it is admin-managed. An
+// `oidc` group's is a snapshot refreshed at each login, so anyone who has never
+// signed into Janus is absent from the count. Nothing is mis-granted (they get
+// the access on first sign-in); the risk is a READER mistaking a partial answer
+// for a complete one during an access review, which is why the API states it
+// rather than leaving every client to re-derive it from `kind`.
+func TestGroupMembershipCompletenessIsReportedE2E(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	admin := login(t, ts.URL, email, password)
+
+	type groupWire struct {
+		ID                 string `json:"id"`
+		Kind               string `json:"kind"`
+		MemberCount        int    `json:"member_count"`
+		MembershipComplete bool   `json:"membership_complete"`
+	}
+
+	var local, oidc groupWire
+	if code := doAuthed(t, "POST", ts.URL+"/v1/groups", admin, "",
+		`{"name":"complete-local","kind":"local"}`, &local); code != 201 {
+		t.Fatalf("create local: %d", code)
+	}
+	if code := doAuthed(t, "POST", ts.URL+"/v1/groups", admin, "",
+		`{"name":"complete-oidc","kind":"oidc","claim_value":"grp-x"}`, &oidc); code != 201 {
+		t.Fatalf("create oidc: %d", code)
+	}
+
+	if !local.MembershipComplete {
+		t.Error("a local group's membership is admin-managed and therefore complete")
+	}
+	if oidc.MembershipComplete {
+		t.Error("an oidc group's membership is a login-time snapshot and must NOT be reported as complete")
+	}
+
+	// It must survive the list path too — the Groups table renders from it, and
+	// that table is where a bare count would read as a membership list.
+	var list struct {
+		Groups []groupWire `json:"groups"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/groups", admin, "", "", &list); code != 200 {
+		t.Fatalf("list: %d", code)
+	}
+	var seenLocal, seenOIDC bool
+	for _, g := range list.Groups {
+		switch g.ID {
+		case local.ID:
+			seenLocal = true
+			if !g.MembershipComplete {
+				t.Error("list: local group reported incomplete")
+			}
+		case oidc.ID:
+			seenOIDC = true
+			if g.MembershipComplete {
+				t.Error("list: oidc group reported complete")
+			}
+		}
+	}
+	if !seenLocal || !seenOIDC {
+		t.Fatalf("both groups should appear in the list (local=%v oidc=%v)", seenLocal, seenOIDC)
+	}
+}
