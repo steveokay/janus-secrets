@@ -94,13 +94,7 @@ func (e *Engine) BoundRole(ctx context.Context, userID string, res Resource) (Ro
 	if err != nil {
 		return "", err
 	}
-	best := Role("")
-	for _, b := range bindings {
-		if bindingApplies(b, res) && roleRank[Role(b.Role)] > roleRank[best] {
-			best = Role(b.Role)
-		}
-	}
-	return best, nil
+	return RoleFromBindings(bindings, res), nil
 }
 
 // AllowedProjects filters projectIDs down to those where the principal may

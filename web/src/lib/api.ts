@@ -356,6 +356,123 @@ export type MemberScope =
   | { kind: 'instance' }
   | { kind: 'project'; pid: string }
   | { kind: 'environment'; pid: string; eid: string }
+
+/* ── cross-scope access review ──────────────────────────────────────────
+   The members screen answers "who is bound HERE". These answer the two
+   questions that span scopes: "who can act on prod, and why" and "what can
+   this person reach". Both are read-only pictures — the server re-decides
+   every request, and revoke-all is the only mutation here. */
+
+export type ScopeLevel = 'instance' | 'project' | 'environment'
+
+/** One column of the grid. `key` is its stable identity. */
+export interface ApiAccessScope {
+  key: string
+  scope_level: ScopeLevel
+  project_id?: string
+  project_name?: string
+  environment_id?: string
+  environment_slug?: string
+}
+/** One reason a role holds at a scope. `scope_level` is where the BINDING
+ *  sits, which may be broader than the scope reported — that is the top-down
+ *  inheritance a per-scope members list cannot show. */
+export interface ApiAccessSource {
+  kind: 'direct' | 'group'
+  scope_level: ScopeLevel
+  role: Role
+  via_group_id?: string
+  via_group_name?: string
+}
+/** Effective role for one (user, scope) pair: the most-permissive union of
+ *  every applicable binding, plus everything that contributed to it. */
+export interface ApiAccessCell {
+  user_id: string
+  scope: string
+  role: Role
+  sources: ApiAccessSource[]
+}
+/** Which bounds bit. Reported so a cut review is never mistaken for a
+ *  complete one — the failure this whole screen exists to prevent. */
+export interface ApiAccessTruncation {
+  projects: boolean
+  environments: boolean
+  bindings: boolean
+  users: boolean
+  cells: boolean
+}
+export interface ApiAccessMatrix {
+  scopes: ApiAccessScope[]
+  user_ids: string[]
+  cells: ApiAccessCell[]
+  /** False when the caller cannot read instance-scoped bindings. Those are
+   *  then absent from the answer entirely — a scope you cannot see is not
+   *  shown to you — so the picture is real but partial. */
+  instance_visible: boolean
+  scoped: boolean
+  scope_projects: number
+  truncated: ApiAccessTruncation
+  /** True only when nothing was hidden and nothing was cut. */
+  complete: boolean
+}
+export interface ApiAccessGrant {
+  scope_level: ScopeLevel
+  project_id?: string
+  project_name?: string
+  environment_id?: string
+  environment_slug?: string
+  role: Role
+  source: 'direct' | 'group'
+  via_group_id?: string
+  via_group_name?: string
+  created_at?: string
+}
+export interface ApiAccessBreakGlass {
+  scope_level: ScopeLevel
+  project_id?: string
+  project_name?: string
+  environment_id?: string
+  environment_slug?: string
+  role: Role
+  expires_at: string
+}
+export interface ApiUserAccess {
+  user_id: string
+  scopes: ApiAccessScope[]
+  grants: ApiAccessGrant[]
+  reaches: ApiAccessCell[]
+  break_glass: ApiAccessBreakGlass[]
+  instance_visible: boolean
+  scoped: boolean
+  scope_projects: number
+  truncated: ApiAccessTruncation
+  complete: boolean
+}
+/** A binding revoke-all acted on, or declined to. `reason` is present only on
+ *  declined entries. */
+export interface ApiAccessRevocation {
+  scope_level: ScopeLevel
+  project_id?: string
+  project_name?: string
+  environment_id?: string
+  environment_slug?: string
+  role: Role
+  reason?: 'not_permitted' | 'above_your_bound_role'
+}
+export interface ApiRevokeAllResult {
+  user_id: string
+  revoked: ApiAccessRevocation[]
+  skipped: ApiAccessRevocation[]
+  /** What still grants access after the call. Group-derived access lives on
+   *  the group (or in the IdP) and break-glass has its own revoke, so neither
+   *  can be removed here — saying so is the point. */
+  remaining: { group_bindings: ApiAccessGrant[]; break_glass_grants: number }
+  instance_visible: boolean
+  scoped: boolean
+  scope_projects: number
+  truncated: ApiAccessTruncation
+  complete: boolean
+}
 export interface ApiTransitKey {
   name: string
   type: 'aes256-gcm' | 'ed25519'
@@ -1174,6 +1291,18 @@ export const api = {
     })),
   putScopedGroupBinding: (path: string, gid: string, role: GroupRole) => put<void>(`${path}/${gid}`, { role }),
   deleteScopedGroupBinding: (path: string, gid: string) => del<void>(`${path}/${gid}`),
+
+  // cross-scope access review (member:read per scope; revoke-all is
+  // member:manage there, capped by the caller's DURABLE bound role)
+  accessMatrix: (projectId?: string) =>
+    get<ApiAccessMatrix>('/v1/access/matrix' + (projectId ? `?project=${encodeURIComponent(projectId)}` : '')),
+  userAccess: (uid: string, projectId?: string) =>
+    get<ApiUserAccess>(`/v1/access/users/${uid}` + (projectId ? `?project=${encodeURIComponent(projectId)}` : '')),
+  revokeAllAccess: (uid: string, projectId?: string) =>
+    post<ApiRevokeAllResult>(
+      `/v1/access/users/${uid}/revoke-all` + (projectId ? `?project=${encodeURIComponent(projectId)}` : ''),
+      {},
+    ),
 }
 
 export function memberScopePath(s: { kind: 'instance' } | { kind: 'project'; pid: string } | { kind: 'environment'; pid: string; eid: string }): string {

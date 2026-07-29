@@ -134,6 +134,20 @@ needs only `member:read` there. A project admin holds the second and not the
 first, so without server-side resolution the person most likely to ask "who can
 act on my project?" would be the one person unable to find out.
 
+Across scopes, the **Access review** screen answers the same question in one
+place: every cell names whether the role came from a direct binding or a group,
+and clicking a person lists each grant with the group that produced it. That is
+also where the limit of a bulk offboarding is made explicit — **Revoke all
+direct bindings removes nothing that a group granted**, because the grant is
+not the user's row to delete. See
+[members and RBAC](members-and-rbac.md#offboarding-what-can-this-person-reach-and-revoking-it).
+
+For an `oidc` group that is a feature rather than a gap: membership is fully
+described by the identity provider, so removing the person in Okta or Entra is
+the single action that clears the access everywhere, and Janus reflects it at
+their next login (or sooner, if `JANUS_OIDC_GROUP_MAX_AGE` is set). For a
+`local` group, remove them from the group here.
+
 ## Letting a team create its own projects
 
 Creating a project used to require **instance admin** — which carries

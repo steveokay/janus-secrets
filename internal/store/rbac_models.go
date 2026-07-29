@@ -20,6 +20,13 @@ type RoleBinding struct {
 	// rule. A derived binding's ID belongs to group_role_bindings, NOT
 	// role_bindings — never feed it to a role_bindings mutation.
 	ViaGroupID *string
+
+	// ViaGroupName is the granting group's display name, populated only by the
+	// access-review queries (DerivedForScopes) that exist to EXPLAIN a grant.
+	// The authorization hot path (ListForUser) deliberately leaves it empty:
+	// joining `groups` on every permission decision would buy nothing a
+	// decision uses.
+	ViaGroupName string
 }
 
 // RoleBindingInput is the create/upsert payload.

@@ -579,6 +579,15 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 				s.memberDelete(w, r, spec, chi.URLParam(r, "uid"))
 			})
 		})
+		// Cross-scope access review. Everything here authorizes PER SCOPE from
+		// one batch load (see resolveAccessView) rather than per row, and
+		// reports what it could not see instead of implying a complete answer.
+		r.Route("/v1/access", func(r chi.Router) {
+			r.Use(RequireAuth(s.auth, s))
+			r.Get("/matrix", s.handleAccessMatrix)
+			r.Get("/users/{uid}", s.handleAccessForUser)
+			r.Post("/users/{uid}/revoke-all", s.handleAccessRevokeAll)
+		})
 		r.Group(func(r chi.Router) {
 			r.Use(RequireAuth(s.auth, s))
 			r.Post("/v1/projects", s.handleProjectCreate)
