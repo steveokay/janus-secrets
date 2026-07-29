@@ -31,6 +31,10 @@
   let fProvider = $state('github')
   let fIssuer = $state('https://token.actions.githubusercontent.com')
   let fAudience = $state('')
+  // Optional PEM CA bundle for this issuer's discovery + JWKS TLS. Public
+  // material, so unlike the sync providers' credentials it is loaded back from
+  // the server for editing rather than held write-only.
+  let fCaCert = $state('')
   let fError = $state('')
 
   const formProvider = $derived(providerFor(fIssuer, fProvider))
@@ -122,7 +126,10 @@
     fError = ''
     try {
       await api.putFederationIssuer({
-        issuer: fIssuer.trim(), audience: fAudience.trim(), preset: fProvider, enabled: true,
+        issuer: fIssuer.trim(), audience: fAudience.trim(), preset: fProvider,
+        // Sent on every save, empty included: an empty bundle is how an operator
+        // goes back to the system roots, so it cannot mean "leave unchanged".
+        ca_cert: fCaCert.trim(), enabled: true,
       })
       editFed = false
       flash('Trusted issuer saved.')
@@ -152,8 +159,18 @@
   function startIssuerAdd() {
     editFed = true
     fAudience = ''
+    fCaCert = ''
     fError = ''
     pickProvider(issuers.length ? 'kubernetes' : 'github')
+  }
+
+  function startIssuerEdit(iss: FederationConfigView) {
+    editFed = true
+    fProvider = providerFor(iss.issuer, iss.preset).id
+    fIssuer = iss.issuer
+    fAudience = iss.audience
+    fCaCert = iss.ca_cert ?? ''
+    fError = ''
   }
 
   function startBindingAdd() {
@@ -270,10 +287,10 @@
         <div class="row">
           <div>
             <span class="t-name">{providerFor(iss.issuer, iss.preset).label} <span class="pill" class:pill-info={iss.enabled} class:pill-neutral={!iss.enabled}>{iss.enabled ? 'active' : 'off'}</span></span>
-            <span class="folio mono">{iss.issuer} · aud {iss.audience}</span>
+            <span class="folio mono">{iss.issuer} · aud {iss.audience}{iss.ca_cert ? ' · custom CA' : ''}</span>
           </div>
           <div class="row-actions">
-            <button class="btn btn-sm" onclick={() => { editFed = true; fProvider = providerFor(iss.issuer, iss.preset).id; fIssuer = iss.issuer; fAudience = iss.audience; fError = '' }}>Edit</button>
+            <button class="btn btn-sm" onclick={() => startIssuerEdit(iss)}>Edit</button>
             <button class="btn btn-ghost btn-sm del-btn" onclick={() => removeIssuer(iss)}>Remove</button>
           </div>
         </div>
@@ -288,6 +305,9 @@
           </label>
           <label class="field"><span class="label">Issuer</span><input class="input mono" bind:value={fIssuer} placeholder="https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE" required /></label>
           <label class="field wide"><span class="label">Audience</span><input class="input mono" bind:value={fAudience} placeholder="https://janus.company.dev" required /></label>
+          <label class="field wide"><span class="label">CA certificate <span class="folio">(optional, PEM)</span></span>
+            <textarea class="input mono" rows="3" bind:value={fCaCert} placeholder="-----BEGIN CERTIFICATE-----"></textarea></label>
+          <p class="folio wide">Leave the CA empty to verify the issuer against the system roots. A bundle <strong>replaces</strong> them for this issuer — nothing else is trusted for it.{#if formProvider.caHint}&nbsp;{formProvider.caHint}{/if}</p>
           <p class="folio wide">Bind the <span class="mono">{formProvider.claims.map(c => c.key).join(' + ')}</span> claim{formProvider.claims.length > 1 ? 's' : ''} for this provider to identify trusted workloads.{#if formProvider.hint}&nbsp;{formProvider.hint}{/if}</p>
           {#if fError}<p class="error wide">{fError}</p>{/if}
           <div class="form-actions wide">

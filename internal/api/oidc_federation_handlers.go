@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/steveokay/janus-secrets/internal/auth"
@@ -66,7 +67,22 @@ type fedConfigRequest struct {
 	Issuer   string `json:"issuer"`
 	Audience string `json:"audience"`
 	Preset   string `json:"preset"`
-	Enabled  bool   `json:"enabled"`
+	// CACert is an optional PEM CA bundle used to verify TLS for this issuer's
+	// discovery + JWKS fetches (empty → system roots). Malformed PEM is a 400
+	// here, not a silent federation_denied at the first exchange.
+	CACert  string `json:"ca_cert"`
+	Enabled bool   `json:"enabled"`
+}
+
+// caCertAuditField reports whether a CA bundle is set, for the audit detail. The
+// bundle itself is public material but is deliberately never written to the
+// audit log: audit entries are value-free by construction, and a multi-kilobyte
+// PEM in a detail string is noise that would push the useful fields out of view.
+func caCertAuditField(pem string) string {
+	if strings.TrimSpace(pem) != "" {
+		return " ca_cert=set"
+	}
+	return ""
 }
 
 // handleFederationConfigGet: authz enforced by requireInstance middleware. Read — not audited.
@@ -90,8 +106,14 @@ func (s *Server) handleFederationConfigPut(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := s.auth.SetFederationConfig(r.Context(), auth.FederationConfigInput{
-		Issuer: req.Issuer, Audience: req.Audience, Preset: req.Preset, Enabled: req.Enabled,
+		Issuer: req.Issuer, Audience: req.Audience, Preset: req.Preset,
+		CACert: req.CACert, Enabled: req.Enabled,
 	}); err != nil {
+		if errors.Is(err, auth.ErrFederationCACertInvalid) {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"ca_cert is not a valid PEM certificate bundle")
+			return
+		}
 		if errors.Is(err, auth.ErrValidation) {
 			writeError(w, http.StatusBadRequest, CodeValidation, "invalid federation config")
 			return
@@ -108,7 +130,7 @@ func (s *Server) handleFederationConfigPut(w http.ResponseWriter, r *http.Reques
 	}
 	// Audit: issuer + audience only, never any secret material.
 	if err := s.record(r, "oidc.federation.config.write", "oidc/federation", "success", "",
-		"issuer="+req.Issuer+" audience="+req.Audience); err != nil {
+		"issuer="+req.Issuer+" audience="+req.Audience+caCertAuditField(req.CACert)); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
@@ -151,9 +173,15 @@ func (s *Server) handleFederationIssuerPut(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	v, err := s.auth.PutFederationIssuer(r.Context(), auth.FederationIssuerInput{
-		Issuer: req.Issuer, Audience: req.Audience, Preset: req.Preset, Enabled: req.Enabled,
+		Issuer: req.Issuer, Audience: req.Audience, Preset: req.Preset,
+		CACert: req.CACert, Enabled: req.Enabled,
 	})
 	if err != nil {
+		if errors.Is(err, auth.ErrFederationCACertInvalid) {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"ca_cert is not a valid PEM certificate bundle")
+			return
+		}
 		if errors.Is(err, auth.ErrValidation) {
 			writeError(w, http.StatusBadRequest, CodeValidation, "invalid federation issuer")
 			return
@@ -163,8 +191,10 @@ func (s *Server) handleFederationIssuerPut(w http.ResponseWriter, r *http.Reques
 	}
 	// Audit: issuer + audience + preset only, never any secret material (a
 	// federation trust anchor is a public-key relationship; there is no secret).
+	// The CA bundle is recorded as set/unset, never verbatim.
 	if err := s.record(r, "oidc.federation.issuer.write", "oidc/federation/issuers", "success", "",
-		"issuer="+v.Issuer+" audience="+v.Audience+" preset="+v.Preset); err != nil {
+		"issuer="+v.Issuer+" audience="+v.Audience+" preset="+v.Preset+
+			caCertAuditField(v.CACert)); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}

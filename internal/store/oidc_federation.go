@@ -9,7 +9,7 @@ import (
 
 // --- trusted issuers (one row per issuer) ---
 
-const fedConfigCols = `id::text, issuer, audience, preset, enabled, created_at, updated_at`
+const fedConfigCols = `id::text, issuer, audience, preset, ca_cert, enabled, created_at, updated_at`
 
 // OIDCFederationConfigRepo persists the set of trusted federation issuers used
 // to verify federated machine identity tokens (CI providers such as GitHub
@@ -30,23 +30,29 @@ func (r *OIDCFederationConfigRepo) Put(ctx context.Context, c OIDCFederationConf
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO oidc_federation_config (issuer, audience, preset, enabled)
-			 VALUES ($1, $2, $3, $4)`, c.Issuer, c.Audience, c.Preset, c.Enabled)
+			`INSERT INTO oidc_federation_config (issuer, audience, preset, ca_cert, enabled)
+			 VALUES ($1, $2, $3, $4, $5)`, c.Issuer, c.Audience, c.Preset, c.CACert, c.Enabled)
 		return err
 	})
 }
 
-// Upsert inserts a trusted issuer, or updates the audience/preset/enabled flag
-// of the existing row with the same issuer. Other issuers are left alone.
+// Upsert inserts a trusted issuer, or updates the audience/preset/CA
+// bundle/enabled flag of the existing row with the same issuer. Other issuers
+// are left alone.
+//
+// ca_cert is written unconditionally, including when it is empty: clearing the
+// bundle (falling back to the system roots) has to be expressible, and a
+// "preserve on empty" rule would make that impossible through this endpoint.
 func (r *OIDCFederationConfigRepo) Upsert(ctx context.Context, c OIDCFederationConfig) (*OIDCFederationConfig, error) {
 	row := r.s.pool.QueryRow(ctx,
-		`INSERT INTO oidc_federation_config (issuer, audience, preset, enabled)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO oidc_federation_config (issuer, audience, preset, ca_cert, enabled)
+		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT (issuer) DO UPDATE
 		   SET audience = EXCLUDED.audience, preset = EXCLUDED.preset,
+		       ca_cert = EXCLUDED.ca_cert,
 		       enabled = EXCLUDED.enabled, updated_at = now()
 		 RETURNING `+fedConfigCols,
-		c.Issuer, c.Audience, c.Preset, c.Enabled)
+		c.Issuer, c.Audience, c.Preset, c.CACert, c.Enabled)
 	return scanFedConfig(row)
 }
 
@@ -91,7 +97,7 @@ func (r *OIDCFederationConfigRepo) DeleteByID(ctx context.Context, id string) er
 
 func scanFedConfig(row interface{ Scan(...any) error }) (*OIDCFederationConfig, error) {
 	var c OIDCFederationConfig
-	if err := row.Scan(&c.ID, &c.Issuer, &c.Audience, &c.Preset, &c.Enabled,
+	if err := row.Scan(&c.ID, &c.Issuer, &c.Audience, &c.Preset, &c.CACert, &c.Enabled,
 		&c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, mapError(err)
 	}

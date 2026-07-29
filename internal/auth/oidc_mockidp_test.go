@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,6 +27,18 @@ type mockIdP struct {
 }
 
 func newMockIdP(t *testing.T, clientID string) *mockIdP {
+	return newMockIdPServer(t, clientID, false)
+}
+
+// newMockIdPTLS serves the same provider over HTTPS with httptest's self-signed
+// certificate — the stand-in for an issuer whose certificate is signed by a
+// private CA (a self-hosted Kubernetes API server). Nothing in the system roots
+// signs it, so it can only be verified via a supplied ca_cert.
+func newMockIdPTLS(t *testing.T, clientID string) *mockIdP {
+	return newMockIdPServer(t, clientID, true)
+}
+
+func newMockIdPServer(t *testing.T, clientID string, useTLS bool) *mockIdP {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -53,9 +66,24 @@ func newMockIdP(t *testing.T, clientID string) *mockIdP {
 			"id_token": m.signIDToken(t),
 		})
 	})
-	m.srv = httptest.NewServer(mux)
+	if useTLS {
+		m.srv = httptest.NewTLSServer(mux)
+	} else {
+		m.srv = httptest.NewServer(mux)
+	}
 	t.Cleanup(m.srv.Close)
 	return m
+}
+
+// caPEM returns the server's own certificate PEM-encoded. httptest's test
+// certificate is self-signed with IsCA set, so it is its own trust anchor.
+func (m *mockIdP) caPEM(t *testing.T) string {
+	t.Helper()
+	cert := m.srv.Certificate()
+	if cert == nil {
+		t.Fatal("mock IdP is not serving TLS")
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}))
 }
 
 func (m *mockIdP) signIDToken(t *testing.T) string {

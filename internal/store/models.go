@@ -165,10 +165,16 @@ type OIDCAuthRequest struct {
 // selects the provider-aware required-claim rule ("", "github", "gitlab",
 // "buildkite", "circleci", "kubernetes", "custom").
 type OIDCFederationConfig struct {
-	ID        string
-	Issuer    string
-	Audience  string
-	Preset    string
+	ID       string
+	Issuer   string
+	Audience string
+	Preset   string
+	// CACert is an optional PEM CA bundle used to verify TLS for THIS issuer's
+	// OIDC discovery and JWKS fetches. Empty means "use the system roots"; a
+	// non-empty bundle replaces them for this issuer. It is public material (a
+	// CA certificate travels in every TLS handshake), so it is stored in
+	// plaintext and is not master-key wrapped — but it is still never logged.
+	CACert    string
 	Enabled   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
