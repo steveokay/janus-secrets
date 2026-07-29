@@ -76,6 +76,10 @@ uninitialized ──init──▶ sealed ──unseal──▶ unsealed
 | `JANUS_DB_MIN_CONNS` | no | pgx pool min idle connections (non-negative int; unset ⇒ pgx default `0`) |
 | `JANUS_DB_MAX_CONN_LIFETIME` | no | pgx max connection lifetime (Go duration, positive; unset ⇒ pgx default `1h`) |
 | `JANUS_DB_MAX_CONN_IDLE_TIME` | no | pgx max idle time before a connection is closed (Go duration, positive; unset ⇒ pgx default `30m`) |
+| `JANUS_OUTBOUND_BLOCK_PRIVATE` | no | Also reject loopback + RFC1918 + ULA on outbound integration calls. Default `false`, because a self-hosted deployment legitimately dials internal targets. The link-local / cloud-metadata ranges are blocked **unconditionally** and are not affected by this |
+| `JANUS_OUTBOUND_ALLOW` | no | Comma-separated IPs/CIDRs **exempt** from `JANUS_OUTBOUND_BLOCK_PRIVATE` (e.g. `10.96.0.1/32` for an in-cluster API server). Exempts that tightening and nothing else — an entry naming an always-blocked range is a **fatal boot error**, and hostnames are rejected (the guard checks the resolved address, so trusting a name would reopen DNS rebinding). Malformed ⇒ fatal |
+| `JANUS_OUTBOUND_ALLOW_PROXY` | no | Restore `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` handling for integration calls. **Off by default and should stay off** — through a proxy the destination is resolved by the proxy, so the guard degrades to a literal-IP check. Environment-only: it cannot be changed in the app |
+| `JANUS_OUTBOUND_POLICY_LOCKED` | no | Pin the egress policy to the environment. Owners can otherwise edit `block_private` and the allowlist at runtime (Settings → Outbound policy, `PUT /v1/sys/outbound-policy`), and a stored policy supersedes these variables; with this set, every write returns `409`. See [egress & the SSRF guard](guides/egress-and-ssrf.md) |
 | `JANUS_ADDR` | no | Default server address for the CLI commands (flag `--address` wins) |
 
 There is no config file. The server auto-applies embedded migrations at boot
