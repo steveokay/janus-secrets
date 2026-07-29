@@ -586,6 +586,51 @@
             </dl>
           </div>
 
+          <!-- Outbound (SSRF) policy. Process configuration with no database
+               row, so this panel is the only place it is visible in the app;
+               "why can't this integration reach anything?" is usually answered
+               by a private-space block with nothing exempted. -->
+          <div class="hgroup">
+            <h4 class="folio">Outbound policy</h4>
+            <dl class="kvs">
+              <div class="kv-row">
+                <dt>Private ranges</dt>
+                <dd>
+                  {#if health.outbound.block_private}
+                    <span class="stamp ok flat">blocked</span>
+                  {:else}
+                    <span class="pill">allowed</span>
+                  {/if}
+                </dd>
+              </div>
+              {#if health.outbound.block_private}
+                <div class="kv-row full">
+                  <dt>Exempt</dt>
+                  <dd class="mono">
+                    {#if health.outbound.allow?.length}
+                      {health.outbound.allow.join(', ')}
+                    {:else}
+                      <span class="folio">none — JANUS_OUTBOUND_ALLOW is unset</span>
+                    {/if}
+                  </dd>
+                </div>
+              {:else if health.outbound.allow?.length}
+                <div class="kv-row full">
+                  <dd class="warn-line">
+                    An allowlist is set but private ranges are not blocked, so it has no effect.
+                  </dd>
+                </div>
+              {/if}
+              {#if health.outbound.allow_proxy}
+                <div class="kv-row full">
+                  <dd class="warn-line">
+                    Proxying is enabled — the connect-time guard cannot see the real destination.
+                  </dd>
+                </div>
+              {/if}
+            </dl>
+          </div>
+
           <!-- Schedulers -->
           <div class="hgroup schedulers">
             <h4 class="folio">Schedulers</h4>

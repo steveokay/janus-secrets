@@ -10,6 +10,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -661,6 +663,23 @@ func TestCheckOutbound(t *testing.T) {
 		{"allow proxy with a proxy set", map[string]string{
 			"JANUS_OUTBOUND_ALLOW_PROXY": "true", "HTTPS_PROXY": "http://proxy.internal:3128",
 		}, statusWarn},
+
+		// The intended shape: tightening on, specific private destinations exempt.
+		{"allowlist with block private", map[string]string{
+			"JANUS_OUTBOUND_BLOCK_PRIVATE": "true", "JANUS_OUTBOUND_ALLOW": "10.96.0.1/32",
+		}, statusPass},
+		// An allowlist with nothing to exempt from is inert — say so.
+		{"allowlist without block private", map[string]string{
+			"JANUS_OUTBOUND_ALLOW": "10.96.0.1/32",
+		}, statusWarn},
+		// Malformed entries are a boot failure, so doctor must not report a
+		// policy the server would refuse to start with.
+		{"malformed allowlist", map[string]string{
+			"JANUS_OUTBOUND_BLOCK_PRIVATE": "true", "JANUS_OUTBOUND_ALLOW": "not-an-ip",
+		}, statusFail},
+		{"allowlist naming metadata", map[string]string{
+			"JANUS_OUTBOUND_BLOCK_PRIVATE": "true", "JANUS_OUTBOUND_ALLOW": "169.254.169.254/32",
+		}, statusFail},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -674,6 +693,46 @@ func TestCheckOutbound(t *testing.T) {
 				t.Fatalf("status = %s, want %s (%s)", got.Status, tc.want, got.Summary)
 			}
 		})
+	}
+}
+
+// TestBuildBootConfigRejectsBadAllowlist pins that a malformed allowlist is a
+// STARTUP failure, not a warning. The allowlist fails closed, so tolerating a
+// typo would leave an operator with integrations that cannot connect and no
+// statement of why — the silent misconfiguration the variable exists to remove.
+func TestBuildBootConfigRejectsBadAllowlist(t *testing.T) {
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"unparseable", "not-an-ip"},
+		{"hostname", "kubernetes.default.svc"},
+		{"metadata address", "169.254.169.254/32"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearJanusEnv(t)
+			setEnv(t, map[string]string{
+				"JANUS_DATABASE_URL":   "postgres://u:p@localhost:5432/janus?sslmode=disable",
+				"JANUS_OUTBOUND_ALLOW": tc.value,
+			})
+			if _, err := buildBootConfig(quiet); err == nil {
+				t.Fatalf("JANUS_OUTBOUND_ALLOW=%q: expected the server to refuse to start", tc.value)
+			}
+		})
+	}
+
+	// A valid allowlist must still boot, so the check above is not simply
+	// rejecting the variable's presence.
+	clearJanusEnv(t)
+	setEnv(t, map[string]string{
+		"JANUS_DATABASE_URL":           "postgres://u:p@localhost:5432/janus?sslmode=disable",
+		"JANUS_OUTBOUND_BLOCK_PRIVATE": "true",
+		"JANUS_OUTBOUND_ALLOW":         "10.96.0.1/32, 10.0.0.0/8",
+	})
+	if _, err := buildBootConfig(quiet); err != nil {
+		t.Fatalf("valid allowlist: expected boot config to parse, got %v", err)
 	}
 }
 

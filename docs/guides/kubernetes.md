@@ -1,9 +1,27 @@
-> **If Janus runs inside the cluster you are syncing to, set
-> `env.outboundBlockPrivate=false`** (Helm) or `JANUS_OUTBOUND_BLOCK_PRIVATE=false`.
-> The default blocks outbound requests to private ranges as SSRF hardening, and
-> `kubernetes.default.svc` is a ClusterIP in exactly such a range — so the sync
-> fails with a sanitized `apply failed` that does not say why. The same applies
-> to Kubernetes service-account federation.
+> **If Janus runs inside the cluster you are syncing to, allowlist the API
+> server's ClusterIP:**
+>
+> ```yaml
+> env:
+>   outboundBlockPrivate: true      # keep the SSRF control on
+>   outboundAllow: "10.96.0.1/32"   # ...and exempt just the API server
+> ```
+>
+> or `JANUS_OUTBOUND_ALLOW=10.96.0.1/32` outside Helm. Get the address with
+> `kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'`; it is
+> the first address of the service CIDR and is stable for the life of the
+> cluster.
+>
+> The block exists because `kubernetes.default.svc` is a ClusterIP in a private
+> range, so `outboundBlockPrivate: true` on its own makes the sync fail with a
+> sanitized `apply failed` that does not say why. The same applies to Kubernetes
+> service-account federation, which fails with a generic 401 because the JWKS
+> fetch never leaves the pod. Setting `outboundBlockPrivate: false` also works
+> and is what earlier versions of this guide advised, but it opens **all**
+> private space; the allowlist opens one address.
+>
+> The link-local / cloud-metadata ranges cannot be allowlisted — see
+> [Outbound egress & the SSRF guard](egress-and-ssrf.md).
 
 # Kubernetes integration
 

@@ -11,7 +11,10 @@
 // block (169.254.0.0/16, fe80::/10, fd00:ec2::254) plus unspecified/multicast —
 // and ALLOWS loopback and RFC1918/ULA. Operators who run without any legitimate
 // private target can set JANUS_OUTBOUND_BLOCK_PRIVATE=true to also reject
-// loopback + RFC1918 + ULA.
+// loopback + RFC1918 + ULA, and JANUS_OUTBOUND_ALLOW to exempt the specific
+// private destinations they do need (see EnvAllow) — so "block private space"
+// and "reach the in-cluster API server" can hold at the same time. The
+// always-blocked ranges are not exemptable by either variable.
 //
 // The guard runs at CONNECT time via net.Dialer.Control, inspecting the RESOLVED
 // IP the kernel is about to dial — this is what defeats DNS rebinding, since the
@@ -29,6 +32,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strings"
@@ -70,6 +74,11 @@ type Policy struct {
 	// AllowProxy, when true, restores http.ProxyFromEnvironment on the clients
 	// built by SafeHTTPClient. Default false — see EnvAllowProxy for why.
 	AllowProxy bool
+	// Allow exempts specific destinations from the BlockPrivate tightening —
+	// and from nothing else. It never overrides the always-blocked link-local /
+	// metadata ranges. Empty (the default) means the toggle behaves exactly as
+	// it did before the allowlist existed. See EnvAllow.
+	Allow []netip.Prefix
 }
 
 // PolicyFromEnv builds a Policy from the process environment. The link-local /
@@ -79,6 +88,7 @@ func PolicyFromEnv() Policy {
 	return Policy{
 		BlockPrivate: envTruthy(os.Getenv(EnvBlockPrivate)),
 		AllowProxy:   envTruthy(os.Getenv(EnvAllowProxy)),
+		Allow:        allowFromEnv(),
 	}
 }
 
@@ -139,8 +149,16 @@ func checkIP(ip net.IP, policy Policy) error {
 	}
 	// Private space is legitimate for self-hosted deployments unless the
 	// operator opts into the stricter policy.
+	//
+	// The allowlist is consulted HERE and nowhere else — deliberately below the
+	// unconditional block above, so no allowlist entry can ever reach the
+	// link-local / cloud-metadata ranges. It exempts named private destinations
+	// (an in-cluster API server, say) from the tightening, and nothing more.
 	if policy.BlockPrivate {
 		if ip.IsLoopback() || ip.IsPrivate() {
+			if allowlisted(ip, policy.Allow) {
+				return nil
+			}
 			return ErrBlockedAddress
 		}
 	}

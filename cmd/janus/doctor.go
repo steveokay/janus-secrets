@@ -453,6 +453,7 @@ var knownEnvVars = map[string]bool{
 	"JANUS_TLS_REDIRECT_HTTP": true,
 	// server: egress + observability
 	"JANUS_OUTBOUND_BLOCK_PRIVATE": true,
+	"JANUS_OUTBOUND_ALLOW":         true,
 	"JANUS_OUTBOUND_ALLOW_PROXY":   true,
 	"JANUS_METRICS_TOKEN":          true,
 	"JANUS_LOG_LEVEL":              true,
@@ -1119,6 +1120,14 @@ func readableFile(p string) error {
 
 func checkOutbound() doctorCheck {
 	const name = "outbound.ssrf"
+
+	// A malformed allowlist is fatal at boot, so report it as a failure here
+	// rather than describing a policy the server would refuse to start with.
+	if err := nethard.ValidateEnv(); err != nil {
+		return dFail(name, err.Error(),
+			"fix the entry and restart; entries are IP addresses or CIDR prefixes, comma-separated")
+	}
+
 	p := nethard.PolicyFromEnv()
 	detail := []string{
 		"link-local / cloud-metadata ranges (169.254.0.0/16, fe80::/10, fd00:ec2::254) are always blocked at connect time",
@@ -1127,6 +1136,17 @@ func checkOutbound() doctorCheck {
 		detail = append(detail, "loopback + RFC1918 + ULA are also blocked (JANUS_OUTBOUND_BLOCK_PRIVATE)")
 	} else {
 		detail = append(detail, "loopback + RFC1918 + ULA are allowed (default; self-hosted deployments dial internal targets)")
+	}
+	if allow := nethard.DescribeAllow(p.Allow); len(allow) > 0 {
+		detail = append(detail, "exempt from the private-space block ("+nethard.EnvAllow+"): "+strings.Join(allow, ", "))
+		// An allowlist without the tightening it exempts from does nothing. Worth
+		// a warning: the operator wrote it expecting an effect.
+		if !p.BlockPrivate {
+			return dWarn(name,
+				nethard.EnvAllow+" is set but "+nethard.EnvBlockPrivate+" is not enabled, so the allowlist has no effect",
+				"either enable "+nethard.EnvBlockPrivate+" (the allowlist then exempts these destinations) or drop "+nethard.EnvAllow,
+				detail...)
+		}
 	}
 	if !p.AllowProxy {
 		return dPass(name, "outbound integration calls use the connect-time resolved-IP guard", detail...)

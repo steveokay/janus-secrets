@@ -134,6 +134,17 @@ depend on that — adjust the selector if yours differs).
   than ~3× its interval is flagged as **stale**.
 - **Failures / leases** — failed rotation/sync run counts (flagged when
   non-zero) and the active dynamic-lease count.
+- **Outbound policy** — whether private ranges are blocked and which CIDRs are
+  exempt (`JANUS_OUTBOUND_ALLOW`), plus a warning if proxying is enabled or an
+  allowlist is set with nothing to exempt from. This is process configuration
+  with no database row, so the panel is the only place it is visible in the app
+  — see [Outbound egress & the SSRF guard](egress-and-ssrf.md). It reports
+  configuration, never credentials or targets.
+
+`GET /v1/sys/status` additionally returns a `backup` block (scheduled-S3-backup
+state and last run) and, when a destination is configured, an `audit_ship`
+block. The panel does not render these yet — read them from the endpoint, or
+watch the equivalent metrics.
 
 It is read-only — a fast "is anything on fire?" view. The same numbers are in
 `/metrics` for trending and alerting; the panel is the at-a-glance companion.

@@ -88,9 +88,22 @@ janus init                                              # initialize the seal (r
 janus unseal / seal / seal-status                       # seal lifecycle (submit share / wipe key / status)
 janus migrate                                           # apply DB migrations (JANUS_DATABASE_URL)
 janus backup [--out FILE] / janus restore [FILE]        # full-instance backup & restore (sealed material)
+janus doctor [--offline] [--address URL] [--json] [--strict]  # 19 preflight checks on the JANUS_* environment
+janus admin reset-password                              # local-console owner recovery (requires the seal material)
 janus completion [bash|zsh|fish|powershell]             # shell completion script
 janus version                                           # print version / build info
 ```
+
+**Preflight (`janus doctor`).** Nineteen checks for configuration that parses,
+passes boot validation, and is still wrong — passkey origins naming a port the
+server does not serve, a DSN with `sslmode=disable` in production, an SSRF
+allowlist that can never take effect. It reuses the server's **own** config
+parse, so it cannot drift from what `janus server` will accept, and a test walks
+the repo for `os.Getenv("JANUS_…")` literals so its unknown-variable check
+cannot fall behind the code. `--offline` skips everything needing I/O; `--json`
+is machine-readable for CI and healthchecks, and `--strict` treats warnings as
+failures. Exit status reflects the worst result, so it can gate a deploy. See
+[troubleshooting](guides/troubleshooting.md).
 
 **Inbound import (`janus import`).** Read secrets from an external system —
 Doppler (`doppler`), Vault KV v2 (`vault`), or AWS Secrets Manager (`aws-sm`) —

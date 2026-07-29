@@ -5252,6 +5252,27 @@ paths:
                     type: object
                     properties:
                       active: { type: integer }
+                  outbound:
+                    type: object
+                    description: >
+                      Effective egress (SSRF) policy. Configuration, never
+                      credentials: which ranges the connect-time guard permits.
+                      The link-local / cloud-metadata ranges are always blocked
+                      and are not reported here because they are not
+                      configurable.
+                    properties:
+                      block_private:
+                        type: boolean
+                        description: JANUS_OUTBOUND_BLOCK_PRIVATE — also reject loopback + RFC1918 + ULA.
+                      allow:
+                        type: array
+                        description: >
+                          CIDRs exempt from block_private (JANUS_OUTBOUND_ALLOW),
+                          normalised to network form. Omitted when none are set.
+                        items: { type: string, example: "10.96.0.1/32" }
+                      allow_proxy:
+                        type: boolean
+                        description: JANUS_OUTBOUND_ALLOW_PROXY — degrades the guard to a URL-time check.
                   audit_ship:
                     type: object
                     nullable: true

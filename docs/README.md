@@ -71,6 +71,11 @@ Task-oriented walkthroughs for the common workflows:
   reset-password`, the local-console path back in when the last owner is locked
   out: the ceremony under each seal type, what happens to sessions and MFA,
   what is audited, and honestly what it cannot recover.
+- [Outbound egress & the SSRF guard](guides/egress-and-ssrf.md) — what the
+  connect-time guard blocks, how to block private space while still allowlisting
+  the one internal service you need (`JANUS_OUTBOUND_ALLOW`), the in-cluster
+  Kubernetes case, where to check the effective policy, and why the
+  cloud-metadata ranges can never be exempted.
 - [Troubleshooting](guides/troubleshooting.md) — `janus doctor` and a
   symptom → cause table for the misconfigurations that look like product bugs
   (starting with passkey origins that do not match how the server is reached).

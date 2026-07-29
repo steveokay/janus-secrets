@@ -115,7 +115,12 @@ outbound caller dials through a shared hardened dialer that re-checks the
 link-local/cloud-metadata ranges by default, caps redirects, and bounds dial
 timeouts. This is **defense-in-depth against a mis-/maliciously-configured
 integration**, not an authorization boundary — configuring outbound targets is
-already an admin-gated privilege. The resolved-IP recheck only holds when Janus
+already an admin-gated privilege. `JANUS_OUTBOUND_BLOCK_PRIVATE=true`
+additionally rejects loopback/RFC1918/ULA, and `JANUS_OUTBOUND_ALLOW` exempts
+named IPs/CIDRs from *that* tightening only: no allowlist entry can reach the
+link-local/cloud-metadata ranges, and an entry naming one is a startup error
+rather than a silent no-op, so the highest-value SSRF target stays unreachable
+through configuration. The resolved-IP recheck only holds when Janus
 dials the destination itself, so these clients ignore `HTTP_PROXY`/`HTTPS_PROXY`
 by default; `JANUS_OUTBOUND_ALLOW_PROXY=true` re-enables proxying, logs a
 startup warning, and leaves only a best-effort URL-time literal-IP check —

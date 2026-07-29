@@ -233,10 +233,40 @@ env:
   #   * Kubernetes service-account FEDERATION fails with a generic 401,
   #     because the JWKS fetch never leaves the pod.
   #
-  # Set it to `false` if you sync to, or federate against, the cluster Janus
-  # runs in. Leave it `true` when every outbound target is external — it is a
-  # real SSRF control and worth keeping where it costs nothing.
+  # PREFER `outboundAllow` (below) over turning this off: it lets the SSRF
+  # control and the cluster-native integrations hold at the same time. Set this
+  # to `false` only if you need broad private-network access. Leave it `true`
+  # when every outbound target is external — it is a real SSRF control and
+  # worth keeping where it costs nothing.
   outboundBlockPrivate: true
+
+  # Destinations EXEMPT from `outboundBlockPrivate` — comma-separated IP
+  # addresses and/or CIDR prefixes. This is the answer to the note above: keep
+  # the block on, and name the private destinations Janus legitimately needs.
+  #
+  #   outboundAllow: "10.96.0.1/32"    # the cluster's API server
+  #
+  # To find the API server's ClusterIP:
+  #
+  #   kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'
+  #
+  # It is the first address of the service CIDR (10.96.0.1 on a default kubeadm
+  # / minikube cluster), and it is stable for the life of the cluster.
+  #
+  # HOSTNAMES ARE NOT ACCEPTED, deliberately. The guard checks the address the
+  # kernel is about to dial, which is what defeats DNS rebinding; allowlisting a
+  # name would mean trusting DNS for it and would re-open that hole.
+  #
+  # The link-local / cloud-metadata ranges (169.254.0.0/16, fe80::/10,
+  # fd00:ec2::254) can NEVER be allowlisted — naming one is a startup error, not
+  # a silent no-op. A malformed entry also fails startup, so a typo surfaces
+  # immediately instead of as an integration that mysteriously cannot connect.
+  #
+  # NOTE on `--set`: helm treats a comma as a list separator, so a multi-entry
+  # value must be escaped or (better) written in a values file:
+  #
+  #   --set-string env.outboundAllow='10.96.0.1/32\,10.0.0.0/8'
+  outboundAllow: ""
 
   # Optional HTTP tuning (empty ⇒ server default). See §3 of the guide.
   http:

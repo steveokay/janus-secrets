@@ -193,7 +193,7 @@ normal use and one incident during development.
 
 **Shipped 2026-07-26/27:** owner disaster recovery (`janus admin
 reset-password`, PR #198) — losing the last owner password previously meant
-destroying the instance; `janus doctor` (PR #200) — 18 preflight checks for
+destroying the instance; `janus doctor` (PR #200) — 19 preflight checks for
 configuration that parses and is still wrong; browser E2E over the destructive
 and security screens (PR #199) — 26 tests over Trash, tokens, members,
 four-eyes approvals and break-glass; and a fix for `janus master-key rekey`
@@ -210,6 +210,29 @@ the config-delete redirect, and a duplicate `aria-label` on the approvals table 
 were all found **already fixed** when the tracker was verified against the code
 on 2026-07-28; they had been repaired in passing without being checked off.
 Detail and reasoning in [`../status.md`](../status.md).
+
+**Found by deploying to a real cluster (2026-07-28/29).** The Helm chart had
+never been deployed nor covered by CI; running it on minikube surfaced three
+defects, all fixed in PR #217 (the API Service also selected the bundled
+Postgres pod; an invalid or incomplete seal config rendered silently; the chart
+had no CI at all). Exercising the two Kubernetes integrations then showed that
+the chart's own SSRF hardening broke both: `JANUS_OUTBOUND_BLOCK_PRIVATE=true`
+also blocks `kubernetes.default.svc`, a ClusterIP in a private range, so the
+sync provider failed with a sanitized `apply failed` and service-account
+federation with a generic 401.
+
+**The allowlist that answers it shipped 2026-07-29.** `JANUS_OUTBOUND_ALLOW`
+(chart: `env.outboundAllow`) exempts named IPs/CIDRs from that tightening, so an
+operator keeps the SSRF control on *and* reaches the API server, instead of
+being told to turn the control off. The load-bearing rule is that it exempts the
+private-space block and **nothing else** — the link-local / cloud-metadata
+ranges can never be allowlisted, and an entry naming one fails at boot rather
+than looking effective. Entries are addresses, never hostnames, because the
+guard validates the *resolved* IP and trusting a name would reopen DNS
+rebinding. Still open from the same exercise: federation cannot verify an issuer
+whose certificate is signed by the cluster CA (there is no per-issuer
+`ca_cert`, though the sync provider accepts one). Detail in
+[`../status.md`](../status.md).
 
 ## RBAC at organisation scale
 

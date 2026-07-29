@@ -189,7 +189,26 @@ the Default column). Invalid values fail boot with a clear error.
 | `JANUS_ROTATION_TICK` | In-process static-rotation scheduler interval; `0` disables the ticker. | `60s` |
 | `JANUS_SYNC_TICK` | In-process sync-integrations scheduler interval; `0` disables. | `60s` |
 | `JANUS_DYNAMIC_TICK` | In-process dynamic-lease manager tick (renew/expire sweep); `0` disables. | `60s` |
+| `JANUS_SYNC_VERIFY_TICK` | Sync **drift-detection** sweep interval — reads targets back and flags tampering. Off unless set; manual `POST /v1/sync/targets/{id}/verify` works regardless. See [sync drift](../ops/sync.md). | *(off)* |
+| `JANUS_NOTIFY_TICK` | Notification dispatcher tick (drains the delivery outbox); `0` disables. See [notifications](notifications.md). | `30s` |
 | `JANUS_UNUSED_SECRET_DAYS` | Advisory unused-secret threshold in days: a key with no per-key reveal within this window is flagged "unused" in the masked list, editor, and overview In tray. Positive integer; `0`/unset/invalid ⇒ 90. Advisory only — never blocks. | `90` |
+| `JANUS_BREAKGLASS_MAX_TTL` | Ceiling on a break-glass elevation's TTL (Go duration). Requests above it are clamped. Invalid values warn and fall back. See [break-glass](break-glass.md). | `1h` |
+| `JANUS_OIDC_GROUP_MAX_AGE` | Maximum age of an OIDC group-membership snapshot (Go duration). Past it, `oidc`-derived bindings stop applying until the next authoritative sync. **Off by default** — enabling it on upgrade would silently revoke group access from anyone who had not logged in recently. Local group membership never expires. See [groups](groups.md). | *(off)* |
+
+### Retention floors
+
+Destructive retention operations are opt-in and floor-guarded: these set the
+minimum a prune may never go below, so a mistaken call cannot destroy more than
+the operator has allowed. Unset means no floor is imposed by the environment —
+the operation's own conservative defaults still apply, and nothing is ever
+pruned on a schedule.
+
+| Name | Meaning | Default |
+|---|---|---|
+| `JANUS_AUDIT_RETAIN_MIN_DAYS` | Audit-prune floor in days; events younger than this are never pruned. Non-negative integer. See [audit shipping](audit-shipping.md). | *(none)* |
+| `JANUS_AUDIT_RETAIN_MIN_EVENTS` | Audit-prune floor as an event count; this many most-recent events are always retained. | *(none)* |
+| `JANUS_SECRET_RETAIN_MIN_VERSIONS` | Secret value-version prune floor: this many most-recent config versions are always retained. | *(none)* |
+| `JANUS_SECRET_RETAIN_MIN_DAYS` | Secret value-version prune floor in days. | *(none)* |
 
 > **Account lockout is per-account, across all source IPs (known tradeoff).**
 > Progressive login lockout (`JANUS_LOCKOUT_*`) counts consecutive failed
@@ -217,8 +236,46 @@ targets.
 
 | Name | Meaning | Default |
 |---|---|---|
-| `JANUS_OUTBOUND_BLOCK_PRIVATE` | Also reject loopback + RFC1918 + ULA on outbound integration calls. Set `true` only if no integration target is on a private network. | `false` |
+| `JANUS_OUTBOUND_BLOCK_PRIVATE` | Also reject loopback + RFC1918 + ULA on outbound integration calls. Pair it with `JANUS_OUTBOUND_ALLOW` when a few private targets are legitimate. | `false` |
+| `JANUS_OUTBOUND_ALLOW` | Comma-separated IPs / CIDRs **exempt** from `JANUS_OUTBOUND_BLOCK_PRIVATE`, e.g. `10.96.0.1/32`. Never exempts the link-local/metadata ranges. | _(empty)_ |
 | `JANUS_OUTBOUND_ALLOW_PROXY` | Let outbound integration calls honour `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and `NO_PROXY`). **Weakens the SSRF guard — see below.** | `false` |
+
+### Allowlisting specific private destinations
+
+_Task-oriented walkthrough: [Outbound egress & the SSRF guard](egress-and-ssrf.md)._
+
+`JANUS_OUTBOUND_BLOCK_PRIVATE` is all-or-nothing, which is the wrong shape when
+exactly one private destination is legitimate — the common case being Janus
+running inside the Kubernetes cluster it syncs to, where the API server
+(`kubernetes.default.svc`) is a ClusterIP in a private range. Allowlist it and
+keep the control on:
+
+```sh
+JANUS_OUTBOUND_BLOCK_PRIVATE=true
+JANUS_OUTBOUND_ALLOW=10.96.0.1/32          # several: 10.96.0.1/32,10.0.8.0/24
+```
+
+Entries are IP addresses (treated as a single address) or CIDR prefixes, in
+either family. Blank fields are ignored, and a prefix with host bits set is
+normalised to its network (`10.96.0.1/24` → `10.96.0.0/24`).
+
+Three rules are worth knowing before you rely on it:
+
+- **It only exempts the private-space block.** The link-local / cloud-metadata
+  ranges stay blocked no matter what, and naming one — `169.254.169.254`,
+  `fe80::/10`, or any subrange — is a **startup error**, not a silent no-op.
+  That range is the highest-value SSRF target there is, so a typo in this
+  variable must not be able to reach it.
+- **Hostnames are not accepted.** The guard checks the address the kernel is
+  about to dial, which is what defeats DNS rebinding. Allowlisting a *name*
+  would mean trusting DNS for it and would re-open that hole, so entries are
+  addresses only.
+- **A malformed value refuses to start.** The allowlist fails closed, so a typo
+  would otherwise present as an integration that mysteriously cannot connect.
+  The server names the offending entry and exits; `janus doctor` reports the
+  same thing as `outbound.ssrf`. An allowlist set *without*
+  `JANUS_OUTBOUND_BLOCK_PRIVATE` is inert — private space is already permitted
+  — and is reported as a warning rather than an error.
 
 > **Proxy environment variables are ignored by default, on purpose.** The guard
 > inspects the IP the kernel is about to dial. Through an HTTP proxy that IP is
@@ -246,6 +303,25 @@ targets.
 > `JANUS_OUTBOUND_ALLOW_PROXY` off (the default) so Janus dials directly and the
 > connect-time guard applies, or enforce the destination policy **on the proxy**,
 > which is the only component positioned to see the real target.
+
+### Passkeys (WebAuthn)
+
+Unset ⇒ passkeys are disabled and the password path is unaffected. These are
+**validated at boot** — an invalid value refuses to start — and are never
+inferred from the request `Host`, because a browser silently refuses an
+assertion whose Relying Party ID does not match the one a credential was
+registered under. Full detail in [passkeys](passkeys.md).
+
+| Name | Meaning | Default |
+|---|---|---|
+| `JANUS_WEBAUTHN_RP_ID` | The Relying Party ID — your **registrable domain**, no scheme or port (e.g. `janus.example.com`). Changing it invalidates every enrolled credential. | *(none — disabled)* |
+| `JANUS_WEBAUTHN_ORIGINS` | Comma-separated exact origins the browser will send, including scheme and any non-default port (e.g. `https://janus.example.com`). Each must be the RP ID itself or a subdomain of it; `http://` is accepted only for localhost. Must match how users actually reach the server. | *(none — disabled)* |
+| `JANUS_WEBAUTHN_RP_NAME` | Display name shown in the browser's passkey prompt. | `Janus` |
+
+> The single most common passkey misconfiguration is an origin naming a port the
+> server does not actually serve on. It fails the ceremony with **no server-side
+> error** and reads like a product bug — which is why `janus doctor` checks it
+> explicitly. See [troubleshooting](troubleshooting.md).
 
 ### CLI / client-only
 

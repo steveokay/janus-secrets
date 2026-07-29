@@ -331,11 +331,30 @@ func buildBootConfig(logger *slog.Logger) (api.BootConfig, error) {
 		}
 	}
 
-	// Outbound SSRF guard: the guarded HTTP clients ignore proxy env vars by
-	// default because a proxy hides the real destination from the connect-time
-	// resolved-IP check. If an operator opted back in AND a proxy is actually
-	// configured, say so once, loudly — the residual risk is not obvious.
-	if p := nethard.PolicyFromEnv(); p.AllowProxy {
+	// Outbound SSRF guard: a malformed JANUS_OUTBOUND_ALLOW is fatal. The
+	// allowlist fails closed, so tolerating a typo would leave the operator with
+	// integrations that cannot connect and no statement of why — exactly the
+	// silent-misconfiguration failure this variable was added to remove.
+	if err := nethard.ValidateEnv(); err != nil {
+		return api.BootConfig{}, err
+	}
+
+	outbound := nethard.PolicyFromEnv()
+
+	// An allowlist without the tightening it exempts from is inert: private space
+	// is already permitted, so every entry is a no-op. Say so — an operator who
+	// wrote one is expecting it to be doing something.
+	if len(outbound.Allow) > 0 && !outbound.BlockPrivate {
+		logger.Warn(nethard.EnvAllow+" is set but "+nethard.EnvBlockPrivate+" is not enabled, so the allowlist "+
+			"has no effect: private destinations are already permitted by the default policy",
+			"allow", strings.Join(nethard.DescribeAllow(outbound.Allow), ","))
+	}
+
+	// The guarded HTTP clients ignore proxy env vars by default because a proxy
+	// hides the real destination from the connect-time resolved-IP check. If an
+	// operator opted back in AND a proxy is actually configured, say so once,
+	// loudly — the residual risk is not obvious.
+	if outbound.AllowProxy {
 		if vars := nethard.ProxyEnvVarsSet(); len(vars) > 0 {
 			logger.Warn("outbound proxy enabled for integration calls: the connect-time resolved-IP SSRF guard "+
 				"cannot inspect destinations behind a proxy, so link-local/cloud-metadata blocking applies only "+

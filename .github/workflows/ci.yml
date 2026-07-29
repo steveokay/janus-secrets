@@ -99,6 +99,17 @@ jobs:
               sys.exit(1)
           print('ok: API Service selects only the server pod')
           PY
+      - name: the outbound allowlist renders only when set
+        run: |
+          set -euo pipefail
+          if helm template t deploy/helm/janus --set seal.type=shamir \
+             | grep -q 'JANUS_OUTBOUND_ALLOW'; then
+            echo "JANUS_OUTBOUND_ALLOW must not render when env.outboundAllow is empty" >&2
+            exit 1
+          fi
+          helm template t deploy/helm/janus --set seal.type=shamir \
+            --set-string env.outboundAllow=10.96.0.1/32 \
+            | grep -q '10.96.0.1/32'
 
   web:
     runs-on: ubuntu-latest

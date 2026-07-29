@@ -180,6 +180,14 @@ helm-test:
 		--show-only templates/service.yaml \
 		| sed -n '/^  selector:/,$$p' | grep -q 'app.kubernetes.io/component: server'; \
 	echo "ok: the API Service selector pins component=server"
+	@set -eu; \
+	if helm template t deploy/helm/janus --set seal.type=shamir | grep -q 'JANUS_OUTBOUND_ALLOW'; then \
+		echo "JANUS_OUTBOUND_ALLOW must not render when env.outboundAllow is empty" >&2; exit 1; \
+	fi; \
+	helm template t deploy/helm/janus --set seal.type=shamir \
+		--set-string env.outboundAllow=10.96.0.1/32 \
+		| grep -q '10.96.0.1/32'; \
+	echo "ok: the outbound allowlist renders only when set"
 
 # Everything CI enforces, in CI's order. Needs Docker (integration tests),
 # Node, and helm.

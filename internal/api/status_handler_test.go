@@ -64,6 +64,11 @@ type sysStatusWire struct {
 		RotationFailed int64 `json:"rotation_failed"`
 		SyncFailed     int64 `json:"sync_failed"`
 	} `json:"runs"`
+	Outbound struct {
+		BlockPrivate bool     `json:"block_private"`
+		Allow        []string `json:"allow"`
+		AllowProxy   bool     `json:"allow_proxy"`
+	} `json:"outbound"`
 	Leases struct {
 		Active int64 `json:"active"`
 	} `json:"leases"`
@@ -123,6 +128,37 @@ func TestSysStatusAdminShape(t *testing.T) {
 	if st.Backup.Last != nil {
 		t.Errorf("backup.last = %+v, want null (no backup run yet)", st.Backup.Last)
 	}
+
+	// Egress policy is reported so the health panel can answer "why can't this
+	// integration reach anything?". It must reflect the environment the outbound
+	// dialers actually read, and it must never carry a credential or a target.
+	if st.Outbound.BlockPrivate {
+		t.Errorf("outbound.block_private = true, want false (unset in this stack)")
+	}
+	if len(st.Outbound.Allow) != 0 {
+		t.Errorf("outbound.allow = %v, want empty (unset in this stack)", st.Outbound.Allow)
+	}
+
+	t.Run("reports a configured allowlist", func(t *testing.T) {
+		t.Setenv("JANUS_OUTBOUND_BLOCK_PRIVATE", "true")
+		t.Setenv("JANUS_OUTBOUND_ALLOW", "10.96.0.1/32, 10.0.0.0/8")
+		var got sysStatusWire
+		if code := doAuthed(t, "GET", ts.URL+"/v1/sys/status", adminCookie, "", "", &got); code != 200 {
+			t.Fatalf("status: %d", code)
+		}
+		if !got.Outbound.BlockPrivate {
+			t.Error("outbound.block_private = false, want true")
+		}
+		want := []string{"10.96.0.1/32", "10.0.0.0/8"}
+		if len(got.Outbound.Allow) != len(want) {
+			t.Fatalf("outbound.allow = %v, want %v", got.Outbound.Allow, want)
+		}
+		for i := range want {
+			if got.Outbound.Allow[i] != want[i] {
+				t.Errorf("outbound.allow[%d] = %s, want %s", i, got.Outbound.Allow[i], want[i])
+			}
+		}
+	})
 
 	// Config-scoped read token → no instance audit:read → 403.
 	var minted struct {

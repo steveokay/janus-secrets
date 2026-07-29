@@ -7,6 +7,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`JANUS_OUTBOUND_ALLOW` — an SSRF allowlist, so hardening and the
+  cluster-native integrations can hold at the same time.**
+  `JANUS_OUTBOUND_BLOCK_PRIVATE` was all-or-nothing, and the Helm chart turns it
+  on, which also blocks `kubernetes.default.svc` — a ClusterIP in a private
+  range. The documented remedy was to turn the whole control off. Now the
+  specific destination can be named instead:
+
+  ```sh
+  JANUS_OUTBOUND_BLOCK_PRIVATE=true
+  JANUS_OUTBOUND_ALLOW=10.96.0.1/32     # the cluster's API server
+  ```
+
+  Entries are IP addresses or CIDR prefixes in either family (`env.outboundAllow`
+  in the chart). Three properties are deliberate. **The allowlist exempts only
+  the private-space tightening** — the link-local / cloud-metadata ranges stay
+  blocked unconditionally, enforcement consults the allowlist strictly below
+  that check, and an entry lying entirely inside a blocked range is rejected at
+  parse time, so a typo can never hand out `169.254.169.254`. **Hostnames are
+  not accepted**, because the guard validates the address the kernel is about to
+  dial — that is what defeats DNS rebinding, and allowlisting a name would
+  reopen it. **A malformed value refuses to start**, naming the entry: the
+  allowlist fails closed, so tolerating a typo would present as an integration
+  that mysteriously cannot connect. An allowlist supplied without the tightening
+  is inert and is reported as a warning by `janus doctor` and at boot.
 - **`GET /v1/auth/me` reports effective permissions, and the UI hides what your
   account cannot use.** The navigation rail, the command palette and the
   `g`-chord shortcuts now render from one gated list, so a developer with no
@@ -24,6 +48,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drift from the decision, and active break-glass grants are included while they
   last. A server that sends no `permissions` shows everything, since degrading
   to show-nothing would strand a signed-in owner on an empty rail.
+
+### Documentation
+- **New guide: [Outbound egress & the SSRF guard](docs/guides/egress-and-ssrf.md)**
+  — the three tiers of the connect-time guard, blocking private space while
+  allowlisting the one internal service you need, the in-cluster Kubernetes
+  walkthrough, where to read the effective policy, and a symptom → cause table.
+- **Closed real gaps in the configuration reference.** The production-deployment
+  guide bills itself as the full `JANUS_*` reference but omitted eight
+  variables that were documented only in `operations.md` or `passkeys.md`:
+  `JANUS_SYNC_VERIFY_TICK`, `JANUS_NOTIFY_TICK`, `JANUS_BREAKGLASS_MAX_TTL`,
+  `JANUS_OIDC_GROUP_MAX_AGE`, the four retention floors, and the three
+  `JANUS_WEBAUTHN_*` variables — the last being production-critical, since a
+  passkey origin naming a port the server does not serve fails the ceremony
+  with no server-side error.
+- **Corrected drift found by checking docs against the code.** `janus doctor`
+  runs **19** checks, not the 18 both trackers claimed (`checkOIDCGroupMaxAge`
+  was added on 2026-07-28 without updating the count); `janus doctor` and
+  `janus admin reset-password` were missing from the CLI reference entirely;
+  `docker-compose.yml` pointed its passkey-origin comment at the TOTP guide
+  rather than the passkeys one; and the TypeScript `SysStatus` type was missing
+  the `backup` and `audit_ship` blocks the server has been returning.
 
 ### Changed
 - **The Makefile now mirrors every CI gate, so nothing has to wait for a push

@@ -89,6 +89,10 @@ spec:
             {{- end }}
             - name: JANUS_OUTBOUND_BLOCK_PRIVATE
               value: {{ .Values.env.outboundBlockPrivate | quote }}
+            {{- with .Values.env.outboundAllow }}
+            - name: JANUS_OUTBOUND_ALLOW
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.env.http.readTimeout }}
             - name: JANUS_HTTP_READ_TIMEOUT
               value: {{ . | quote }}
