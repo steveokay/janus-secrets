@@ -268,6 +268,110 @@ hold no secret values and are outside the crypto-blind ciphertext path.
   Never holds a secret value — resource/detail carry paths and non-secret
   specifics only.
 
+## Feature-subsystem tables
+
+Everything above is the core hierarchy plus identity. The tables below were
+added by later features. They are grouped by subsystem rather than migration
+order, because that is how you will look for them. **None holds a plaintext
+secret**: where a subsystem needs to persist a credential it stores ciphertext
+under the project KEK (noted per entry), and where it needs to persist a value
+for comparison it stores a keyed HMAC instead.
+
+**Seal & keys**
+
+- **`seal_config`** — the unseal configuration: type (`shamir` / `awskms` /
+  `gcpkms` / `azurekv`) and its wrapped root material. Written once at `init`.
+- **`project_kek_versions`** — historical project KEKs, so a DEK wrapped under
+  an older version still decrypts during a resumable rewrap sweep.
+
+**Transit (encryption-as-a-service)**
+
+- **`transit_keys`** / **`transit_key_versions`** — named keys and their
+  versions, each wrapped by the master key, with `min_decryption_version` so
+  retired versions stop decrypting without being destroyed.
+
+**Second factor & passkeys**
+
+- **`user_totp`** — per-user TOTP secret (master-key-wrapped, so master-key
+  rotation re-wraps it) plus `last_step`, which makes a code single-use: any
+  code at a step `<=` the last consumed one is rejected (finding M-2).
+- **`user_recovery_codes`** — single-use recovery codes, HMAC-hashed.
+- **`webauthn_credentials`** — only **public** credential material (credential
+  id, COSE public key, sign counter, attestation metadata), which is why
+  master-key rotation has nothing to re-wrap here.
+- **`webauthn_challenges`** — single-use, expiring ceremony challenges. The
+  email-identified and discoverable/passwordless pools are kept **separate**.
+
+**OIDC & workload federation**
+
+- **`oidc_providers`** — login provider config (issuer, client id, wrapped
+  client secret, `groups_claim`).
+- **`oidc_identities`** — the link from an external subject to a Janus user.
+- **`oidc_auth_requests`** — in-flight login state (PKCE verifier, state,
+  nonce), single-use.
+- **`oidc_federation_config`** — the **multi-issuer** trust set for CI and
+  Kubernetes workload identities (migration `000042` made it multi-issuer;
+  before that a cluster issuer would have evicted GitHub Actions).
+- **`oidc_federation_bindings`** — claim match → scoped, time-limited token.
+  Each binding is pinned to exactly one issuer, so a token signed by another
+  trusted issuer can never satisfy it.
+
+**Rotation, sync & dynamic credentials**
+
+- **`rotation_policies`** / **`rotation_runs`** — scheduled static rotation and
+  its history. The policy's credential blob is envelope-encrypted.
+- **`sync_targets`** / **`sync_runs`** — one-way sync destinations and history.
+  (Migration `000041` widened the provider CHECK; the original `000011` pinned
+  it to `github`/`k8s`, which silently made six providers unusable.)
+- **`sync_verify_state`** / **`sync_verify_runs`** — drift detection. Values are
+  compared as **keyed HMACs**; digests are never persisted or logged.
+- **`dynamic_roles`** / **`dynamic_leases`** — dynamic Postgres credentials and
+  their leases (TTL, renewal, revocation, revoke-on-startup sweep for leases
+  orphaned by a crash).
+
+**Promotion & protected configs**
+
+- **`promotion_pipeline_steps`** — the ordered environment pipeline per project.
+- **`promotion_requests`** / **`promotion_idempotency`** — the four-eyes
+  approval workflow and its replay guard.
+- **`config_locked_keys`** — keys excluded from promotion.
+- **`config_edit_requests`** — a save to a protected config becomes a **pending
+  request** whose proposed changes are envelope-encrypted under a fresh DEK with
+  domain-separated AAD; approval is claim-before-commit so it cannot double-apply.
+
+**Advisory metadata (blocks nothing)**
+
+- **`config_secret_max_age`** — per-key max-age with a config-level default
+  under the `''` sentinel key; drives the "stale" chip.
+- **`token_seen_ips`** — value-free new-IP detection for service tokens.
+
+**Audit longevity**
+
+- **`audit_checkpoints`** — signed hash-chain checkpoints (HMAC over
+  length-prefixed `through_seq‖through_hash‖event_count`, key domain-separated
+  from the token-HMAC key) so a shipped prefix can be pruned without breaking
+  `audit/verify`.
+- **`audit_ship_state`** — the durable high-water mark for audit shipping;
+  advanced only on success, which is what makes shipping at-least-once with no
+  gaps.
+
+**Operations**
+
+- **`notification_channels`** / **`notification_deliveries`** /
+  **`notification_cursor`** — alert channels, the delivery outbox, and the
+  audit-tailing cursor.
+- **`backup_runs`** — scheduled S3 backup history.
+- **`break_glass_grants`** — time-boxed emergency elevations. Deliberately a
+  *grant*, not a binding, so an elevation can never become durable (`BoundRole`
+  ignores it).
+- **`outbound_policy`** (migration `000051`) — the egress/SSRF policy override:
+  `block_private` plus an `allow` array of CIDRs. A **single-row** table (a
+  `CHECK` on a boolean PK enforces it). Absence of a row means "no override, use
+  the environment", which is what preserves pre-upgrade behaviour. `allow_proxy`
+  is deliberately **not** stored — it stays environment-only because it is the
+  one setting that blinds the connect-time guard entirely.
+- **`idempotency`** — `Idempotency-Key` replay records for destructive mutations.
+
 ## Read-time resolution (implemented)
 
 The store milestone builds the secret-hierarchy schema and repositories above.
