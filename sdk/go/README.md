@@ -85,9 +85,34 @@ A runnable example lives in [`example_test.go`](example_test.go)
 | `RunWithDynamic(ctx, roleID, fn)` | Issue + auto-renew + guaranteed revoke around `fn` (also `RunWithDynamicOptions`). |
 | `Lease.StartAutoRenew(ctx, opts)` | Opt-in background renewal; returns a `*Renewer` you must `Stop()`. |
 | `Lease.Expiry()` / `Lease.MaxExpiry()` | Race-free reads of the lease's expiry while a renewer is running. |
+| `ListGroups(ctx)` / `GetGroup(ctx, id)` | The group catalog, walking every cursor page. **Instance `group:manage`.** |
+| `CreateGroup(ctx, GroupInput)` / `DeleteGroup(ctx, id)` | Create or delete a group; the kind/claim rule is checked locally first. |
+| `ListGroupMembers(ctx, id)` | Recorded members — for an `oidc` group, only those **seen at sign-in**. |
+| `AddGroupMember(ctx, gid, uid)` / `RemoveGroupMember(...)` | **Local** groups only; an `oidc` group answers `409`. |
+| `SetGroupProjectCreation(ctx, id, bool)` | Toggle delegated project creation. |
+| `MyGroups(ctx)` | The caller's own memberships. **Authenticated-only** — a service token gets an empty slice. |
 
 All methods take a `context.Context` and honour the underlying `http.Client`
 timeouts (default 30s; override with `WithHTTPClient`).
+
+### Groups
+
+The group methods cover the **catalog** and need instance-scoped `group:manage`
+(admin or owner) — a config- or environment-scoped read token gets
+`ErrForbidden` from all of them except `MyGroups`. Two rules are enforced
+locally so an impossible request never costs a round trip: an `oidc` group must
+carry a claim value and a `local` group must not, and a group is one kind or the
+other and never both.
+
+`Group.MembersSeen` is named that deliberately: for an `oidc` group, membership
+is a snapshot refreshed at each sign-in, so it counts only users who have
+actually signed in — never the identity provider's membership list.
+
+Group **bindings** (granting a group a role at a scope) are deliberately absent.
+That is a different authority (`member:manage` at the scope, capped by your own
+bound role) and a durable grant of access, which belongs in something that plans
+and diffs: use the Terraform `janus_group_binding` resource, `janus group bind`,
+or the UI.
 
 ### Options
 

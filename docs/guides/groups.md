@@ -251,6 +251,46 @@ Value-free, names and ids only: `group.create`, `group.delete`,
 `group.sync` is written only when a login actually changed membership (or hit
 the overage case), so routine sign-ins do not flood the ledger.
 
+## Groups as code
+
+An org adopting groups usually already describes its projects and configs in
+Terraform, so binding a team by clicking is the odd one out. Three resources
+mirror the split above exactly:
+
+```hcl
+resource "janus_group" "payments" {          # the catalog — group:manage
+  name = "Team Payments"
+  kind = "local"
+}
+
+resource "janus_group_member" "alice" {      # local membership — group:manage
+  group_id = janus_group.payments.id
+  user_id  = var.alice_user_id
+}
+
+resource "janus_group_binding" "on_atlas" {  # the grant — member:manage AT THE SCOPE
+  group_id   = janus_group.payments.id
+  project_id = janus_project.atlas.id
+  role       = "developer"
+}
+```
+
+They are three resources and not one because they are two different
+authorities, and a practitioner needs to know which token can do what: a
+project admin can apply the binding but not the catalog. Both rules on this
+page are enforced before anything is written — `owner` is refused at
+`terraform plan`, and so is a `janus_group_member` for an `oidc` group whenever
+the provider can see the group's kind at plan time (otherwise as a pre-flight in
+`Create`, still with no write). See the
+[Terraform guide](terraform.md#groups-as-code).
+
+The **SDKs** (Go, TypeScript, Python) carry the group *catalog* — list, get,
+create, delete, local membership, the project-creation capability, and "which
+groups am I in" — for provisioning scripts such as an HR-driven joiner/leaver
+job. They deliberately do **not** bind groups: a binding is durable access at a
+scope, which belongs in something that plans and diffs, not a one-line library
+call. Use Terraform, `janus group bind`, or the UI.
+
 ## CLI
 
 ```

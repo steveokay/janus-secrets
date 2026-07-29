@@ -29,11 +29,12 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
-from typing import Callable, Dict, Iterator, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 from ._transport import MAX_ERROR_BODY, Transport, UrllibTransport
 from .autorenew import STOP_REVOKE_FAILED, LeaseRenewer, RenewEvent
 from .errors import JanusError, NotFound, RevokeFailed, error_for
+from .groups import Group, GroupMember, build_group_body
 from .lease import Lease
 
 # Default time-to-live (seconds) for cached config reads when no cache_ttl is
@@ -288,6 +289,156 @@ class Client:
         except Exception as exc:  # noqa: BLE001 - reported, not swallowed
             return exc
         return None
+
+    # -- groups ------------------------------------------------------------
+    #
+    # The group CATALOG is instance-scoped ``group:manage`` (admin or owner);
+    # a config- or environment-scoped read token gets Forbidden from all of it
+    # except :meth:`my_groups`, which is authenticated-only.
+    #
+    # Group BINDINGS are deliberately absent — see janus_client.groups.
+
+    def list_groups(self) -> List[Group]:
+        """Return every group in the catalog, following cursor pagination.
+
+        Needs instance ``group:manage``.
+        """
+        out: List[Group] = []
+        cursor = ""
+        while True:
+            path = "/v1/groups?limit=100"
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(cursor, safe="")
+            page = self._do("GET", path)
+            page_map = page if isinstance(page, dict) else {}
+            for raw in page_map.get("groups") or []:
+                if isinstance(raw, dict):
+                    out.append(Group._from_wire(raw))
+            cursor = str(page_map.get("next_cursor") or "")
+            if not cursor:
+                return out
+
+    def get_group(self, group_id: str) -> Group:
+        """Return one group. Needs instance ``group:manage``."""
+        if not group_id:
+            raise ValueError("janus: group_id is required")
+        resp = self._do("GET", "/v1/groups/%s" % urllib.parse.quote(group_id, safe=""))
+        body = resp if isinstance(resp, dict) else {}
+        raw = body.get("group")
+        return Group._from_wire(raw if isinstance(raw, dict) else {})
+
+    def create_group(
+        self,
+        name: str,
+        kind: str,
+        claim_value: Optional[str] = None,
+        description: str = "",
+        can_create_projects: bool = False,
+    ) -> Group:
+        """Create a group. Needs instance ``group:manage``.
+
+        The kind/claim pairing is checked locally first, so an ``oidc`` group
+        with no claim value (or a ``local`` one carrying a claim) raises
+        :class:`ValueError` without a round trip.
+        """
+        body = build_group_body(
+            name, kind, claim_value, description, can_create_projects
+        )
+        resp = self._do("POST", "/v1/groups", body)
+        return Group._from_wire(resp if isinstance(resp, dict) else {})
+
+    def delete_group(self, group_id: str) -> None:
+        """Delete a group. Needs instance ``group:manage``.
+
+        Membership and every binding it conferred cascade, so access granted
+        through it is gone on the next request — Janus resolves permissions per
+        request and never freezes them into a session.
+        """
+        if not group_id:
+            raise ValueError("janus: group_id is required")
+        self._do("DELETE", "/v1/groups/%s" % urllib.parse.quote(group_id, safe=""))
+
+    def set_group_project_creation(self, group_id: str, allowed: bool) -> None:
+        """Toggle a group's delegated project-creation capability.
+
+        Needs instance ``group:manage``.
+        """
+        if not group_id:
+            raise ValueError("janus: group_id is required")
+        path = "/v1/groups/%s/capabilities" % urllib.parse.quote(group_id, safe="")
+        self._do("PUT", path, {"can_create_projects": allowed})
+
+    def list_group_members(self, group_id: str) -> List[GroupMember]:
+        """Return a group's recorded members, following cursor pagination.
+
+        Needs instance ``group:manage``.
+
+        For an ``oidc`` group this is the login-time snapshot: it covers only
+        users who have signed in, so treat it as "members seen at sign-in",
+        never as the group's membership. The identity provider is the record
+        for those groups.
+        """
+        if not group_id:
+            raise ValueError("janus: group_id is required")
+        quoted = urllib.parse.quote(group_id, safe="")
+        out: List[GroupMember] = []
+        cursor = ""
+        while True:
+            path = "/v1/groups/%s/members?limit=100" % quoted
+            if cursor:
+                path += "&cursor=" + urllib.parse.quote(cursor, safe="")
+            page = self._do("GET", path)
+            page_map = page if isinstance(page, dict) else {}
+            for raw in page_map.get("members") or []:
+                if isinstance(raw, dict):
+                    out.append(GroupMember._from_wire(raw))
+            cursor = str(page_map.get("next_cursor") or "")
+            if not cursor:
+                return out
+
+    def add_group_member(self, group_id: str, user_id: str) -> None:
+        """Add a user to a **local** group. Needs instance ``group:manage``.
+
+        An ``oidc`` group is refused with HTTP 409 (a
+        :class:`~janus_client.errors.JanusError`): its membership comes from the
+        identity provider and is refreshed at each sign-in, and the database
+        schema makes a hand-added row unrepresentable. Check ``kind`` first if
+        you want to fail before the request.
+        """
+        self._do("PUT", self._group_member_path(group_id, user_id))
+
+    def remove_group_member(self, group_id: str, user_id: str) -> None:
+        """Remove a user from a local group, effective on their next request.
+
+        Needs instance ``group:manage``.
+        """
+        self._do("DELETE", self._group_member_path(group_id, user_id))
+
+    @staticmethod
+    def _group_member_path(group_id: str, user_id: str) -> str:
+        if not group_id or not user_id:
+            raise ValueError("janus: group_id and user_id are required")
+        return "/v1/groups/%s/members/%s" % (
+            urllib.parse.quote(group_id, safe=""),
+            urllib.parse.quote(user_id, safe=""),
+        )
+
+    def my_groups(self) -> List[Group]:
+        """Return the groups the **caller** belongs to.
+
+        Unlike the rest of the group methods this needs no special authority —
+        it is authenticated-only, because it reveals nothing but the caller's
+        own memberships and never the catalog. A service token belongs to no
+        groups and gets an empty list rather than an error, so it is safe to
+        call unconditionally.
+        """
+        resp = self._do("GET", "/v1/auth/me/groups")
+        body = resp if isinstance(resp, dict) else {}
+        out: List[Group] = []
+        for raw in body.get("groups") or []:
+            if isinstance(raw, dict):
+                out.append(Group._from_wire(raw))
+        return out
 
     # -- HTTP plumbing -----------------------------------------------------
 

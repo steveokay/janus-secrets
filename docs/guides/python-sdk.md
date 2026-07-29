@@ -156,6 +156,60 @@ raised *and* the revoke failed, your exception propagates with the
 to `on_event` with reason `revoke_failed`. If only the revoke failed,
 `RevokeFailed` is raised.
 
+## Groups
+
+A [group](groups.md) is a subject a role binding can target instead of a user.
+The SDK covers the group **catalog** — enough for a provisioning script such as
+an HR-driven joiner/leaver job to keep local groups in step with a directory:
+
+```python
+from janus_client import GROUP_KIND_LOCAL
+
+group = client.create_group("Team Payments", GROUP_KIND_LOCAL)
+
+client.add_group_member(group.id, user_id)
+client.remove_group_member(group.id, user_id)
+
+groups = client.list_groups()                        # walks every cursor page
+members = client.list_group_members(group.id)
+client.set_group_project_creation(group.id, True)    # delegated project creation
+client.delete_group(group.id)
+```
+
+**These need instance-scoped `group:manage` (admin or owner).** The usual
+credential for this SDK — a config- or environment-scoped `janus_svc_...` read
+token — raises `Forbidden` from all of them. The one exception is
+`client.my_groups()`, which is authenticated-only, returns the caller's own
+memberships, and answers a service token with an empty list rather than an
+error, so it is safe to call unconditionally.
+
+Two things the SDK will not let you get wrong:
+
+- **The two-kinds rule is checked locally.** `create_group` raises `ValueError`
+  for an `oidc` group with no `claim_value`, and for a `local` group carrying
+  one, before any request — an `oidc` group is defined *by* its claim value, and
+  a `local` group's membership is the explicit list. (`ValueError`, not
+  `JanusError`: it is client misuse, not an API failure.)
+- **`add_group_member` is for `local` groups only.** An `oidc` group's
+  membership is a snapshot refreshed at each sign-in and the schema makes a
+  hand-added row unrepresentable, so the server answers `409`; check `kind` first
+  if you want to fail before the request.
+
+`Group.members_seen` is named that on purpose. For an `oidc` group it counts only
+users who have actually signed in — Janus has never seen a token for anyone else
+— so it is not the identity provider's membership list and must not be presented
+as the size of the team. `list_group_members` has the same caveat.
+
+### Bindings are not in the SDK
+
+Granting a group a role at a scope is deliberately absent. It is a *different*
+authority (`member:manage` at that scope, capped by your own bound role, three
+route families keyed by scope) and it grants **durable access** — the kind of
+change that should be planned, diffed and reviewed rather than made in one line
+from application code. Use Terraform's
+[`janus_group_binding`](terraform.md#groups-as-code), `janus group bind`, or the
+UI.
+
 ## Full reference
 
 See [`sdk/python/README.md`](../../sdk/python/README.md) for the complete API

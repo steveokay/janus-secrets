@@ -1,9 +1,10 @@
 # Terraform provider
 
 `terraform-provider-janus` lets infrastructure teams manage Janus resources
-**declaratively** — projects, environments, configs, secrets, and service
-tokens — instead of clicking the web UI or scripting `curl` against the REST
-API. It is a self-contained Go module in
+**declaratively** — projects, environments, configs, secrets, service tokens,
+and groups with their membership and role bindings — instead of clicking the
+web UI or scripting `curl` against the REST API. It is a self-contained Go
+module in
 [`terraform-provider-janus/`](../../terraform-provider-janus/) built on the
 [terraform-plugin-framework](https://github.com/hashicorp/terraform-plugin-framework),
 and it talks to Janus over the `/v1` HTTP API with a scoped
@@ -216,6 +217,115 @@ their kind from the server, so they are not planned for replacement.
 A full runnable version (with variables, data sources, and outputs) lives in
 [`terraform-provider-janus/examples/main.tf`](../../terraform-provider-janus/examples/main.tf).
 
+## Groups as code
+
+A [group](groups.md) is a subject a role binding can target instead of a user,
+so a whole team is granted access once. Three resources cover it, and they are
+three resources rather than one because Janus splits the authority three ways —
+see [Two tokens, or one big one](#two-tokens-or-one-big-one) below.
+
+```hcl
+# The catalog: which groups exist. Instance `group:manage`.
+resource "janus_group" "payments" {
+  name        = "Team Payments"
+  kind        = "local"
+  description = "Payments squad"
+}
+
+# Local membership. Also instance `group:manage`.
+resource "janus_group_member" "alice" {
+  group_id = janus_group.payments.id
+  user_id  = var.alice_user_id
+}
+
+# The grant. `member:manage` AT THE SCOPE, capped by your own bound role.
+resource "janus_group_binding" "payments_on_web" {
+  group_id   = janus_group.payments.id
+  project_id = janus_project.web.id
+  role       = "developer"
+}
+```
+
+An IdP-fed group instead names the claim value your provider emits, and has no
+`janus_group_member` at all:
+
+```hcl
+resource "janus_group" "payments_idp" {
+  name        = "Team Payments"
+  kind        = "oidc"
+  claim_value = "8f14e45f-ceea-467a-9d0e-7f4b2a1c9c33" # Entra object GUID
+}
+```
+
+### The two rules the provider enforces at `plan`
+
+Both of these are refused by Janus (one by a `CHECK` constraint, one by the
+schema itself), and both fail at `terraform plan` rather than mid-apply:
+
+**A group can never be `owner`.** `role` accepts `viewer`, `developer` and
+`admin` only, and `owner` gets its own diagnostic explaining why rather than a
+generic "invalid value": owner rotates the master key, prunes the audit chain
+and destroys secret history, so it must be a direct binding on a person. That
+also keeps the never-lock-out guard honest — every instance owner is a direct
+binding, so an IdP outage cannot leave the instance without one.
+
+**`janus_group_member` only makes sense for a `local` group.** An `oidc` group's
+membership is a snapshot refreshed from the identity provider at each sign-in;
+the denormalised `group_kind` column plus a composite foreign key make a
+hand-added member of one *unrepresentable*, not merely rejected. The provider
+looks the group's kind up during `plan` whenever `group_id` is already concrete
+(an existing group, an imported one, a literal UUID) and fails there. When the
+group is created in the *same* apply its id is still unknown at plan time, so
+the check runs as a pre-flight in `Create` instead — you still get a
+provider-authored explanation and **no write**, just at apply rather than plan.
+A lookup that fails for any other reason (server unreachable, token cannot read
+the catalog) is silent by design: `plan` must not break over it.
+
+The kind/claim pairing is plan-time too — `kind = "oidc"` with no `claim_value`,
+or `kind = "local"` *with* one, never reaches the API.
+
+### Two tokens, or one big one
+
+The split is deliberate and the provider does not paper over it:
+
+| Resource | Authority needed |
+| --- | --- |
+| `janus_group`, `janus_group_member` | instance-scoped `group:manage` (admin+) |
+| `janus_group_binding` | `member:manage` **at that scope**, capped by your bound role |
+
+So a project admin can bind a group to their own project — the same authority
+they already have over users — but cannot create a group or add themselves to
+one, and therefore cannot reach a project they don't already administer. Run
+Terraform with a token holding both if your root module does both; a
+`403 forbidden` on one resource and not the other is this split showing, not a
+provider bug. The cap is measured against your *durable* role, never a
+break-glass elevation, so an emergency elevation cannot be turned into a lasting
+group binding.
+
+### What the provider does not expose
+
+No member count and no member data source. An `oidc` group's member list only
+covers users who have signed in — Janus has never seen a token for anyone else —
+so any count would render as the group's membership and would not be it. If you
+need to see who reaches a scope, the **Members** screen resolves it server-side
+(it needs only `member:read` there, which a project admin has).
+
+Bindings **union** with direct user bindings; there are no deny rules. A
+project-scoped grant therefore covers that project's production environment too.
+The answer is to make production four-eyes (`janus env protect prod`), not to
+look for a narrower binding — see [groups](groups.md#groups-and-production).
+
+Import syntax:
+
+```sh
+terraform import janus_group.payments <group_uuid>
+terraform import janus_group_member.alice <group_uuid>/<user_uuid>
+terraform import janus_group_binding.payments_on_web project/<project_uuid>/<group_uuid>
+```
+
+The binding id doubles as its import syntax: `instance/<group>`,
+`project/<project>/<group>`, or `environment/<project>/<environment>/<group>`.
+
 ## Resources & data sources at a glance
 
 | Kind        | Name                     | Notes                                                        |
@@ -226,6 +336,9 @@ A full runnable version (with variables, data sources, and outputs) lives in
 | resource    | `janus_secret`           | `value` **Sensitive**; a write creates one config version.   |
 | resource    | `janus_secrets`          | Map of keys, **Sensitive**; the whole batch is one config version. |
 | resource    | `janus_service_token`    | `token` **Sensitive computed**, shown once at create; `config`- or `environment`-scoped. |
+| resource    | `janus_group`            | The catalog entry: `local` or `oidc`; only `can_create_projects` updates in place. |
+| resource    | `janus_group_member`     | Membership of a **local** group; refused at plan for an `oidc` one. |
+| resource    | `janus_group_binding`    | The grant: group × scope × role. Never `owner`. **Different authority** from the two above. |
 | data source | `janus_secret`           | Reads a value (**Sensitive**, audited `secret.reveal`).      |
 | data source | `janus_config`           | Reads config metadata (no values).                           |
 
@@ -265,10 +378,13 @@ go test ./...
   from stored plaintext — see the drift section above.
 - The mint API accepts `ttl_seconds` and `ip_allowlist`; `janus_service_token`
   does not expose them yet.
-- **Groups are not manageable from Terraform yet.** Group role bindings ship in
-  the API, CLI and UI ([guide](groups.md)), but there are no `janus_group`,
-  `janus_group_member` or `janus_group_binding` resources — which is exactly the
-  surface an org adopting groups would want declarative. Tracked in `status.md`.
+- A group has **no rename**: Janus exposes no update route for `name`,
+  `description` or `claim_value`, so changing any of them forces replacement —
+  which drops every binding the group held and re-creates them in the same
+  apply. Rename deliberately, not casually.
+- `janus_group_member` for a group created in the **same apply** is checked in
+  `Create` rather than at `plan` (the group id is unknown until then). It still
+  fails before any write.
 - Registry publication and generated docs (`tfplugindocs`) are pending.
 
 See also: [Service tokens](service-tokens.md), [Managing secrets](managing-secrets.md),

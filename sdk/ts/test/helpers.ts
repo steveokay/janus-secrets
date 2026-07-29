@@ -11,6 +11,10 @@ export interface RecordedRequest {
   method: string;
   authorization: string | null;
   signal: AbortSignal | null | undefined;
+  /** The raw request body, if the call sent one. */
+  body: string | null;
+  /** `body` parsed as JSON, or `null` when there was no body. */
+  json: unknown;
 }
 
 /** A route handler keyed by "METHOD path" (path includes the query string). */
@@ -31,11 +35,22 @@ export function fakeFetch(routes: Record<string, Route>): {
     const headers = init?.headers as Record<string, string> | undefined;
     const authorization = headers?.Authorization ?? null;
     const path = url.replace(/^https?:\/\/[^/]+/, "");
+    const body = typeof init?.body === "string" ? init.body : null;
+    let json: unknown = null;
+    if (body) {
+      try {
+        json = JSON.parse(body);
+      } catch {
+        json = null;
+      }
+    }
     const rec: RecordedRequest = {
       url,
       method,
       authorization,
       signal: init?.signal,
+      body,
+      json,
     };
     requests.push(rec);
 

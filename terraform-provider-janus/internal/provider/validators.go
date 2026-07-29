@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+
+	"github.com/steveokay/janus-secrets/terraform-provider-janus/internal/client"
 )
 
 // oneOfValidator rejects a string attribute whose value is not in the allowed
@@ -57,6 +59,54 @@ func quoteAll(vals []string) []string {
 		out = append(out, fmt.Sprintf("%q", v))
 	}
 	return out
+}
+
+// groupRoleValidator restricts a group binding's role to viewer/developer/admin
+// and gives `owner` its own explanation.
+//
+// "value must be one of …" would be true but unhelpful for owner: owner is a
+// perfectly valid Janus role, just never one a GROUP may hold, and a
+// practitioner who typed it deserves to know why rather than assume a typo. Like
+// oneOfValidator this runs at `terraform plan`, before any API call.
+type groupRoleValidator struct{}
+
+// stringGroupRole builds the group-binding role validator.
+func stringGroupRole() validator.String { return groupRoleValidator{} }
+
+func (groupRoleValidator) Description(_ context.Context) string {
+	return `value must be one of: "viewer", "developer", "admin" (never "owner")`
+}
+
+func (v groupRoleValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v groupRoleValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	got := req.ConfigValue.ValueString()
+	if isOneOf(got, client.GroupRoleViewer, client.GroupRoleDeveloper, client.GroupRoleAdmin) {
+		return
+	}
+	if got == client.GroupRoleOwner {
+		resp.Diagnostics.AddAttributeError(
+			req.Path,
+			"A group binding can never be owner",
+			"Owner rotates the master key, prunes the audit chain and hard-destroys secret history. Deriving it from "+
+				"group membership would hand that tier to whoever administers the identity provider, whose membership "+
+				"list Janus cannot authoritatively enumerate — and it would break the never-lock-out guard, which relies "+
+				"on every instance owner being a direct binding.\n\n"+
+				"Both the API and a database CHECK constraint refuse it. Use \"admin\" here, and bind an owner directly "+
+				"to a person.",
+		)
+		return
+	}
+	resp.Diagnostics.AddAttributeError(
+		req.Path,
+		"Invalid attribute value",
+		fmt.Sprintf("Attribute %s %s, got: %q.", req.Path, v.Description(ctx), got),
+	)
 }
 
 // isOneOf is the runtime twin of the validator, used as a belt-and-braces check

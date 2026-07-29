@@ -55,8 +55,34 @@ const apiKey = await client.getSecret(configId, "API_KEY");
 | `lease.renew({ signal? }?)` / `lease.revoke({ signal? }?)` | Extend or immediately drop a dynamic lease. |
 | `withDynamic(roleId, fn, options?)` | Issue + auto-renew + guaranteed revoke around `fn`. |
 | `lease.startAutoRenew(options?)` | Opt-in background renewal; returns a `LeaseRenewer` you must `stop()`. |
+| `listGroups()` / `getGroup(id)` | The group catalog, walking every cursor page. **Instance `group:manage`.** |
+| `createGroup(input)` / `deleteGroup(id)` | Create or delete a group; the kind/claim rule is checked locally first. |
+| `listGroupMembers(id)` | Recorded members — for an `oidc` group, only those **seen at sign-in**. |
+| `addGroupMember(gid, uid)` / `removeGroupMember(...)` | **Local** groups only; an `oidc` group answers `409`. |
+| `setGroupProjectCreation(id, allowed)` | Toggle delegated project creation. |
+| `myGroups()` | The caller's own memberships. **Authenticated-only** — a service token gets `[]`. |
 
 Every method returns a `Promise` and accepts an optional `AbortSignal`.
+
+### Groups
+
+The group methods cover the **catalog** and need instance-scoped `group:manage`
+(admin or owner) — a config- or environment-scoped read token gets a
+`JanusForbiddenError` from all of them except `myGroups`. Two rules are enforced
+locally so an impossible request never costs a round trip: an `oidc` group must
+carry a `claimValue` and a `local` group must not, and a group is one kind or
+the other and never both. Those throw a plain `Error` (client misuse), not a
+`JanusError`.
+
+`Group.membersSeen` is named that deliberately: for an `oidc` group, membership
+is a snapshot refreshed at each sign-in, so it counts only users who have
+actually signed in — never the identity provider's membership list.
+
+Group **bindings** (granting a group a role at a scope) are deliberately absent.
+That is a different authority (`member:manage` at the scope, capped by your own
+bound role) and a durable grant of access, which belongs in something that plans
+and diffs: use the Terraform `janus_group_binding` resource, `janus group bind`,
+or the UI.
 
 ### Options
 

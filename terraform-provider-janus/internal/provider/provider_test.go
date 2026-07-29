@@ -46,8 +46,8 @@ func TestProviderRegistersAllResourcesAndDataSources(t *testing.T) {
 	p := New("test")().(*janusProvider)
 
 	resources := p.Resources(context.Background())
-	if len(resources) != 6 {
-		t.Fatalf("want 6 resources, got %d", len(resources))
+	if len(resources) != 9 {
+		t.Fatalf("want 9 resources, got %d", len(resources))
 	}
 	wantResTypes := map[string]bool{
 		"janus_project":       false,
@@ -56,6 +56,12 @@ func TestProviderRegistersAllResourcesAndDataSources(t *testing.T) {
 		"janus_secret":        false,
 		"janus_secrets":       false,
 		"janus_service_token": false,
+		// The catalog (janus_group, janus_group_member) and the scope-side
+		// grant (janus_group_binding) are separate resources because they are
+		// separate authorities server-side.
+		"janus_group":         false,
+		"janus_group_member":  false,
+		"janus_group_binding": false,
 	}
 	for _, f := range resources {
 		r := f()

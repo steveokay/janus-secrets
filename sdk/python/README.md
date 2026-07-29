@@ -66,6 +66,31 @@ print("loaded", len(secrets), "secrets")
 | `dynamic_lease(role_id, ...)` | Context manager: issue + auto-renew + guaranteed revoke around the block. |
 | `Lease.start_auto_renew(...)` | Opt-in background renewal; returns a `LeaseRenewer` you must `stop()`. |
 | `Lease.expiry()` / `Lease.max_expiry()` | Lock-protected `datetime` reads of the expiry while a renewer runs. |
+| `list_groups()` / `get_group(id)` | The group catalog, walking every cursor page. **Instance `group:manage`.** |
+| `create_group(name, kind, claim_value=None, ...)` / `delete_group(id)` | Create or delete a group; the kind/claim rule is checked locally first. |
+| `list_group_members(id)` | Recorded members — for an `oidc` group, only those **seen at sign-in**. |
+| `add_group_member(gid, uid)` / `remove_group_member(...)` | **Local** groups only; an `oidc` group answers `409`. |
+| `set_group_project_creation(id, allowed)` | Toggle delegated project creation. |
+| `my_groups()` | The caller's own memberships. **Authenticated-only** — a service token gets `[]`. |
+
+### Groups
+
+The group methods cover the **catalog** and need instance-scoped `group:manage`
+(admin or owner) — a config- or environment-scoped read token raises
+`Forbidden` from all of them except `my_groups`. Two rules are enforced locally
+so an impossible request never costs a round trip: an `oidc` group must carry a
+`claim_value` and a `local` group must not, and a group is one kind or the other
+and never both. Those raise `ValueError` (client misuse), not `JanusError`.
+
+`Group.members_seen` is named that deliberately: for an `oidc` group, membership
+is a snapshot refreshed at each sign-in, so it counts only users who have
+actually signed in — never the identity provider's membership list.
+
+Group **bindings** (granting a group a role at a scope) are deliberately absent.
+That is a different authority (`member:manage` at the scope, capped by your own
+bound role) and a durable grant of access, which belongs in something that plans
+and diffs: use the Terraform `janus_group_binding` resource, `janus group bind`,
+or the UI.
 
 This mirrors the Go SDK's `NewClient`/`WithToken`/`WithCacheTTL`,
 `GetSecrets`/`GetSecret`/`Refresh`, and `IssueDynamic`/`Lease.Renew`/`Revoke`.

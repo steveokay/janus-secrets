@@ -153,6 +153,60 @@ failed *and* the revoke failed, the result is `errors.Join(yourErr, *RevokeError
 — `errors.Is(err, yourSentinel)` still holds, and `errors.As(err, &revErr)`
 finds the revoke failure. If only the revoke failed, that error is returned.
 
+## Groups
+
+A [group](groups.md) is a subject a role binding can target instead of a user.
+The SDK covers the group **catalog** — enough for a provisioning script such as
+an HR-driven joiner/leaver job to keep local groups in step with a directory:
+
+```go
+g, err := client.CreateGroup(ctx, janus.GroupInput{
+	Name: "Team Payments",
+	Kind: janus.GroupKindLocal,
+})
+
+err = client.AddGroupMember(ctx, g.ID, userID)
+err = client.RemoveGroupMember(ctx, g.ID, userID)
+
+groups, err := client.ListGroups(ctx)                 // walks every cursor page
+members, err := client.ListGroupMembers(ctx, g.ID)
+err = client.SetGroupProjectCreation(ctx, g.ID, true) // delegated project creation
+err = client.DeleteGroup(ctx, g.ID)
+```
+
+**These need instance-scoped `group:manage` (admin or owner).** The usual
+credential for this SDK — a config- or environment-scoped `janus_svc_...` read
+token — gets `ErrForbidden` from all of them. The one exception is
+`client.MyGroups(ctx)`, which is authenticated-only, returns the caller's own
+memberships, and answers a service token with an empty slice rather than an
+error, so it is safe to call unconditionally.
+
+Two things the SDK will not let you get wrong:
+
+- **The two-kinds rule is checked locally.** `CreateGroup` rejects an `oidc`
+  group with no claim value, and a `local` group carrying one, before any
+  request — an `oidc` group is defined *by* its claim value, and a `local`
+  group's membership is the explicit list.
+- **`AddGroupMember` is for `local` groups only.** An `oidc` group's membership
+  is a snapshot refreshed at each sign-in and the schema makes a hand-added row
+  unrepresentable, so the server answers `409`; check `Kind` first if you want
+  to fail before the request.
+
+`Group.MembersSeen` is named that on purpose. For an `oidc` group it counts only
+users who have actually signed in — Janus has never seen a token for anyone else
+— so it is not the identity provider's membership list and must not be presented
+as the size of the team. `ListGroupMembers` has the same caveat.
+
+### Bindings are not in the SDK
+
+Granting a group a role at a scope is deliberately absent. It is a *different*
+authority (`member:manage` at that scope, capped by your own bound role, three
+route families keyed by scope) and it grants **durable access** — the kind of
+change that should be planned, diffed and reviewed rather than made in one line
+from application code. Use Terraform's
+[`janus_group_binding`](terraform.md#groups-as-code), `janus group bind`, or the
+UI.
+
 ## Full reference
 
 See [`sdk/go/README.md`](../../sdk/go/README.md) for the complete API surface,
