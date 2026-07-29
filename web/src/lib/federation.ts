@@ -28,6 +28,12 @@ export interface FederationProvider {
   claims: ClaimField[]
   /** Short hint rendered under the issuer field. */
   hint?: string
+  /**
+   * Short hint rendered under the CA bundle field, for providers whose issuer is
+   * commonly served by a private CA. Absent means the provider's issuer is a
+   * public endpoint and the system roots are the right answer.
+   */
+  caHint?: string
 }
 
 export const federationProviders: FederationProvider[] = [
@@ -69,12 +75,14 @@ export const federationProviders: FederationProvider[] = [
       { key: 'kubernetes.io.serviceaccount.name', label: 'Service account', example: 'atlas-api' },
     ],
     hint: 'Cluster issuer from `kubectl get --raw /.well-known/openid-configuration`. Janus must be able to reach it — EKS and GKE publish it, most self-hosted clusters do not.',
+    caHint: 'Needed when the issuer is the cluster API server itself (the default https://kubernetes.default.svc), whose certificate is signed by the CLUSTER CA — nothing in the system roots signs it. Get it with `kubectl config view --raw --minify -o jsonpath=\'{.clusters[0].cluster.certificate-authority-data}\' | base64 -d`. EKS and GKE issuers are public: leave this empty.',
   },
   {
     id: 'custom',
     label: 'Custom / self-hosted',
     issuer: '',
     claims: [{ key: 'sub', label: 'Subject', example: 'repo:acme/app:ref:refs/heads/main' }],
+    caHint: 'Only needed if the issuer’s certificate is signed by a private CA. Leave empty for a publicly-trusted certificate.',
   },
 ]
 

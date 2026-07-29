@@ -22,6 +22,13 @@
 >
 > The link-local / cloud-metadata ranges cannot be allowlisted — see
 > [Outbound egress & the SSRF guard](egress-and-ssrf.md).
+>
+> **Reaching the API server is only half of it.** Its certificate is signed by
+> the **cluster CA**, which nothing in the system roots chains to. The sync
+> target has always taken a `ca_cert`; **federation now takes one too**, per
+> trusted issuer. Set it whenever the issuer is the API server itself
+> (`https://kubernetes.default.svc`) — see
+> [Service-account federation](#service-account-federation-in-cluster) below.
 
 # Kubernetes integration
 
@@ -377,6 +384,52 @@ app running with the new value
 Tune `--interval-seconds` per target and `JANUS_SYNC_TICK` on the server
 (see [sync.md § Scheduler](../ops/sync.md#scheduler)) for how fast the first hop
 runs; the rollout hop is governed by your Deployment's update strategy.
+
+## Service-account federation (in-cluster)
+
+Sync is Janus **pushing** secrets into the cluster. The other direction — a pod
+**pulling** its own secrets with no bootstrap credential — is
+[service-account federation](../ci-federation.md#kubernetes-service-accounts):
+the pod presents its projected service-account token and gets a short-lived
+scoped Janus token back.
+
+The two features dial the same endpoint and hit the same two obstacles, so
+configure them the same way:
+
+| Obstacle | Sync target | Trusted federation issuer |
+|---|---|---|
+| The API server is on a private ClusterIP | `outboundAllow: "10.96.0.1/32"` (or `outboundBlockPrivate: false`) | same — it is one process-wide egress policy |
+| Its certificate is signed by the **cluster CA** | `--ca-cert` / **CA certificate** field | `ca_cert` on the issuer |
+
+Before per-issuer `ca_cert` existed, federation verified the issuer against the
+**system roots only**, so an issuer of `https://kubernetes.default.svc` could
+never verify — which is why the sync target worked in a cluster where federation
+did not. Set the issuer's `ca_cert` to the same PEM you already collected for the
+sync target:
+
+```sh
+CA=$(kubectl config view --raw --minify \
+  -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)
+
+curl -sS -X POST https://janus.internal/v1/sys/oidc/federation/issuers \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d "$(jq -n --arg ca "$CA" '{issuer:"https://kubernetes.default.svc",
+        audience:"janus", preset:"kubernetes", ca_cert:$ca, enabled:true}')"
+```
+
+Or paste it into **Integrations → Machine identity federation → CA certificate**.
+
+Notes:
+
+- A bundle **replaces** the system roots for that issuer, and for that issuer
+  only. Verification is never skipped.
+- **EKS, GKE and AKS need none of this** — their issuers are public endpoints
+  with publicly-trusted certificates, and are reachable from outside the cluster.
+- The CA solves the *certificate*, not the *address*: with
+  `outboundBlockPrivate: true` you still need the ClusterIP in the allowlist.
+- The cluster must also actually **serve** discovery — see
+  [the reachability checklist](../ci-federation.md#2-make-sure-janus-can-reach-it--this-is-the-real-constraint),
+  including the Docker Desktop caveat.
 
 ## Operational notes
 

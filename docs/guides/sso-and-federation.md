@@ -66,6 +66,24 @@ other).
    publicly, most self-hosted clusters do not. See the
    [federation reference](../ci-federation.md#kubernetes-service-accounts).
 
+   **CA certificate (optional).** The same form takes a PEM bundle used to verify
+   the issuer's TLS. Leave it empty for any public issuer — every CI provider and
+   the managed Kubernetes issuers (EKS/GKE/AKS). Fill it in for a **self-hosted
+   cluster whose issuer is its own API server** (`https://kubernetes.default.svc`):
+   that certificate is signed by the cluster CA, which no system root chains to,
+   so without the bundle every exchange fails with the same opaque denial as a
+   bad token. Get it with:
+
+   ```sh
+   kubectl config view --raw --minify \
+     -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d
+   ```
+
+   A bundle **replaces** the system roots for that issuer and applies to it
+   alone; verification is never disabled. Clear the field to go back to the
+   system roots. Malformed PEM is rejected when you save, not silently at the
+   next exchange. Issuers using a bundle are marked *custom CA* in the list.
+
 2. **+ Trust binding**: name, the issuer, the strong identifying claim value(s)
    the JWT must carry, scope (a config or environment), access (read /
    read-write), TTL (≤ 1 hour). Every binding must constrain at least one strong

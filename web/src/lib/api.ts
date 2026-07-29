@@ -664,7 +664,16 @@ export interface OIDCProviderView { name: string; issuer: string; client_id: str
 export interface OIDCConfigInput { name: string; issuer: string; client_id: string; client_secret: string; scopes: string[]; redirect_url: string; enabled: boolean }
 /* One trusted federation issuer. Several may be trusted at once (a CI provider
    AND a Kubernetes cluster) — see listFederationIssuers below. */
-export interface FederationConfigView { id?: string; issuer: string; audience: string; preset?: string; enabled: boolean }
+/* ca_cert is an optional PEM CA bundle used to verify TLS for this issuer's OIDC
+   discovery + JWKS fetches; empty means the system roots. It is PUBLIC material
+   (a CA certificate is presented in every TLS handshake), so unlike the sync
+   providers' ca_cert it is readable — the server returns it so an issuer can be
+   edited without re-pasting the bundle. When set it REPLACES the system roots
+   for that issuer. */
+export interface FederationConfigView {
+  id?: string; issuer: string; audience: string; preset?: string
+  ca_cert?: string; enabled: boolean
+}
 export interface FederationBindingView {
   id: string; name: string; issuer?: string; match_claims: Record<string, string>
   scope_kind: 'config' | 'environment'; scope_id: string

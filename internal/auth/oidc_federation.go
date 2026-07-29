@@ -2,12 +2,16 @@ package auth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/steveokay/janus-secrets/internal/nethard"
 	"github.com/steveokay/janus-secrets/internal/store"
 )
 
@@ -160,6 +164,104 @@ func bindingHasStrongClaim(issuer, preset string, claims map[string]string) bool
 	return false
 }
 
+// maxFederationCACertBytes bounds a stored CA bundle. A real bundle is a handful
+// of certificates — a few kilobytes — so 64 KiB is generous. The cap exists so a
+// pathological body cannot be parked in the config table and re-parsed on every
+// cold verifier build; the HTTP body cap is a blunter instrument that applies to
+// the whole request, not to this one field.
+const maxFederationCACertBytes = 64 * 1024
+
+// ErrFederationCACertInvalid is returned when a supplied CA bundle is not usable
+// PEM. The API maps it to 400 like ErrValidation, but as its own sentinel so the
+// message can name the field: "invalid federation issuer" is useless feedback for
+// a pasted certificate. Rejecting at WRITE time is the point — a bundle first
+// checked when a token arrives turns an operator's typo into an
+// indistinguishable federation_denied on some workload's cold start, hours later.
+var ErrFederationCACertInvalid = errors.New("auth: federation ca_cert is not valid PEM")
+
+// federationCAPool parses a PEM CA bundle into a pool.
+//
+// TRUST DECISION — the returned pool REPLACES the system roots for the issuer it
+// belongs to; it does not add to them (x509.SystemCertPool is deliberately not
+// used as the starting point). Three reasons:
+//
+//   - It matches the Kubernetes SYNC provider (internal/secretsync.defaultK8sClient),
+//     which has accepted an explicit ca_cert since it was written. Two features
+//     dialling the same API server should not disagree about what trust means.
+//   - It is the STRICTER reading. A federation issuer is one specific host whose
+//     certificate has one legitimate signer; pinning it means a mis-issuance by
+//     any of the ~150 public roots cannot be used to impersonate that issuer.
+//   - Additive trust would be silently weaker in the exact case this feature
+//     exists for: a private cluster CA plus every public CA is a strictly larger
+//     surface than the cluster CA alone, for no operator benefit — an operator
+//     who wants the public roots simply leaves ca_cert empty.
+//
+// There is no InsecureSkipVerify path, and no configuration that produces one.
+func federationCAPool(caPEM string) (*x509.CertPool, error) {
+	caPEM = strings.TrimSpace(caPEM)
+	if caPEM == "" {
+		return nil, nil // system roots
+	}
+	if len(caPEM) > maxFederationCACertBytes {
+		return nil, ErrFederationCACertInvalid
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+		// AppendCertsFromPEM is all-or-nothing per bundle only in the sense that
+		// it reports whether ANY certificate was added; a bundle that yields none
+		// would leave an empty pool that rejects every chain, so treat it as a
+		// config error rather than a silently unusable issuer.
+		return nil, ErrFederationCACertInvalid
+	}
+	return pool, nil
+}
+
+// validateFederationCACert checks a bundle at WRITE time and returns nil for an
+// empty (system-roots) bundle. The parsed pool is discarded: the verifier builds
+// its own, and holding a pool per stored row would go stale the moment the row
+// changed.
+func validateFederationCACert(caPEM string) error {
+	_, err := federationCAPool(caPEM)
+	return err
+}
+
+// federationHTTPClient returns the SSRF-hardened client to use for one issuer's
+// discovery + JWKS fetches.
+//
+// With no CA bundle it returns the SHARED process client — one client, one
+// connection pool, unchanged behaviour for every public issuer. With a bundle it
+// must build a per-issuer client, because trust roots live on the transport and
+// the shared client is used by every other issuer (and by human OIDC login):
+// mutating its TLSClientConfig would silently re-anchor all of them.
+//
+// The per-issuer client is built through nethard.SafeHTTPClient with the LIVE
+// process policy, so it dials through the same connect-time SSRF guard as
+// everything else — a custom CA changes which certificate is acceptable, never
+// which address may be dialled.
+//
+// A per-issuer client is created once per cold verifier build, not per exchange
+// (the verifier cache holds it). A client dropped by a cache flush releases its
+// idle connections on the transport's IdleConnTimeout.
+func (s *Service) federationHTTPClient(caPEM string) (*http.Client, error) {
+	pool, err := federationCAPool(caPEM)
+	if err != nil {
+		return nil, err
+	}
+	if pool == nil {
+		return s.oidcHTTP, nil
+	}
+	hc := nethard.SafeHTTPClient(oidcHTTPTimeout, nethard.Process())
+	tr, ok := hc.Transport.(*http.Transport)
+	if !ok {
+		// SafeHTTPClient documents an *http.Transport precisely so callers can
+		// pin roots. Fail closed rather than fall back to a client that would
+		// verify against the system roots the operator chose to replace.
+		return nil, ErrFederationCACertInvalid
+	}
+	tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	return hc, nil
+}
+
 // validFederationIssuer reports whether s is a well-formed absolute URL with an
 // http(s) scheme and a host (an empty string is allowed by the caller and
 // defaults to GitHub Actions). Real CI issuers are https; http is permitted so a
@@ -179,15 +281,23 @@ type FederationConfigInput struct {
 	Issuer   string // empty → defaultFederationIssuer
 	Audience string // required, non-empty
 	Preset   string // optional provider preset ("", github, …, kubernetes)
+	CACert   string // optional PEM CA bundle for this issuer's TLS; empty → system roots
 	Enabled  bool
 }
 
 // FederationConfigView is the non-secret view of a trusted issuer.
+//
+// CACert is returned, not write-only. A CA certificate is public material — the
+// issuer presents it to every client that connects — and the whole federation
+// config is a public-key trust relationship with nothing to hide. Returning it
+// also means the UI can edit an issuer without an operator re-pasting the bundle
+// from memory, which is how a wrong bundle gets saved.
 type FederationConfigView struct {
 	ID       string `json:"id,omitempty"`
 	Issuer   string `json:"issuer"`
 	Audience string `json:"audience"`
 	Preset   string `json:"preset"`
+	CACert   string `json:"ca_cert,omitempty"`
 	Enabled  bool   `json:"enabled"`
 }
 
@@ -198,6 +308,7 @@ type FederationIssuerInput struct {
 	Issuer   string
 	Audience string
 	Preset   string
+	CACert   string
 	Enabled  bool
 }
 
@@ -241,9 +352,18 @@ type FederationResult struct {
 }
 
 // fedVerifier caches the go-oidc verifier for ONE trusted issuer.
+//
+// caCert is the CA bundle the verifier's HTTP client was built with. It is part
+// of the cache identity, not decoration: the JWKS RemoteKeySet behind a verifier
+// holds the client it was built with for the life of the verifier, so a verifier
+// created against the old trust anchor would keep using it. Every mutation path
+// calls invalidateFederationVerifier(), but the comparison is what makes the
+// cache correct on its own — including when a row changes underneath this
+// process (a restore, a second instance, a direct DB edit).
 type fedVerifier struct {
 	issuer   string
 	audience string
+	caCert   string
 	verifier *oidc.IDTokenVerifier
 }
 
@@ -267,6 +387,9 @@ func (s *Service) SetFederationConfig(ctx context.Context, in FederationConfigIn
 	if !validFederationIssuer(issuer) {
 		return ErrValidation // must be an absolute http(s) URL
 	}
+	if err := validateFederationCACert(in.CACert); err != nil {
+		return err
+	}
 	existing, err := s.oidcFedConfig.List(ctx)
 	if err != nil {
 		return err
@@ -275,7 +398,8 @@ func (s *Service) SetFederationConfig(ctx context.Context, in FederationConfigIn
 		return ErrFederationIssuerConflict
 	}
 	if err := s.oidcFedConfig.Put(ctx, store.OIDCFederationConfig{
-		Issuer: issuer, Audience: in.Audience, Preset: in.Preset, Enabled: in.Enabled,
+		Issuer: issuer, Audience: in.Audience, Preset: in.Preset,
+		CACert: strings.TrimSpace(in.CACert), Enabled: in.Enabled,
 	}); err != nil {
 		return err
 	}
@@ -333,8 +457,12 @@ func (s *Service) PutFederationIssuer(ctx context.Context, in FederationIssuerIn
 	if !federationPresets[in.Preset] {
 		return nil, ErrValidation
 	}
+	if err := validateFederationCACert(in.CACert); err != nil {
+		return nil, err
+	}
 	c, err := s.oidcFedConfig.Upsert(ctx, store.OIDCFederationConfig{
-		Issuer: issuer, Audience: in.Audience, Preset: in.Preset, Enabled: in.Enabled,
+		Issuer: issuer, Audience: in.Audience, Preset: in.Preset,
+		CACert: strings.TrimSpace(in.CACert), Enabled: in.Enabled,
 	})
 	if err != nil {
 		return nil, err
@@ -520,18 +648,32 @@ func (s *Service) federationVerifierFor(ctx context.Context, tokenIssuer string)
 	}
 	s.fedMu.Lock()
 	defer s.fedMu.Unlock()
-	if v, ok := s.fedCache[want]; ok && v.issuer == match.Issuer && v.audience == match.Audience {
+	// The CA bundle is part of the cache identity: an operator who corrects a
+	// wrong bundle must see the correction on the very next exchange, and one who
+	// REMOVES a bundle must stop trusting that private CA immediately.
+	if v, ok := s.fedCache[want]; ok && v.issuer == match.Issuer &&
+		v.audience == match.Audience && v.caCert == match.CACert {
 		return v, nil
 	}
+	// A per-issuer client when this issuer pins a CA, the shared process client
+	// otherwise. Both are SSRF-guarded.
+	hc, err := s.federationHTTPClient(match.CACert)
+	if err != nil {
+		// A bundle that no longer parses (hand-edited row, restored dump). Fail
+		// closed: never fall back to the system roots the operator replaced.
+		return nil, err
+	}
 	// Discovery + the lazily-built JWKS RemoteKeySet both use the client carried
-	// on this context, so the SSRF-hardened client covers both fetches (M-4/I-4).
-	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, s.oidcHTTP), match.Issuer)
+	// on this context, so the SSRF-hardened client covers both fetches (M-4/I-4)
+	// — and, when set, the issuer's own CA bundle covers both too.
+	provider, err := oidc.NewProvider(oidc.ClientContext(ctx, hc), match.Issuer)
 	if err != nil {
 		return nil, err
 	}
 	v := &fedVerifier{
 		issuer:   match.Issuer,
 		audience: match.Audience,
+		caCert:   match.CACert,
 		// oidc.Config.ClientID is the expected audience; verification fails on mismatch.
 		verifier: provider.Verifier(&oidc.Config{ClientID: match.Audience}),
 	}
@@ -599,7 +741,8 @@ func (s *Service) FederateCILogin(ctx context.Context, rawJWT string) (*Federati
 
 func fedConfigView(c *store.OIDCFederationConfig) *FederationConfigView {
 	return &FederationConfigView{
-		ID: c.ID, Issuer: c.Issuer, Audience: c.Audience, Preset: c.Preset, Enabled: c.Enabled,
+		ID: c.ID, Issuer: c.Issuer, Audience: c.Audience, Preset: c.Preset,
+		CACert: c.CACert, Enabled: c.Enabled,
 	}
 }
 

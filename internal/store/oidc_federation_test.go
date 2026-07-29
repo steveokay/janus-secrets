@@ -62,10 +62,29 @@ func TestFederationIssuerSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Upsert(ctx, OIDCFederationConfig{
+	if ci.CACert != "" {
+		t.Fatalf("ca_cert should default to empty (system roots): %q", ci.CACert)
+	}
+	// A cluster-CA issuer carries its own bundle; it is public material stored in
+	// plaintext, so this is a plain round-trip with no wrapping involved.
+	const clusterCA = "-----BEGIN CERTIFICATE-----\nMIIBkTCB+w==\n-----END CERTIFICATE-----\n"
+	k8s, err := r.Upsert(ctx, OIDCFederationConfig{
 		Issuer: "https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE", Audience: "janus",
-		Preset: "kubernetes", Enabled: true}); err != nil {
+		Preset: "kubernetes", CACert: clusterCA, Enabled: true})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if k8s.CACert != clusterCA {
+		t.Fatalf("ca_cert round-trip: %q", k8s.CACert)
+	}
+	// Clearing it must be expressible — the empty bundle means "system roots".
+	cleared, err := r.Upsert(ctx, OIDCFederationConfig{
+		Issuer: k8s.Issuer, Audience: "janus", Preset: "kubernetes", CACert: "", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.CACert != "" {
+		t.Fatalf("ca_cert not cleared by upsert: %q", cleared.CACert)
 	}
 	list, err := r.List(ctx)
 	if err != nil || len(list) != 2 {

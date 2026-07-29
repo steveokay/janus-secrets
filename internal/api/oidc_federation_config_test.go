@@ -1,6 +1,17 @@
 package api
 
-import "testing"
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/json"
+	"encoding/pem"
+	"math/big"
+	"testing"
+	"time"
+)
 
 func TestOIDCFederationConfigRBAC(t *testing.T) {
 	ts, srv, adminEmail, adminPassword, _ := authStackFull(t)
@@ -76,5 +87,98 @@ func TestOIDCFederationConfigRBAC(t *testing.T) {
 	}
 	if code := doAuthed(t, "DELETE", ts.URL+issuersPath+"/"+list[0].ID, owner, "", "", nil); code != 404 {
 		t.Fatalf("second DELETE issuer: want 404, got %d", code)
+	}
+}
+
+// testCAPEM returns a throwaway self-signed CA, PEM-encoded — a well-formed
+// bundle for the API-boundary tests (what it signs is irrelevant here; the
+// verification behaviour is proven in internal/auth).
+func testCAPEM(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "janus-api-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
+// TestOIDCFederationIssuerCACert covers the ca_cert field at the API boundary: a
+// malformed bundle is a 400 at WRITE time (not a silent federation_denied on the
+// first exchange), a well-formed one round-trips, and an empty one clears it.
+func TestOIDCFederationIssuerCACert(t *testing.T) {
+	ts, _, adminEmail, adminPassword, _ := authStackFull(t)
+	owner := login(t, ts.URL, adminEmail, adminPassword)
+	const issuersPath = "/v1/sys/oidc/federation/issuers"
+	const issuer = "https://kubernetes.default.svc"
+
+	body := func(caPEM string) string {
+		b, err := json.Marshal(map[string]any{
+			"issuer": issuer, "audience": "janus", "preset": "kubernetes",
+			"ca_cert": caPEM, "enabled": true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+
+	// A FRESH destination per read: ca_cert is omitempty, and decoding an array
+	// into an already-populated slice reuses its elements, so a stale value would
+	// survive a response that omits the field.
+	issuers := func() []struct {
+		CACert string `json:"ca_cert"`
+	} {
+		t.Helper()
+		var list []struct {
+			CACert string `json:"ca_cert"`
+		}
+		if code := doAuthed(t, "GET", ts.URL+issuersPath, owner, "", "", &list); code != 200 {
+			t.Fatalf("list issuers: %d", code)
+		}
+		return list
+	}
+
+	// Malformed PEM is rejected before anything is stored.
+	if code := doAuthed(t, "POST", ts.URL+issuersPath, owner, "",
+		body("-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n"), nil); code != 400 {
+		t.Fatalf("malformed ca_cert: want 400, got %d", code)
+	}
+	if list := issuers(); len(list) != 0 {
+		t.Fatalf("rejected write must not persist: %+v", list)
+	}
+
+	ca := testCAPEM(t)
+	var got struct {
+		CACert string `json:"ca_cert"`
+	}
+	if code := doAuthed(t, "POST", ts.URL+issuersPath, owner, "", body(ca), &got); code != 200 {
+		t.Fatalf("valid ca_cert: %d", code)
+	}
+	if got.CACert == "" {
+		t.Fatal("ca_cert not returned by the write")
+	}
+	if list := issuers(); len(list) != 1 || list[0].CACert == "" {
+		t.Fatalf("ca_cert not persisted: %+v", list)
+	}
+
+	// Clearing it must be expressible through the same endpoint.
+	if code := doAuthed(t, "POST", ts.URL+issuersPath, owner, "", body(""), nil); code != 200 {
+		t.Fatalf("clear ca_cert: %d", code)
+	}
+	if list := issuers(); len(list) != 1 || list[0].CACert != "" {
+		t.Fatalf("ca_cert not cleared: %+v", list)
 	}
 }

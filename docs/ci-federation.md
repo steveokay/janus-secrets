@@ -100,6 +100,7 @@ trust relationship, so there is nothing to wrap.
 | `issuer` | OIDC issuer; discovery + JWKS resolved from it. Must be a well-formed absolute `http(s)` URL. Required (no implicit default on this endpoint). Trailing slashes are trimmed. |
 | `audience` | Required, non-empty. The token's `aud` must equal this exactly (a one-element `aud` array, as Kubernetes emits, counts as that value). |
 | `preset` | `github`, `gitlab`, `buildkite`, `circleci`, `kubernetes`, `custom`, or empty. Selects the provider-aware required-claim rule for bindings on this issuer. |
+| `ca_cert` | Optional PEM CA bundle used to verify **TLS** for this issuer's discovery + JWKS fetches. Empty (the default) means the system roots. See [Private CAs](#private-cas-ca_cert). |
 | `enabled` | Whether the exchange is live for this issuer. Disabling one leaves the others working. |
 
 Re-posting the same `issuer` updates that entry in place; posting a different
@@ -122,6 +123,65 @@ differs), which is why the **preset** is explicit rather than sniffed.
 The web UI (Integrations → Machine identity federation) offers these as a
 **provider preset** dropdown that fills the issuer URL where it is fixed and
 names the claims to bind, so admins don't hand-type issuer URLs.
+
+### Private CAs (`ca_cert`)
+
+Verifying a token means fetching the issuer's discovery document and JWKS over
+HTTPS. By default that TLS connection is verified against the **system roots**,
+which is right for every public issuer — GitHub, GitLab, Buildkite, CircleCI, and
+the managed Kubernetes issuers (EKS, GKE, AKS) all present publicly-trusted
+certificates.
+
+It is wrong for exactly one common case: a **self-hosted Kubernetes cluster whose
+issuer is its own API server** (the default `https://kubernetes.default.svc`).
+That certificate is signed by the **cluster CA**, which no system root chains to,
+so the handshake fails however reachable the endpoint is — and the failure
+surfaces to the workload as the same opaque `federation_denied` as a bad token.
+
+Set `ca_cert` on that issuer to the PEM bundle Janus should verify it against:
+
+```sh
+CA=$(kubectl config view --raw --minify \
+  -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)
+
+curl -sS -X POST https://janus.internal/v1/sys/oidc/federation/issuers \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d "$(jq -n --arg ca "$CA" '{issuer:"https://kubernetes.default.svc",
+        audience:"janus", preset:"kubernetes", ca_cert:$ca, enabled:true}')"
+```
+
+Rules, all deliberate:
+
+- **A bundle REPLACES the system roots for that issuer — it does not add to
+  them.** An issuer is one specific host whose certificate has one legitimate
+  signer, so pinning it means a mis-issuance by any of the ~150 public roots
+  cannot be used to impersonate it. Adding to the roots would be strictly weaker
+  for no benefit: an operator who wants the public roots leaves `ca_cert` empty.
+  This is the same rule the Kubernetes **sync** provider has always applied to
+  its own `ca_cert`.
+- **The setting is per issuer.** Trusting your cluster's CA for the cluster
+  issuer changes nothing about how GitHub Actions' issuer is verified.
+- **Verification is never disabled.** There is no `insecure` flag and no
+  configuration that produces one. If the bundle is wrong, the exchange fails.
+- **Malformed PEM is rejected at write time** with a `400`, not stored and
+  discovered at the next exchange.
+- **Empty clears it.** `ca_cert` is written on every save, so sending `""` moves
+  that issuer back to the system roots. It is not a "leave unchanged" sentinel.
+- **It is not a secret.** A CA certificate is presented in every TLS handshake,
+  so it is stored in plaintext, is not master-key wrapped (master-key rotation
+  has nothing to re-wrap), and is returned by the read endpoints so an issuer can
+  be edited without re-pasting it. It is still kept out of logs and audit
+  entries, which record only `ca_cert=set`.
+- **The SSRF guard still applies.** A custom CA changes which *certificate* is
+  acceptable, never which *address* may be dialled — the discovery/JWKS fetches
+  go through the same connect-time guard as every other outbound call. If your
+  cluster's API server is on a private ClusterIP and you run with
+  `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, you still need to allowlist it; see
+  [Outbound egress & the SSRF guard](guides/egress-and-ssrf.md).
+
+Changing or clearing a bundle takes effect on the **next exchange** — the cached
+verifier's identity includes its CA bundle, so a correction is never masked by a
+stale verifier.
 
 ## Trust bindings
 
@@ -216,7 +276,13 @@ Rules, all of them fail-closed:
   the signature is checked against *that* issuer's JWKS, and go-oidc re-checks
   `iss` against the trusted entry — so a token cannot route itself to a more
   permissive issuer, and bindings for other issuers are never even considered.
-  Verifiers are cached per issuer and flushed whenever the trust set changes.
+  Verifiers are cached per issuer and flushed whenever the trust set changes; a
+  cached verifier's identity includes its `ca_cert`, so a changed or cleared CA
+  bundle can never be masked by a stale one.
+- **Trust anchors are per issuer.** A `ca_cert` set on one issuer applies only to
+  that issuer's discovery + JWKS fetches; the shared outbound client — used by
+  every other issuer and by human OIDC login — is never re-anchored. Verification
+  is never disabled, at any layer.
 - All exchange failures are indistinguishable to the caller.
 - Minted tokens are short-lived and revocable; the TTL bounds blast radius even
   without explicit revocation.
@@ -394,12 +460,14 @@ Typical values:
 
 Janus verifies tokens by fetching the issuer's discovery document and JWKS over
 HTTP (through the SSRF-hardened client). **The issuer URL must be resolvable and
-reachable from the Janus server, and must serve
+reachable from the Janus server, must serve
 `/.well-known/openid-configuration` whose `issuer` field equals the URL you
-configured.**
+configured, and its TLS certificate must verify** — against the system roots, or
+against the bundle you supply as [`ca_cert`](#private-cas-ca_cert).
 
 - **EKS and GKE publish a public, anonymously-readable discovery endpoint** — the
-  URLs above work from anywhere, including a Janus running outside the cluster.
+  URLs above work from anywhere, including a Janus running outside the cluster,
+  and need no `ca_cert`.
 - **Many self-hosted clusters do NOT.** With the default
   `https://kubernetes.default.svc` issuer, discovery is served only by the API
   server, normally requires authentication (anonymous discovery is off unless
@@ -409,7 +477,12 @@ configured.**
   1. Run Janus **in the cluster** so `https://kubernetes.default.svc` resolves,
      and allow anonymous discovery:
      `kubectl create clusterrolebinding oidc-discovery --clusterrole=system:service-account-issuer-discovery --group=system:unauthenticated`.
-     Janus must also trust the API server's certificate.
+     Set the issuer's **`ca_cert`** to the cluster CA — the API server's
+     certificate is signed by it and by nothing the system roots know, so
+     verification cannot otherwise succeed. If you run with
+     `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, also allowlist the API server's
+     ClusterIP (`JANUS_OUTBOUND_ALLOW`), because the CA is about the certificate,
+     not the address.
   2. Point the API server at an **external issuer you host**:
      `--service-account-issuer=https://oidc.example.com/my-cluster`, then publish
      the discovery document and the JWKS (`kubectl get --raw /openid/v1/jwks`) as
@@ -451,7 +524,9 @@ configured.**
 > Note `aud` is a one-element **array** and the identity claims are nested under
 > a key that itself contains dots — both handled by the claim flattener.
 
-Add the issuer once it is reachable:
+Add the issuer once it is reachable. EKS's issuer is publicly trusted, so no
+`ca_cert` is needed here; for an in-cluster `https://kubernetes.default.svc`
+issuer, add the cluster CA as shown in [Private CAs](#private-cas-ca_cert).
 
 ```sh
 curl -sS -X POST https://janus.internal/v1/sys/oidc/federation/issuers \

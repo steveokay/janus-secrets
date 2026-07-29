@@ -479,6 +479,15 @@ components:
           type: string
           enum: ["", github, gitlab, buildkite, circleci, kubernetes, custom]
           description: Selects the provider-aware required-claim rule for bindings on this issuer.
+        ca_cert:
+          type: string
+          description: >-
+            PEM CA bundle used to verify TLS for this issuer's OIDC discovery and
+            JWKS fetches. Empty (the default) means the system roots. When set it
+            REPLACES the system roots for this issuer — nothing else is trusted
+            for it. Public material (a CA certificate travels in every TLS
+            handshake), so it is readable, unlike the sync providers' ca_cert.
+          example: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
         enabled: { type: boolean }
     FederationBinding:
       type: object
@@ -5470,6 +5479,12 @@ paths:
                 preset:
                   type: string
                   enum: ["", github, gitlab, buildkite, circleci, kubernetes, custom]
+                ca_cert:
+                  type: string
+                  description: >-
+                    Optional PEM CA bundle for this issuer's discovery + JWKS
+                    TLS; empty means the system roots. Malformed PEM is a 400
+                    here rather than a silent exchange failure later.
                 enabled: { type: boolean }
       responses:
         "200":
@@ -5480,7 +5495,7 @@ paths:
                 type: object
                 properties:
                   ok: { type: boolean }
-        "400": { description: Invalid federation config. }
+        "400": { description: Invalid federation config (including malformed ca_cert PEM). }
         "403": { $ref: '#/components/responses/Forbidden' }
         "409": { description: Several issuers are trusted; use /v1/sys/oidc/federation/issuers. }
     delete:
@@ -5525,6 +5540,18 @@ paths:
                 preset:
                   type: string
                   enum: ["", github, gitlab, buildkite, circleci, kubernetes, custom]
+                ca_cert:
+                  type: string
+                  description: >-
+                    Optional PEM CA bundle used to verify TLS for this issuer's
+                    OIDC discovery + JWKS fetches. Needed for a self-hosted
+                    Kubernetes cluster whose issuer is the API server itself
+                    (certificate signed by the cluster CA); EKS/GKE issuers are
+                    public, so leave it empty for them. Empty means the system
+                    roots; a bundle REPLACES them for this issuer. Sent on every
+                    write — an empty value CLEARS a stored bundle rather than
+                    preserving it.
+                  example: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
                 enabled: { type: boolean }
       responses:
         "200":
@@ -5532,7 +5559,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FederationConfigView' }
-        "400": { description: Invalid issuer, audience or preset. }
+        "400": { description: Invalid issuer, audience, preset, or malformed ca_cert PEM. }
         "403": { $ref: '#/components/responses/Forbidden' }
   /v1/sys/oidc/federation/issuers/{id}:
     parameters:
