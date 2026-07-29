@@ -511,15 +511,30 @@ authorization machinery.
       hopeful. The pieces now exist: `GroupRepo.ListForUser` answers "which
       groups?" and derived bindings carry `ViaGroupID`, so a view can say *why*
       each grant applies.
-- [ ] **Permissions are not exposed to the UI, so nothing can be gated.** `Me`
-      is `{kind, id, name}` and the nav is a static list, so a user without
-      access still sees Transit, Operations, Members and Settings and discovers
-      their permissions by collecting 403s. Not a security hole — the server is
-      authoritative and denies correctly — but it is the first thing a non-admin
-      complains about, and it lands hardest on the people with the least
-      context. Exposing effective permissions on `/v1/auth/me` would let the
-      shell hide what an account cannot use. It must stay a **hint**: the server
-      remains the only authority.
+- [x] ~~**Permissions are not exposed to the UI, so nothing can be gated.**~~
+      **FIXED 2026-07-28** — `GET /v1/auth/me` now carries `permissions`, and
+      the shell renders from it. It stays a **hint**: the server authorizes
+      every request independently, so a hidden screen is still reachable by URL
+      and behaves exactly as before.
+
+      The load-bearing decision is the **instance/anywhere split**
+      (`authz.Effective`). A project viewer holds `transit:read` *inside their
+      project*, but the transit endpoints authorize at instance scope — so a
+      single flat "permissions" list would have shown Transit and 403'd, which
+      is the bug rather than the fix. `instance` gates instance-scoped screens
+      (Transit, Groups, Notifications); `anywhere` gates project-shaped ones
+      (Projects, Audit, Members, Approvals, Trash).
+
+      Two collapses avoided: `Effective` resolves bindings **once** and reuses
+      the same predicates `Can` does (`userAllows`/`tokenAllows`/`grantsAllow`,
+      the last extracted so both callers share one copy) — a second rule set
+      would drift into nav items that 403. And the rail, the command palette and
+      the `g`-chords now render from **one** table (`web/src/lib/nav.ts`); they
+      were three lists, and gating only the rail would have left every hidden
+      screen a `ctrl`+`K` away. `nav.ts` is deliberately store-free so the gates
+      are unit-testable without a Svelte runtime. An older server that sends no
+      `permissions` shows everything — degrading to show-nothing would strand a
+      signed-in owner on an empty rail. Active break-glass grants are included.
 - [x] ~~**A binding cannot narrow another one.**~~ **HALF-FIXED 2026-07-27 —
       the safety net is now real.** Permissions are the union of all applicable
       bindings and there are no deny rules, so *"developer on the project, but
@@ -626,11 +641,11 @@ gap; none is a security hole._
       is treated as stale (fail closed), and the migration backfills existing
       members so nothing is revoked retroactively. Verified by disabling the SQL
       clause and watching both tests go red.
-- [ ] **The Groups nav item is visible to accounts that cannot use it.** The
-      catalog needs instance `group:manage`, but the nav is static, so a
-      non-admin sees Groups and learns it is not theirs by collecting a 403.
-      Same root cause as the `/v1/auth/me` permissions item above — groups just
-      added one more place it shows.
+- [x] ~~**The Groups nav item is visible to accounts that cannot use it.**~~
+      **FIXED 2026-07-28** by the `/v1/auth/me` permissions item above, which
+      was its root cause. Groups is gated on **instance** `group:manage`, so a
+      project admin — whose role bundle contains `group:manage` but only within
+      their project — correctly does not see it.
 - [ ] **No group support in the Terraform provider or the SDKs.** A team that
       manages Janus as code can create projects, configs, secrets and tokens
       but must click to create a group and bind it — which is exactly the
@@ -726,16 +741,22 @@ and all Kubernetes Go tests (SA-token federation claim matching including the
       deep-links with a cold browser context and asserts the banner, the toggle
       and the Save button's own text; verified to fail against the cache read
       while the dossier path still passes.
-- [ ] **The login screen throttles password logins.**
-      `/v1/auth/oidc/status` sits behind the *password* rate limiter and fires on
-      every render of the login gate, so three visits inside a minute can deny a
-      legitimate attempt with "Too many attempts".
-- [ ] **Deleting a config redirects to `/projects`, not the dossier.** `ctx` is
-      derived from the registry, and the re-hydration before the redirect has
-      already dropped the config, so the fallback always wins. Cosmetic.
-- [ ] **Duplicate/wrong `aria-label`** — the protected-config edits table on
-      `/approvals` is labelled "Promotion request history", which is another
-      table's label and the wrong content.
+- [x] ~~**The login screen throttles password logins.**~~ **ALREADY FIXED —
+      confirmed against the code 2026-07-28.** `/v1/auth/oidc/status` and
+      `/webauthn/status` now sit on a separate `probeLimiter` (120/min, burst
+      40), not `loginLimiter`; `internal/api/server.go:379-395` narrates the old
+      behaviour in the past tense. Capability probes are not credential
+      attempts, and rate-limiting a page view as if it were a password guess
+      punished the honest user while doing nothing to an attacker, who skips the
+      page and posts straight to `/login`.
+- [x] ~~**Deleting a config redirects to `/projects`, not the dossier.**~~
+      **ALREADY FIXED — confirmed 2026-07-28.** `SecretEditor.svelte:652`
+      captures `parentProjectId` **before** the delete, precisely because `ctx`
+      is `$derived` from the registry and the re-hydration drops the config.
+- [x] ~~**Duplicate/wrong `aria-label`** on the protected-config edits table.~~
+      **ALREADY FIXED — confirmed 2026-07-28.** `Approvals.svelte:257` reads
+      `"Protected-config edit requests"`; the promotion table above it keeps
+      `"Pending promotion approvals"`.
 
 Also noted, not yet fixed: `docker-compose.yml` points its passkey-origin
 comment at the **TOTP** guide rather than [passkeys.md](docs/guides/passkeys.md),

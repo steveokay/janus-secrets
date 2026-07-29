@@ -10,6 +10,7 @@
   import CommandPalette from '../components/CommandPalette.svelte'
   import ShortcutsHelp from '../components/ShortcutsHelp.svelte'
   import { trapFocus } from '../lib/a11y'
+  import { sectionsFor, holds } from '../lib/nav'
 
   let { children }: { children: Snippet } = $props()
 
@@ -34,43 +35,17 @@
     }
   }
 
-  const sections: Array<{ title: string; items: Array<{ code: string; label: string; href: string }> }> = [
-    {
-      title: 'Registry',
-      items: [
-        { code: 'OV', label: 'Overview', href: '/' },
-        { code: 'PR', label: 'Projects', href: '/projects' },
-      ],
-    },
-    {
-      title: 'Instruments',
-      items: [
-        { code: 'TR', label: 'Transit', href: '/transit' },
-        { code: 'OP', label: 'Operations', href: '/operations' },
-        { code: 'IN', label: 'Integrations', href: '/integrations' },
-      ],
-    },
-    {
-      title: 'Record',
-      items: [
-        { code: 'AU', label: 'Audit ledger', href: '/audit' },
-        { code: 'AP', label: 'Approvals', href: '/approvals' },
-        { code: 'CD', label: 'Cross-env diff', href: '/compare' },
-      ],
-    },
-    {
-      title: 'Office',
-      items: [
-        { code: 'TK', label: 'Service tokens', href: '/tokens' },
-        { code: 'MB', label: 'Members', href: '/members' },
-        { code: 'GR', label: 'Groups', href: '/groups' },
-        { code: 'BG', label: 'Break-glass', href: '/break-glass' },
-        { code: 'NT', label: 'Notifications', href: '/notifications' },
-        { code: 'ST', label: 'Settings', href: '/settings' },
-        { code: 'TS', label: 'Trash', href: '/trash' },
-      ],
-    },
-  ]
+  /* The rail renders whatever the principal can actually use. Both this and the
+     command palette read the same list in lib/nav.ts — two lists would mean a
+     hidden nav item still reachable from the palette, which is no gating at
+     all. $derived so it re-filters the moment the session resolves. */
+  const sections = $derived(sectionsFor(session.me?.permissions))
+
+  /* Sealing is an instance-scoped operation. Offering the button to someone who
+     will be refused is the same discover-by-403 the nav gating removes — and
+     this one reads worse, because the refusal arrives as a modal after a
+     confirm dialog that says the server is about to stop serving secrets. */
+  const canSeal = $derived(holds(session.me?.permissions, 'instance', 'sys:seal'))
 
   function isActive(href: string): boolean {
     if (href === '/') return router.path === '/'
@@ -149,9 +124,11 @@
       <div class="foot-stats">
         <span class="mono">{registry.totalReads24h.toLocaleString()}</span> reads · 24 h
       </div>
-      <button class="seal-btn" onclick={sealServer} title="Seal the server">
-        Seal server
-      </button>
+      {#if canSeal}
+        <button class="seal-btn" onclick={sealServer} title="Seal the server">
+          Seal server
+        </button>
+      {/if}
     </div>
   </aside>
 

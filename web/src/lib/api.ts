@@ -178,7 +178,38 @@ export interface SealStatus {
   shares?: number
   progress?: { submitted: number; required: number }
 }
-export interface Me { kind: 'user' | 'service_token'; id: string; name: string }
+/** A `resource:verb` permission string, mirroring internal/authz/actions.go. */
+export type Permission =
+  | 'secret:read' | 'secret:write' | 'secret:promote' | 'secret:prune'
+  | 'config:read' | 'config:create' | 'config:delete'
+  | 'env:create' | 'env:delete' | 'env:update'
+  | 'project:read' | 'project:create' | 'project:update' | 'project:delete'
+  | 'member:read' | 'member:manage'
+  | 'token:read' | 'token:mint' | 'token:revoke'
+  | 'user:manage' | 'group:manage' | 'oidc:manage' | 'notification:manage'
+  | 'audit:read' | 'audit:manage'
+  | 'sys:seal' | 'sys:backup' | 'sys:master-key'
+  | 'transit:read' | 'transit:use' | 'transit:manage'
+  | 'rotation:manage' | 'sync:manage' | 'dynamic:manage' | 'dynamic:issue'
+  | 'kek:manage' | 'promotion:manage' | 'promotion:request'
+
+/** The caller's effective permissions — a PRESENTATION HINT, never a grant.
+    The server re-decides every request, so hiding a screen is a courtesy and
+    showing one is not permission. `instance` is what holds against the
+    instance-scoped resource and is the right gate for instance-scoped features
+    (transit, the group catalog); `anywhere` also counts any single project or
+    environment the principal is bound to. Gating an instance-scoped screen on
+    `anywhere` just moves the 403 one click later. */
+export interface Permissions { instance: Permission[]; anywhere: Permission[] }
+
+export interface Me {
+  kind: 'user' | 'service_token'
+  id: string
+  name: string
+  /** Optional so an older server (or a cached response) degrades to "no hint"
+      rather than to "no permissions", which would blank the nav entirely. */
+  permissions?: Permissions
+}
 export interface ApiProject {
   id: string
   slug: string

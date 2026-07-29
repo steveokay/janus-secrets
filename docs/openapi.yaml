@@ -2922,7 +2922,24 @@ paths:
   /v1/auth/me:
     get:
       tags: [auth]
-      summary: Get the current principal
+      summary: Get the current principal and its effective permissions
+      description: >-
+        `permissions` is a PRESENTATION HINT, not an authorization decision.
+        Every request is still authorized server-side, so a client that ignores
+        or forges this gains nothing — it exists so a UI can hide what an
+        account cannot use instead of letting people discover their permissions
+        by collecting 403s.
+
+
+        The two sets are not interchangeable. `instance` lists the actions
+        allowed against the instance-scoped resource, and is the correct gate
+        for instance-scoped features (transit, the group catalog, user
+        management). `anywhere` additionally includes actions allowed on at
+        least one project or environment the principal is bound to, and is the
+        correct gate for project-shaped features. Conflating them re-creates the
+        problem: a project viewer holds `secret:read` inside their project, but
+        gating instance-scoped screens on that just moves the 403 one click
+        later. Both sets are sorted, and empty is `[]` — never `null`.
       responses:
         "200":
           description: OK
@@ -2930,10 +2947,25 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [kind, id, name, permissions]
                 properties:
                   kind: { type: string, enum: [user, service_token] }
                   id: { type: string }
                   name: { type: string }
+                  permissions:
+                    type: object
+                    required: [instance, anywhere]
+                    properties:
+                      instance:
+                        type: array
+                        description: Actions allowed at instance scope.
+                        items: { type: string, example: "group:manage" }
+                      anywhere:
+                        type: array
+                        description: >-
+                          Actions allowed at instance scope or on at least one
+                          bound project/environment. A superset of `instance`.
+                        items: { type: string, example: "secret:read" }
         "401": { $ref: '#/components/responses/Unauthorized' }
   /v1/auth/password:
     post:
