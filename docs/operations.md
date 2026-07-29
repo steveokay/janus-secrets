@@ -268,6 +268,8 @@ bound to a user at **instance**, **project**, or **environment** scope:
 | `POST/GET /v1/users`, `POST /v1/users/{id}/disable` | Provision / list / deactivate users | `user:manage` (instance) |
 | `POST/GET/DELETE /v1/groups[/{gid}]`, `PUT/DELETE /v1/groups/{gid}/members/{uid}` | Group catalog + local membership | `group:manage` (instance) |
 | `GET/PUT/DELETE /v1/{scope}/group-members[/{gid}]` | Bind a **group** at instance / project / environment | `member:*` at that scope |
+| `GET /v1/access/matrix`, `GET /v1/access/users/{uid}` | Cross-scope access review — who can act where, and why | `member:read`, evaluated **per scope** |
+| `POST /v1/access/users/{uid}/revoke-all` | Offboard: drop every DIRECT binding the caller may remove | `member:manage` at each scope, capped by the caller's *bound* role |
 | `POST/GET/DELETE /v1/tokens[/{id}]` | Mint / list / revoke service tokens | `token:*` at the token's scope |
 
 Bindings inherit top-down (an instance binding applies everywhere; a project
@@ -277,7 +279,11 @@ most-permissively. `PUT …/members/{uid}` with `{"role":"developer"}` grants;
 your own (delegation), and the **last instance owner cannot be removed,
 demoted, or disabled** (`409`) — so you can never lock yourself out. If every
 owner binding is somehow lost, the next server start re-grants instance-owner to
-the oldest user. Denied requests return a generic `403 forbidden` that reveals
+the oldest user. Both rails apply to `revoke-all` too, and it refuses the whole
+request rather than partially applying it. What it **cannot** do is remove
+group-derived access (that lives on the group binding, or in the IdP) or revoke
+an active break-glass grant; both are reported in the response, and `complete`
+is `true` only when nothing the caller could see still grants access. Denied requests return a generic `403 forbidden` that reveals
 nothing about the policy.
 
 **Scoped audit read.** `audit:read` is honoured at **project** scope, so a team

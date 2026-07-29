@@ -45,6 +45,66 @@ Membership comes either from your identity provider's OIDC group claim
 cover password logins). A group can hold viewer, developer or admin — never
 owner. Full detail in the [groups guide](groups.md).
 
+## "Who can write prod?" — the Access review screen
+
+Members answers *who is bound here*. That is the wrong shape for the question
+an org actually asks, because permissions are the **union** of every applicable
+binding with no deny rules: an environment with no binding of its own still has
+people who can write it — through the project, through the instance, through a
+group. Looking at one scope at a time hides that completely.
+
+**Access review** (`g` `v`, or the rail) is a grid of people × scopes. A cell
+is the *effective* role there, with a short note saying what produced it
+(`instance`, `project`, `env`, `group`, or a combination); hover for the full
+list of contributing bindings. The instance row, each project and each of that
+project's environments are columns, in inheritance order.
+
+It is deliberately gated on `member:read` — the same right as Members — because
+the endpoints behind it authorize **per scope**. A project admin therefore gets
+a real answer for their own project without being shown anything else.
+
+**Every answer says how complete it is.** A caller who cannot read
+instance-scoped bindings does not see them at all — a scope you cannot see is
+not shown to you — so the screen states plainly that someone bound at instance
+level reaches everything below and will not appear. Very large instances are
+bounded rather than left to time out, and any bound that bites is named
+(`projects`, `environments`, `bindings`, `people`, `cells`). Narrowing to one
+project usually gives a complete answer for it. A partial access review that
+reads as complete is worse than none, so the screen never implies one.
+
+## Offboarding: what can this person reach, and revoking it
+
+Click a person in the review to see every binding they hold across scopes, split
+by source, plus any live break-glass elevation. **Revoke all direct bindings**
+then clears them in one action instead of hunting through instance, project and
+environment rows.
+
+It is honest about its limits, and the result lists each one:
+
+- It removes **direct bindings only**, and only at scopes you may manage.
+- It **cannot remove group-derived access** — that grant lives on the group
+  binding, or in your identity provider. For an IdP-fed group, removing the
+  person there is the single action that clears it everywhere.
+- It **does not revoke an active break-glass grant**. Those are time-boxed and
+  revoked from [Break-glass](break-glass.md).
+- It **does not disable the account** — that is *Members → Disable*
+  (`POST /v1/users/{id}/disable`), a separate authority.
+- It refuses outright, removing nothing, if it would take the **last instance
+  owner**.
+- A binding at a role **above your own durable role** is left in place and
+  reported, measured against your bound role rather than your effective one —
+  so a break-glass elevation cannot be spent sweeping away bindings above the
+  role you actually hold.
+
+The result is marked *complete* only when nothing was skipped, nothing
+group-derived remains, no break-glass grant is live, and nothing was hidden
+from you. Each revocation writes an ordinary `member.revoke` audit event at its
+exact scope — so a bulk offboarding reads in the ledger exactly like the manual
+revocations it replaces — plus one `member.revoke_all` summary.
+
+API: `GET /v1/access/matrix`, `GET /v1/access/users/{uid}`,
+`POST /v1/access/users/{uid}/revoke-all` (all accept `?project=<id>`).
+
 ## Guardrails the server enforces
 
 - **Delegation ceiling** — you can't grant a role above your own. Measured

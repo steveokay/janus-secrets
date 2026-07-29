@@ -57,6 +57,17 @@ test('instance-scoped gates ignore project-scoped reach', () => {
   assert.equal(visibleFor(at('/members'), projectViewer), true)
 })
 
+test('the access review follows member:read, not instance', () => {
+  // The endpoints behind it authorize member:read PER SCOPE, so a caller bound
+  // to one project gets a real (if partial) answer. Gating it on `instance`
+  // would hide the cross-scope view from exactly the project admins who have to
+  // run an access review on their own team — and gating it looser than
+  // member:read would show a screen that 403s.
+  assert.equal(visibleFor(at('/access'), perms([], ['member:read'])), true)
+  assert.equal(visibleFor(at('/access'), perms([], ['secret:read', 'project:read'])), false)
+  assert.equal(visibleFor(at('/access'), perms([], [])), false)
+})
+
 test('an instance admin sees the instance-scoped screens', () => {
   const admin = perms(['transit:read', 'group:manage', 'notification:manage', 'audit:read'], [])
   assert.equal(visibleFor(at('/transit'), admin), true)

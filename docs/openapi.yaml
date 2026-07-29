@@ -583,6 +583,81 @@ components:
         than a group membership an external directory controls.
       properties:
         role: { type: string, enum: [viewer, developer, admin] }
+    AccessScope:
+      type: object
+      description: >-
+        One column of a cross-scope review. `key` is its stable identity
+        ("instance", "project:<id>", "env:<id>"); the ids and names are carried
+        so a grant can be named rather than shown as a bare level.
+      properties:
+        key: { type: string }
+        scope_level: { type: string, enum: [instance, project, environment] }
+        project_id: { type: string, format: uuid }
+        project_name: { type: string }
+        environment_id: { type: string, format: uuid }
+        environment_slug: { type: string }
+    AccessSource:
+      type: object
+      description: >-
+        One reason a role holds at a scope. `scope_level` is where the BINDING
+        sits, which may be broader than the scope being reported — that is
+        exactly the top-down inheritance a per-scope members list cannot show.
+      properties:
+        kind: { type: string, enum: [direct, group] }
+        scope_level: { type: string, enum: [instance, project, environment] }
+        role: { type: string, enum: [viewer, developer, admin, owner] }
+        via_group_id: { type: string, format: uuid }
+        via_group_name: { type: string }
+    AccessCell:
+      type: object
+      description: >-
+        Effective role for one (user, scope) pair — the most-permissive union of
+        every applicable binding — together with every binding that contributed.
+      properties:
+        user_id: { type: string, format: uuid }
+        scope: { type: string, description: The AccessScope key this cell is on. }
+        role: { type: string, enum: [viewer, developer, admin, owner] }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/AccessSource' }
+    AccessGrant:
+      type: object
+      description: One binding a user holds, resolved to a nameable scope.
+      properties:
+        scope_level: { type: string, enum: [instance, project, environment] }
+        project_id: { type: string, format: uuid }
+        project_name: { type: string }
+        environment_id: { type: string, format: uuid }
+        environment_slug: { type: string }
+        role: { type: string, enum: [viewer, developer, admin, owner] }
+        source: { type: string, enum: [direct, group] }
+        via_group_id: { type: string, format: uuid }
+        via_group_name: { type: string }
+        created_at: { type: string, format: date-time }
+    AccessRevocation:
+      type: object
+      description: >-
+        A binding revoke-all acted on, or declined to. `reason` is present only
+        on declined entries.
+      properties:
+        scope_level: { type: string, enum: [instance, project, environment] }
+        project_id: { type: string, format: uuid }
+        project_name: { type: string }
+        environment_id: { type: string, format: uuid }
+        environment_slug: { type: string }
+        role: { type: string, enum: [viewer, developer, admin, owner] }
+        reason: { type: string, enum: [not_permitted, above_your_bound_role] }
+    AccessTruncation:
+      type: object
+      description: >-
+        Which bounds bit. Reported structurally rather than left implicit: a
+        review that silently dropped rows would understate who has access.
+      properties:
+        projects: { type: boolean }
+        environments: { type: boolean }
+        bindings: { type: boolean }
+        users: { type: boolean }
+        cells: { type: boolean }
   parameters:
     Limit:
       name: limit
@@ -663,6 +738,7 @@ tags:
   - { name: kek }
   - { name: members }
   - { name: groups }
+  - { name: access }
   - { name: metrics }
 paths:
   # ---------------------------------------------------------------------
@@ -2613,6 +2689,190 @@ paths:
         "403": { $ref: '#/components/responses/Forbidden' }
         "404": { $ref: '#/components/responses/NotFound' }
         "409": { description: Would remove the last instance owner. }
+
+  # ---------------------------------------------------------------------
+  # access review (cross-scope)
+  #
+  # The members routes answer "who is bound HERE". These answer the two
+  # questions that span scopes and that no single-scope listing can:
+  # "who can act on this environment, and why" (the union of every applicable
+  # binding, with no deny rules) and "what can this person reach" — the
+  # question an offboarding has to close.
+  #
+  # Every response is honest about its own limits. `instance_visible` is false
+  # when the caller cannot read instance-scoped bindings (they are simply left
+  # out — a scope you cannot see is not shown to you), `scoped`/`scope_projects`
+  # say how narrow the view was, `truncated` names each bound that bit, and
+  # `complete` is true ONLY when nothing was hidden or cut. A partial access
+  # review that reads as complete is worse than none, because it gets signed
+  # off.
+  #
+  # Authorization is per scope, resolved from ONE binding+group+grant load
+  # rather than a check per row: reading needs `member:read` at the scope,
+  # revoking needs `member:manage` there AND a durable bound role at least as
+  # high as the binding being removed.
+  # ---------------------------------------------------------------------
+  /v1/access/matrix:
+    get:
+      tags: [access]
+      summary: Cross-scope access grid (users x scopes)
+      description: >-
+        Sparse grid of effective roles across every scope the caller may review:
+        instance (only if readable), each project, and each of their
+        environments. A cell carries the effective role AND its sources, so
+        access held through a parent scope or a group is visible rather than
+        implied. Cells exist only where access actually holds. User ids only —
+        emails come from `GET /v1/users`, which is instance `user:manage`.
+      parameters:
+        - name: project
+          in: query
+          required: false
+          description: >-
+            Narrow the review to one project. A project the caller may not
+            review is refused exactly like one that does not exist, so this is
+            not an existence oracle.
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scopes:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessScope' }
+                  user_ids: { type: array, items: { type: string, format: uuid } }
+                  cells:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessCell' }
+                  instance_visible: { type: boolean }
+                  scoped: { type: boolean }
+                  scope_projects: { type: integer }
+                  truncated: { $ref: '#/components/schemas/AccessTruncation' }
+                  complete:
+                    type: boolean
+                    description: Nothing was hidden from the caller and nothing was cut.
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/access/users/{uid}:
+    parameters:
+      - { name: uid, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [access]
+      summary: One person's effective access across every visible scope
+      description: >-
+        The offboarding view. `grants` lists the bindings themselves, split by
+        `source` (`direct` vs `group`); `reaches` is the resulting effective
+        role at every visible scope; `break_glass` lists live elevations. They
+        are reported separately because they are removed in three different
+        places — here, on the group (or in the IdP), and through the break-glass
+        endpoint.
+      parameters:
+        - name: project
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+                  scopes:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessScope' }
+                  grants:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessGrant' }
+                  reaches:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessCell' }
+                  break_glass:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope_level: { type: string, enum: [instance, project, environment] }
+                        project_id: { type: string }
+                        project_name: { type: string }
+                        environment_id: { type: string }
+                        environment_slug: { type: string }
+                        role: { type: string }
+                        expires_at: { type: string, format: date-time }
+                  instance_visible: { type: boolean }
+                  scoped: { type: boolean }
+                  scope_projects: { type: integer }
+                  truncated: { $ref: '#/components/schemas/AccessTruncation' }
+                  complete: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+  /v1/access/users/{uid}/revoke-all:
+    parameters:
+      - { name: uid, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [access]
+      summary: Revoke every DIRECT role binding the caller may remove
+      description: >-
+        Removes the subject's direct role bindings at every scope where the
+        caller holds `member:manage` AND a durable bound role at least as high
+        as the binding (measured with BoundRole, never EffectiveRole, so a
+        break-glass elevation cannot be spent sweeping away bindings above the
+        caller's real role). Each removal writes the same `member.revoke` audit
+        event a single-scope revocation would, plus one `member.revoke_all`
+        summary.
+
+
+        It CANNOT remove group-derived access (that lives on the group binding,
+        or in the identity provider), it does not revoke active break-glass
+        grants, and it does not disable the account
+        (`POST /v1/users/{id}/disable`). All three are reported: `remaining`
+        names what still grants access, and `complete` is true only when
+        nothing is left that the caller could see.
+
+
+        Refused outright — nothing removed — if it would take the last instance
+        owner.
+      parameters:
+        - name: project
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: What was and was not revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+                  revoked:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessRevocation' }
+                  skipped:
+                    type: array
+                    description: >-
+                      Bindings left in place, each with a `reason`
+                      (`not_permitted` or `above_your_bound_role`).
+                    items: { $ref: '#/components/schemas/AccessRevocation' }
+                  remaining:
+                    type: object
+                    properties:
+                      group_bindings:
+                        type: array
+                        items: { $ref: '#/components/schemas/AccessGrant' }
+                      break_glass_grants: { type: integer }
+                  instance_visible: { type: boolean }
+                  scoped: { type: boolean }
+                  scope_projects: { type: integer }
+                  truncated: { $ref: '#/components/schemas/AccessTruncation' }
+                  complete: { type: boolean }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "404": { $ref: '#/components/responses/NotFound' }
+        "409": { description: Would remove the last instance owner; nothing was revoked. }
 
   # ---------------------------------------------------------------------
   # groups (group-based role bindings)

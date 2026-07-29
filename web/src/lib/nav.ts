@@ -65,6 +65,14 @@ export const DESTINATIONS: readonly Destination[] = [
     keywords: 'tokens service machine api', gate: { at: 'anywhere', needs: 'token:read' } },
   { code: 'MB', label: 'Members', href: '/members', chord: 'm', section: 'Office',
     keywords: 'members users roles rbac team', gate: { at: 'anywhere', needs: 'member:read' } },
+  // Same gate as Members, and deliberately so: the endpoints behind it
+  // authorize `member:read` PER SCOPE from one batch load, and a caller bound
+  // to a single project gets a real (if partial) answer there. Gating it on
+  // `instance` would hide the cross-scope view from exactly the project admins
+  // who have to run an access review on their own team.
+  { code: 'AX', label: 'Access review', href: '/access', chord: 'v', section: 'Office',
+    keywords: 'access review matrix grid cross scope who can write prod offboarding revoke union',
+    gate: { at: 'anywhere', needs: 'member:read' } },
   { code: 'GR', label: 'Groups', href: '/groups', chord: 'g', section: 'Office',
     keywords: 'groups teams oidc idp membership', gate: { at: 'instance', needs: 'group:manage' } },
   // Break-glass is self-service elevation: the server decides whether the

@@ -14,6 +14,7 @@
   import Audit from './screens/Audit.svelte'
   import Tokens from './screens/Tokens.svelte'
   import Members from './screens/Members.svelte'
+  import Access from './screens/Access.svelte'
   import Groups from './screens/Groups.svelte'
   import Transit from './screens/Transit.svelte'
   import Operations from './screens/Operations.svelte'
@@ -73,6 +74,8 @@
       <Tokens />
     {:else if router.path === '/members'}
       <Members />
+    {:else if router.path === '/access'}
+      <Access />
     {:else if router.path === '/groups'}
       <Groups />
     {:else if router.path === '/transit'}

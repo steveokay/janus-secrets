@@ -102,6 +102,12 @@ var (
 // roleAllows reports whether a role's bundle contains an action.
 func roleAllows(role Role, action Action) bool { return roleActions[role][action] }
 
+// RoleAllows is roleAllows for callers outside the package that already hold a
+// role and need to know what it confers WITHOUT a fresh binding resolution —
+// the bulk paths that load bindings once and then decide many times. The
+// unknown/empty role confers nothing, so it fails closed.
+func RoleAllows(role Role, action Action) bool { return roleAllows(role, action) }
+
 // ValidRole reports whether s names a known role.
 func ValidRole(s string) bool { _, ok := roleRank[Role(s)]; return ok }
 
