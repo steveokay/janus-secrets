@@ -408,6 +408,10 @@ Two failure modes to recognise:
   supplied without `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, so there is nothing to
   exempt from and private space is already reachable.
 
+The full walkthrough — including the in-cluster Kubernetes case and what the
+allowlist deliberately refuses — is in
+[Outbound egress & the SSRF guard](egress-and-ssrf.md).
+
 And if the proxy escape hatch is on, it says so loudly, because it degrades the
 guard:
 

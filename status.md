@@ -309,7 +309,7 @@ Shipped 2026-07-26/27:
       rather than a technical need. Sessions revoked before the credential is
       replaced; a failed audit append rolls the credential back. See
       [disaster-recovery guide](docs/guides/disaster-recovery.md).
-- [x] ~~**`janus doctor`**~~ **SHIPPED (PR #200)** — 18 preflight checks for
+- [x] ~~**`janus doctor`**~~ **SHIPPED (PR #200)** — 19 preflight checks for
       configuration that parses, passes boot validation, and is still wrong.
       Motivated by a real incident: passkey origins naming a port the server
       does not serve, which fails the ceremony with no server-side error and

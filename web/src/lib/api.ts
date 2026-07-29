@@ -537,6 +537,27 @@ export interface SysStatus {
     allow?: string[]
     allow_proxy: boolean
   }
+  /* scheduled-S3-backup health. last is null until one has run. */
+  backup: {
+    enabled: boolean
+    last: {
+      status: string
+      age_seconds: number
+      object_key?: string
+      size_bytes?: number
+      error_category?: string
+    } | null
+  }
+  /* audit-shipper snapshot — present only when a destination is configured
+     (JANUS_AUDIT_SHIP_MODE=webhook|syslog). Value-free: no URL, no secret. */
+  audit_ship?: {
+    mode: string
+    destination?: string
+    high_water_seq: number
+    last_ship_at?: string
+    last_ship_count: number
+    last_error?: string
+  }
 }
 export interface InitResult { type: string; shares?: string[]; admin?: { email: string; password: string } }
 

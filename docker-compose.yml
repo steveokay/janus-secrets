@@ -54,7 +54,7 @@ services:
       # Passkeys (WebAuthn). The dev stack is published on localhost:8210 and
       # browsers treat http://localhost as a secure context, so the ceremony
       # works without TLS here. Production MUST use the real registrable domain
-      # and https:// origins — see docs/guides/two-factor-auth.md.
+      # and https:// origins — see docs/guides/passkeys.md.
       JANUS_WEBAUTHN_RP_ID: localhost
       JANUS_WEBAUTHN_ORIGINS: http://localhost:8210
       JANUS_WEBAUTHN_RP_NAME: Janus (dev)

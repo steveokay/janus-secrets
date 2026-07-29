@@ -21,7 +21,7 @@
 > private space; the allowlist opens one address.
 >
 > The link-local / cloud-metadata ranges cannot be allowlisted — see
-> [Outbound integrations (egress SSRF guard)](production-deployment.md#outbound-integrations-egress-ssrf-guard).
+> [Outbound egress & the SSRF guard](egress-and-ssrf.md).
 
 # Kubernetes integration
 

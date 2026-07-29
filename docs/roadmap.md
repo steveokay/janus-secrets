@@ -193,7 +193,7 @@ normal use and one incident during development.
 
 **Shipped 2026-07-26/27:** owner disaster recovery (`janus admin
 reset-password`, PR #198) — losing the last owner password previously meant
-destroying the instance; `janus doctor` (PR #200) — 18 preflight checks for
+destroying the instance; `janus doctor` (PR #200) — 19 preflight checks for
 configuration that parses and is still wrong; browser E2E over the destructive
 and security screens (PR #199) — 26 tests over Trash, tokens, members,
 four-eyes approvals and break-glass; and a fix for `janus master-key rekey`

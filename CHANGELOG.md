@@ -49,6 +49,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   last. A server that sends no `permissions` shows everything, since degrading
   to show-nothing would strand a signed-in owner on an empty rail.
 
+### Documentation
+- **New guide: [Outbound egress & the SSRF guard](docs/guides/egress-and-ssrf.md)**
+  — the three tiers of the connect-time guard, blocking private space while
+  allowlisting the one internal service you need, the in-cluster Kubernetes
+  walkthrough, where to read the effective policy, and a symptom → cause table.
+- **Closed real gaps in the configuration reference.** The production-deployment
+  guide bills itself as the full `JANUS_*` reference but omitted eight
+  variables that were documented only in `operations.md` or `passkeys.md`:
+  `JANUS_SYNC_VERIFY_TICK`, `JANUS_NOTIFY_TICK`, `JANUS_BREAKGLASS_MAX_TTL`,
+  `JANUS_OIDC_GROUP_MAX_AGE`, the four retention floors, and the three
+  `JANUS_WEBAUTHN_*` variables — the last being production-critical, since a
+  passkey origin naming a port the server does not serve fails the ceremony
+  with no server-side error.
+- **Corrected drift found by checking docs against the code.** `janus doctor`
+  runs **19** checks, not the 18 both trackers claimed (`checkOIDCGroupMaxAge`
+  was added on 2026-07-28 without updating the count); `janus doctor` and
+  `janus admin reset-password` were missing from the CLI reference entirely;
+  `docker-compose.yml` pointed its passkey-origin comment at the TOTP guide
+  rather than the passkeys one; and the TypeScript `SysStatus` type was missing
+  the `backup` and `audit_ship` blocks the server has been returning.
+
 ### Changed
 - **The Makefile now mirrors every CI gate, so nothing has to wait for a push
   to fail.** `make test` was green while three gates it never ran — the web
