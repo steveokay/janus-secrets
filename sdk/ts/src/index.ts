@@ -23,6 +23,15 @@ export {
 export { Lease, type LeaseData, type ParsedLeaseView } from "./dynamic.js";
 
 export {
+  GROUP_KIND_OIDC,
+  GROUP_KIND_LOCAL,
+  type Group,
+  type GroupKind,
+  type GroupInput,
+  type GroupMember,
+} from "./groups.js";
+
+export {
   LeaseRenewer,
   DEFAULT_RENEW_FRACTION,
   DEFAULT_RENEW_JITTER,

@@ -44,6 +44,12 @@ from .errors import (
     Sealed,
     Unauthorized,
 )
+from .groups import (
+    GROUP_KIND_LOCAL,
+    GROUP_KIND_OIDC,
+    Group,
+    GroupMember,
+)
 from .lease import Lease
 
 __version__ = "0.1.0"
@@ -51,6 +57,10 @@ __version__ = "0.1.0"
 __all__ = [
     "Client",
     "Lease",
+    "Group",
+    "GroupMember",
+    "GROUP_KIND_OIDC",
+    "GROUP_KIND_LOCAL",
     "LeaseRenewer",
     "RenewEvent",
     "JanusError",

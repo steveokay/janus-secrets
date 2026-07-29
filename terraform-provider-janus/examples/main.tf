@@ -92,6 +92,66 @@ resource "janus_service_token" "prod_reader" {
   access     = "read"
 }
 
+# 8. GROUPS — one binding for a whole team.
+#
+#    Three resources because Janus splits the authority two ways, on purpose:
+#      * the CATALOG (janus_group, janus_group_member) is instance `group:manage`
+#      * the BINDING (janus_group_binding) is `member:manage` AT THAT SCOPE,
+#        capped by your own bound role.
+#    A project admin can apply the binding below but not the group above it.
+
+# A `local` group: membership is the explicit list you manage here.
+resource "janus_group" "payments" {
+  name        = "Team Payments"
+  kind        = "local"
+  description = "Payments squad"
+}
+
+# Local membership. This resource is REFUSED for an `oidc` group: that
+# membership is a snapshot refreshed from the IdP at each sign-in, and the
+# schema makes a hand-added row unrepresentable. The provider says so at
+# `terraform plan` whenever it can see the group's kind.
+resource "janus_group_member" "payments_lead" {
+  group_id = janus_group.payments.id
+  user_id  = var.payments_lead_user_id
+}
+
+variable "payments_lead_user_id" {
+  description = "A Janus user UUID (obviously-fake fixture below)."
+  type        = string
+  default     = "00000000-0000-0000-0000-0000000000aa"
+}
+
+# An IdP-fed group: Janus never owns the membership, so there is no
+# janus_group_member for it — just the claim value your provider emits.
+resource "janus_group" "payments_idp" {
+  name        = "Team Payments (Entra)"
+  kind        = "oidc"
+  claim_value = "8f14e45f-ceea-467a-9d0e-7f4b2a1c9c33"
+}
+
+# The grant. `role` accepts viewer/developer/admin only — a group can never be
+# owner, and `owner` here fails at `terraform plan`, not mid-apply.
+#
+# This is a PROJECT-scoped binding, so it covers every environment in the
+# project including production. There are no deny rules; protect prod with
+# four-eyes (`janus env protect prod`) instead of looking for a narrower grant.
+resource "janus_group_binding" "payments_on_web" {
+  group_id   = janus_group.payments.id
+  project_id = janus_project.web.id
+  role       = "developer"
+}
+
+# Narrower: the IdP group gets viewer on the prod environment only.
+# An environment binding also needs project_id — the route is nested under it,
+# and the provider checks that at plan time.
+resource "janus_group_binding" "idp_on_prod" {
+  group_id       = janus_group.payments_idp.id
+  project_id     = janus_project.web.id
+  environment_id = janus_environment.prod.id
+  role           = "viewer"
+}
+
 # Data source: read a single secret value (audited server-side).
 data "janus_secret" "db" {
   config_id = janus_config.prod_root.id
@@ -126,4 +186,9 @@ output "prod_bootstrap_value_versions" {
 
 output "prod_config_name" {
   value = data.janus_config.prod.name
+}
+
+# Value-free: how wide each group grant is, straight from the plan.
+output "payments_binding_scope" {
+  value = janus_group_binding.payments_on_web.scope_level
 }

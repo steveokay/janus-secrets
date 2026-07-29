@@ -1,6 +1,17 @@
 import { JanusNotFoundError, JanusRevokeError, parseApiError } from "./errors.js";
 import { Lease, type LeaseData } from "./dynamic.js";
 import type { AutoRenewOptions } from "./autorenew.js";
+import {
+  groupCreateBody,
+  parseGroup,
+  parseGroupMember,
+  validateGroupInput,
+  type Group,
+  type GroupInput,
+  type GroupMember,
+  type GroupMemberWire,
+  type GroupWire,
+} from "./groups.js";
 
 /** The default cache TTL (30 seconds) when `cacheTtlMs` is not supplied. */
 export const DEFAULT_CACHE_TTL_MS = 30_000;
@@ -318,6 +329,184 @@ export class JanusClient {
     }
   }
 
+  // ---- group catalog -----------------------------------------------------
+  //
+  // Everything below needs instance-scoped `group:manage` (admin or owner) —
+  // except myGroups, which is authenticated-only. A config- or
+  // environment-scoped read token gets a JanusForbiddenError.
+  //
+  // Group BINDINGS (granting a group a role at a scope) are deliberately absent:
+  // they are a different authority (`member:manage` at that scope, capped by
+  // your own bound role), and a durable grant of access belongs in something
+  // that plans and diffs. Use Terraform's `janus_group_binding`, `janus group
+  // bind`, or the UI.
+
+  /**
+   * List every group in the catalog, following cursor pagination.
+   *
+   * Needs instance `group:manage`.
+   */
+  async listGroups(options: RequestOptions = {}): Promise<Group[]> {
+    const out: Group[] = [];
+    let cursor = "";
+    for (;;) {
+      let path = "/v1/groups?limit=100";
+      if (cursor) path += `&cursor=${encodeURIComponent(cursor)}`;
+      const page = await this.request<{
+        groups?: GroupWire[];
+        next_cursor?: string | null;
+      }>("GET", path, options);
+      for (const g of page.groups ?? []) out.push(parseGroup(g));
+      if (!page.next_cursor) return out;
+      cursor = page.next_cursor;
+    }
+  }
+
+  /**
+   * Fetch one group. Needs instance `group:manage`.
+   */
+  async getGroup(groupId: string, options: RequestOptions = {}): Promise<Group> {
+    if (!groupId) {
+      throw new Error("janus: groupId is required");
+    }
+    const body = await this.request<{ group?: GroupWire }>(
+      "GET",
+      `/v1/groups/${encodeURIComponent(groupId)}`,
+      options,
+    );
+    return parseGroup(body.group ?? {});
+  }
+
+  /**
+   * Create a group. The kind/claim pairing is checked locally first, so an
+   * `oidc` group with no claim value (or a `local` one with a claim) fails
+   * without a round trip. Needs instance `group:manage`.
+   */
+  async createGroup(input: GroupInput, options: RequestOptions = {}): Promise<Group> {
+    validateGroupInput(input);
+    const body = await this.request<GroupWire>(
+      "POST",
+      "/v1/groups",
+      options,
+      groupCreateBody(input),
+    );
+    return parseGroup(body ?? {});
+  }
+
+  /**
+   * Delete a group. Membership and every binding it conferred cascade, so the
+   * access is gone on the next request — Janus resolves permissions per request
+   * and never freezes them into a session. Needs instance `group:manage`.
+   */
+  async deleteGroup(groupId: string, options: RequestOptions = {}): Promise<void> {
+    if (!groupId) {
+      throw new Error("janus: groupId is required");
+    }
+    await this.request<void>("DELETE", `/v1/groups/${encodeURIComponent(groupId)}`, options);
+  }
+
+  /**
+   * Toggle a group's delegated project-creation capability.
+   * Needs instance `group:manage`.
+   */
+  async setGroupProjectCreation(
+    groupId: string,
+    allowed: boolean,
+    options: RequestOptions = {},
+  ): Promise<void> {
+    if (!groupId) {
+      throw new Error("janus: groupId is required");
+    }
+    await this.request<void>(
+      "PUT",
+      `/v1/groups/${encodeURIComponent(groupId)}/capabilities`,
+      options,
+      { can_create_projects: allowed },
+    );
+  }
+
+  /**
+   * List a group's recorded members, following cursor pagination.
+   * Needs instance `group:manage`.
+   *
+   * For an `oidc` group this is the login-time snapshot: it covers only users
+   * who have signed in, so treat it as "members seen at sign-in", never as the
+   * group's membership. The identity provider is the record for those groups.
+   */
+  async listGroupMembers(
+    groupId: string,
+    options: RequestOptions = {},
+  ): Promise<GroupMember[]> {
+    if (!groupId) {
+      throw new Error("janus: groupId is required");
+    }
+    const out: GroupMember[] = [];
+    let cursor = "";
+    for (;;) {
+      let path = `/v1/groups/${encodeURIComponent(groupId)}/members?limit=100`;
+      if (cursor) path += `&cursor=${encodeURIComponent(cursor)}`;
+      const page = await this.request<{
+        members?: GroupMemberWire[];
+        next_cursor?: string | null;
+      }>("GET", path, options);
+      for (const m of page.members ?? []) out.push(parseGroupMember(m));
+      if (!page.next_cursor) return out;
+      cursor = page.next_cursor;
+    }
+  }
+
+  /**
+   * Add a user to a **local** group. Needs instance `group:manage`.
+   *
+   * An `oidc` group is refused with HTTP 409: its membership comes from the
+   * identity provider and is refreshed at each sign-in, and the database schema
+   * makes a hand-added row unrepresentable. Check `kind` first if you want to
+   * fail before the request.
+   */
+  async addGroupMember(
+    groupId: string,
+    userId: string,
+    options: RequestOptions = {},
+  ): Promise<void> {
+    if (!groupId || !userId) {
+      throw new Error("janus: groupId and userId are required");
+    }
+    await this.request<void>("PUT", groupMemberPath(groupId, userId), options);
+  }
+
+  /**
+   * Remove a user from a local group. Effective on that user's next request.
+   * Needs instance `group:manage`.
+   */
+  async removeGroupMember(
+    groupId: string,
+    userId: string,
+    options: RequestOptions = {},
+  ): Promise<void> {
+    if (!groupId || !userId) {
+      throw new Error("janus: groupId and userId are required");
+    }
+    await this.request<void>("DELETE", groupMemberPath(groupId, userId), options);
+  }
+
+  /**
+   * The groups the **caller** belongs to.
+   *
+   * Unlike the rest of the group methods this needs no special authority — it is
+   * authenticated-only, because it reveals nothing but the caller's own
+   * memberships and never the catalog. A service token belongs to no groups and
+   * gets an empty array rather than an error, so it is safe to call
+   * unconditionally.
+   */
+  async myGroups(options: RequestOptions = {}): Promise<Group[]> {
+    const body = await this.request<{ groups?: GroupWire[] }>(
+      "GET",
+      "/v1/auth/me/groups",
+      options,
+    );
+    return (body.groups ?? []).map(parseGroup);
+  }
+
   private async fetchSecrets(
     configId: string,
     options: RequestOptions,
@@ -328,9 +517,10 @@ export class JanusClient {
   }
 
   /**
-   * Perform an HTTP request against the Janus API: add the bearer token, parse a
-   * JSON success body into `T`, and translate non-2xx responses into typed
-   * errors. Used by the read and dynamic methods.
+   * Perform an HTTP request against the Janus API: add the bearer token,
+   * JSON-encode `body` when present, parse a JSON success body into `T`, and
+   * translate non-2xx responses into typed errors. Used by the read, dynamic and
+   * group methods.
    *
    * @internal
    */
@@ -338,15 +528,22 @@ export class JanusClient {
     method: string,
     path: string,
     options: RequestOptions = {},
+    body?: unknown,
   ): Promise<T> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
+    let payload: string | undefined;
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+      payload = JSON.stringify(body);
+    }
 
     const res = await this.fetchImpl(this.baseUrl + path, {
       method,
       headers,
+      body: payload,
       signal: options.signal,
     });
 
@@ -364,4 +561,9 @@ export class JanusClient {
     }
     return JSON.parse(text) as T;
   }
+}
+
+/** Path of one membership row: `/v1/groups/{gid}/members/{uid}`. */
+function groupMemberPath(groupId: string, userId: string): string {
+  return `/v1/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`;
 }

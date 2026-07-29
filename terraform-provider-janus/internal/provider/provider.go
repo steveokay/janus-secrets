@@ -1,8 +1,9 @@
 // Package provider implements the terraform-provider-janus Terraform provider
 // using the terraform-plugin-framework. It manages Janus resources (projects,
 // environments, configs, secrets — singly or in batches — and config/
-// environment-scoped service tokens) declaratively over the Janus /v1 REST API.
-// Secret values and minted tokens are marked Sensitive.
+// environment-scoped service tokens, and groups with their local membership and
+// scope bindings) declaratively over the Janus /v1 REST API. Secret values and
+// minted tokens are marked Sensitive.
 package provider
 
 import (
@@ -122,6 +123,9 @@ func (p *janusProvider) Resources(_ context.Context) []func() resource.Resource 
 		NewSecretResource,
 		NewSecretsResource,
 		NewServiceTokenResource,
+		NewGroupResource,
+		NewGroupMemberResource,
+		NewGroupBindingResource,
 	}
 }
 
