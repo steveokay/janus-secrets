@@ -879,13 +879,36 @@ had ever run against a live API server.
       never which address may be dialled — operators with
       `JANUS_OUTBOUND_BLOCK_PRIVATE=true` still need the ClusterIP allowlisted.
 
-      **Not verified: never exercised against a real cluster.** The end-to-end
-      proof is an `httptest.NewTLSServer` mock IdP trusted only via the supplied
-      bundle (fails with system roots, fails with a valid-but-wrong CA, succeeds
-      with its own). Same trust relationship, but it is not minikube — and a k8s
-      feature looking right and then failing on contact with a real cluster is
-      exactly how this item was found in the first place. The migration has also
-      only been applied by the test harness, and the down migration never run.
+      **VERIFIED ON A REAL CLUSTER 2026-07-29.** Janus was deployed into minikube
+      via the Helm chart and a genuine projected service-account token was
+      exchanged for a scoped Janus token — audited
+      `success | binding=sa-default issuer=https://kubernetes.default.svc.cluster.local
+      sub=system:serviceaccount:default:default`. Falsified as well as
+      confirmed: clearing `ca_cert` (empty **does** clear it) makes the same
+      exchange fail, which also proves the verifier cache is invalidated on
+      update — a stale cached verifier would have kept succeeding, and that was
+      the hazard flagged when it shipped.
+
+      **The run found two things the docs had wrong**, neither reachable from a
+      unit test:
+
+      1. **The `jwks_uri` is on the node address, not the ClusterIP.**
+         Discovery is served from the issuer (`10.96.0.1`) but the document
+         advertises keys at `https://192.168.49.2:8443/openid/v1/jwks`. Our
+         guides said to allowlist the ClusterIP, so discovery succeeded and the
+         key fetch was blocked — the exchange failed with the same generic
+         `federation_denied`. Confirmed by watching it fail with one entry and
+         succeed with two.
+      2. **Discovery is RBAC-gated and Janus fetches it anonymously** (correctly
+         — a discovery document is public by specification). Without
+         `system:service-account-issuer-discovery` bound to
+         `system:unauthenticated`, the API server returns
+         `forbidden: User "system:anonymous" …`. `docs/ci-federation.md` already
+         documented this; the Kubernetes guide did not.
+
+      Also demonstrated en route: the runtime-editable outbound policy changed
+      the running pod's egress mid-test, with no restart, and the next dial
+      obeyed it. The down migration is still unrun.
 
 **Verified working end-to-end on the cluster:** the k8s sync provider (real
 `Secret` created via server-side apply, values correct, run history recorded),

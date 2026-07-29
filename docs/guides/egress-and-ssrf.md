@@ -63,7 +63,15 @@ kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'
 ```
 
 It is the first address of the service CIDR (`10.96.0.1` on a default kubeadm
-or minikube cluster) and is stable for the life of the cluster. In Helm values:
+or minikube cluster) and is stable for the life of the cluster.
+
+**If you also use service-account federation, that is not enough.** The API
+server advertises its `jwks_uri` on the node / advertise address rather than the
+ClusterIP, so discovery succeeds and the signing-key fetch is still blocked.
+Allowlist both — `kubectl get --raw /.well-known/openid-configuration | grep jwks_uri`
+gives you the second host. Verified on a live cluster.
+
+In Helm values:
 
 ```yaml
 env:

@@ -7,6 +7,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **The Kubernetes guides told operators to allowlist one address when
+  service-account federation needs two.** The API server serves OIDC discovery
+  on its ClusterIP but advertises `jwks_uri` on the **node / advertise
+  address**, so a policy naming only the ClusterIP let discovery through and
+  then blocked the signing-key fetch — surfacing as the same generic
+  `federation_denied`. Found by deploying Janus into a real minikube cluster and
+  watching the exchange fail with one entry and succeed with two. The Kubernetes
+  guide also now documents that cluster discovery is RBAC-gated while Janus
+  fetches it anonymously (correctly — a discovery document is public by
+  specification), so `system:service-account-issuer-discovery` must be granted.
 - **An OIDC group's member count read as a membership list.** Membership is a
   snapshot refreshed from the IdP at each login, so anyone who has never signed
   into Janus was absent from it — yet `/groups` showed a bare number under a
