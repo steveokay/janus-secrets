@@ -57,7 +57,7 @@ See [crypto.md](crypto.md), [data-model.md](data-model.md), and
 |---------|---------|-------|
 | `internal/crypto` | AES-256-GCM envelope encryption, key hierarchy, in-memory keyring, Shamir + cloud-KMS unseal (AWS KMS, GCP KMS, Azure Key Vault) | ✅ implemented |
 | `internal/crypto/shamir` | Vendored HashiCorp Vault Shamir (MPL-2.0) | ✅ vendored |
-| `internal/store` | Postgres repositories, migrations (`000001`–`000051`, embedded and auto-applied at boot), seal-config store, two-level versioning, trash, idempotency | ✅ implemented |
+| `internal/store` | Postgres repositories, migrations (`000001`–`000052`, embedded and auto-applied at boot), seal-config store, two-level versioning, trash, idempotency | ✅ implemented |
 | `internal/secrets` | Encryption orchestration: project KEKs, version-bound DEK AAD, masked vs. reveal reads, version ops, key validation, value-version **retention policy + config-version-granular prune** | ✅ implemented |
 | `internal/resolve` | Read-time config inheritance + secret-reference resolution (pure, composes over `internal/secrets`) | ✅ implemented |
 | `internal/masterkeys` | Master-key rotation: KMS single-call rotate, Shamir interactive rekey ceremony, re-wraps all master-wrapped material in one tx | ✅ implemented |

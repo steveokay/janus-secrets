@@ -311,7 +311,12 @@ for comparison it stores a keyed HMAC instead.
   nonce), single-use.
 - **`oidc_federation_config`** — the **multi-issuer** trust set for CI and
   Kubernetes workload identities (migration `000042` made it multi-issuer;
-  before that a cluster issuer would have evicted GitHub Actions).
+  before that a cluster issuer would have evicted GitHub Actions). The optional
+  per-issuer **`ca_cert`** (migration `000052`) is a PEM bundle used to verify
+  that issuer's discovery/JWKS TLS, for a cluster-CA-signed issuer such as
+  `https://kubernetes.default.svc`. It is stored in **plaintext and unwrapped**
+  — a CA certificate is public material, not a secret — and it **replaces** the
+  system roots for that issuer rather than adding to them.
 - **`oidc_federation_bindings`** — claim match → scoped, time-limited token.
   Each binding is pinned to exactly one issuer, so a token signed by another
   trusted issuer can never satisfy it.
