@@ -7,6 +7,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`JANUS_OUTBOUND_ALLOW` — an SSRF allowlist, so hardening and the
+  cluster-native integrations can hold at the same time.**
+  `JANUS_OUTBOUND_BLOCK_PRIVATE` was all-or-nothing, and the Helm chart turns it
+  on, which also blocks `kubernetes.default.svc` — a ClusterIP in a private
+  range. The documented remedy was to turn the whole control off. Now the
+  specific destination can be named instead:
+
+  ```sh
+  JANUS_OUTBOUND_BLOCK_PRIVATE=true
+  JANUS_OUTBOUND_ALLOW=10.96.0.1/32     # the cluster's API server
+  ```
+
+  Entries are IP addresses or CIDR prefixes in either family (`env.outboundAllow`
+  in the chart). Three properties are deliberate. **The allowlist exempts only
+  the private-space tightening** — the link-local / cloud-metadata ranges stay
+  blocked unconditionally, enforcement consults the allowlist strictly below
+  that check, and an entry lying entirely inside a blocked range is rejected at
+  parse time, so a typo can never hand out `169.254.169.254`. **Hostnames are
+  not accepted**, because the guard validates the address the kernel is about to
+  dial — that is what defeats DNS rebinding, and allowlisting a name would
+  reopen it. **A malformed value refuses to start**, naming the entry: the
+  allowlist fails closed, so tolerating a typo would present as an integration
+  that mysteriously cannot connect. An allowlist supplied without the tightening
+  is inert and is reported as a warning by `janus doctor` and at boot.
 - **`GET /v1/auth/me` reports effective permissions, and the UI hides what your
   account cannot use.** The navigation rail, the command palette and the
   `g`-chord shortcuts now render from one gated list, so a developer with no

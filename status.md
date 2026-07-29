@@ -702,11 +702,42 @@ had ever run against a live API server.
       **works end-to-end** — a real `Secret` appeared with the values
       round-tripped from Janus. Now called out in `values.yaml` and the
       Kubernetes guide.
-- [ ] **A blunt on/off SSRF toggle is the wrong shape for k8s.** The fix above
-      is documentation: an operator must choose between SSRF hardening and the
-      cluster-native integrations. An **allowlist** (permit specific hosts/CIDRs
-      while still blocking the rest) would let both hold at once, and is the
-      better long-term answer than asking people to turn the control off.
+- [x] ~~**A blunt on/off SSRF toggle is the wrong shape for k8s.**~~ **SHIPPED
+      2026-07-29** — `JANUS_OUTBOUND_ALLOW` (chart: `env.outboundAllow`), a
+      comma-separated list of IPs/CIDRs exempt from
+      `JANUS_OUTBOUND_BLOCK_PRIVATE`. The operator keeps the control on and
+      names the API server's ClusterIP, instead of choosing between SSRF
+      hardening and the cluster-native integrations. No migration, no API
+      surface — it is process configuration.
+
+      **The allowlist exempts the private-space tightening and nothing else.**
+      Enforcement consults it strictly *below* the unconditional link-local /
+      cloud-metadata check in `checkIP`, so no entry can reach
+      `169.254.169.254`; parsing additionally rejects any entry lying entirely
+      inside a blocked range, so such an entry fails at boot rather than sitting
+      in the config looking effective. `TestAllowlistCannotUnblockAlwaysBlocked`
+      pins this by driving `checkIP` directly with those addresses allowlisted
+      *and* `0.0.0.0/0` + `::/0` — proving enforcement does not rely on parsing
+      having caught them. It was verified non-vacuous: moving the allowlist
+      check above the unconditional block turns all 8 ranges red.
+
+      **Entries are addresses, never hostnames.** The guard's whole value is
+      that it validates the *resolved* IP at connect time, which is what defeats
+      DNS rebinding; allowlisting a name would mean trusting DNS for that name
+      and would reopen precisely that attack. The IPv4-in-IPv6 spelling is
+      rejected on input (a prefix's bit count is ambiguous under it) while
+      enforcement unmaps before matching, so a dial that resolves to the mapped
+      form still matches a plain IPv4 entry.
+
+      **A malformed value refuses to start**, naming the entry, and one bad
+      entry discards the whole list rather than leaving a partially-applied one.
+      Both directions fail closed, but this one is predictable — and since the
+      allowlist fails closed, tolerating a typo would present as an integration
+      that mysteriously cannot connect, which is the failure mode the variable
+      exists to remove. An allowlist set *without* the tightening is inert;
+      boot and `janus doctor` both warn rather than pretending it does
+      something. CI (and `make helm-test`) assert the chart omits the variable
+      when empty and renders it when set.
 - [ ] **Federation cannot verify an issuer whose cert is signed by the cluster
       CA.** The OIDC verifier uses system roots only, and there is no way to
       supply a CA bundle — so with the default `https://kubernetes.default.svc`

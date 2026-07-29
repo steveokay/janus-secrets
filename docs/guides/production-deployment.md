@@ -217,8 +217,44 @@ targets.
 
 | Name | Meaning | Default |
 |---|---|---|
-| `JANUS_OUTBOUND_BLOCK_PRIVATE` | Also reject loopback + RFC1918 + ULA on outbound integration calls. Set `true` only if no integration target is on a private network. | `false` |
+| `JANUS_OUTBOUND_BLOCK_PRIVATE` | Also reject loopback + RFC1918 + ULA on outbound integration calls. Pair it with `JANUS_OUTBOUND_ALLOW` when a few private targets are legitimate. | `false` |
+| `JANUS_OUTBOUND_ALLOW` | Comma-separated IPs / CIDRs **exempt** from `JANUS_OUTBOUND_BLOCK_PRIVATE`, e.g. `10.96.0.1/32`. Never exempts the link-local/metadata ranges. | _(empty)_ |
 | `JANUS_OUTBOUND_ALLOW_PROXY` | Let outbound integration calls honour `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and `NO_PROXY`). **Weakens the SSRF guard — see below.** | `false` |
+
+### Allowlisting specific private destinations
+
+`JANUS_OUTBOUND_BLOCK_PRIVATE` is all-or-nothing, which is the wrong shape when
+exactly one private destination is legitimate — the common case being Janus
+running inside the Kubernetes cluster it syncs to, where the API server
+(`kubernetes.default.svc`) is a ClusterIP in a private range. Allowlist it and
+keep the control on:
+
+```sh
+JANUS_OUTBOUND_BLOCK_PRIVATE=true
+JANUS_OUTBOUND_ALLOW=10.96.0.1/32          # several: 10.96.0.1/32,10.0.8.0/24
+```
+
+Entries are IP addresses (treated as a single address) or CIDR prefixes, in
+either family. Blank fields are ignored, and a prefix with host bits set is
+normalised to its network (`10.96.0.1/24` → `10.96.0.0/24`).
+
+Three rules are worth knowing before you rely on it:
+
+- **It only exempts the private-space block.** The link-local / cloud-metadata
+  ranges stay blocked no matter what, and naming one — `169.254.169.254`,
+  `fe80::/10`, or any subrange — is a **startup error**, not a silent no-op.
+  That range is the highest-value SSRF target there is, so a typo in this
+  variable must not be able to reach it.
+- **Hostnames are not accepted.** The guard checks the address the kernel is
+  about to dial, which is what defeats DNS rebinding. Allowlisting a *name*
+  would mean trusting DNS for it and would re-open that hole, so entries are
+  addresses only.
+- **A malformed value refuses to start.** The allowlist fails closed, so a typo
+  would otherwise present as an integration that mysteriously cannot connect.
+  The server names the offending entry and exits; `janus doctor` reports the
+  same thing as `outbound.ssrf`. An allowlist set *without*
+  `JANUS_OUTBOUND_BLOCK_PRIVATE` is inert — private space is already permitted
+  — and is reported as a warning rather than an error.
 
 > **Proxy environment variables are ignored by default, on purpose.** The guard
 > inspects the IP the kernel is about to dial. Through an HTTP proxy that IP is

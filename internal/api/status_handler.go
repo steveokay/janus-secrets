@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/steveokay/janus-secrets/internal/authz"
+	"github.com/steveokay/janus-secrets/internal/nethard"
 	"github.com/steveokay/janus-secrets/internal/store"
 	"github.com/steveokay/janus-secrets/internal/version"
 )
@@ -26,9 +27,28 @@ type sysStatusResponse struct {
 	Runs          runsStatus                 `json:"runs"`
 	Leases        leasesStatus               `json:"leases"`
 	Backup        backupStatus               `json:"backup"`
+	Outbound      outboundStatus             `json:"outbound"`
 	// AuditShip is the audit-shipper snapshot, present only when a destination is
 	// configured (JANUS_AUDIT_SHIP_MODE=webhook|syslog). Value-free.
 	AuditShip *auditShipStatus `json:"audit_ship,omitempty"`
+}
+
+// outboundStatus is the effective egress (SSRF) policy. It is configuration the
+// operator set, not a secret — no credentials, no targets, just which ranges the
+// connect-time guard permits.
+//
+// It is here because the policy is process configuration with no database row,
+// so before this the only way to see it was `janus doctor` on the host. "Why
+// can't this integration reach anything?" is an operational question asked from
+// the UI, and the answer is usually a private-space block with nothing exempted.
+type outboundStatus struct {
+	// BlockPrivate reports JANUS_OUTBOUND_BLOCK_PRIVATE.
+	BlockPrivate bool `json:"block_private"`
+	// Allow lists the CIDRs exempt from BlockPrivate (JANUS_OUTBOUND_ALLOW),
+	// normalised to network form. Empty when none are configured.
+	Allow []string `json:"allow,omitempty"`
+	// AllowProxy reports JANUS_OUTBOUND_ALLOW_PROXY, which degrades the guard.
+	AllowProxy bool `json:"allow_proxy"`
 }
 
 // backupStatus is the value-free scheduled-S3-backup health summary: whether the
@@ -110,6 +130,15 @@ func (s *Server) handleSysStatus(w http.ResponseWriter, r *http.Request) {
 		Sealed:        s.keyring == nil || s.keyring.Sealed(),
 		SealType:      s.cfg.SealType,
 		Schedulers:    map[string]schedulerStatus{},
+	}
+
+	// Egress policy. Read from the environment the same way every outbound
+	// client does, so the panel cannot report a policy the dialers are not using.
+	outPolicy := nethard.PolicyFromEnv()
+	resp.Outbound = outboundStatus{
+		BlockPrivate: outPolicy.BlockPrivate,
+		Allow:        nethard.DescribeAllow(outPolicy.Allow),
+		AllowProxy:   outPolicy.AllowProxy,
 	}
 
 	// DB reachability + latency (short ping; reachable:false on error, never 500).

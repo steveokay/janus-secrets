@@ -530,6 +530,13 @@ export interface SysStatus {
   }
   runs: { rotation_failed: number; sync_failed: number }
   leases: { active: number }
+  /* effective egress (SSRF) policy — configuration, never credentials.
+     allow lists the CIDRs exempt from block_private; absent when none. */
+  outbound: {
+    block_private: boolean
+    allow?: string[]
+    allow_proxy: boolean
+  }
 }
 export interface InitResult { type: string; shares?: string[]; admin?: { email: string; password: string } }
 

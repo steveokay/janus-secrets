@@ -389,8 +389,27 @@ deployment legitimately talks to internal targets.
 
 If an integration cannot reach an internal target, check whether someone set
 `JANUS_OUTBOUND_BLOCK_PRIVATE=true` — `doctor`'s `outbound.ssrf` check reports
-the effective policy in full. And if the proxy escape hatch is on, it says so
-loudly, because it degrades the guard:
+the effective policy in full, including any allowlist.
+
+The usual fix is **not** to turn the block off but to name the destination in
+`JANUS_OUTBOUND_ALLOW` (comma-separated IPs/CIDRs). The classic case is Janus
+running inside the cluster it syncs to: `kubernetes.default.svc` is a ClusterIP
+in a private range, so the sync fails with a sanitized `apply failed` and
+service-account federation fails with a generic 401. Allowlist the API server
+(`kubectl get svc kubernetes -n default -o jsonpath='{.spec.clusterIP}'`) and
+keep the control on.
+
+Two failure modes to recognise:
+
+- **The server will not start**, naming an entry — the allowlist is malformed,
+  or it names a link-local/cloud-metadata address, which can never be
+  allowlisted. Fix the entry; there is no override.
+- **`outbound.ssrf` warns that the allowlist has no effect** — entries were
+  supplied without `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, so there is nothing to
+  exempt from and private space is already reachable.
+
+And if the proxy escape hatch is on, it says so loudly, because it degrades the
+guard:
 
 ```
   WARN  outbound.ssrf     outbound calls go through a proxy: the resolved-IP guard cannot see the real
