@@ -1,5 +1,5 @@
 > **If Janus runs inside the cluster you are syncing to, allowlist the API
-> server's ClusterIP:**
+> server's ClusterIP** — keep the SSRF control on and name the exception:
 >
 > ```yaml
 > env:
@@ -14,20 +14,37 @@
 >
 > The block exists because `kubernetes.default.svc` is a ClusterIP in a private
 > range, so `outboundBlockPrivate: true` on its own makes the sync fail with a
-> sanitized `apply failed` that does not say why. The same applies to Kubernetes
-> service-account federation, which fails with a generic 401 because the JWKS
-> fetch never leaves the pod. Setting `outboundBlockPrivate: false` also works
-> and is what earlier versions of this guide advised, but it opens **all**
-> private space; the allowlist opens one address.
+> sanitized `apply failed` that does not say why. Setting
+> `outboundBlockPrivate: false` also works and is what earlier versions of this
+> guide advised, but it opens **all** private space; the allowlist opens one
+> address. The link-local / cloud-metadata ranges cannot be allowlisted either
+> way — see [Outbound egress & the SSRF guard](egress-and-ssrf.md).
 >
-> The link-local / cloud-metadata ranges cannot be allowlisted — see
-> [Outbound egress & the SSRF guard](egress-and-ssrf.md).
+> **Service-account federation needs TWO entries, not one.** The API server's
+> discovery document advertises its `jwks_uri` on the **node / advertise
+> address**, not the ClusterIP — on minikube,
+> `https://192.168.49.2:8443/openid/v1/jwks`. Janus fetches discovery from the
+> issuer (the ClusterIP) and the signing keys from that other host, so
+> allowlisting only the ClusterIP lets discovery through and then blocks the key
+> fetch. Verified on a live cluster: the exchange fails with the ClusterIP alone
+> and succeeds as soon as both are present.
 >
-> **Reaching the API server is only half of it.** Its certificate is signed by
-> the **cluster CA**, which nothing in the system roots chains to. The sync
-> target has always taken a `ca_cert`; **federation now takes one too**, per
-> trusted issuer. Set it whenever the issuer is the API server itself
-> (`https://kubernetes.default.svc`) — see
+> ```yaml
+> env:
+>   outboundBlockPrivate: true
+>   outboundAllow: "10.96.0.1/32,192.168.49.2/32"
+> ```
+>
+> Read your own value rather than copying that one:
+>
+> ```sh
+> kubectl get --raw /.well-known/openid-configuration | grep jwks_uri
+> ```
+>
+> **And reaching the API server is still only half of it.** Its certificate is
+> signed by the **cluster CA**, which nothing in the system roots chains to. The
+> sync target has always taken a `ca_cert`; **federation now takes one too**, per
+> trusted issuer. Set it whenever the issuer is the API server itself — see
 > [Service-account federation](#service-account-federation-in-cluster) below.
 
 # Kubernetes integration
@@ -400,6 +417,38 @@ configure them the same way:
 |---|---|---|
 | The API server is on a private ClusterIP | `outboundAllow: "10.96.0.1/32"` (or `outboundBlockPrivate: false`) | same — it is one process-wide egress policy |
 | Its certificate is signed by the **cluster CA** | `--ca-cert` / **CA certificate** field | `ca_cert` on the issuer |
+| Signing keys are served from the **node address**, not the ClusterIP | n/a — sync never fetches them | allowlist the `jwks_uri` host too |
+| Discovery is **RBAC-gated** and Janus fetches it anonymously | n/a | grant `system:service-account-issuer-discovery` |
+
+The last two are not obvious and were both found by running this against a real
+cluster. Take them in order:
+
+**1. Allowlist the JWKS host as well as the issuer.** The discovery document
+advertises `jwks_uri` on the node / advertise address, so a policy naming only
+the ClusterIP lets discovery through and then blocks the key fetch — the
+exchange fails with the same generic `federation_denied` either way.
+
+```sh
+kubectl get --raw /.well-known/openid-configuration | grep jwks_uri
+# "jwks_uri":"https://192.168.49.2:8443/openid/v1/jwks"   ← allowlist this host too
+```
+
+**2. Let Janus read discovery without credentials.** Kubernetes serves
+`/.well-known/openid-configuration` behind RBAC, and Janus fetches it
+**anonymously** — as an OIDC relying party should, since a discovery document is
+public by specification. Without the grant the API server answers
+`forbidden: User "system:anonymous" cannot get path "/.well-known/openid-configuration"`,
+and Janus reports only `federation_denied`:
+
+```sh
+kubectl create clusterrolebinding sa-issuer-discovery   --clusterrole=system:service-account-issuer-discovery   --group=system:unauthenticated
+```
+
+This exposes the cluster's **public** signing keys and issuer metadata to
+unauthenticated callers, which is what an OIDC provider is for; it grants no
+access to any Kubernetes resource. Restrict it to `system:serviceaccounts`
+instead if unauthenticated reads are unacceptable in your environment and Janus
+runs with a service account.
 
 Before per-issuer `ca_cert` existed, federation verified the issuer against the
 **system roots only**, so an issuer of `https://kubernetes.default.svc` could

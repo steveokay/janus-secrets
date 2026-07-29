@@ -247,9 +247,14 @@ issuers now carry an optional per-issuer CA bundle, so a cluster-CA-signed
 issuer verifies — the asymmetry with sync, which always accepted a `ca_cert`, is
 gone. A bundle **replaces** the system roots for that issuer rather than adding
 to them (one host, one legitimate signer), and the verifier cache compares the
-CA so a corrected bundle is not masked until restart. **It has not been run
-against a real cluster** — the proof is an `httptest` TLS server with the same
-trust relationship. Detail in [`../status.md`](../status.md).
+CA so a corrected bundle is not masked until restart. **Verified on a real
+minikube cluster 2026-07-29**: a genuine service-account token was exchanged for
+a scoped Janus token, and clearing the CA makes the same exchange fail. That run
+also caught two documentation errors no unit test could — the `jwks_uri` is
+served from the node address rather than the ClusterIP, so allowlisting only the
+ClusterIP blocks the key fetch; and cluster discovery is RBAC-gated while Janus
+fetches it anonymously, as an OIDC relying party should. Detail in
+[`../status.md`](../status.md).
 
 ## RBAC at organisation scale
 

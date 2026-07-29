@@ -480,9 +480,14 @@ against the bundle you supply as [`ca_cert`](#private-cas-ca_cert).
      Set the issuer's **`ca_cert`** to the cluster CA — the API server's
      certificate is signed by it and by nothing the system roots know, so
      verification cannot otherwise succeed. If you run with
-     `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, also allowlist the API server's
-     ClusterIP (`JANUS_OUTBOUND_ALLOW`), because the CA is about the certificate,
-     not the address.
+     `JANUS_OUTBOUND_BLOCK_PRIVATE=true`, also allowlist **two** addresses in
+     `JANUS_OUTBOUND_ALLOW` — the CA is about the certificate, not the address.
+     The API server's ClusterIP serves discovery, but the document advertises
+     its `jwks_uri` on the **node / advertise address**, so naming only the
+     ClusterIP lets discovery through and then blocks the signing-key fetch.
+     Both failures surface as the same generic `federation_denied`. Read the
+     second host from the cluster:
+     `kubectl get --raw /.well-known/openid-configuration | grep jwks_uri`.
   2. Point the API server at an **external issuer you host**:
      `--service-account-issuer=https://oidc.example.com/my-cluster`, then publish
      the discovery document and the JWKS (`kubectl get --raw /openid/v1/jwks`) as
