@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/steveokay/janus-secrets/internal/nethard"
@@ -70,6 +71,58 @@ func TestOutboundPolicyRoundTrip(t *testing.T) {
 	}
 }
 
+// TestOutboundPolicyIsAudited pins that an egress change reaches the audit
+// chain with the ranges it changed FROM and TO.
+//
+// This exists because it was originally missing: s.authorize records only
+// DENIALS, so authorizing the request left every successful policy change
+// unaudited while the code read as though it were covered. An egress widening
+// that leaves no trace is the one outcome this endpoint must not produce.
+func TestOutboundPolicyIsAudited(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	owner := login(t, ts.URL, email, password)
+	t.Cleanup(func() {
+		doAuthed(t, "DELETE", ts.URL+"/v1/sys/outbound-policy", owner, "", "", nil)
+	})
+
+	body := `{"block_private":true,"allow":["10.96.0.1/32"]}`
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/sys/outbound-policy", owner, "", body, nil); code != 200 {
+		t.Fatalf("put: %d", code)
+	}
+
+	var events struct {
+		Events []struct {
+			Action   string `json:"action"`
+			Resource string `json:"resource"`
+			Result   string `json:"result"`
+			Detail   string `json:"detail"`
+		} `json:"events"`
+	}
+	if code := doAuthed(t, "GET", ts.URL+"/v1/audit/events?limit=50", owner, "", "", &events); code != 200 {
+		t.Fatalf("audit list: %d", code)
+	}
+	var found bool
+	for _, e := range events.Events {
+		if e.Action != "sys.egress.update" {
+			continue
+		}
+		found = true
+		if e.Result != "success" {
+			t.Errorf("result = %q, want success", e.Result)
+		}
+		// The previous value is the interesting half: "what did this change?"
+		if !strings.Contains(e.Detail, "block_private false→true") {
+			t.Errorf("detail %q does not record the block_private transition", e.Detail)
+		}
+		if !strings.Contains(e.Detail, "10.96.0.1/32") {
+			t.Errorf("detail %q does not record the new allowlist", e.Detail)
+		}
+	}
+	if !found {
+		t.Fatal("no sys.egress.update event was recorded — the change was unaudited")
+	}
+}
+
 // TestOutboundPolicyRejects pins the refusals that keep the control meaningful.
 func TestOutboundPolicyRejects(t *testing.T) {
 	ts, _, email, password, _ := authStackFull(t)
@@ -99,6 +152,33 @@ func TestOutboundPolicyRejects(t *testing.T) {
 				t.Fatalf("expected 400, got %d", code)
 			}
 		})
+	}
+}
+
+// TestOutboundPolicyLocked pins the escape hatch for deployments that need the
+// egress control to live strictly outside the application: with the env pin
+// set, even an owner cannot change the policy, and the refusal is explicit
+// rather than a silent no-op.
+func TestOutboundPolicyLocked(t *testing.T) {
+	ts, _, email, password, _ := authStackFull(t)
+	owner := login(t, ts.URL, email, password)
+
+	t.Setenv(nethard.EnvPolicyLocked, "true")
+
+	body := `{"block_private":true,"allow":["10.96.0.1/32"]}`
+	if code := doAuthed(t, "PUT", ts.URL+"/v1/sys/outbound-policy", owner, "", body, nil); code != 409 {
+		t.Errorf("put while locked: want 409, got %d", code)
+	}
+	if code := doAuthed(t, "DELETE", ts.URL+"/v1/sys/outbound-policy", owner, "", "", nil); code != 409 {
+		t.Errorf("delete while locked: want 409, got %d", code)
+	}
+	// Reading stays available, and reports the lock so a UI can explain itself.
+	var got outboundPolicyWire
+	if code := doAuthed(t, "GET", ts.URL+"/v1/sys/outbound-policy", owner, "", "", &got); code != 200 {
+		t.Fatalf("get while locked: %d", code)
+	}
+	if !got.Locked {
+		t.Error("locked = false, want true so the UI can disable editing for a stated reason")
 	}
 }
 

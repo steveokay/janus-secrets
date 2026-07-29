@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -151,9 +152,25 @@ func (s *Server) handleOutboundPolicyPut(w http.ResponseWriter, r *http.Request)
 		normalised = []string{}
 	}
 
+	// Capture the outgoing policy so the audit event records what CHANGED, not
+	// just that something did. For an egress control the previous value is the
+	// interesting half of the record.
+	before := nethard.Process().Policy()
+
 	stored, err := s.outboundPolicy.Put(r.Context(), *req.BlockPrivate, normalised, actorOf(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "could not store the outbound policy")
+		return
+	}
+
+	// Fail closed: no unaudited egress change. If the audit write fails the
+	// stored row is put back to what it was, so the record and the policy cannot
+	// disagree — an egress widening that left no trace is precisely the outcome
+	// this endpoint must not produce.
+	if aerr := s.record(r, "sys.egress.update", "sys/outbound-policy", "success", "",
+		egressDetail(before, *req.BlockPrivate, normalised)); aerr != nil {
+		s.restoreOutboundPolicy(r, before)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
 		return
 	}
 
@@ -188,17 +205,56 @@ func (s *Server) handleOutboundPolicyDelete(w http.ResponseWriter, r *http.Reque
 			"the outbound policy is pinned to the environment by "+nethard.EnvPolicyLocked)
 		return
 	}
+	before := nethard.Process().Policy()
+	env := nethard.PolicyFromEnv()
 	if err := s.outboundPolicy.Delete(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "could not reset the outbound policy")
 		return
 	}
-	nethard.SetProcess(nethard.PolicyFromEnv())
+	// Fail closed, as for update: restore the row if the event cannot be written.
+	if aerr := s.record(r, "sys.egress.reset", "sys/outbound-policy", "success", "",
+		egressDetail(before, env.BlockPrivate, nethard.DescribeAllow(env.Allow))); aerr != nil {
+		s.restoreOutboundPolicy(r, before)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "internal error")
+		return
+	}
+	nethard.SetProcess(env)
 	resp, err := s.outboundPolicyView(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, CodeInternal, "could not read back the outbound policy")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// egressDetail renders a value-free before → after summary for the audit event.
+// Ranges are configuration, not secrets, and recording them is the point: an
+// egress widening must be reconstructable from the chain alone.
+func egressDetail(before nethard.Policy, blockPrivate bool, allow []string) string {
+	was := nethard.DescribeAllow(before.Allow)
+	if len(was) == 0 {
+		was = []string{"none"}
+	}
+	now := allow
+	if len(now) == 0 {
+		now = []string{"none"}
+	}
+	return fmt.Sprintf("block_private %t→%t; allow %s→%s",
+		before.BlockPrivate, blockPrivate, strings.Join(was, " "), strings.Join(now, " "))
+}
+
+// restoreOutboundPolicy puts the stored row back after a failed audit write, so
+// a mutation that could not be recorded does not survive. A failure here is
+// logged by the caller's 500 and cannot be retried usefully; the live process
+// policy is deliberately left untouched, because it was never updated.
+func (s *Server) restoreOutboundPolicy(r *http.Request, before nethard.Policy) {
+	if s.outboundPolicy == nil {
+		return
+	}
+	// Restoring uses a background-free context deliberately: r.Context() may
+	// already be cancelled by the client that triggered the failure.
+	ctx := context.WithoutCancel(r.Context())
+	_, _ = s.outboundPolicy.Put(ctx, before.BlockPrivate, nethard.DescribeAllow(before.Allow), actorOf(r))
 }
 
 // resolveOutboundPolicy applies the stored override (if any) over the
