@@ -31,7 +31,7 @@ const oidcHTTPTimeout = 15 * time.Second
 // ranges and permits loopback / RFC1918 / ULA, since self-hosted OIDC issuers are
 // commonly on private networks; JANUS_OUTBOUND_BLOCK_PRIVATE tightens that.
 func newOIDCHTTPClient() *http.Client {
-	return nethard.SafeHTTPClient(oidcHTTPTimeout, nethard.PolicyFromEnv())
+	return nethard.SafeHTTPClient(oidcHTTPTimeout, nethard.Process())
 }
 
 // transitKeys is the subset of *store.TransitRepo the token-minting path needs

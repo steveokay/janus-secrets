@@ -27,7 +27,7 @@ func quoteLiteral(s string) string {
 }
 
 // postgresRotator resets a single role's password via ALTER ROLE.
-type postgresRotator struct{ policy nethard.Policy }
+type postgresRotator struct{ policy *nethard.Source }
 
 func (pr postgresRotator) apply(ctx context.Context, cfg PolicyConfig, policyID, secretKey, newValue string) error {
 	if cfg.AdminDSN == "" || !roleRe.MatchString(cfg.Role) {

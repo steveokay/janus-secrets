@@ -129,7 +129,7 @@ func TestAllowlistExemptsPrivateUnderBlockPrivate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := SafeControl(policy)("tcp", tt.address, nil)
+			err := SafeControl(Static(policy))("tcp", tt.address, nil)
 			if tt.blocked && !errors.Is(err, ErrBlockedAddress) {
 				t.Fatalf("%s: expected ErrBlockedAddress, got %v", tt.address, err)
 			}
@@ -196,7 +196,7 @@ func TestAllowlistInertWithoutBlockPrivate(t *testing.T) {
 		"10.96.0.1:443", "10.0.0.5:80", "192.168.1.10:443", "127.0.0.1:80",
 		"[fd00::5]:80", "93.184.216.34:80", "169.254.169.254:80", "[fe80::1]:80",
 	} {
-		a, b := SafeControl(withList)("tcp", address, nil), SafeControl(without)("tcp", address, nil)
+		a, b := SafeControl(Static(withList))("tcp", address, nil), SafeControl(Static(without))("tcp", address, nil)
 		if (a == nil) != (b == nil) {
 			t.Fatalf("%s: allowlist changed the outcome with BlockPrivate=false (with=%v without=%v)",
 				address, a, b)
@@ -243,7 +243,7 @@ func TestAllowlistCIDRMatching(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.address, func(t *testing.T) {
-			err := SafeControl(policy)("tcp", tt.address, nil)
+			err := SafeControl(Static(policy))("tcp", tt.address, nil)
 			if tt.blocked && !errors.Is(err, ErrBlockedAddress) {
 				t.Fatalf("%s: expected ErrBlockedAddress, got %v", tt.address, err)
 			}
@@ -293,6 +293,50 @@ func TestPolicyFromEnvAllow(t *testing.T) {
 	}
 	if err := checkIP(net.ParseIP("10.96.0.1"), p); !errors.Is(err, ErrBlockedAddress) {
 		t.Fatalf("malformed allowlist must not partially apply, got %v", err)
+	}
+}
+
+// TestSourceIsLive is the reason Source exists. Every engine builds ONE
+// http.Client at construction and keeps it for the process lifetime, so a
+// policy captured by value there could never change. This drives the dialer
+// built from a Source and asserts an edit lands on the very next dial — both
+// tightening and loosening — without rebuilding anything.
+func TestSourceIsLive(t *testing.T) {
+	src := NewSource(Policy{BlockPrivate: true})
+	ctrl := SafeControl(src) // built once, exactly as an engine's client is
+
+	if err := ctrl("tcp", "10.96.0.1:443", nil); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("before the edit: expected ErrBlockedAddress, got %v", err)
+	}
+
+	// Loosen: allowlist the address.
+	src.Set(Policy{BlockPrivate: true, Allow: mustPrefixes(t, "10.96.0.1/32")})
+	if err := ctrl("tcp", "10.96.0.1:443", nil); err != nil {
+		t.Fatalf("after allowlisting: expected allow on the next dial, got %v", err)
+	}
+
+	// Tighten again: the exemption is withdrawn just as immediately.
+	src.Set(Policy{BlockPrivate: true})
+	if err := ctrl("tcp", "10.96.0.1:443", nil); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("after withdrawing: expected ErrBlockedAddress, got %v", err)
+	}
+
+	// No edit can ever reach the always-blocked ranges, live or otherwise.
+	src.Set(Policy{Allow: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}})
+	if err := ctrl("tcp", "169.254.169.254:80", nil); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("metadata after a live edit: expected ErrBlockedAddress, got %v", err)
+	}
+}
+
+// TestSourceNilAndZeroFailClosed pins that a Source which was never populated
+// does not silently disable the guard.
+func TestSourceNilAndZeroFailClosed(t *testing.T) {
+	var nilSrc *Source
+	if err := SafeControl(nilSrc)("tcp", "169.254.169.254:80", nil); !errors.Is(err, ErrBlockedAddress) {
+		t.Fatalf("nil Source: expected ErrBlockedAddress, got %v", err)
+	}
+	if p := (&Source{}).Policy(); p.BlockPrivate || len(p.Allow) != 0 || p.AllowProxy {
+		t.Fatalf("zero Source: expected the empty policy, got %+v", p)
 	}
 }
 

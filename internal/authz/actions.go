@@ -4,43 +4,44 @@ package authz
 type Action string
 
 const (
-	SecretRead       Action = "secret:read"
-	SecretWrite      Action = "secret:write" // set / delete / rollback
-	ConfigRead       Action = "config:read"
-	ConfigCreate     Action = "config:create"
-	ConfigDelete     Action = "config:delete"
-	EnvCreate        Action = "env:create"
-	EnvDelete        Action = "env:delete"
-	EnvUpdate        Action = "env:update" // rename, admin+ project-scoped
-	ProjectRead      Action = "project:read"
-	ProjectCreate    Action = "project:create" // instance-scoped
-	ProjectUpdate    Action = "project:update" // rename, admin+ project-scoped
-	ProjectDelete    Action = "project:delete"
-	MemberRead       Action = "member:read"
-	MemberManage     Action = "member:manage"
-	TokenRead        Action = "token:read"
-	TokenMint        Action = "token:mint"
-	TokenRevoke      Action = "token:revoke"
-	UserManage       Action = "user:manage"  // instance-scoped
-	GroupManage      Action = "group:manage" // instance-scoped (group catalog + local membership + claim mapping)
-	AuditRead        Action = "audit:read"
-	SysSeal          Action = "sys:seal"          // instance-scoped
-	SysBackup        Action = "sys:backup"        // instance-scoped
-	TransitRead      Action = "transit:read"      // instance-scoped
-	TransitUse       Action = "transit:use"       // instance-scoped
-	TransitManage    Action = "transit:manage"    // instance-scoped
-	OIDCManage       Action = "oidc:manage"       // instance-scoped
-	RotationManage   Action = "rotation:manage"   // project-scoped
-	SyncManage       Action = "sync:manage"       // project-scoped
-	DynamicManage    Action = "dynamic:manage"    // project-scoped (create/update/delete roles)
-	DynamicIssue     Action = "dynamic:issue"     // project-scoped (issue/renew/revoke leases)
-	KEKManage        Action = "kek:manage"        // project-scoped, owner-only (rotate/rewrap/status project KEK)
-	SysMasterKey     Action = "sys:master-key"    // instance-scoped, owner-only (master-key rotation / rekey)
-	AuditManage      Action = "audit:manage"      // instance-scoped, owner-only (signed checkpoints + retention prune)
-	SecretPrune      Action = "secret:prune"      // project-scoped, owner-only (destroy old config versions + value history)
-	SecretPromote    Action = "secret:promote"    // developer+, target-env scoped
-	PromotionManage  Action = "promotion:manage"  // admin+, project-scoped (pipeline + locked keys)
-	PromotionRequest Action = "promotion:request" // developer+, source-env scoped (approval workflow)
+	SecretRead         Action = "secret:read"
+	SecretWrite        Action = "secret:write" // set / delete / rollback
+	ConfigRead         Action = "config:read"
+	ConfigCreate       Action = "config:create"
+	ConfigDelete       Action = "config:delete"
+	EnvCreate          Action = "env:create"
+	EnvDelete          Action = "env:delete"
+	EnvUpdate          Action = "env:update" // rename, admin+ project-scoped
+	ProjectRead        Action = "project:read"
+	ProjectCreate      Action = "project:create" // instance-scoped
+	ProjectUpdate      Action = "project:update" // rename, admin+ project-scoped
+	ProjectDelete      Action = "project:delete"
+	MemberRead         Action = "member:read"
+	MemberManage       Action = "member:manage"
+	TokenRead          Action = "token:read"
+	TokenMint          Action = "token:mint"
+	TokenRevoke        Action = "token:revoke"
+	UserManage         Action = "user:manage"  // instance-scoped
+	GroupManage        Action = "group:manage" // instance-scoped (group catalog + local membership + claim mapping)
+	AuditRead          Action = "audit:read"
+	SysSeal            Action = "sys:seal"            // instance-scoped
+	SysBackup          Action = "sys:backup"          // instance-scoped
+	TransitRead        Action = "transit:read"        // instance-scoped
+	TransitUse         Action = "transit:use"         // instance-scoped
+	TransitManage      Action = "transit:manage"      // instance-scoped
+	OIDCManage         Action = "oidc:manage"         // instance-scoped
+	RotationManage     Action = "rotation:manage"     // project-scoped
+	SyncManage         Action = "sync:manage"         // project-scoped
+	DynamicManage      Action = "dynamic:manage"      // project-scoped (create/update/delete roles)
+	DynamicIssue       Action = "dynamic:issue"       // project-scoped (issue/renew/revoke leases)
+	KEKManage          Action = "kek:manage"          // project-scoped, owner-only (rotate/rewrap/status project KEK)
+	SysMasterKey       Action = "sys:master-key"      // instance-scoped, owner-only (master-key rotation / rekey)
+	AuditManage        Action = "audit:manage"        // instance-scoped, owner-only (signed checkpoints + retention prune)
+	SysEgress          Action = "sys:egress"          // instance-scoped, owner-only (outbound/SSRF policy)
+	SecretPrune        Action = "secret:prune"        // project-scoped, owner-only (destroy old config versions + value history)
+	SecretPromote      Action = "secret:promote"      // developer+, target-env scoped
+	PromotionManage    Action = "promotion:manage"    // admin+, project-scoped (pipeline + locked keys)
+	PromotionRequest   Action = "promotion:request"   // developer+, source-env scoped (approval workflow)
 	NotificationManage Action = "notification:manage" // instance-scoped (alerting channels)
 )
 
@@ -81,7 +82,13 @@ var (
 		TokenRead, TokenMint, TokenRevoke, UserManage, GroupManage, AuditRead, SysSeal, SysBackup, TransitManage, OIDCManage, RotationManage, SyncManage, DynamicManage, PromotionManage, NotificationManage))
 	// SecretPrune is owner-only: it is the only operation in the system that
 	// destroys secret value history, and unlike a soft delete it is irreversible.
-	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey, AuditManage, SecretPrune))
+	// SysEgress is owner-only, not admin. The outbound guard exists to constrain
+	// what a mis- or maliciously-configured integration can make the server dial,
+	// and configuring integrations is itself an admin privilege — so letting
+	// admin also edit the guard would put the control under the very authority it
+	// is meant to bound. Owner is the destroy-the-evidence tier already (master
+	// key, audit prune, secret destroy); egress policy belongs beside it.
+	ownerActions = union(adminActions, setOf(ProjectDelete, KEKManage, SysMasterKey, AuditManage, SecretPrune, SysEgress))
 
 	roleActions = map[Role]map[Action]bool{
 		RoleViewer:    viewerActions,

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { session } from '../lib/session.svelte'
-  import { api, downloadBackup, errorMessage, sealTypeLabel, type VersionInfo, type MasterKeyStatus, type SessionInfo, type SysStatus, type WebAuthnList } from '../lib/api'
+  import { api, downloadBackup, errorMessage, sealTypeLabel, type VersionInfo, type MasterKeyStatus, type SessionInfo, type SysStatus, type WebAuthnList, type OutboundPolicy } from '../lib/api'
   import { dialog } from '../lib/dialog.svelte'
   import { relTime } from '../lib/util'
   import { renderSVG } from 'uqr'
@@ -31,6 +31,20 @@
   let health = $state<SysStatus | null>(null)
   let healthError = $state('')
   let healthLoading = $state(false)
+
+  /* outbound (SSRF) egress policy — owner-only */
+  let egress = $state<OutboundPolicy | null>(null)
+  let egressError = $state('')
+  let egressBusy = $state(false)
+  /* the edit buffer: the textarea is free text until it is saved, because the
+     server's parser is the only authority on what a valid entry is. */
+  let egressBlock = $state(false)
+  let egressAllow = $state('')
+  let egressDirty = $derived(
+    egress !== null &&
+      (egressBlock !== egress.block_private ||
+        egressAllow.trim() !== egress.allow.join(', ')),
+  )
 
   /* two-factor (TOTP) */
   type TotpStatus = { enabled: boolean; recovery_remaining: number }
@@ -66,6 +80,7 @@
     void loadTotp()
     void loadPasskeys()
     void loadHealth()
+    void loadEgress()
   })
 
   async function loadPasskeys() {
@@ -159,6 +174,70 @@
       health = null
     } finally {
       healthLoading = false
+    }
+  }
+
+  /* Egress policy. A 403 is expected for anyone below owner, so it is not
+     surfaced as an error — the section simply does not render. */
+  async function loadEgress() {
+    egressError = ''
+    try {
+      const p = await api.outboundPolicy()
+      applyEgress(p)
+    } catch {
+      egress = null
+    }
+  }
+
+  function applyEgress(p: OutboundPolicy) {
+    egress = p
+    egressBlock = p.block_private
+    egressAllow = p.allow.join(', ')
+  }
+
+  async function saveEgress() {
+    if (!egress || egress.locked) return
+    egressError = ''
+    egressBusy = true
+    try {
+      /* Split on comma AND whitespace so a pasted list works either way; the
+         server re-parses and is the authority on what is valid. */
+      const entries = egressAllow.split(/[,\s]+/).map((e) => e.trim()).filter(Boolean)
+      if (egressBlock && entries.length === 0) {
+        const ok = await dialog.confirm({
+          title: 'Block all private destinations?',
+          body:
+            'Nothing is exempt, so integrations on private networks — including an in-cluster ' +
+            'Kubernetes API server — will stop connecting.',
+          confirmLabel: 'Block anyway',
+          danger: true,
+        })
+        if (!ok) return
+      }
+      applyEgress(await api.setOutboundPolicy(egressBlock, entries))
+    } catch (err) {
+      egressError = errorMessage(err, 'Could not save the outbound policy.')
+    } finally {
+      egressBusy = false
+    }
+  }
+
+  async function resetEgress() {
+    if (!egress || egress.locked) return
+    const ok = await dialog.confirm({
+      title: 'Use the environment’s policy?',
+      body: 'The stored policy is discarded and this instance follows JANUS_OUTBOUND_* again.',
+      confirmLabel: 'Reset',
+    })
+    if (!ok) return
+    egressError = ''
+    egressBusy = true
+    try {
+      applyEgress(await api.resetOutboundPolicy())
+    } catch (err) {
+      egressError = errorMessage(err, 'Could not reset the outbound policy.')
+    } finally {
+      egressBusy = false
     }
   }
 
@@ -664,6 +743,108 @@
     </div>
   </section>
 
+  {#if egress}
+    <section class="op-section rise" style="animation-delay: 85ms">
+      <div class="section-head">
+        <h3>Outbound policy</h3>
+        <span class="folio">
+          which destinations this server may dial · applies on the next connection, no restart
+        </span>
+      </div>
+
+      <div class="panel">
+        <p class="folio egress-note">
+          The link-local and cloud-metadata ranges ({egress.always_blocked.slice(0, 3).join(', ')}, …)
+          are blocked unconditionally and <strong>cannot</strong> be exempted here — naming one is
+          rejected. This setting only decides whether <em>private</em> networks are reachable.
+        </p>
+
+        {#if egress.locked}
+          <p class="warn-line">
+            Pinned to the environment by <code class="mono">JANUS_OUTBOUND_POLICY_LOCKED</code> —
+            editing is disabled. Change it in the deployment instead.
+          </p>
+        {/if}
+
+        <label class="egress-toggle">
+          <input
+            type="checkbox"
+            bind:checked={egressBlock}
+            disabled={egress.locked || egressBusy}
+          />
+          <span>
+            Block private ranges
+            <span class="folio">— loopback, RFC1918 and ULA, unless exempted below</span>
+          </span>
+        </label>
+
+        <label class="egress-field" class:dim={!egressBlock}>
+          <span class="folio">Exempt destinations</span>
+          <textarea
+            class="mono"
+            rows="3"
+            spellcheck="false"
+            placeholder="10.96.0.1/32, 10.0.0.0/8"
+            bind:value={egressAllow}
+            disabled={egress.locked || egressBusy}
+            aria-label="Exempt destinations, comma-separated IP addresses or CIDR prefixes"
+          ></textarea>
+          <span class="folio">
+            IP addresses or CIDR prefixes, comma-separated. Hostnames are not accepted — the guard
+            checks the resolved address, so trusting a name would reopen DNS rebinding.
+            {#if !egressBlock}Has no effect while private ranges are allowed.{/if}
+          </span>
+        </label>
+
+        <div class="kv-row">
+          <dt>Proxying</dt>
+          <dd>
+            {#if egress.allow_proxy}
+              <span class="stamp warn flat">enabled</span>
+              <span class="folio">
+                · the guard cannot see the real destination · set only by
+                <code class="mono">JANUS_OUTBOUND_ALLOW_PROXY</code>
+              </span>
+            {:else}
+              <span class="stamp ok flat">off</span>
+              <span class="folio">· environment-only, deliberately not editable here</span>
+            {/if}
+          </dd>
+        </div>
+
+        <div class="kv-row">
+          <dt>In force from</dt>
+          <dd>
+            {#if egress.source === 'stored'}
+              <span class="pill pill-info">this screen</span>
+              {#if egress.updated_at}
+                <span class="folio">· changed {relTime(egress.updated_at)}</span>
+              {/if}
+            {:else}
+              <span class="pill">environment</span>
+              <span class="folio">· from <code class="mono">JANUS_OUTBOUND_*</code></span>
+            {/if}
+          </dd>
+        </div>
+
+        {#if egressError}<p class="error">{egressError}</p>{/if}
+
+        {#if !egress.locked}
+          <div class="row" style="margin-top: var(--s4)">
+            <button class="btn btn-primary btn-sm" onclick={saveEgress} disabled={egressBusy || !egressDirty}>
+              {egressBusy ? 'Saving…' : 'Save policy'}
+            </button>
+            {#if egress.source === 'stored'}
+              <button class="btn btn-ghost btn-sm" onclick={resetEgress} disabled={egressBusy}>
+                Use environment
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    </section>
+  {/if}
+
   <section class="op-section rise" style="animation-delay: 90ms">
     <div class="section-head">
       <h3>Master key</h3>
@@ -1056,6 +1237,26 @@
   .kv-row dd .folio { font-size: var(--text-xs); }
   .kv-row dd.bad { color: var(--vermilion); font-weight: 650; }
   .warn-line { color: var(--vermilion); font-size: var(--text-sm); }
+
+  /* --- outbound policy ------------------------------------------------- */
+  .egress-note { margin: 0 0 var(--s4); max-width: 68ch; line-height: 1.5; }
+  .egress-toggle {
+    display: flex; align-items: flex-start; gap: var(--s3);
+    margin-bottom: var(--s4); cursor: pointer;
+  }
+  .egress-toggle input { margin-top: 0.15em; flex: none; }
+  .egress-toggle span { font-size: var(--text-sm); }
+  .egress-field { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s4); }
+  .egress-field textarea {
+    width: 100%; min-width: 0; resize: vertical;
+    padding: var(--s3); font-size: var(--text-sm);
+    color: var(--ink); background: var(--paper-sunk);
+    border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  }
+  .egress-field textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* An allowlist with nothing to exempt from is inert; say so visually as well
+     as in prose, rather than presenting a live-looking control. */
+  .egress-field.dim { opacity: 0.55; }
   /* warning-accented stamp (default .stamp colour is already vermilion) */
   .stamp.warn { color: var(--vermilion); }
 

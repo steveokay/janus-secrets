@@ -559,6 +559,22 @@ export interface SysStatus {
     last_error?: string
   }
 }
+/* outbound (SSRF) egress policy — owner-only, configuration never credentials.
+   source says whether the environment or a stored override is in force, so a
+   Helm chart that disagrees with the instance is visible rather than silent.
+   allow_proxy is reported but env-only: sending it is a 400, not a silent drop. */
+export interface OutboundPolicy {
+  block_private: boolean
+  allow: string[]
+  allow_proxy: boolean
+  source: 'environment' | 'stored'
+  locked: boolean
+  updated_at?: string
+  updated_by?: string
+  /* ranges no policy can ever exempt — reported so the screen can state it */
+  always_blocked: string[]
+}
+
 export interface InitResult { type: string; shares?: string[]; admin?: { email: string; password: string } }
 
 /* trash — value-free metadata for soft-deleted entities */
@@ -777,6 +793,10 @@ export const api = {
   seal: () => post<{ sealed: boolean }>('/v1/sys/seal'),
   version: () => get<VersionInfo>('/v1/sys/version'),
   sysStatus: () => get<SysStatus>('/v1/sys/status'),
+  outboundPolicy: () => get<OutboundPolicy>('/v1/sys/outbound-policy'),
+  setOutboundPolicy: (block_private: boolean, allow: string[]) =>
+    put<OutboundPolicy>('/v1/sys/outbound-policy', { block_private, allow }),
+  resetOutboundPolicy: () => del<OutboundPolicy>('/v1/sys/outbound-policy'),
   me: () => get<Me>('/v1/auth/me'),
   login: (email: string, password: string, totp_code?: string) =>
     post<{ user: { id: string; email: string } }>('/v1/auth/login', {

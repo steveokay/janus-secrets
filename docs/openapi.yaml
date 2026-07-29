@@ -22,6 +22,41 @@ components:
       in: cookie
       name: janus_session
   schemas:
+    OutboundPolicy:
+      type: object
+      description: >-
+        Effective outbound (SSRF) egress policy. Configuration, never
+        credentials. The link-local / cloud-metadata ranges are blocked
+        unconditionally and cannot be exempted by any value here.
+      properties:
+        block_private:
+          type: boolean
+          description: Reject loopback + RFC1918 + ULA unless exempted by `allow`.
+        allow:
+          type: array
+          description: CIDRs exempt from `block_private`, normalised to network form.
+          items: { type: string, example: "10.96.0.1/32" }
+        allow_proxy:
+          type: boolean
+          description: >-
+            Read-only here. Set only by `JANUS_OUTBOUND_ALLOW_PROXY`, because
+            routing through a proxy prevents the guard from seeing the real
+            destination — sending it to PUT is a 400.
+        source:
+          type: string
+          enum: [environment, stored]
+          description: >-
+            Which of the two is in force. Reported so a deployment manifest that
+            disagrees with the running instance is visible rather than silent.
+        locked:
+          type: boolean
+          description: JANUS_OUTBOUND_POLICY_LOCKED pins the policy to the environment; writes return 409.
+        updated_at: { type: string, format: date-time, nullable: true }
+        updated_by: { type: string, format: uuid, nullable: true }
+        always_blocked:
+          type: array
+          description: Ranges no policy can ever exempt, so a client can state the guarantee.
+          items: { type: string }
     NotificationChannel:
       type: object
       description: >-
@@ -5195,6 +5230,68 @@ paths:
                   commit: { type: string }
                   date: { type: string }
         "401": { $ref: '#/components/responses/Unauthorized' }
+  /v1/sys/outbound-policy:
+    get:
+      tags: [sys]
+      summary: Read the effective outbound (SSRF) egress policy
+      description: >
+        Owner-only (`sys:egress`). Reports the policy the dialers are actually
+        using, plus whether it comes from the environment or a stored override.
+        Configuration only — never credentials or targets.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OutboundPolicy' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [sys]
+      summary: Store the outbound policy and apply it immediately
+      description: >
+        Owner-only (`sys:egress`), audited. Takes effect on the next dial with no
+        restart. Entries are validated with the same parser the connect-time
+        guard uses, so an entry naming a link-local / cloud-metadata range is
+        rejected here for exactly the reason it is unreachable at dial time.
+        `allow_proxy` is rejected rather than ignored — it is configured only by
+        `JANUS_OUTBOUND_ALLOW_PROXY`. Returns 409 when
+        `JANUS_OUTBOUND_POLICY_LOCKED` pins the policy to the environment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [block_private, allow]
+              properties:
+                block_private:
+                  type: boolean
+                  description: Also reject loopback + RFC1918 + ULA.
+                allow:
+                  type: array
+                  description: IPs / CIDRs exempt from block_private. Hostnames are rejected.
+                  items: { type: string, example: "10.96.0.1/32" }
+      responses:
+        "200":
+          description: Stored and applied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OutboundPolicy' }
+        "400": { description: Invalid entry, a metadata range, a hostname, or allow_proxy was sent. }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Pinned to the environment by JANUS_OUTBOUND_POLICY_LOCKED. }
+    delete:
+      tags: [sys]
+      summary: Discard the stored policy and follow the environment again
+      description: Owner-only (`sys:egress`), audited. Applies immediately.
+      responses:
+        "200":
+          description: Reset; the environment's policy is in force.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OutboundPolicy' }
+        "403": { $ref: '#/components/responses/Forbidden' }
+        "409": { description: Pinned to the environment by JANUS_OUTBOUND_POLICY_LOCKED. }
   /v1/sys/status:
     get:
       tags: [sys]

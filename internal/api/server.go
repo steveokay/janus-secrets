@@ -187,9 +187,9 @@ type Server struct {
 	// in Boot only when JANUS_AUDIT_SHIP_MODE is a real destination; nil otherwise
 	// (and in unit-test servers). Read by /v1/sys/status for a value-free snapshot.
 	auditShip *auditship.Service
-	auth         *auth.Service // nil only in unit tests that exercise no auth path
-	authz        *authz.Engine // nil only in unit-test servers that exercise no authz path
-	st           *store.Store  // for scope-chain resolution + membership/user handlers
+	auth      *auth.Service // nil only in unit tests that exercise no auth path
+	authz     *authz.Engine // nil only in unit-test servers that exercise no authz path
+	st        *store.Store  // for scope-chain resolution + membership/user handlers
 	// breakGlass persists time-boxed emergency role elevations. Wired in New from
 	// the store; nil in unit-test servers built without a real store (the
 	// /break-glass routes are then not mounted).
@@ -199,6 +199,10 @@ type Server struct {
 	// Wired in New from the store; nil in unit-test servers built without a real
 	// store.
 	backupRuns *store.BackupRunRepo
+	// outboundPolicy persists the egress (SSRF) policy override. Nil in
+	// unit-test servers, in which case the environment is authoritative and the
+	// policy is read-only.
+	outboundPolicy *store.OutboundPolicyRepo
 	// backupSchedEnabled reflects whether the scheduled-S3-backup engine is
 	// configured (bucket + tick), surfaced value-free in /v1/sys/status.
 	backupSchedEnabled bool
@@ -279,6 +283,7 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 	if st != nil {
 		s.breakGlass = store.NewBreakGlassRepo(st)
 		s.backupRuns = store.NewBackupRunRepo(st)
+		s.outboundPolicy = store.NewOutboundPolicyRepo(st)
 	}
 	s.backupSchedEnabled = cfg.BackupSchedEnabled
 	s.breakGlassMaxTTL = cfg.BreakGlassMaxTTL
@@ -352,6 +357,10 @@ func New(cfg Config, kr *crypto.Keyring, u crypto.Unsealer,
 			// Admin health snapshot. Instance AuditRead is enforced in-handler
 			// via s.authorize, so only RequireAuth is applied here.
 			r.With(RequireAuth(s.auth, s)).Get("/status", s.handleSysStatus)
+			// Outbound (SSRF) policy. Owner-only (sys:egress) enforced in-handler.
+			r.With(RequireAuth(s.auth, s)).Get("/outbound-policy", s.handleOutboundPolicyGet)
+			r.With(RequireAuth(s.auth, s)).Put("/outbound-policy", s.handleOutboundPolicyPut)
+			r.With(RequireAuth(s.auth, s)).Delete("/outbound-policy", s.handleOutboundPolicyDelete)
 		} else {
 			r.Post("/seal", s.handleSeal)
 			r.Get("/backup", s.handleBackup)

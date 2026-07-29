@@ -95,7 +95,7 @@ type Service struct {
 	logger   *slog.Logger
 	st       *store.Store
 	hc       *http.Client
-	policy   nethard.Policy   // SSRF policy applied to webhook/oauth HTTP + DB dials
+	policy   *nethard.Source  // live SSRF policy applied to webhook/oauth HTTP + DB dials
 	now      func() time.Time // injectable clock (tests)
 	tickHook func()           // optional; called at the top of each RunDue (metrics/health)
 }
@@ -110,7 +110,7 @@ func New(kr *crypto.Keyring, st *store.Store, sec *secrets.Service, aud *audit.R
 	if logger == nil {
 		logger = slog.Default()
 	}
-	policy := nethard.PolicyFromEnv()
+	policy := nethard.Process()
 	return &Service{
 		kr: kr, repo: store.NewRotationRepo(st), projects: store.NewProjectRepo(st),
 		secrets: sec, audit: aud, logger: logger, st: st,

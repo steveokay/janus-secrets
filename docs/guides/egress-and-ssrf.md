@@ -79,13 +79,46 @@ Setting `outboundBlockPrivate: false` also works and is what earlier versions
 of the Kubernetes guide advised. The difference is scope: that reopens **all**
 private space, while the allowlist reopens one address.
 
+## Task: change the policy without a restart
+
+**Settings → Outbound policy** (owner only) edits the same two settings and
+applies them on the **next dial** — no restart, and every engine picks the change
+up at once, because the whole process dials through one policy source.
+
+The stored policy supersedes the environment and survives restarts. The screen
+says which of the two is in force ("environment" or "this screen"), so a Helm
+chart that disagrees with the running instance is visible rather than silent.
+**Use environment** discards the stored policy and goes back to `JANUS_OUTBOUND_*`.
+
+Three things are deliberately not editable there:
+
+- **`allow_proxy`** is shown read-only. It is the one setting that blinds the
+  guard, so it stays environment-only; sending it to the API is a `400`, not a
+  silent drop.
+- **The always-blocked ranges** cannot be exempted from the UI any more than
+  from the environment — the API rejects such an entry with the same parser the
+  guard uses.
+- **Nothing at all**, if you set `JANUS_OUTBOUND_POLICY_LOCKED=true`. That pins
+  the policy to the environment and makes every write a `409`.
+
+That last one exists because editing egress from the UI is a real trade. The
+guard's job is to bound what a mis- or maliciously-configured integration can
+make the server dial, and configuring integrations is already an admin
+privilege — so a policy editable in-app sits under the authority it constrains.
+The blast radius is bounded (no stored policy can reach the metadata ranges, so
+the worst case is private-space reachability, which the *default* policy permits
+anyway), and editing is **owner-only**, not admin. But a deployment that
+hardened beyond the default should be able to keep the guarantee it chose, and
+the lock is how.
+
 ## Task: check what policy is actually in force
 
-Two ways, both read the same environment the dialers do.
+Three ways, all reporting the live policy the dialers are using.
 
-**From the UI** — Settings → Health has an **Outbound policy** panel showing
-whether private ranges are blocked and exactly which CIDRs are exempt. It reads
-`GET /v1/sys/status`, which requires instance `audit:read`.
+**Settings → Outbound policy** (owner) shows it and lets you change it.
+
+**Settings → Health** has a read-only **Outbound policy** panel for anyone with
+instance `audit:read`, via `GET /v1/sys/status`.
 
 **From the host** — `janus doctor` reports it as the `outbound.ssrf` check,
 with the effective policy in full:
@@ -123,10 +156,13 @@ to the mapped form still matches.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Server exits at boot naming an entry | The allowlist is malformed, or names an always-blocked range | Correct the entry; there is no override |
+| Server exits at boot naming an entry | The `JANUS_OUTBOUND_ALLOW` value is malformed, or names an always-blocked range | Correct the entry; there is no override |
 | `doctor` warns "the allowlist has no effect" | Entries set without `JANUS_OUTBOUND_BLOCK_PRIVATE=true` | Enable the block, or drop the allowlist |
 | An integration cannot connect, no other clue | Private space blocked with nothing exempted | Allowlist the destination |
 | Sync `apply failed` / federation 401 in-cluster | The API server's ClusterIP is blocked | Allowlist it (above) |
+| The environment changed but the policy did not | A **stored** policy supersedes it | Settings → Outbound policy → **Use environment**, or `DELETE /v1/sys/outbound-policy` |
+| Saving the policy returns `409` | `JANUS_OUTBOUND_POLICY_LOCKED=true` | Change it in the deployment, or unset the lock |
+| Saving returns `400` naming an entry | A hostname, a malformed entry, or an always-blocked range | Use an address; the metadata ranges can never be exempted |
 
 Two behaviours worth knowing. **One bad entry discards the whole list**, rather
 than applying the entries that parsed — a partially-applied allowlist that
