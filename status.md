@@ -947,13 +947,15 @@ and all Kubernetes Go tests (SA-token federation claim matching including the
       `"Protected-config edit requests"`; the promotion table above it keeps
       `"Pending promotion approvals"`.
 
-Also noted, not yet fixed: `docker-compose.yml` points its passkey-origin
-comment at the **TOTP** guide rather than [passkeys.md](docs/guides/passkeys.md),
-and environment-variable documentation is split between
-[production-deployment.md](docs/guides/production-deployment.md) and
-[operations.md](docs/operations.md) — nothing is undocumented, but an operator
-reading only the deployment guide will not find `JANUS_SYNC_VERIFY_TICK`,
-`JANUS_NOTIFY_TICK`, `JANUS_BREAKGLASS_MAX_TTL` or the retention floors.
+Also noted at the time, **both since fixed** (confirmed against the files
+2026-07-30): `docker-compose.yml` pointed its passkey-origin comment at the
+**TOTP** guide — it now cites [passkeys.md](docs/guides/passkeys.md)
+(`docker-compose.yml:57`) — and environment-variable documentation was split
+between [production-deployment.md](docs/guides/production-deployment.md) and
+[operations.md](docs/operations.md), so an operator reading only the deployment
+guide would not find `JANUS_SYNC_VERIFY_TICK`, `JANUS_NOTIFY_TICK`,
+`JANUS_BREAKGLASS_MAX_TTL` or the retention floors. The 2026-07-29 reference
+sweep closed that gap; all three now appear in the deployment guide.
 
 ### What's actually left
 
@@ -980,6 +982,14 @@ credential, not on code:**
 Each is a short CI job once the credential exists; everything they would publish
 is written, tested and — as of 2026-07-26 — covered by CI.
 
+A fourth chore was listed here and **is no longer outstanding**: repointing
+`ghcr.io/steveokay/janus:latest` off the `v0.1.1-rc1` digest, which was thought
+to need `gh auth refresh -h github.com -s write:packages`. It resolved itself —
+`latest` carries `skip_push: auto` in `.goreleaser.yaml:81`, so the next
+**stable** tag reclaimed it with no extra scope, and both `v0.2.0` and `v0.3.0`
+have shipped since. The rc release is gone from `gh release list`. No maintainer
+credential was needed after all.
+
 Nothing on the *roadmap* is outstanding. Open engineering work now lives in the
 section above, sourced from real usage rather than invented to fill a list —
 which is how it should stay.
@@ -999,17 +1009,21 @@ recorded decision rather than pending work:
   **fixed 2026-07-29**: `membership_complete` on the API, and the Groups screen
   qualifies the count, the heading and the empty state from it.
 
-Two things shipped this batch are **unverified against reality** and should be
-treated as such until someone runs them: the federation `ca_cert` has never been
-exercised against a real cluster (only an `httptest` TLS server with the same
-trust relationship), and the `/access` screen has never been rendered in a
-browser in either theme. A Kubernetes feature that looked right and then failed
-on contact with a real cluster is precisely how the `ca_cert` item was found.
-
-Unrelated to the roadmap, one operational chore is also waiting on the
-maintainer: `gh auth refresh -h github.com -s write:packages`, so
-`ghcr.io/steveokay/janus:latest` can be repointed off the `v0.1.1-rc1` digest
-and the rc artifacts deleted.
+Two things shipped this batch were flagged here as **unverified against reality**
+— the federation `ca_cert` (exercised only against an `httptest` TLS server with
+the same trust relationship) and the `/access` screen (never rendered in a
+browser). **Both were verified 2026-07-29** and the flag is discharged. Janus was
+deployed into a real minikube cluster via the Helm chart and exchanged a genuine
+projected service-account token for a scoped Janus token; clearing the CA made
+the same exchange fail, which also proves the verifier cache is invalidated on
+update. That run found two things unit tests could not reach — federation needs
+**two** allowlist entries, not one (the API server advertises `jwks_uri` on the
+node/advertise address, not the ClusterIP), and cluster discovery is RBAC-gated
+so `system:service-account-issuer-discovery` must be granted to anonymous —
+both fixed in PR #228. `/access`, Groups and the outbound-policy screen were
+rendered in a browser in **both** themes. The instinct behind the flag was right:
+a Kubernetes feature that looked correct and then failed on contact with a real
+cluster is exactly how the `ca_cert` item was found in the first place.
 
 Both parked decisions are **resolved** (OIDC/TOTP scope, engine audit
 fail-closed policy), and the small backend/ops list at the top is fully struck
