@@ -609,10 +609,11 @@ authorization machinery.
       posture is **detection, not prevention** — defensible for a single-tenant
       self-hosted tool, but it should be a decision rather than an accident.
 
-**Open — raised by building groups (2026-07-27):**
+**Raised by building groups (2026-07-27) — all closed:**
 
-_These came out of the groups build itself, not from a roadmap. Each is a real
-gap; none is a security hole._
+_These came out of the groups build itself, not from a roadmap. Each was a real
+gap; none was a security hole. All twelve are struck through below; the last
+closed 2026-07-29 with the cross-scope access review (PR #225)._
 
 - [x] ~~**Members reported group-derived access as no access.**~~ **FIXED
       2026-07-27** — and the item as originally written was wrong on a fact
@@ -915,7 +916,12 @@ had ever run against a live API server.
 and all Kubernetes Go tests (SA-token federation claim matching including the
 7 required-claim subtests; sync provider SSA/prune/CA-rejection/non-2xx).
 
-**Open — found by the new E2E coverage, not yet fixed:**
+**Raised by the new E2E coverage — all four now closed:**
+
+_Heading kept because the provenance is the point: these are the defects that
+only a browser driving the real app surfaced. Three of them turned out to be
+already fixed in the code when status.md was verified against it on 2026-07-28;
+one needed a real fix (PR #202)._
 
 - [x] ~~**The secret editor loses the protected (four-eyes) flag on a deep
       link.**~~ **FIXED 2026-07-27 (PR #202)** — the flag was read from the

@@ -29,7 +29,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 | Feature | Why | Effort |
 |---|---|---|
 | ~~**Native TLS listener** (`JANUS_TLS_CERT/KEY`, optional ACME)~~ **SHIPPED 2026-07-23** — static certs or ACME/Let's Encrypt (mutually exclusive, startup-validated), TLS 1.2 floor, optional HTTP→HTTPS redirect; `x/crypto/acme/autocert`, no migration. | ~~M~~ |
-| ~~**TOTP second factor for password logins** (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes, self-service enroll/confirm/disable, login `totp_required` gate, QR enrolment. Passkeys/WebAuthn remains a follow-up. | ~~M~~ |
+| ~~**TOTP second factor for password logins** (+ recovery codes)~~ **SHIPPED 2026-07-21** — RFC 6238 TOTP + single-use recovery codes, self-service enroll/confirm/disable, login `totp_required` gate, QR enrolment. Passkeys/WebAuthn was a follow-up at the time and **shipped 2026-07-25/26** (PRs #176, #184 — incl. passwordless/discoverable login). | ~~M~~ |
 | ~~**Account lockout / progressive backoff**~~ **SHIPPED 2026-07-22** — progressive temporary per-account lockout with admin unlock; reveals only to the correct password (no enumeration); `JANUS_LOCKOUT_*`. | ~~S~~ |
 | ~~**Session management** — list active sessions, revoke one/all (upstream gap 1.12)~~ **SHIPPED 2026-07-20** — `GET/DELETE /v1/auth/sessions`, Settings UI, `janus session` CLI. | ~~S~~ |
 | ~~**Secret expiry / max-age policy** per key or config, surfaced in the in-tray ("STRIPE_KEY is 180d old")~~ **SHIPPED 2026-07-23** — advisory (blocks nothing): config default + per-key override, `stale` signal from the value's age; migration 000028, `secret:write` to set, editor chip + Overview in-tray + `janus secrets max-age` CLI. | ~~M~~ |
@@ -55,7 +55,7 @@ no HSM, no multi-tenancy, no FIPS claims.
 |---|---|---|
 | ~~**More sync providers**: GitLab CI, Cloudflare Workers, Vercel/Netlify env, AWS SSM/Secrets Manager~~ **ALL SHIPPED 2026-07-23** — the sync engine now has **8 providers**: `github`, `k8s`, `gitlab`, `aws_ssm`, `cloudflare`, `aws_secrets`, `vercel`, `netlify`. No migration.  **CORRECTION (2026-07-25):** these were shipped in code but NOT actually usable — migration `000011` pinned `sync_targets.provider` to `CHECK (provider IN ('github','k8s'))` and no later migration widened it, so persisting a `gitlab`/`aws_ssm`/`cloudflare`/`aws_secrets`/`vercel`/`netlify` target failed the constraint. Found and fixed by migration `000041` (PR #175), with a store regression test creating a target for all eight. Same class of bug as the `rotation_policies.type` CHECK that `000037` fixed — a CREATE-time enum later features outgrew. | ~~M each~~ |
 | ~~**More CI federation issuers**: GitLab, Buildkite, CircleCI OIDC~~ **SHIPPED 2026-07-23** — provider-aware required-claim rule + issuer presets, single-active-issuer model. No migration. | ~~S each~~ |
-| ~~**Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** (CLI-first) — `janus import doppler|vault|aws-sm`: fetch → map to a Janus project/config → one batched write via the existing client; default value-free `--dry-run`, `--confirm` to write. No new endpoint/migration/dep. Web wizard = possible follow-up. | ~~L~~ |
+| ~~**Inbound one-shot importers**: Doppler, Vault KV, AWS SM → project/config tree~~ **SHIPPED 2026-07-24** (CLI-first) — `janus import doppler|vault|aws-sm`: fetch → map to a Janus project/config → one batched write via the existing client; default value-free `--dry-run`, `--confirm` to write. No new endpoint/migration/dep. The web wizard flagged here as a possible follow-up **shipped 2026-07-26** (PR #187). | ~~L~~ |
 | ~~**Notifications**: webhook + Slack + **SMTP** for rotation failures, sync errors, denials, pending approvals (upstream gap 1.14)~~ **SHIPPED** — webhook/Slack 2026-07-21 (migration 000024), SMTP email 2026-07-23 (migration 000027). | ~~M~~ |
 | ~~**Terraform provider** (projects, configs, secrets-as-writes, tokens, bindings)~~ **SHIPPED 2026-07-24** — `terraform-provider-janus/` (own module): project/env/config/secret/service-token resources (sensitive value + token-in-state caveat) + secret/config data sources, CRUD + import; hermetic unit tests. | ~~L~~ |
 | ~~**Client SDKs** (Go, TypeScript, Python) with in-process caching + lease renewal~~ **ALL SHIPPED 2026-07-24** — standalone `sdk/go/` (zero deps), `sdk/ts/` (`janus-client`), `sdk/python/` (`janus_client`), each: typed reads + memory-only TTL cache + dynamic-lease renewal + typed errors. | ~~L~~ |
@@ -332,8 +332,13 @@ resolving it server-side (`derived_members` on the scope's group-binding list)
 and showing the effective role with a direct/via-group source column. Note the
 item as first written claimed an "RBAC matrix" still plotted users only; **there
 is no matrix** — it was React-era and the Atrium rewrite dropped it, so
-rebuilding a users × scopes grid remains genuinely open. Also: an OIDC group's member list
-covers only users who have signed in, since membership is a login snapshot;
+rebuilding a users × scopes grid was genuinely open; it **shipped 2026-07-29**
+as `/access` (PR #225), which answered it together with offboarding and *"who
+can write prod?"* because all three were the same missing cross-scope answer.
+Also: an OIDC group's member list covered only users who had signed in, since
+membership is a login snapshot — **fixed 2026-07-29** (PR #227), with
+`membership_complete` on `GET /v1/groups` so the screen qualifies the count, the
+heading and the empty state instead of presenting a partial answer as complete;
 Entra's ~200-group overage leaving a retained snapshot stale with no time bound
 **was fixed 2026-07-28** (`JANUS_OIDC_GROUP_MAX_AGE`, migration 000050 — a
 generic maximum snapshot age rather than an Entra-specific Graph fetch; local
@@ -341,8 +346,9 @@ membership never expires); the static nav showing Groups to accounts that cannot
 use it **was fixed 2026-07-28** together with its root cause — `GET
 /v1/auth/me` now reports effective permissions and the shell renders from them,
 so the rail, the command palette and the `g`-chords all hide what an account
-cannot use (see below); and neither the Terraform provider nor the SDKs can
-manage groups.
+cannot use (see below); and neither the Terraform provider nor the SDKs could
+manage groups — **shipped 2026-07-29** (PR #223), which added group resources to
+the provider and both SDKs.
 
 **Permission-gated navigation shipped 2026-07-28.** `/v1/auth/me` gained a
 `permissions` object and the UI stopped being a static list. It is a **hint** —
