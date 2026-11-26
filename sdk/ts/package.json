@@ -37,7 +37,7 @@
   ],
   "dependencies": {},
   "devDependencies": {
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.2"
   }
 }
